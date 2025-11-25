@@ -19,11 +19,8 @@ const isHome = computed(() => route.path === '/')
   <header class="sticky top-0 z-50 bg-white/90 backdrop-blur-md shadow-sm border-b border-slate-200">
     <div class="container mx-auto px-6 py-4 flex justify-between items-center">
       <!-- Logo -->
-      <NuxtLink to="/" class="flex items-center gap-2 group" @click="closeMenu">
-        <div class="flex flex-col leading-none">
-          <span class="text-3xl font-bold text-sky-600 tracking-wide group-hover:text-sky-500 transition">NETECO</span>
-          <span class="text-[10px] text-slate-400 uppercase tracking-[0.2em] text-center">Suministros</span>
-        </div>
+      <NuxtLink to="/" class="group" @click="closeMenu">
+        <LogoNeteco size="sm" />
       </NuxtLink>
 
       <!-- Desktop Nav -->
