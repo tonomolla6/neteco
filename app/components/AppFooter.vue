@@ -6,7 +6,7 @@ const currentYear = new Date().getFullYear()
   <footer class="bg-white py-12 border-t border-slate-200 text-center text-slate-500 text-sm">
     <div class="container mx-auto px-6">
       <div class="flex flex-col items-center gap-4 mb-8">
-        <LogoNeteco size="sm" />
+        <LogoNeteco size="md" variant="text" />
         <span>Suministros Integrales en Ontinyent</span>
       </div>
 

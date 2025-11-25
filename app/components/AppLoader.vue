@@ -15,7 +15,7 @@ onMounted(() => {
       class="fixed inset-0 z-[9999] bg-white flex flex-col items-center justify-center"
     >
       <div class="flex flex-col items-center gap-6">
-        <LogoNeteco size="lg" />
+        <LogoNeteco size="lg" variant="full" />
         <div class="flex gap-1">
           <span class="w-2 h-2 bg-primary rounded-full animate-bounce" style="animation-delay: 0ms"></span>
           <span class="w-2 h-2 bg-primary rounded-full animate-bounce" style="animation-delay: 150ms"></span>

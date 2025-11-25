@@ -20,7 +20,7 @@ const isHome = computed(() => route.path === '/')
     <div class="container mx-auto px-6 py-4 flex justify-between items-center">
       <!-- Logo -->
       <NuxtLink to="/" class="group" @click="closeMenu">
-        <LogoNeteco size="sm" />
+        <LogoNeteco size="sm" variant="full" />
       </NuxtLink>
 
       <!-- Desktop Nav -->
