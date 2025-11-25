@@ -20,7 +20,7 @@ const features = [
               alt="Almacén Neteco"
               class="rounded-2xl shadow-2xl"
             />
-            <div class="absolute -bottom-6 -right-6 bg-sky-600 p-8 rounded-2xl text-white shadow-xl hidden md:block">
+            <div class="absolute -bottom-6 -right-6 bg-primary p-8 rounded-2xl text-white shadow-xl hidden md:block">
               <span class="block text-5xl font-bold mb-1">+25</span>
               <span class="text-sm font-medium uppercase tracking-wider">Años de<br />Experiencia</span>
             </div>
@@ -40,7 +40,7 @@ const features = [
 
             <ul class="pt-4 space-y-3">
               <li v-for="(feature, idx) in features" :key="idx" class="flex items-center gap-3">
-                <CheckCircle2 class="w-5 h-5 text-sky-500" />
+                <CheckCircle2 class="w-5 h-5 text-primary" />
                 <span>{{ feature }}</span>
               </li>
             </ul>

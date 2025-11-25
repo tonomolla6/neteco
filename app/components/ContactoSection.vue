@@ -14,31 +14,31 @@ import { Phone, Mail, MapPin } from 'lucide-vue-next'
 
           <div class="space-y-6">
             <div class="flex items-start gap-4">
-              <div class="bg-sky-600/20 p-3 rounded-xl">
-                <Phone class="w-6 h-6 text-sky-400" />
+              <div class="bg-primary/20 p-3 rounded-xl">
+                <Phone class="w-6 h-6 text-primary-light" />
               </div>
               <div>
                 <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">Teléfonos</p>
-                <a href="tel:600861334" class="text-lg font-bold hover:text-sky-400 transition block">600 861 334</a>
-                <a href="tel:637442546" class="text-lg font-bold hover:text-sky-400 transition block">637 442 546</a>
+                <a href="tel:600861334" class="text-lg font-bold hover:text-primary-light transition block">600 861 334</a>
+                <a href="tel:637442546" class="text-lg font-bold hover:text-primary-light transition block">637 442 546</a>
               </div>
             </div>
 
             <div class="flex items-start gap-4">
-              <div class="bg-sky-600/20 p-3 rounded-xl">
-                <Mail class="w-6 h-6 text-sky-400" />
+              <div class="bg-primary/20 p-3 rounded-xl">
+                <Mail class="w-6 h-6 text-primary-light" />
               </div>
               <div>
                 <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">Email Administración</p>
-                <a href="mailto:administracion@neteco.es" class="text-lg hover:text-sky-400 transition break-all">
+                <a href="mailto:administracion@neteco.es" class="text-lg hover:text-primary-light transition break-all">
                   administracion@neteco.es
                 </a>
               </div>
             </div>
 
             <div class="flex items-start gap-4">
-              <div class="bg-sky-600/20 p-3 rounded-xl">
-                <MapPin class="w-6 h-6 text-sky-400" />
+              <div class="bg-primary/20 p-3 rounded-xl">
+                <MapPin class="w-6 h-6 text-primary-light" />
               </div>
               <div>
                 <p class="text-xs text-slate-400 uppercase font-bold tracking-wider">Ubicación</p>
@@ -57,7 +57,7 @@ import { Phone, Mail, MapPin } from 'lucide-vue-next'
           />
           <div class="absolute inset-0 flex flex-col items-center justify-center p-8 text-center">
             <div class="w-16 h-16 bg-white/10 backdrop-blur-sm rounded-full flex items-center justify-center mb-4">
-              <MapPin class="w-8 h-8 text-sky-400" />
+              <MapPin class="w-8 h-8 text-primary-light" />
             </div>
             <div class="text-white font-medium">Estamos cerca de ti</div>
           </div>

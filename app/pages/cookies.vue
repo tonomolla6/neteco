@@ -10,7 +10,7 @@ useHead({
   <div class="container mx-auto px-6 py-20 lg:py-32 max-w-4xl min-h-screen">
     <NuxtLink
       to="/"
-      class="inline-flex items-center gap-2 text-sky-600 hover:text-sky-700 font-bold mb-8 transition group"
+      class="inline-flex items-center gap-2 text-primary hover:text-primary-dark font-bold mb-8 transition group"
     >
       <ArrowLeft class="w-5 h-5 group-hover:-translate-x-1 transition" />
       Volver al inicio
@@ -18,8 +18,8 @@ useHead({
 
     <div class="bg-white p-8 md:p-12 rounded-3xl shadow-xl border border-slate-100">
       <div class="flex items-center gap-4 mb-8 pb-8 border-b border-slate-200">
-        <div class="p-4 bg-sky-100 rounded-2xl">
-          <Cookie class="w-8 h-8 text-sky-600" />
+        <div class="p-4 bg-primary-pale rounded-2xl">
+          <Cookie class="w-8 h-8 text-primary" />
         </div>
         <h1 class="text-3xl md:text-4xl font-bold text-slate-900">Política de Cookies</h1>
       </div>

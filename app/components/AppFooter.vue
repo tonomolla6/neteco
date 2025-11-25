@@ -11,8 +11,8 @@ const currentYear = new Date().getFullYear()
       </div>
 
       <div class="flex flex-wrap justify-center gap-8 mb-8">
-        <NuxtLink to="/legal" class="hover:text-sky-600 transition font-medium">Aviso Legal</NuxtLink>
-        <NuxtLink to="/cookies" class="hover:text-sky-600 transition font-medium">Política de Cookies</NuxtLink>
+        <NuxtLink to="/legal" class="hover:text-primary transition font-medium">Aviso Legal</NuxtLink>
+        <NuxtLink to="/cookies" class="hover:text-primary transition font-medium">Política de Cookies</NuxtLink>
       </div>
 
       <p class="text-slate-400">&copy; {{ currentYear }} Maria Carmen González Nacher. Todos los derechos reservados.</p>

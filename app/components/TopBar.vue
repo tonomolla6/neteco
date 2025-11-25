@@ -13,7 +13,7 @@ import { Phone, Clock } from 'lucide-vue-next'
           <Phone class="w-4 h-4" /> 637 442 546
         </a>
       </div>
-      <div class="flex items-center gap-2 text-xs md:text-sm font-medium text-sky-400">
+      <div class="flex items-center gap-2 text-xs md:text-sm font-medium text-primary-light">
         <Clock class="w-3 h-3" />
         <span>Atención a empresas y profesionales</span>
       </div>

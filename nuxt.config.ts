@@ -11,7 +11,10 @@ export default defineNuxtConfig({
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
         { name: 'description', content: 'Más de 25 años al servicio de tu negocio. Suministros para empresas, hostelería y colectividades en la Vall d\'Albaida.' }
       ],
-      htmlAttrs: { lang: 'es' }
+      htmlAttrs: { lang: 'es' },
+      link: [
+        { rel: 'icon', type: 'image/png', href: '/favicon.png' }
+      ]
     }
   }
 })

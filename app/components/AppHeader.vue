@@ -27,18 +27,18 @@ const isHome = computed(() => route.path === '/')
       <nav class="hidden md:flex items-center gap-8 font-medium text-slate-600">
         <NuxtLink
           to="/"
-          class="hover:text-sky-600 transition"
-          :class="{ 'text-sky-600 font-bold': isHome }"
+          class="hover:text-primary transition"
+          :class="{ 'text-primary font-bold': isHome }"
         >
           Inicio
         </NuxtLink>
         <template v-if="isHome">
-          <a href="#empresa" class="hover:text-sky-600 transition">La Empresa</a>
-          <a href="#servicios" class="hover:text-sky-600 transition">Sectores</a>
+          <a href="#empresa" class="hover:text-primary transition">La Empresa</a>
+          <a href="#servicios" class="hover:text-primary transition">Sectores</a>
         </template>
         <a
           href="#contacto"
-          class="bg-sky-600 text-white px-6 py-2.5 rounded-xl hover:bg-sky-700 transition shadow-lg shadow-sky-600/20 font-semibold"
+          class="bg-primary text-white px-6 py-2.5 rounded-xl hover:bg-primary-dark transition shadow-lg shadow-primary/20 font-semibold"
         >
           Contactar
         </a>
@@ -59,7 +59,7 @@ const isHome = computed(() => route.path === '/')
       <NuxtLink to="/" class="text-lg text-slate-700 font-medium" @click="closeMenu">Inicio</NuxtLink>
       <a href="#empresa" class="text-lg text-slate-700" @click="closeMenu">La Empresa</a>
       <a href="#servicios" class="text-lg text-slate-700" @click="closeMenu">Sectores</a>
-      <a href="#contacto" class="text-lg font-bold text-sky-600" @click="closeMenu">Contactar</a>
+      <a href="#contacto" class="text-lg font-bold text-primary" @click="closeMenu">Contactar</a>
     </div>
   </header>
 </template>

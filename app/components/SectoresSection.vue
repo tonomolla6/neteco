@@ -37,9 +37,9 @@ const sectores = [
         <div
           v-for="(sector, idx) in sectores"
           :key="idx"
-          class="bg-slate-50 p-8 rounded-2xl border border-slate-100 hover:border-sky-200 hover:shadow-xl hover:-translate-y-1 transition duration-300"
+          class="bg-slate-50 p-8 rounded-2xl border border-slate-100 hover:border-primary-pale hover:shadow-xl hover:-translate-y-1 transition duration-300"
         >
-          <component :is="sector.icon" class="w-12 h-12 text-sky-600 mb-6 mx-auto" />
+          <component :is="sector.icon" class="w-12 h-12 text-primary mb-6 mx-auto" />
           <h3 class="text-xl font-bold text-slate-900 mb-3">{{ sector.title }}</h3>
           <p class="text-sm text-slate-500">{{ sector.desc }}</p>
         </div>
