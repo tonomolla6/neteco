@@ -24,7 +24,7 @@ useHead({
         <h1 class="text-3xl md:text-4xl font-bold text-slate-900">Política de Cookies</h1>
       </div>
 
-      <div class="prose prose-lg prose-slate max-w-none prose-headings:text-slate-900 prose-headings:font-bold prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-4 prose-p:text-slate-600 prose-p:leading-relaxed prose-li:text-slate-600 prose-strong:text-slate-800">
+      <div class="prose prose-lg prose-slate max-w-none prose-headings:text-slate-900 prose-headings:font-bold prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-4 prose-p:text-slate-700 prose-p:leading-relaxed prose-li:text-slate-700 prose-strong:text-slate-900">
         <p class="text-lg leading-relaxed">
           En NETECO utilizamos cookies propias y de terceros para mejorar nuestros servicios y mostrarle publicidad
           relacionada con sus preferencias mediante el análisis de sus hábitos de navegación.
