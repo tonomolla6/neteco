@@ -1,0 +1,343 @@
+<script setup lang="ts">
+useSeoMeta({
+  title: 'Todo el catálogo',
+  description:
+    'Catálogo completo de NETECO: químicos de limpieza profesional, higiene, guantes y menaje. Filtra por familia, marca, precio y formato.'
+})
+
+const route = useRoute()
+const router = useRouter()
+
+const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
+
+// árbol para la barra lateral: raíces como grupos, familias con producto como opciones
+const familyTree = computed(() =>
+  (((catData.value as any)?.roots ?? []) as any[])
+    .map((root) => ({
+      ...root,
+      children: (root.children ?? []).filter((c: any) => c.count > 0)
+    }))
+    .filter((root) => root.children.length || root.count > 0)
+)
+const knownSlugs = computed(() => new Set((((catData.value as any)?.flat ?? []) as any[]).map((c) => c.slug)))
+
+// ——— estado (inicializado desde la URL para poder compartir enlaces) ———
+function multiFromQuery(v: unknown, sep = ','): string[] {
+  return v ? String(v).split(sep).filter(Boolean) : []
+}
+function numFromQuery(v: unknown): number | null {
+  const n = parseFloat(String(v ?? ''))
+  return Number.isFinite(n) ? n : null
+}
+
+const selectedCategory = ref(
+  knownSlugs.value.has(String(route.query.familia ?? '')) ? String(route.query.familia) : ''
+)
+const sort = ref(String(route.query.sort ?? 'featured'))
+const filters = reactive({
+  brands: multiFromQuery(route.query.brand),
+  badges: multiFromQuery(route.query.badge),
+  envases: multiFromQuery(route.query.envase),
+  tallas: multiFromQuery(route.query.talla),
+  capacidades: multiFromQuery(route.query.cap),
+  colors: multiFromQuery(route.query.color),
+  medidas: multiFromQuery(route.query.medida, '|'),
+  acabados: multiFromQuery(route.query.acabado),
+  priceMin: numFromQuery(route.query.min),
+  priceMax: numFromQuery(route.query.max)
+})
+
+function resetFilters() {
+  filters.brands = []
+  filters.badges = []
+  filters.envases = []
+  filters.tallas = []
+  filters.capacidades = []
+  filters.colors = []
+  filters.medidas = []
+  filters.acabados = []
+  filters.priceMin = null
+  filters.priceMax = null
+  selectedCategory.value = ''
+  sort.value = 'featured'
+}
+
+watch(
+  [filters, sort, selectedCategory],
+  () => {
+    const query: Record<string, string> = {}
+    if (selectedCategory.value) query.familia = selectedCategory.value
+    if (filters.brands.length) query.brand = filters.brands.join(',')
+    if (filters.badges.length) query.badge = filters.badges.join(',')
+    if (filters.envases.length) query.envase = filters.envases.join(',')
+    if (filters.tallas.length) query.talla = filters.tallas.join(',')
+    if (filters.capacidades.length) query.cap = filters.capacidades.join(',')
+    if (filters.colors.length) query.color = filters.colors.join(',')
+    if (filters.medidas.length) query.medida = filters.medidas.join('|')
+    if (filters.acabados.length) query.acabado = filters.acabados.join(',')
+    if (filters.priceMin != null) query.min = String(filters.priceMin)
+    if (filters.priceMax != null) query.max = String(filters.priceMax)
+    if (sort.value !== 'featured') query.sort = sort.value
+    router.replace({ query })
+  },
+  { deep: true }
+)
+
+const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } =
+  await useInfiniteProducts(
+    computed(() => ({
+      category: selectedCategory.value || undefined,
+      sort: sort.value,
+      brand: filters.brands.join(',') || undefined,
+      badge: filters.badges.join(',') || undefined,
+      envase: filters.envases.join(',') || undefined,
+      talla: filters.tallas.join(',') || undefined,
+      capacidad: filters.capacidades.join(',') || undefined,
+      color: filters.colors.join(',') || undefined,
+      medida: filters.medidas.join('|') || undefined,
+      acabado: filters.acabados.join(',') || undefined,
+      price_min: filters.priceMin ?? undefined,
+      price_max: filters.priceMax ?? undefined
+    }))
+  )
+
+const selectedCategoryName = computed(() => {
+  if (!selectedCategory.value) return ''
+  const flat = (catData.value as any)?.flat ?? []
+  return flat.find((c: any) => c.slug === selectedCategory.value)?.name ?? selectedCategory.value
+})
+
+const activeCount = computed(
+  () =>
+    filters.brands.length +
+    filters.badges.length +
+    filters.envases.length +
+    filters.tallas.length +
+    filters.capacidades.length +
+    filters.colors.length +
+    filters.medidas.length +
+    filters.acabados.length +
+    (filters.priceMin != null || filters.priceMax != null ? 1 : 0) +
+    (selectedCategory.value ? 1 : 0)
+)
+
+interface Pill {
+  label: string
+  remove: () => void
+}
+const allFamilies = computed(() => familyTree.value.flatMap((r: any) => r.children))
+
+const pills = computed<Pill[]>(() => [
+  ...filters.brands.map((v) => ({ label: v, remove: () => filters.brands.splice(filters.brands.indexOf(v), 1) })),
+  ...filters.badges.map((v) => ({
+    label: BADGES[v]?.label ?? v,
+    remove: () => filters.badges.splice(filters.badges.indexOf(v), 1)
+  })),
+  ...filters.envases.map((v) => ({
+    label: ENVASE_LABELS[v] ?? v,
+    remove: () => filters.envases.splice(filters.envases.indexOf(v), 1)
+  })),
+  ...filters.tallas.map((v) => ({
+    label: `Talla ${v}`,
+    remove: () => filters.tallas.splice(filters.tallas.indexOf(v), 1)
+  })),
+  ...filters.capacidades.map((v) => ({
+    label: formatCapacity(v),
+    remove: () => filters.capacidades.splice(filters.capacidades.indexOf(v), 1)
+  })),
+  ...filters.colors.map((v) => ({
+    label: v.replace(/\s*\([^)]*\)$/, ''),
+    remove: () => filters.colors.splice(filters.colors.indexOf(v), 1)
+  })),
+  ...filters.medidas.map((v) => ({
+    label: v,
+    remove: () => filters.medidas.splice(filters.medidas.indexOf(v), 1)
+  })),
+  ...filters.acabados.map((v) => ({
+    label: v,
+    remove: () => filters.acabados.splice(filters.acabados.indexOf(v), 1)
+  })),
+  ...(filters.priceMin != null || filters.priceMax != null
+    ? [
+        {
+          label: `${filters.priceMin ?? 0} € – ${filters.priceMax ?? '∞'} €`,
+          remove: () => {
+            filters.priceMin = null
+            filters.priceMax = null
+          }
+        }
+      ]
+    : [])
+])
+
+const drawerOpen = ref(false)
+watch(() => route.fullPath, () => (drawerOpen.value = false))
+
+function pickCategory(slug: string) {
+  selectedCategory.value = selectedCategory.value === slug ? '' : slug
+}
+</script>
+
+<template>
+  <div class="mx-auto max-w-[1600px] px-4 py-8">
+    <!-- cabecera -->
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <span class="size-2 rounded-full bg-neteco-500" /> Catálogo
+        </p>
+        <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">
+          {{ selectedCategory ? selectedCategoryName : 'Todo el catálogo' }}
+        </h1>
+        <p class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <button
+          class="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 lg:hidden"
+          @click="drawerOpen = true"
+        >
+          <UIcon name="i-lucide-sliders-horizontal" class="size-4" />
+          Filtros
+          <span
+            v-if="activeCount"
+            class="flex size-5 items-center justify-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ activeCount }}
+          </span>
+        </button>
+        <ViewToggle />
+        <label class="flex items-center gap-2 text-sm text-slate-500">
+          <span class="hidden sm:inline">Ordenar por</span>
+          <select
+            v-model="sort"
+            class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          >
+            <option value="featured">Relevancia</option>
+            <option value="price_asc">Precio: menor a mayor</option>
+            <option value="price_desc">Precio: mayor a menor</option>
+            <option value="name">Nombre A-Z</option>
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- familias: acceso rápido encima del listado -->
+    <div class="-mx-4 mt-5 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0">
+      <button
+        class="shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+        :class="
+          !selectedCategory
+            ? 'border-neteco-600 bg-neteco-600 text-white'
+            : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+        "
+        @click="selectedCategory = ''"
+      >
+        Todas
+      </button>
+      <button
+        v-for="child in allFamilies"
+        :key="child.id"
+        :aria-pressed="selectedCategory === child.slug"
+        class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+        :class="
+          selectedCategory === child.slug
+            ? 'border-neteco-600 bg-neteco-600 text-white'
+            : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+        "
+        @click="pickCategory(child.slug)"
+      >
+        <span class="size-2 shrink-0 rounded-full" :style="{ background: familyColor(child.slug) }" aria-hidden="true" />
+        {{ child.name }}
+        <span :class="selectedCategory === child.slug ? 'text-neteco-100' : 'text-slate-400'">{{ child.count }}</span>
+      </button>
+    </div>
+
+    <!-- filtros activos -->
+    <div v-if="pills.length" class="mt-4 flex flex-wrap items-center gap-2">
+      <button
+        v-for="pill in pills"
+        :key="pill.label"
+        class="flex items-center gap-1.5 rounded-full bg-neteco-600 px-3 py-1.5 text-sm text-white transition hover:bg-neteco-700"
+        @click="pill.remove()"
+      >
+        {{ pill.label }}
+        <UIcon name="i-lucide-x" class="size-3.5" />
+      </button>
+      <button class="text-sm font-medium text-slate-500 underline hover:text-neteco-600" @click="resetFilters">
+        Quitar todo
+      </button>
+    </div>
+
+    <div class="mt-6 grid items-start gap-8 lg:grid-cols-[260px_1fr]">
+      <!-- barra lateral (escritorio): solo filtros; las familias van en chips arriba -->
+      <aside class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block">
+        <ProductFilters :facets="facets" :filters="filters" :hide="['gama']" />
+        <button
+          v-if="activeCount"
+          class="mt-2 w-full rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-600 transition hover:border-neteco-300 hover:text-neteco-700"
+          @click="resetFilters"
+        >
+          Quitar los {{ activeCount }} filtros
+        </button>
+      </aside>
+
+      <!-- resultados -->
+      <div>
+        <ProductGrid :items="items" :pending="status === 'pending'" />
+
+        <div v-if="!items.length" class="py-16 text-center">
+          <UIcon name="i-lucide-package-search" class="mx-auto size-12 text-slate-300" />
+          <p class="mt-3 font-medium text-slate-600">No hay productos con esos filtros</p>
+          <UButton variant="soft" class="mt-4" @click="resetFilters">Quitar filtros</UButton>
+        </div>
+
+        <!-- scroll infinito -->
+        <div ref="sentinel" class="h-px" aria-hidden="true" />
+        <div v-if="loadingMore" class="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Cargando más productos…
+        </div>
+        <div v-else-if="canLoadMore" class="py-6 text-center">
+          <UButton variant="soft" @click="loadMore">Cargar más</UButton>
+        </div>
+        <p v-else-if="items.length > 24" class="py-6 text-center text-sm text-slate-500">
+          Has visto los {{ total }} productos
+        </p>
+      </div>
+    </div>
+
+    <!-- drawer de filtros (móvil) -->
+    <Teleport to="body">
+      <div v-if="drawerOpen" class="fixed inset-0 z-50 lg:hidden" @keydown.escape="drawerOpen = false">
+        <div class="absolute inset-0 bg-slate-900/50" @click="drawerOpen = false" />
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Filtros"
+          class="absolute inset-y-0 right-0 flex w-80 max-w-[85vw] flex-col bg-white shadow-2xl"
+        >
+          <div class="flex items-center justify-between border-b border-slate-100 p-4">
+            <p class="font-bold text-slate-900">Filtros</p>
+            <button class="rounded-lg p-2 hover:bg-slate-100" aria-label="Cerrar" @click="drawerOpen = false">
+              <UIcon name="i-lucide-x" class="block size-5" />
+            </button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-5">
+            <ProductFilters :facets="facets" :filters="filters" :hide="['gama']" />
+          </div>
+          <div class="border-t border-slate-100 p-4">
+            <UButton block size="lg" @click="drawerOpen = false">
+              Ver {{ total }} producto{{ total === 1 ? '' : 's' }}
+            </UButton>
+            <button
+              v-if="activeCount"
+              class="mt-2 w-full py-1.5 text-sm font-medium text-slate-500 underline"
+              @click="resetFilters"
+            >
+              Quitar todo
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+  </div>
+</template>

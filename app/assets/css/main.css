@@ -1,0 +1,39 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Archivo', 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+@theme static {
+  /* Paleta de marca NETECO construida alrededor del azul #009ac9 de la landing */
+  --color-neteco-50: #f0fafd;
+  --color-neteco-100: #daf1f9;
+  --color-neteco-200: #b9e5f3;
+  --color-neteco-300: #88d2e9;
+  --color-neteco-400: #45b5e5;
+  --color-neteco-500: #009ac9;
+  --color-neteco-600: #007ba6;
+  --color-neteco-700: #056485;
+  --color-neteco-800: #0a536e;
+  --color-neteco-900: #0d455c;
+  --color-neteco-950: #062c3d;
+}
+
+/* AA: los CTA sólidos usan el 600 (#007ba6, 4.8:1 con texto blanco) en vez del 500 (3.25:1) */
+:root {
+  --ui-primary: var(--color-neteco-600);
+}
+
+body {
+  @apply bg-slate-50 text-slate-800 antialiased;
+}
+
+/* la tipografía display (Archivo) lleva titulares y precios; el cuerpo queda en Inter */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.015em;
+}

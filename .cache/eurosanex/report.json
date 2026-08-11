@@ -1,0 +1,2037 @@
+{
+ "matchedCount": 175,
+ "unmatched": [
+  {
+   "name": "Guante de nitrilo Nitriflex Blue (caja 100 uds)",
+   "key": "NITRIFLEX BLUE",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Nitriflex Black Soft (caja 100 uds)",
+   "key": "NITRIFLEX BLACK SOFT",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Extreme Lite azul (caja 100 uds)",
+   "key": "EXTREME LITE AZUL",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Extreme Lite negro (caja 100 uds)",
+   "key": "EXTREME LITE NEGRO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Extreme Grip naranja (caja 100 uds)",
+   "key": "EXTREME GRIP NARANJA",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Dermolite azul (caja 100 uds)",
+   "key": "DERMOLITE AZUL",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Dermolite negro (caja 100 uds)",
+   "key": "DERMOLITE NEGRO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo HR 8 morado (caja 50 uds)",
+   "key": "HR 8 MORADO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo HR 8 azul (caja 50 uds)",
+   "key": "HR 8 AZUL",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Flash Power azul (caja 50 uds)",
+   "key": "FLASH POWER AZUL",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo Premium Aachen azul (caja 100 uds)",
+   "key": "PREMIUM AACHEN AZUL",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de nitrilo AachenFeel negro (caja 100 uds)",
+   "key": "AACHENFEEL NEGRO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de látex con polvo (caja 100 uds)",
+   "key": "CON POLVO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de látex sin polvo (caja 100 uds)",
+   "key": "SIN POLVO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de vinilo sin polvo (caja 100 uds)",
+   "key": "SIN POLVO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de vinilo con polvo (caja 100 uds)",
+   "key": "CON POLVO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de polietileno (paquete 100 uds)",
+   "key": "PAQUETE 100 UDS",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Manopla higiénica de polietileno (caja 500 uds)",
+   "key": "CAJA 500 UDS",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante de neopreno flocado negro (par)",
+   "key": "FLOCADO NEGRO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "Guante ignífugo azul (par)",
+   "key": "GUANTE IGNIFUGO AZUL",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "NETTION AN",
+   "key": "NETTION AN",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "NETTION AM ECO-P",
+   "key": "NETTION AM ECO P",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DELENEX M BOX+C",
+   "key": "DELENEX M BOXC",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "LAVAPER AT-10",
+   "key": "LAVAPER AT 10",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "LAVAPER BIO",
+   "key": "LAVAPER BIO",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "LAVAPER SELF-E5",
+   "key": "LAVAPER SELF E5",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DETIAL B-480-S",
+   "key": "DETIAL B 480 S",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DETIAL A-10",
+   "key": "DETIAL A 10",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DETIAL A-20",
+   "key": "DETIAL A 20",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DETIAL D-320-EU",
+   "key": "DETIAL D 320 EU",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DEFORT CLV-D5",
+   "key": "DEFORT CLV D5",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DETERSIN N",
+   "key": "DETERSIN N",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "DETERSIN A PLUS",
+   "key": "DETERSIN A PLUS",
+   "reason": "sin candidatos"
+  },
+  {
+   "name": "KENEX BS-200",
+   "key": "KENEX BS 200",
+   "reason": "sin candidatos"
+  }
+ ],
+ "applied": [
+  {
+   "name": "NETTION",
+   "slug": "nettion",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1551-limpiador-amoniacal-concentrado-nettion.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION VERY-S",
+   "slug": "nettion-very-s",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/41547-limpiador-general-muy-perfumado-nettion-very-s.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION MC",
+   "slug": "nettion-mc",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1562-limpiador-bactericida-nettion-mc.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION FLORAL",
+   "slug": "nettion-floral",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1548-limpiador-general-nettion-floral.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION FAX",
+   "slug": "nettion-fax",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1552-friegasuelos-abrillantador-nettion-fax.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION LIMON",
+   "slug": "nettion-limon",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1546-limpiador-general-neutro-nettion-limon.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION PINO",
+   "slug": "nettion-pino",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1549-limpiador-amoniacal-nettion-pino.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION DF",
+   "slug": "nettion-df",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1565-limpiador-desengrasante-nettion-df.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION MADERA",
+   "slug": "nettion-madera",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1561-limpiador-para-suelos-de-madera-nettion-madera.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION CL",
+   "slug": "nettion-cl",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1563-limpiador-desinfectante-clorado-nettion-cl.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION MANZANA",
+   "slug": "nettion-manzana",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1547-limpiador-general-nettion-manzana.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION STILO",
+   "slug": "nettion-stilo",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1560-limpiador-neutro-con-bioalcohol-nettion-stilo.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION CTS",
+   "slug": "nettion-cts",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1566-limpiador-para-contenedores-de-basura-nettion-cts.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION ABS",
+   "slug": "nettion-abs",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1567-absorbente-granulado-para-derrames-nettion-abs.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION MAGNOLIA",
+   "slug": "nettion-magnolia",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1558-limpiador-general-con-bioalcohol-nettion-magnolia.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION CL-GEL",
+   "slug": "nettion-cl-gel",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1564-gel-higienizante-clorado-nettion-cl-gel.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION CHERRY",
+   "slug": "nettion-cherry",
+   "url": "https://www.eurosanex.com/es/limpiadores-generales/1557-limpiador-con-bioalcohol-perfumado-nettion-cherry.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION 330",
+   "slug": "nettion-330",
+   "url": "https://www.eurosanex.com/es/limpiadores-maquina/1555-limpiador-energico-sin-espuma-nettion-330.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION SST",
+   "slug": "nettion-sst",
+   "url": "https://www.eurosanex.com/es/limpiadores-maquina/1554-limpiador-neutro-sin-espuma-nettion-sst.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION BMF-90",
+   "slug": "nettion-bmf-90",
+   "url": "https://www.eurosanex.com/es/limpiadores-maquina/1556-limpiador-abrillantador-sin-espuma-nettion-bmf-90.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION FR-50",
+   "slug": "nettion-fr-50",
+   "url": "https://www.eurosanex.com/es/limpiadores-maquina/17821-champu-para-tapicerias-y-moquetas-nettion-fr-50.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION GL ECO-P",
+   "slug": "nettion-gl-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1711-limpiador-perfumado-manzana-nettion-gl-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION BIO ECO-P",
+   "slug": "nettion-bio-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1715-limpiador-general-con-bioalcohol-nettion-bio-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION DBF ECO-P",
+   "slug": "nettion-dbf-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1716-limpiador-higienizante-perfumado-nettion-dbf-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "NETTION D-CLOR ECO-P",
+   "slug": "nettion-d-clor-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1714-limpiador-clorado-higienizante-nettion-d-clor-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "NETTION CH ECO-P",
+   "slug": "nettion-ch-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1710-limpiador-general-neutro-nettion-ch-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX",
+   "slug": "delenex",
+   "url": "https://www.eurosanex.com/es/productos-especiales-para-colectividades/1493-lavavajillas-manual-delenex.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX ULTRA",
+   "slug": "delenex-ultra",
+   "url": "https://www.eurosanex.com/es/productos-especiales-para-colectividades/1494-lavavajillas-manual-super-concentrado-delenex-ultra.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX ATB",
+   "slug": "delenex-atb",
+   "url": "https://www.eurosanex.com/es/productos-de-limpieza-especiales-para-carnicerias/1497-lavavajillas-manual-bactericida-delenex-atb.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX BL",
+   "slug": "delenex-bl",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1501-lavavajillas-automaticas-aguas-blandas-delenex-bl.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX M",
+   "slug": "delenex-m",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1502-lavavajillas-aguas-semiduras-delenex-m.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX DR",
+   "slug": "delenex-dr",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1504-lavavajillas-automatico-aguas-duras-delenex-dr.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX MD",
+   "slug": "delenex-md",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1506-lavavajillas-extrema-dureza-delenex-md.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX DTR",
+   "slug": "delenex-dtr",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1500-lavavajillas-para-maquinas-delenex-dtr.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX HS",
+   "slug": "delenex-hs",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1507-lavavajillas-higienizante-clorado-delenex-hs.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX AL",
+   "slug": "delenex-al",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1508-lavavajillas-especial-aluminio-delenex-al.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX CRISTAL-25",
+   "slug": "delenex-cristal-25",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1503-lavavajillas-especial-cristaleria-delenex-cristal-25.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX CRISTAL-50",
+   "slug": "delenex-cristal-50",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1505-lavavajillas-especial-cristaleria-delenex-cristal-50.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX A",
+   "slug": "delenex-a",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41766-delenex-a-boxc-abrillantador-automaticas-aguas-dureza-media.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX ABR",
+   "slug": "delenex-abr",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1510-abrillantador-delenex-abr.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX AD",
+   "slug": "delenex-ad",
+   "url": "https://www.eurosanex.com/es/lavado-automatico-de-vajilla/1512-abrillantador-aguas-muy-duras-delenex-ad.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX BOX+C",
+   "slug": "delenex-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41763-delenex-boxc-lavavajillas-manual-super-concentrado.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX DR BOX+C",
+   "slug": "delenex-dr-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41765-delenex-dr-boxc-lavavajillas-automaticas-aguas-dureza-alta.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX AD BOX+C",
+   "slug": "delenex-ad-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41767-delenex-ad-boxc-abrillantador-automaticas-aguas-dureza-alta.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX A BOX+C",
+   "slug": "delenex-a-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41766-delenex-a-boxc-abrillantador-automaticas-aguas-dureza-media.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX NATUREX",
+   "slug": "delenex-naturex",
+   "url": "https://www.eurosanex.com/es/linea-ecologica-naturex/1440-delenex-naturex-lavavajillas-manual-ecologico.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX ECO-P",
+   "slug": "delenex-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1706-lavavajillas-manual-delenex-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX VJ ECO-P",
+   "slug": "delenex-vj-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1707-lavavajillas-automaticas-delenex-vj-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX AB ECO-P",
+   "slug": "delenex-ab-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1708-abrillantador-automaticas-delenex-ab-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX CHAMPÚ",
+   "slug": "delenex-champu",
+   "url": "https://www.eurosanex.com/es/automocion-es/1576-detergente-para-tuneles-de-lavado-delenex-champu.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX ACTIVO",
+   "slug": "delenex-activo",
+   "url": "https://www.eurosanex.com/es/automocion-es/1577-detergente-para-tuneles-de-lavado-espumante-delenex-activo.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX CERA",
+   "slug": "delenex-cera",
+   "url": "https://www.eurosanex.com/es/automocion-es/1578-cera-hidrofugante-para-tuneles-de-lavado-delenex-cera.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DELENEX MN",
+   "slug": "delenex-mn",
+   "url": "https://www.eurosanex.com/es/automocion-es/1575-champu-para-carrocerias-delenex-mn.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DELENEX BOX-P",
+   "slug": "delenex-box-p",
+   "url": "https://www.eurosanex.com/es/automocion-es/1579-detergente-en-polvo-para-vehiculos-delenex-box-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX FRESH",
+   "slug": "saniolex-fresh",
+   "url": "https://www.eurosanex.com/es/ambientadores/1447-ambientador-citrico-saniolex-fresh.html",
+   "got": [
+    "foto",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX RIDE",
+   "slug": "saniolex-ride",
+   "url": "https://www.eurosanex.com/es/ambientadores/41696-saniolex-ride.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX PR",
+   "slug": "saniolex-pr",
+   "url": "https://www.eurosanex.com/es/ambientadores/1449-ambientador-aroma-masculino-saniolex-pr.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX L12",
+   "slug": "saniolex-l12",
+   "url": "https://www.eurosanex.com/es/ambientadores/41697-ambientador-perfumado-saniolex-l12.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX MAMBO",
+   "slug": "saniolex-mambo",
+   "url": "https://www.eurosanex.com/es/ambientadores/1450-ambientador-frutal-saniolex-mambo.html",
+   "got": [
+    "foto",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX KOOL",
+   "slug": "saniolex-kool",
+   "url": "https://www.eurosanex.com/es/ambientadores/41698-desodorante-wc-saniolex-kool.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX SP",
+   "slug": "saniolex-sp",
+   "url": "https://www.eurosanex.com/es/ambientadores/1458-ambientador-especial-cuartos-de-bano-saniolex-sp.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SANIOLEX TWIN",
+   "slug": "saniolex-twin",
+   "url": "https://www.eurosanex.com/es/ambientadores/1460-ambientador-especial-aseos-fresco-saniolex-twin.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX DESS",
+   "slug": "saniolex-dess",
+   "url": "https://www.eurosanex.com/es/ambientadores/1456-ambientador-neutralizador-saniolex-dess.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX TBC",
+   "slug": "saniolex-tbc",
+   "url": "https://www.eurosanex.com/es/ambientadores/1455-ambientador-antiolores-saniolex-tbc.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "SANIOLEX SAUNA",
+   "slug": "saniolex-sauna",
+   "url": "https://www.eurosanex.com/es/ambientadores/1459-aromatizador-para-saunas-saniolex-sauna.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SANIOLEX ECO-P",
+   "slug": "saniolex-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1701-ambientador-fresco-saniolex-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SANIOLEX WC ECO-P",
+   "slug": "saniolex-wc-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1702-desodorante-wc-saniolex-wc-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS",
+   "slug": "sabomans",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1464-gel-de-manos-sabomans.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS GEL",
+   "slug": "sabomans-gel",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1463-gel-de-manos-perfumado-sabomans-gel.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS DERMO",
+   "slug": "sabomans-dermo",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1473-gel-hidratante-dermatologico-sabomans-dermo.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS ESPUMA",
+   "slug": "sabomans-espuma",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1465-gel-de-manos-espuma-activa-sabomans-espuma.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS P",
+   "slug": "sabomans-p",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1472-pasta-de-manos-para-mecanicos-sabomans-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS F",
+   "slug": "sabomans-f",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1470-gel-de-manos-desengrasante-sabomans-f.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS FG",
+   "slug": "sabomans-fg",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1471-gel-de-manos-granulado-sabomans-fg.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS CH",
+   "slug": "sabomans-ch",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1474-champu-ph-neutro-sabomans-ch.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS ANP",
+   "slug": "sabomans-anp",
+   "url": "https://www.eurosanex.com/es/higiene-personal/1466-gel-de-manos-sin-colorante-ni-perfume-sabomans-anp.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "SABOMANS ECO-P",
+   "slug": "sabomans-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1703-gel-de-manos-sabomans-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER LDM-1",
+   "slug": "lavaper-ldm-1",
+   "url": "https://www.eurosanex.com/es/desmanchantes-lavanderia/33416-desmanchante-para-grasas-aceites-y-suciedad-en-general-lavaper-ldm-1.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER LDM-2",
+   "slug": "lavaper-ldm-2",
+   "url": "https://www.eurosanex.com/es/desmanchantes-lavanderia/33473-desmanchante-para-tinta-maquillaje-bronceador-y-esmaltes-lavaper-ldm-2.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER LDM-3",
+   "slug": "lavaper-ldm-3",
+   "url": "https://www.eurosanex.com/es/desmanchantes-lavanderia/33482-desmanchante-para-oxido-y-cemento-lavaper-ldm-3.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER LDM-4",
+   "slug": "lavaper-ldm-4",
+   "url": "https://www.eurosanex.com/es/desmanchantes-lavanderia/33484-desmanchante-para-sangre-vino-salsas-cafe-te-y-tomate-lavaper-ldm-4.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER",
+   "slug": "lavaper",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1605-detergente-lavaper.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER MAXI",
+   "slug": "lavaper-maxi",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1607-detergente-de-alto-rendimiento-lavaper-maxi.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER NEX",
+   "slug": "lavaper-nex",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1608-detergente-semi-atomizado-lavaper-nex.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER FORTE",
+   "slug": "lavaper-forte",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1610-detergente-para-ropa-muy-sucia-lavaper-forte.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER OXIGEN",
+   "slug": "lavaper-oxigen",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1613-blanqueante-con-base-oxigeno-lavaper-oxigen.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER CLORO",
+   "slug": "lavaper-cloro",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1614-blanqueante-con-base-cloro-lavaper-cloro.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER HUMIX",
+   "slug": "lavaper-humix",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1612-pasta-de-jabon-humectante-lavaper-humix.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER FENOX",
+   "slug": "lavaper-fenox",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1615-recuperador-de-tejidos-desincrustante-lavaper-fenox.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER RT",
+   "slug": "lavaper-rt",
+   "url": "https://www.eurosanex.com/es/lavanderia-solidos/1616-desmanchante-lavaper-rt.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER QM",
+   "slug": "lavaper-qm",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1611-tratamiento-quitamanchas-de-prelavado-lavaper-qm.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER PLENO",
+   "slug": "lavaper-pleno",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1623-detergente-lavaper-pleno.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER TOTAL",
+   "slug": "lavaper-total",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1624-detergente-concentrado-lavaper-total.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER BASICO",
+   "slug": "lavaper-basico",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1627-componente-alcalino-de-lavado-lavaper-basico.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER AC",
+   "slug": "lavaper-ac",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1629-componente-alcalino-de-lavado-lavaper-ac.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER COMTE",
+   "slug": "lavaper-comte",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1625-componente-tensioactivo-de-lavado-lavaper-comte.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER TEDE",
+   "slug": "lavaper-tede",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1621-detergente-humectante-y-desmanchante-lavaper-tede.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER PLH",
+   "slug": "lavaper-plh",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1622-humectante-desmanchante-lavaper-plh.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER BLANCOR",
+   "slug": "lavaper-blancor",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1635-blanqueante-con-base-cloro-lavaper-blancor.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER COLOR",
+   "slug": "lavaper-color",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1636-blanqueante-de-base-oxigeno-lavaper-color.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER MARSELLA",
+   "slug": "lavaper-marsella",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1631-detergente-al-jabon-de-marsella-lavaper-marsella.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER SELF-1",
+   "slug": "lavaper-self-1",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/41578-detergente-para-lavanderias-autoservicio-lavaper-self-1.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER OX-DES",
+   "slug": "lavaper-ox-des",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/41738-detergente-y-blanqueante-lavaper-ox-des.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER VIEP",
+   "slug": "lavaper-viep",
+   "url": "https://www.eurosanex.com/es/lavanderia-liquidos/1630-detergente-enzimatico-de-lavado-lavaper-viep.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER TEN BOX+C",
+   "slug": "lavaper-ten-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41768-lavaper-ten-boxc-componente-tesioactivo.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER ALC BOX+C",
+   "slug": "lavaper-alc-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41769-lavaper-alc-boxc-componente-alcalino.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER ENZ BOX+C",
+   "slug": "lavaper-enz-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41770-lavaper-enz-boxc-humectante-y-desmanchante-enzimatico.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER COM BOX+X",
+   "slug": "lavaper-com-box-x",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41771-lavaper-com-boxc-detergente-completo.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER BLN BOX+C",
+   "slug": "lavaper-bln-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41772-lavaper-bln-boxc-blanqueante-neutro-baja-temperatura.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "LAVAPER TP-10",
+   "slug": "lavaper-tp-10",
+   "url": "https://www.eurosanex.com/es/automocion-es/1594-limpiador-de-tapicerias-lavaper-tp-10.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "LAVAPER MARSELLA ECO-P",
+   "slug": "lavaper-marsella-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/28686-detergente-al-jabon-de-marsella-lavaper-marsella-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "MILANE",
+   "slug": "milane",
+   "url": "https://www.eurosanex.com/es/suavizantes-y-neutralizantes/1617-suavizante-perfumado-milane.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "MILANE PRO",
+   "slug": "milane-pro",
+   "url": "https://www.eurosanex.com/es/suavizantes-y-neutralizantes/1618-suavizante-concentrado-milane-pro.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "MILANE ESSENCE",
+   "slug": "milane-essence",
+   "url": "https://www.eurosanex.com/es/suavizantes-y-neutralizantes/41576-suavizante-concentrado-super-perfumado-milane-essence.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "MILANE NICE",
+   "slug": "milane-nice",
+   "url": "https://www.eurosanex.com/es/suavizantes-y-neutralizantes/41577-suavizante-concentrado-super-perfumado-milane-nice.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "MILANE SET",
+   "slug": "milane-set",
+   "url": "https://www.eurosanex.com/es/suavizantes-y-neutralizantes/1620-suavizante-neutralizante-milane-set.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "MILANE MCN BOX+C",
+   "slug": "milane-mcn-box-c",
+   "url": "https://www.eurosanex.com/es/linea-bag-in-box-system-super-concentrados/41773-milane-mcn-boxc-suavizante-micro-encapsulado.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "MILANE AROME-1",
+   "slug": "milane-arome-1",
+   "url": "https://www.eurosanex.com/es/perfumador-textil/41758-perfumador-textil-milane-arome-1.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DETIAL B-100",
+   "slug": "detial-b-100",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/1683-detergente-alcalino-no-espumante-detial-b-100.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DETIAL B-300",
+   "slug": "detial-b-300",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/1684-detergente-alcalino-espumante-detial-b-300.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DETIAL B-490-P",
+   "slug": "detial-b-490-p",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/41542-foaming-alkaline-detergent-high-concentration-detial-b-490-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DETIAL B-500",
+   "slug": "detial-b-500",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/1687-detergente-alcalino-clorado-no-espumante-detial-b-500.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DETIAL B-600",
+   "slug": "detial-b-600",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/1688-detergente-alcalino-clorado-espumante-detial-b-600.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DETIAL D-320-N",
+   "slug": "detial-d-320-n",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/1690-limpiador-bactericida-y-fungicida-detial-d-320-n.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DETIAL D-400",
+   "slug": "detial-d-400",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/36159-limpiador-desengrasante-bactericida-y-fungicida-detial-d-400-o.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DETIAL EH-270",
+   "slug": "detial-eh-270",
+   "url": "https://www.eurosanex.com/es/higiene-alimentaria/41548-limpiador-higienizante-espumante-detial-eh-270.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DEFORT DC ACIDO",
+   "slug": "defort-dc-acido",
+   "url": "https://www.eurosanex.com/es/tratamiento-de-suelos/1656-decapante-acido-para-suelos-defort-dc-acido.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT DC-SH",
+   "slug": "defort-dc-sh",
+   "url": "https://www.eurosanex.com/es/tratamiento-de-suelos/1657-decapante-acido-para-suelos-defort-dc-sh.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT AZ",
+   "slug": "defort-az",
+   "url": "https://www.eurosanex.com/es/tratamiento-de-suelos/1658-antideslizante-para-superficies-defort-az.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT L-40",
+   "slug": "defort-l-40",
+   "url": "https://www.eurosanex.com/es/tratamiento-de-suelos/41585-limpiador-de-juntas-defort-l-40.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT NM-17",
+   "slug": "defort-nm-17",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1521-desincrustante-de-cal-defort-nm-17.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT M-100",
+   "slug": "defort-m-100",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1519-desincrustante-defort-m-100.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT BAÑOS",
+   "slug": "defort-banos",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1523-limpiador-de-banos-defort-banos.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT WC",
+   "slug": "defort-wc",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1524-limpiador-desincrustante-para-banos-defort-wc.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT DECAL",
+   "slug": "defort-decal",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1525-desincrustante-para-sanitarios-defort-decal.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT CREMA",
+   "slug": "defort-crema",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1518-limpiador-para-cocinas-defort-crema.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DEFORT CLOSS",
+   "slug": "defort-closs",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1517-desatascador-de-tuberias-defort-closs.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT LCS",
+   "slug": "defort-lcs",
+   "url": "https://www.eurosanex.com/es/desincrustantes/19114-limpiador-desincrustante-para-utensilios-de-cocina-defort-lcs.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT SOLIDO",
+   "slug": "defort-solido",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1522-limpiador-desincrustante-abrasivo-defort-solido.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT CLORADO",
+   "slug": "defort-clorado",
+   "url": "https://www.eurosanex.com/es/desincrustantes/1516-detergente-en-polvo-con-cloro-defort-clorado.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT DDA-20",
+   "slug": "defort-dda-20",
+   "url": "https://www.eurosanex.com/es/tratamiento-para-torres-de-refrigeracion/1665-desincrustante-para-circuitos-de-agua-defort-dda-20.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT PH-",
+   "slug": "defort-ph",
+   "url": "https://www.eurosanex.com/es/tratamiento-para-torres-de-refrigeracion/1669-disminuidor-de-ph-defort-ph.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "DEFORT CIR-35",
+   "slug": "defort-cir-35",
+   "url": "https://www.eurosanex.com/es/tratamiento-para-torres-de-refrigeracion/1666-inhibidor-de-incrustaciones-defort-cir-35.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT NATUREX",
+   "slug": "defort-naturex",
+   "url": "https://www.eurosanex.com/es/linea-ecologica-naturex/1445-defort-naturex-limpiador-de-banos-ecologico.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT ECO-P",
+   "slug": "defort-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1709-desincrustante-de-uso-general-defort-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "DEFORT AS ECO-P",
+   "slug": "defort-as-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/26414-limpiador-desincrustante-para-banos-defort-as-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "CRISTALIN",
+   "slug": "cristalin",
+   "url": "https://www.eurosanex.com/es/multiusos/1568-limpiacristales-cristalin.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "CRISTALIN AUTO",
+   "slug": "cristalin-auto",
+   "url": "https://www.eurosanex.com/es/automocion-es/1597-aditivo-para-el-agua-limpiaparabrisas-cristalin-auto.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "CRISTALIN ECO-P",
+   "slug": "cristalin-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1717-limpiacristales-multiusos-cristalin-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX",
+   "slug": "kenex",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1487-desengrasante-general-uso-en-frio-kenex.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX PLUS",
+   "slug": "kenex-plus",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1489-desengrasante-industrial-kenex-plus.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX P",
+   "slug": "kenex-p",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1491-desengrasante-para-planchas-de-cocina-kenex-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX F",
+   "slug": "kenex-f",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1488-limpiador-de-tinta-kenex-f.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX MAX-100",
+   "slug": "kenex-max-100",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/41544-desengrasante-de-alto-rendimiento-kenex-max-100.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX P-EXTRA",
+   "slug": "kenex-p-extra",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1492-desengrasante-planchas-sin-vapores-kenex-p-extra.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX DPC",
+   "slug": "kenex-dpc",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1490-desengrasante-para-planchas-de-cocina-kenex-dpc.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX GM",
+   "slug": "kenex-gm",
+   "url": "https://www.eurosanex.com/es/desengrasantes-es/1484-desengrasante-para-camaras-frigorificas-kenex-gm.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX C-40",
+   "slug": "kenex-c-40",
+   "url": "https://www.eurosanex.com/es/automocion-es/1582-desengrasante-para-carrocerias-kenex-c-40.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX C-70",
+   "slug": "kenex-c-70",
+   "url": "https://www.eurosanex.com/es/automocion-es/1584-desengrasante-reforzado-para-carrocerias-kenex-c-70.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX C-80",
+   "slug": "kenex-c-80",
+   "url": "https://www.eurosanex.com/es/automocion-es/1585-desengrasante-de-alto-rendimiento-para-carrocerias-kenex-c-80.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX C-100",
+   "slug": "kenex-c-100",
+   "url": "https://www.eurosanex.com/es/automocion-es/1580-desengrasante-para-carrocerias-de-aluminio-kenex-c-100.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX AL-30",
+   "slug": "kenex-al-30",
+   "url": "https://www.eurosanex.com/es/automocion-es/1587-limpiador-alcalino-de-llantas-de-aluminio-kenex-al-30.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX AL-50",
+   "slug": "kenex-al-50",
+   "url": "https://www.eurosanex.com/es/automocion-es/1588-limpiador-acido-para-llantas-de-aluminio-kenex-al-50.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX 125",
+   "slug": "kenex-125",
+   "url": "https://www.eurosanex.com/es/automocion-es/1586-limpiador-de-insectos-kenex-125.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX CPL",
+   "slug": "kenex-cpl",
+   "url": "https://www.eurosanex.com/es/automocion-es/1590-limpiador-de-copolimero-kenex-cpl.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX DL",
+   "slug": "kenex-dl",
+   "url": "https://www.eurosanex.com/es/automocion-es/1598-limpiador-dielectrico-kenex-dl.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX EM-110",
+   "slug": "kenex-em-110",
+   "url": "https://www.eurosanex.com/es/automocion-es/1596-petroleante-emulsionable-kenex-em-110.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX PH+",
+   "slug": "kenex-ph",
+   "url": "https://www.eurosanex.com/es/tratamiento-para-torres-de-refrigeracion/1668-aumentador-de-ph-kenex-ph.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX HR-65",
+   "slug": "kenex-hr-65",
+   "url": "https://www.eurosanex.com/es/tratamiento-para-torres-de-refrigeracion/1667-inhibidor-de-corrosion-kenex-hr-65.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX NLA",
+   "slug": "kenex-nla",
+   "url": "https://www.eurosanex.com/es/tratamiento-para-torres-de-refrigeracion/1671-neutralizante-kenex-nla.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción"
+   ]
+  },
+  {
+   "name": "KENEX GFT-1",
+   "slug": "kenex-gft-1",
+   "url": "https://www.eurosanex.com/es/limpiadores-de-graffitis/1513-limpiador-de-graffitis-superficies-porosas-kenex-gft-1.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX DC ALCALINO",
+   "slug": "kenex-dc-alcalino",
+   "url": "https://www.eurosanex.com/es/tratamiento-de-suelos/1292-decapante-alcalino-para-suelos-kenex-dc-alcalino.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX NATUREX",
+   "slug": "kenex-naturex",
+   "url": "https://www.eurosanex.com/es/linea-ecologica-naturex/1446-kenex-naturex-desengrasante-general-ecologico.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX ECO-P",
+   "slug": "kenex-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1704-desengrasante-de-uso-general-kenex-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  },
+  {
+   "name": "KENEX PL ECO-P",
+   "slug": "kenex-pl-eco-p",
+   "url": "https://www.eurosanex.com/es/linea-eco-profesional/1705-desengrasante-para-planchas-de-cocina-kenex-pl-eco-p.html",
+   "got": [
+    "foto",
+    "ficha",
+    "descripción",
+    "modo de empleo"
+   ]
+  }
+ ],
+ "errors": [],
+ "extraEurosanex": 708
+}
