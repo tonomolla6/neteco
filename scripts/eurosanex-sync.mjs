@@ -243,8 +243,16 @@ if (!DRY && toNormalize.length) {
     try {
       await page.goto('file://' + html, { waitUntil: 'networkidle', timeout: 30000 })
       await page.waitForTimeout(250)
-      await page.screenshot({ path: path.join(OUT.imgs, `${slug}.jpg`), type: 'jpeg', quality: 84 })
-      db.prepare('UPDATE products SET image = ? WHERE slug = ?').run(`/img/products/${slug}.jpg`, slug)
+      // convención de carpetas: <marca>/<modelo>.jpg si el slug empieza por la marca; si no, <slug>/principal.jpg
+      const brand = String(db.prepare('SELECT brand FROM products WHERE slug = ?').get(slug)?.brand ?? '').toLowerCase()
+      const rel =
+        brand && (slug === brand || slug.startsWith(brand + '-'))
+          ? `${brand}/${slug === brand ? brand : slug.slice(brand.length + 1)}.jpg`
+          : `${slug}/principal.jpg`
+      const dest = path.join(OUT.imgs, rel)
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      await page.screenshot({ path: dest, type: 'jpeg', quality: 84 })
+      db.prepare('UPDATE products SET image = ? WHERE slug = ?').run(`/img/products/${rel}`, slug)
     } catch (e) {
       console.log(`[fotos] fallo ${slug}: ${e.message}`)
     }
