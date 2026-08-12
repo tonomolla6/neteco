@@ -8,8 +8,14 @@ const items = computed(() => (data.value as any)?.items ?? [])
 const toast = useToast()
 async function setStatus(o: any, ev: Event) {
   const status = (ev.target as HTMLSelectElement).value
+  const reason = window.prompt(`Motivo obligatorio para cambiar ${o.id} a ${ORDER_STATUS[status]?.label ?? status}:`)
+  if (!reason?.trim() || reason.trim().length < 3) {
+    toast.add({ title: 'El cambio necesita un motivo de al menos 3 caracteres', color: 'warning' })
+    refresh()
+    return
+  }
   try {
-    await $fetch(`/api/admin/orders/${o.id}`, { method: 'PUT', body: { status } })
+    await $fetch(`/api/admin/orders/${o.id}`, { method: 'PUT', body: { status, reason: reason.trim() } })
     toast.add({
       title: `Pedido ${o.id} → ${ORDER_STATUS[status]?.label ?? status}`,
       icon: 'i-lucide-check',
@@ -23,6 +29,29 @@ async function setStatus(o: any, ev: Event) {
       icon: 'i-lucide-alert-circle'
     })
     refresh()
+  }
+}
+
+async function createShipment(o: any) {
+  const suggested = o.shippingMethod === 'reparto' ? 'OWN-DAY' : 'STANDARD-PARCEL'
+  const serviceCode = window.prompt('Código de servicio cotizado:', suggested)?.trim()
+  if (!serviceCode) return
+  try {
+    await $fetch(`/api/admin/orders/${o.id}/shipment`, { method: 'POST', body: { serviceCode } })
+    toast.add({ title: `Expedición creada para ${o.id}`, color: 'success', icon: 'i-lucide-truck' })
+    await refresh()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido crear la expedición', color: 'error' })
+  }
+}
+
+async function syncTracking(o: any) {
+  try {
+    await $fetch(`/api/admin/shipments/${o.shipmentId}/tracking`, { method: 'POST' })
+    toast.add({ title: 'Tracking sincronizado', color: 'success' })
+    await refresh()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido sincronizar', color: 'error' })
   }
 }
 </script>
@@ -41,6 +70,7 @@ async function setStatus(o: any, ev: Event) {
             <th class="px-4 py-3 text-center">Líneas</th>
             <th class="px-4 py-3 text-right">Total</th>
             <th class="px-4 py-3">Estado</th>
+            <th class="px-4 py-3">Expedición</th>
             <th class="px-4 py-3 text-right">Ver</th>
           </tr>
         </thead>
@@ -66,9 +96,39 @@ async function setStatus(o: any, ev: Event) {
                 <option v-for="(s, key) in ORDER_STATUS" :key="key" :value="key">{{ s.label }}</option>
               </select>
             </td>
+            <td class="px-4 py-2.5">
+              <div v-if="o.shipmentId" class="flex items-center gap-1">
+                <UButton
+                  :to="`/api/admin/shipments/${o.shipmentId}/label`"
+                  target="_blank"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-printer"
+                >
+                  {{ o.trackingNumber ?? 'Etiqueta' }}
+                </UButton>
+                <UButton
+                  size="xs"
+                  variant="ghost"
+                  icon="i-lucide-refresh-cw"
+                  aria-label="Sincronizar tracking"
+                  @click="syncTracking(o)"
+                />
+              </div>
+              <UButton
+                v-else-if="['pagado', 'preparando'].includes(o.status) && o.shippingMethod !== 'recogida'"
+                size="xs"
+                variant="outline"
+                icon="i-lucide-truck"
+                @click="createShipment(o)"
+              >
+                Crear
+              </UButton>
+              <span v-else class="text-slate-400">—</span>
+            </td>
             <td class="px-4 py-2.5 text-right">
               <UButton
-                :to="`/pedido/${o.id}?token=${o.token}`"
+                :to="`/pedido/${o.id}`"
                 target="_blank"
                 size="xs"
                 variant="soft"
@@ -78,7 +138,7 @@ async function setStatus(o: any, ev: Event) {
             </td>
           </tr>
           <tr v-if="!items.length">
-            <td colspan="7" class="px-4 py-10 text-center text-slate-500">Todavía no hay pedidos.</td>
+            <td colspan="8" class="px-4 py-10 text-center text-slate-500">Todavía no hay pedidos.</td>
           </tr>
         </tbody>
       </table>

@@ -3,6 +3,8 @@ import { createError } from 'h3'
 import type { TransactionSql } from 'postgres'
 import { calculateQuote } from '../domain/money'
 import { sellableQuantity } from '../domain/inventory'
+import { chargeableWeightGrams, classifyShipment, standardShippingNetCents } from '../domain/shipping'
+import type { Parcel } from '../integrations/carrier-provider'
 import type { PaymentNotification } from '../integrations/payment-provider'
 import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
@@ -29,7 +31,8 @@ export interface CreateOrderInput {
   customer: CheckoutCustomer
   shippingMethod: 'reparto' | 'envio' | 'recogida'
   paymentMethod: 'tarjeta' | 'bizum' | 'transferencia'
-  items: Array<{ variantId: number; qty: number }>
+  cartId: string
+  cartVersion: number
   idempotencyKey: string
   guestToken: string
   termsAccepted: true
@@ -52,6 +55,11 @@ interface VariantRecord {
   backorder_allowed: boolean
   tax_rate_basis_points: number
   source_version: string | null
+  shipping_profile: string
+  weight_grams: number
+  width_mm: number
+  height_mm: number
+  depth_mm: number
 }
 
 interface InventoryRecord {
@@ -91,12 +99,6 @@ function orderResponse(order: ExistingOrder, guestToken: string) {
   }
 }
 
-function deduplicateItems(items: CreateOrderInput['items']) {
-  const quantities = new Map<number, number>()
-  for (const item of items) quantities.set(item.variantId, (quantities.get(item.variantId) ?? 0) + item.qty)
-  return [...quantities].map(([variantId, qty]) => ({ variantId, qty }))
-}
-
 function serializableFailure(error: unknown) {
   return !!error && typeof error === 'object' && 'code' in error && error.code === '40001'
 }
@@ -130,16 +132,30 @@ export async function createOrder(input: CreateOrderInput) {
       return orderResponse(existing, input.guestToken)
     }
 
-    const requested = deduplicateItems(input.items)
+    const [cart] = await transaction<{ id: string; version: number; status: string }[]>`
+      SELECT id, version, status FROM carts WHERE id = ${input.cartId} FOR UPDATE
+    `
+    if (!cart || cart.status !== 'active' || cart.version !== input.cartVersion) {
+      throw createError({ statusCode: 409, statusMessage: 'El carrito ha cambiado; revisa el resumen' })
+    }
+    const requested = await transaction<{ variantId: number; qty: number }[]>`
+      SELECT v.legacy_id AS "variantId", ci.quantity AS qty
+      FROM cart_items ci JOIN variants v ON v.id = ci.variant_id
+      WHERE ci.cart_id = ${cart.id}
+      ORDER BY ci.added_at, ci.id
+    `
+    if (requested.length === 0) throw createError({ statusCode: 409, statusMessage: 'El carrito está vacío' })
     const legacyIds = requested.map((item) => item.variantId)
     const variants = await transaction<VariantRecord[]>`
       SELECT v.id, v.legacy_id, v.product_id, p.name, v.format, v.sku, v.unit_label,
              v.price_gross_cents, v.minimum_quantity, v.maximum_quantity, v.quantity_increment,
              v.safety_stock, v.backorder_allowed, t.rate_basis_points AS tax_rate_basis_points,
-             v.source_version
+             v.source_version, shipping.kind AS shipping_profile,
+             v.weight_grams, v.width_mm, v.height_mm, v.depth_mm
       FROM variants v
       JOIN products p ON p.id = v.product_id
       JOIN tax_classes t ON t.id = v.tax_class_id
+      JOIN shipping_profiles shipping ON shipping.id = v.shipping_profile_id
       WHERE v.legacy_id IN ${transaction(legacyIds)}
         AND v.status = 'published'
         AND p.status = 'published'
@@ -159,9 +175,25 @@ export async function createOrder(input: CreateOrderInput) {
       quantityIncrement: variant.quantity_increment
     }))
     const goodsGross = lines.reduce((total, line) => total + line.unitGrossCents * line.quantity, 0)
-    const shippingGross = input.shippingMethod === 'envio' && goodsGross < 15_000 ? 590 : 0
+    const parcels = variants.map((variant): Parcel => ({
+      weightGrams: variant.weight_grams * quantityByVariant.get(variant.legacy_id)!,
+      widthMm: variant.width_mm,
+      heightMm: variant.height_mm,
+      depthMm: variant.depth_mm,
+      contents: [{ sku: variant.sku, quantity: quantityByVariant.get(variant.legacy_id)! }],
+      handling: variant.shipping_profile === 'adr' ? 'adr' : variant.shipping_profile === 'pallet' ? 'pallet' : 'parcel'
+    }))
+    const shippingProfile = classifyShipment(parcels)
+    const chargeableGrams = parcels.reduce((total, parcel) => total + chargeableWeightGrams(parcel), 0)
+    const standardShippingNet = standardShippingNetCents(shippingProfile, chargeableGrams)
+    const standardShippingGross = standardShippingNet + Math.round((standardShippingNet * 2100) / 10_000)
+    const freeParcelShipping = goodsGross >= 15_000 && ['parcel', 'multi_parcel'].includes(shippingProfile)
+    const shippingGross = input.shippingMethod === 'envio' && !freeParcelShipping ? standardShippingGross : 0
     if (input.shippingMethod === 'reparto' && !input.customer.zip.startsWith('468')) {
       throw createError({ statusCode: 422, statusMessage: 'El código postal está fuera del reparto propio' })
+    }
+    if (input.shippingMethod === 'reparto' && !['parcel', 'multi_parcel'].includes(shippingProfile)) {
+      throw createError({ statusCode: 422, statusMessage: 'La mercancía no es compatible con reparto propio' })
     }
     const quote = calculateQuote({
       pricingVersion: `catalog:${variants
@@ -240,7 +272,14 @@ export async function createOrder(input: CreateOrderInput) {
       region: input.customer.province.trim(),
       countryCode: 'ES',
       phone: input.customer.phone.trim(),
-      instructions: input.customer.notes.trim() || null
+      instructions: input.customer.notes.trim() || null,
+      shippingProfile,
+      serviceCode:
+        input.shippingMethod === 'recogida'
+          ? 'WAREHOUSE-PICKUP'
+          : input.shippingMethod === 'reparto'
+            ? 'OWN-DAY'
+            : `STANDARD-${shippingProfile.toUpperCase()}`
     }
     const customerSnapshot = {
       name: input.customer.name.trim(),
@@ -257,13 +296,13 @@ export async function createOrder(input: CreateOrderInput) {
     }
     const [order] = await transaction<ExistingOrder[]>`
       INSERT INTO orders (
-        id, public_number, guest_access_hash, customer_id, order_status, payment_status,
+        id, public_number, guest_access_hash, cart_id, customer_id, order_status, payment_status,
         inventory_status, fulfillment_status, invoice_status, currency, subtotal_net_cents,
         discount_net_cents, shipping_net_cents, tax_cents, total_gross_cents, shipping_method,
         payment_method, billing_snapshot, shipping_snapshot, customer_snapshot, terms_snapshot,
         pricing_version, correlation_id, idempotency_key, expires_at
       ) VALUES (
-        ${orderId}, ${publicNumber}, ${guestAccessHash}, ${customer.id}, 'awaiting_payment',
+        ${orderId}, ${publicNumber}, ${guestAccessHash}, ${cart.id}, ${customer.id}, 'awaiting_payment',
         ${input.paymentMethod === 'transferencia' ? 'pending' : 'initiated'}, 'reserved', 'pending',
         'not_requested', 'EUR', ${quote.subtotalNetCents}, 0, ${quote.shipping.netCents},
         ${quote.taxCents}, ${quote.totalGrossCents}, ${input.shippingMethod}, ${input.paymentMethod},
@@ -297,7 +336,14 @@ export async function createOrder(input: CreateOrderInput) {
           ${variant.format}, ${quantity}, ${variant.unit_label},
           ${Math.floor(quoted.netCents / quantity)}, 0, ${quoted.taxRateBasisPoints},
           ${quoted.taxCents}, ${quoted.grossCents}, ${transaction.json({})},
-          ${transaction.json({ unitGrossCents: variant.price_gross_cents })}
+          ${transaction.json({
+            unitGrossCents: variant.price_gross_cents,
+            profile: variant.shipping_profile,
+            weightGrams: variant.weight_grams,
+            widthMm: variant.width_mm,
+            heightMm: variant.height_mm,
+            depthMm: variant.depth_mm
+          })}
         )
       `
       await transaction`
@@ -356,6 +402,9 @@ export async function createOrder(input: CreateOrderInput) {
         ${input.correlationId}, ${`${input.idempotencyKey}:outbox:created`}
       )
     `
+    await transaction`
+      UPDATE carts SET status = 'converted', updated_at = now() WHERE id = ${cart.id}
+    `
 
     return orderResponse(order, input.guestToken)
   })
@@ -399,6 +448,40 @@ async function allocateOrder(
     WHERE order_id = ${order.id} AND status = 'active'
     RETURNING id, variant_id, location_id, quantity
   `
+  if (reservations.length === 0 && order.inventory_status !== 'allocated') {
+    await transaction`
+      UPDATE payment_intents
+      SET status = 'captured', provider_reference = COALESCE(provider_reference, ${providerEventId}), updated_at = now()
+      WHERE id = ${order.payment_intent_id}
+    `
+    await transaction`
+      UPDATE orders
+      SET order_status = 'on_hold', payment_status = 'captured', updated_at = now()
+      WHERE id = ${order.id}
+    `
+    await transaction`
+      INSERT INTO order_events (
+        order_id, event_type, actor_type, origin, from_state, to_state, public_data,
+        private_data, correlation_id, idempotency_key
+      ) VALUES (
+        ${order.id}, 'payment.captured_without_stock', 'provider', ${order.provider},
+        ${transaction.json({ order: order.order_status, payment: order.payment_status, inventory: order.inventory_status })},
+        ${transaction.json({ order: 'on_hold', payment: 'captured', inventory: order.inventory_status })},
+        ${transaction.json({ actionRequired: true })}, ${transaction.json({ providerEventId })},
+        ${correlationId}, ${`payment:${providerEventId}:captured-without-stock`}
+      ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
+    `
+    await transaction`
+      INSERT INTO outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+      ) VALUES (
+        'order', ${order.id}, 'payment.refund.review.requested',
+        ${transaction.json({ orderId: order.id, orderNumber: order.public_number, reason: 'reservation_expired' })},
+        ${correlationId}, ${`refund-review:${order.id}:${providerEventId}`}
+      ) ON CONFLICT (idempotency_key) DO NOTHING
+    `
+    return
+  }
   for (const reservation of reservations) {
     await transaction`
       INSERT INTO inventory_movements (
@@ -409,6 +492,11 @@ async function allocateOrder(
         'order', ${order.id}, 'Payment captured',
         ${`${order.idempotency_key}:allocate:${reservation.id}`}
       ) ON CONFLICT (idempotency_key) DO NOTHING
+    `
+    await transaction`
+      INSERT INTO fulfillments (order_id, location_id, status)
+      VALUES (${order.id}, ${reservation.location_id}, 'pending')
+      ON CONFLICT (order_id, location_id) DO NOTHING
     `
   }
   await transaction`
@@ -516,6 +604,9 @@ export async function confirmMockPayment(input: {
     }
     if (order.order_status === 'cancelled') {
       throw createError({ statusCode: 409, statusMessage: 'El pedido está cancelado' })
+    }
+    if (order.expires_at && order.expires_at.getTime() <= Date.now()) {
+      throw createError({ statusCode: 410, statusMessage: 'La reserva de stock ha caducado' })
     }
     const providerEventId = `mock:${order.public_number}:captured`
     await transaction`
@@ -636,4 +727,81 @@ export async function recordRejectedWebhook(input: { payloadHash: string; correl
       ${input.correlationId}, now()
     ) ON CONFLICT (provider, payload_hash) DO NOTHING
   `
+}
+
+export async function expireInventoryReservations(limit = 100) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) throw new RangeError('Expiry batch limit is invalid')
+  const correlationId = randomUUID()
+  return inSerializableTransaction(async (transaction) => {
+    const orders = await transaction<PaymentOrderRecord[]>`
+      SELECT o.id, o.public_number, o.guest_access_hash, o.order_status, o.payment_status,
+             o.inventory_status, o.payment_method, o.total_gross_cents, o.expires_at,
+             pi.id AS payment_intent_id, pi.status AS payment_intent_status,
+             pi.amount_cents, pi.provider, pi.method, pi.idempotency_key
+      FROM orders o
+      JOIN payment_intents pi ON pi.order_id = o.id
+      WHERE o.expires_at <= now()
+        AND o.payment_status NOT IN ('captured', 'authorized')
+        AND EXISTS (
+          SELECT 1 FROM inventory_reservations reservation
+          WHERE reservation.order_id = o.id AND reservation.status = 'active'
+        )
+      ORDER BY o.expires_at, o.id
+      LIMIT ${limit}
+      FOR UPDATE OF o, pi SKIP LOCKED
+    `
+    for (const order of orders) {
+      const reservations = await transaction<
+        { id: string; variant_id: string; location_id: string; quantity: number }[]
+      >`
+        UPDATE inventory_reservations
+        SET status = 'expired', updated_at = now()
+        WHERE order_id = ${order.id} AND status = 'active'
+        RETURNING id, variant_id, location_id, quantity
+      `
+      for (const reservation of reservations) {
+        await transaction`
+          INSERT INTO inventory_movements (
+            variant_id, location_id, movement_type, quantity, reference_type, reference_id,
+            reason, idempotency_key
+          ) VALUES (
+            ${reservation.variant_id}, ${reservation.location_id}, 'release', ${reservation.quantity},
+            'order', ${order.id}, 'Reservation TTL expired',
+            ${`${order.idempotency_key}:expiry-release:${reservation.id}`}
+          ) ON CONFLICT (idempotency_key) DO NOTHING
+        `
+      }
+      await transaction`
+        UPDATE payment_intents SET status = 'cancelled', updated_at = now()
+        WHERE id = ${order.payment_intent_id} AND status NOT IN ('captured', 'authorized')
+      `
+      await transaction`
+        UPDATE orders
+        SET order_status = 'cancelled', payment_status = 'cancelled', inventory_status = 'released', updated_at = now()
+        WHERE id = ${order.id} AND payment_status NOT IN ('captured', 'authorized')
+      `
+      await transaction`
+        INSERT INTO order_events (
+          order_id, event_type, actor_type, origin, from_state, to_state, public_data,
+          private_data, correlation_id, idempotency_key
+        ) VALUES (
+          ${order.id}, 'reservation.expired', 'system', 'reservation-worker',
+          ${transaction.json({ order: order.order_status, payment: order.payment_status, inventory: order.inventory_status })},
+          ${transaction.json({ order: 'cancelled', payment: 'cancelled', inventory: 'released' })},
+          ${transaction.json({})}, ${transaction.json({ expiresAt: order.expires_at?.toISOString() })},
+          ${correlationId}, ${`reservation:${order.id}:expired`}
+        ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
+      `
+      await transaction`
+        INSERT INTO outbox_events (
+          aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+        ) VALUES (
+          'order', ${order.id}, 'order.reservation.expired',
+          ${transaction.json({ orderId: order.id, orderNumber: order.public_number })},
+          ${correlationId}, ${`order:${order.id}:reservation-expired`}
+        ) ON CONFLICT (idempotency_key) DO NOTHING
+      `
+    }
+    return { correlationId, expiredOrders: orders.length }
+  })
 }

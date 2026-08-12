@@ -103,10 +103,12 @@ try {
         await transaction`
           INSERT INTO variants (
             id, legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
-            unit_label, content_quantity, price_gross_cents, source_version
+            unit_label, content_quantity, price_gross_cents, weight_grams, width_mm, height_mm, depth_mm,
+            source_version
           ) VALUES (
             ${variantId}, ${productIndex * 100 + variantIndex + 1}, ${productId}, ${taxClassId}, ${shippingProfileId},
-            ${sku}, ${format}, 'published', ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${grossCents}, 'demo-v1'
+            ${sku}, ${format}, 'published', ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${grossCents},
+            ${800 + productIndex * 75}, 300, 200, 100, 'demo-v1'
           ) ON CONFLICT (id) DO UPDATE SET
             product_id = EXCLUDED.product_id,
             tax_class_id = EXCLUDED.tax_class_id,
@@ -117,6 +119,10 @@ try {
             unit_label = EXCLUDED.unit_label,
             content_quantity = EXCLUDED.content_quantity,
             price_gross_cents = EXCLUDED.price_gross_cents,
+            weight_grams = EXCLUDED.weight_grams,
+            width_mm = EXCLUDED.width_mm,
+            height_mm = EXCLUDED.height_mm,
+            depth_mm = EXCLUDED.depth_mm,
             source_version = EXCLUDED.source_version,
             updated_at = now()
         `

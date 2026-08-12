@@ -1,4 +1,5 @@
 import postgres from 'postgres'
+import { readdir } from 'node:fs/promises'
 import { afterAll, describe, expect, it } from 'vitest'
 
 const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
@@ -11,11 +12,10 @@ afterAll(async () => {
 describe('PostgreSQL foundation', () => {
   it('has applied every migration exactly once', async () => {
     const migrations = await sql<{ version: string }[]>`SELECT version FROM _neteco_migrations ORDER BY version`
-    expect(migrations.map((row) => row.version)).toEqual([
-      '0001_platform_foundation.sql',
-      '0002_identity_security.sql',
-      '0003_invoice_operations.sql'
-    ])
+    const expected = (await readdir(new URL('../../db/migrations/', import.meta.url)))
+      .filter((file) => file.endsWith('.sql'))
+      .sort()
+    expect(migrations.map((row) => row.version)).toEqual(expected)
   })
 
   it('reproduces the deterministic synthetic catalog and searchable references', async () => {

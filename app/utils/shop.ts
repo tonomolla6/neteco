@@ -12,6 +12,8 @@ export const ORDER_STATUS: Record<string, { label: string; color: any; icon: str
   pendiente_pago: { label: 'Pago pendiente', color: 'warning', icon: 'i-lucide-clock' },
   pendiente_transferencia: { label: 'Esperando transferencia', color: 'info', icon: 'i-lucide-landmark' },
   pagado: { label: 'Pagado', color: 'success', icon: 'i-lucide-circle-check' },
+  reembolso_parcial: { label: 'Reembolso parcial', color: 'warning', icon: 'i-lucide-undo-2' },
+  reembolsado: { label: 'Reembolsado', color: 'neutral', icon: 'i-lucide-undo-2' },
   preparando: { label: 'En preparación', color: 'info', icon: 'i-lucide-package' },
   enviado: { label: 'Enviado', color: 'info', icon: 'i-lucide-truck' },
   entregado: { label: 'Entregado', color: 'success', icon: 'i-lucide-check-check' },

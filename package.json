@@ -31,7 +31,11 @@
     "db:backup": "tsx scripts/db-backup.ts",
     "outbox:email": "tsx scripts/outbox-worker.ts",
     "outbox:invoice": "tsx scripts/invoice-worker.ts",
-    "reconcile": "tsx scripts/reconcile.ts"
+    "reconcile": "tsx scripts/reconcile.ts",
+    "expire:reservations": "tsx scripts/reservation-worker.ts",
+    "admin:provision": "tsx scripts/provision-admin.ts",
+    "outbox:refund": "tsx scripts/refund-worker.ts",
+    "outbox:credit": "tsx scripts/credit-note-worker.ts"
   },
   "dependencies": {
     "@nuxt/ui": "^4.0.0",

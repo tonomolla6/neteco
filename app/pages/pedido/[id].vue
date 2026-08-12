@@ -132,6 +132,15 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
     </div>
 
     <div class="mt-8 text-center">
+      <UButton
+        v-if="order.fulfillmentStatus === 'delivered'"
+        :to="`/devoluciones?pedido=${encodeURIComponent(order.id)}`"
+        class="mr-2"
+        variant="outline"
+        icon="i-lucide-rotate-ccw"
+      >
+        Solicitar devolución
+      </UButton>
       <UButton to="/catalogo" variant="soft" icon="i-lucide-arrow-left">Seguir comprando</UButton>
     </div>
   </div>

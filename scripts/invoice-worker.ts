@@ -134,7 +134,9 @@ async function completeExisting(job: Job) {
 async function processJob(job: Job) {
   const { order, lines } = await snapshot(job.aggregateId)
   if (!order) throw new Error('Invoice order does not exist')
-  if (!['captured', 'authorized'].includes(order.paymentStatus)) throw new Error('Invoice order is not paid')
+  if (!['captured', 'authorized', 'partially_refunded', 'refunded'].includes(order.paymentStatus)) {
+    throw new Error('Invoice order has never been paid')
+  }
   const [existing] = await sql<{ status: string }[]>`
     SELECT status FROM invoices WHERE order_id = ${order.id} AND kind = 'invoice' AND fiscal_version = 1
   `

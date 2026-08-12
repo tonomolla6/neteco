@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { createOrder } from '../../services/orders'
+import { getServerCart } from '../../services/cart'
 
 const trimmed = (minimum: number, maximum: number) => z.string().trim().min(minimum).max(maximum)
 const schema = z.object({
@@ -17,10 +18,8 @@ const schema = z.object({
   }),
   shippingMethod: z.enum(['reparto', 'envio', 'recogida']),
   paymentMethod: z.enum(['tarjeta', 'bizum', 'transferencia']),
-  items: z
-    .array(z.object({ variantId: z.number().int().positive(), qty: z.number().int().min(1).max(999) }))
-    .min(1)
-    .max(100),
+  cartId: z.string().uuid(),
+  cartVersion: z.number().int().positive(),
   idempotencyKey: z.string().uuid(),
   guestToken: z.string().uuid(),
   termsAccepted: z.literal(true)
@@ -28,6 +27,10 @@ const schema = z.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
+  const cart = await getServerCart(event, false)
+  if (!cart || cart.id !== body.cartId) {
+    throw createError({ statusCode: 404, statusMessage: 'Carrito no encontrado' })
+  }
   const order = await createOrder({
     ...body,
     correlationId: event.context.correlationId ?? crypto.randomUUID()

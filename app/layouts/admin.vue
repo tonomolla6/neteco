@@ -5,7 +5,8 @@ const links = [
   { to: '/admin', label: 'Panel', icon: 'i-lucide-layout-dashboard' },
   { to: '/admin/productos', label: 'Productos', icon: 'i-lucide-package' },
   { to: '/admin/categorias', label: 'Familias', icon: 'i-lucide-folder-tree' },
-  { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text' }
+  { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text' },
+  { to: '/admin/devoluciones', label: 'Devoluciones', icon: 'i-lucide-rotate-ccw' }
 ]
 
 async function logout() {

@@ -84,30 +84,39 @@ function perUnit(v: any): string | null {
 const cart = useCartStore()
 const toast = useToast()
 
-function addToCart(goToCart = false) {
-  cart.add(
-    {
-      productId: product.value.id,
-      slug: product.value.slug,
-      name: product.value.name,
-      brand: product.value.brand,
-      variantId: selected.value.id,
-      format: selected.value.format,
-      sku: selected.value.sku,
-      price: selected.value.price,
-      visual: product.value.visual,
-      image: selected.value.image ?? product.value.image ?? null
-    },
-    qty.value
-  )
-  if (goToCart) {
-    navigateTo('/checkout')
-  } else {
+async function addToCart(goToCart = false) {
+  try {
+    await cart.add(
+      {
+        productId: product.value.id,
+        slug: product.value.slug,
+        name: product.value.name,
+        brand: product.value.brand,
+        variantId: selected.value.id,
+        format: selected.value.format,
+        sku: selected.value.sku,
+        price: selected.value.price,
+        visual: product.value.visual,
+        image: selected.value.image ?? product.value.image ?? null
+      },
+      qty.value
+    )
+    if (goToCart) {
+      navigateTo('/checkout')
+    } else {
+      toast.add({
+        title: 'Añadido al carrito',
+        description: `${product.value.name} · ${selected.value.format} × ${qty.value}`,
+        icon: 'i-lucide-shopping-cart',
+        color: 'success'
+      })
+    }
+  } catch {
     toast.add({
-      title: 'Añadido al carrito',
-      description: `${product.value.name} · ${selected.value.format} × ${qty.value}`,
-      icon: 'i-lucide-shopping-cart',
-      color: 'success'
+      title: 'No se ha podido añadir',
+      description: cart.error || 'Actualiza la página y vuelve a intentarlo.',
+      icon: 'i-lucide-triangle-alert',
+      color: 'error'
     })
   }
 }

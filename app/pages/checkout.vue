@@ -36,7 +36,42 @@ const shippingMethod = ref<'reparto' | 'envio' | 'recogida'>('reparto')
 const paymentMethod = ref<'tarjeta' | 'bizum' | 'transferencia'>('tarjeta')
 const acceptTerms = ref(false)
 
-const shippingCost = computed(() => (shippingMethod.value === 'envio' && cart.subtotal < 15000 ? 590 : 0))
+interface ShippingRate {
+  serviceCode: string
+  label: string
+  netCents: number
+  taxRateBasisPoints: number
+  estimatedDeliveryFrom: string
+  estimatedDeliveryTo: string
+  profile: 'parcel' | 'multi_parcel' | 'pallet' | 'own_delivery' | 'adr' | 'pickup'
+}
+
+const shippingRates = ref<ShippingRate[]>([])
+const shippingRateLoading = ref(false)
+const shippingRateError = ref('')
+
+function methodForRate(rate: ShippingRate) {
+  if (rate.profile === 'own_delivery') return 'reparto'
+  if (rate.profile === 'pickup') return 'recogida'
+  return 'envio'
+}
+
+function methodRate(method: string) {
+  return shippingRates.value.find((rate) => methodForRate(rate) === method)
+}
+
+const eligibleShippingMethods = computed(() =>
+  shippingRates.value.length ? SHIPPING_METHODS.filter((method) => methodRate(method.value)) : SHIPPING_METHODS
+)
+const selectedShippingRate = computed(() => methodRate(shippingMethod.value))
+const quotedShippingGross = computed(() => {
+  const rate = selectedShippingRate.value
+  if (!rate) return shippingMethod.value === 'envio' ? 590 : 0
+  return rate.netCents + Math.round((rate.netCents * rate.taxRateBasisPoints) / 10_000)
+})
+const shippingCost = computed(() =>
+  shippingMethod.value === 'envio' && cart.subtotal >= 15000 ? 0 : quotedShippingGross.value
+)
 const total = computed(() => cart.subtotal + shippingCost.value)
 const tax = computed(() => total.value - Math.round(total.value / 1.21))
 
@@ -46,6 +81,45 @@ const errors = reactive<Record<string, string>>({})
 // si el pago con tarjeta/Bizum falla, reutilizamos el pedido creado para reintentar
 const pendingOrder = ref<{ id: string; token: string } | null>(null)
 const checkoutAttempt = reactive({ idempotencyKey: crypto.randomUUID(), guestToken: crypto.randomUUID() })
+
+async function refreshShippingRates() {
+  if (!/^\d{5}$/.test(form.zip.trim()) || !form.name.trim() || !form.address.trim() || !form.city.trim()) return false
+  await cart.ensureLoaded()
+  shippingRateLoading.value = true
+  shippingRateError.value = ''
+  try {
+    const quote = await $fetch<{ cartVersion: number; rates: ShippingRate[] }>('/api/shipping/rates', {
+      method: 'POST',
+      body: {
+        name: form.name,
+        line1: form.address,
+        postalCode: form.zip,
+        city: form.city,
+        region: form.province,
+        phone: form.phone
+      }
+    })
+    shippingRates.value = quote.rates
+    if (!methodRate(shippingMethod.value)) {
+      shippingMethod.value = methodForRate(quote.rates[0]!)
+    }
+    return true
+  } catch (error: any) {
+    shippingRateError.value = error?.data?.statusMessage ?? 'No se han podido calcular los métodos de entrega.'
+    return false
+  } finally {
+    shippingRateLoading.value = false
+  }
+}
+
+let rateTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => [form.name, form.address, form.zip, form.city, form.province, form.phone, cart.version],
+  () => {
+    clearTimeout(rateTimer)
+    rateTimer = setTimeout(() => void refreshShippingRates(), 350)
+  }
+)
 
 // cambiar el método de pago, el envío o los datos invalida el pedido pendiente:
 // el siguiente intento crea un pedido nuevo con la información correcta
@@ -109,18 +183,26 @@ async function submit() {
     scrollToFirstError()
     return
   }
+  if (!(await refreshShippingRates()) || !selectedShippingRate.value) {
+    errorMsg.value = shippingRateError.value || 'Selecciona un método de entrega elegible.'
+    scrollTo('checkout-alert', 'center')
+    return
+  }
 
   submitting.value = true
   try {
     let order = pendingOrder.value
     if (!order) {
+      await cart.ensureLoaded()
+      if (!cart.id) throw new Error('El carrito no está disponible')
       order = await $fetch<{ id: string; token: string }>('/api/orders', {
         method: 'POST',
         body: {
           customer: { ...form },
           shippingMethod: shippingMethod.value,
           paymentMethod: paymentMethod.value,
-          items: cart.items.map((i) => ({ variantId: i.variantId, qty: i.qty })),
+          cartId: cart.id,
+          cartVersion: cart.version,
           idempotencyKey: checkoutAttempt.idempotencyKey,
           guestToken: checkoutAttempt.guestToken,
           termsAccepted: true
@@ -129,7 +211,7 @@ async function submit() {
     }
 
     if (paymentMethod.value === 'transferencia') {
-      finish(order)
+      await finish(order)
       return
     }
 
@@ -146,10 +228,10 @@ async function submit() {
     })
     if (pay.redirect) {
       pendingOrder.value = order
-      cart.clear()
+      await cart.clear()
       submitHostedPayment(pay.redirect)
     } else {
-      finish(order)
+      await finish(order)
     }
   } catch (e: any) {
     errorMsg.value =
@@ -162,8 +244,8 @@ async function submit() {
   }
 }
 
-function finish(order: { id: string; token: string }) {
-  cart.clear()
+async function finish(order: { id: string; token: string }) {
+  await cart.clear()
   toast.add({ title: 'Pedido realizado', icon: 'i-lucide-check-circle-2', color: 'success' })
   navigateTo(`/pedido/${order.id}`)
 }
@@ -249,7 +331,7 @@ function finish(order: { id: string; token: string }) {
             </h2>
             <div class="mt-5 space-y-2">
               <label
-                v-for="m in SHIPPING_METHODS"
+                v-for="m in eligibleShippingMethods"
                 :key="m.value"
                 class="flex cursor-pointer items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 transition"
                 :class="
@@ -262,14 +344,34 @@ function finish(order: { id: string; token: string }) {
                   <input v-model="shippingMethod" type="radio" :value="m.value" class="accent-neteco-500" />
                   <span>
                     <span class="block font-medium text-slate-800">{{ m.label }}</span>
-                    <span class="block text-xs text-slate-500">{{ m.desc }}</span>
+                    <span class="block text-xs text-slate-500">
+                      {{ methodRate(m.value)?.label ?? m.desc }}
+                      <template v-if="methodRate(m.value)?.estimatedDeliveryTo">
+                        · antes del {{ new Date(methodRate(m.value)!.estimatedDeliveryTo).toLocaleDateString('es-ES') }}
+                      </template>
+                    </span>
                   </span>
                 </span>
                 <span class="font-semibold text-slate-800">
-                  {{ m.value === 'envio' ? (cart.subtotal >= 15000 ? 'Gratis' : formatPrice(m.price)) : 'Gratis' }}
+                  {{
+                    m.value === 'envio'
+                      ? cart.subtotal >= 15000
+                        ? 'Gratis'
+                        : formatPrice(
+                            (methodRate(m.value)?.netCents ?? 488) +
+                              Math.round(
+                                ((methodRate(m.value)?.netCents ?? 488) *
+                                  (methodRate(m.value)?.taxRateBasisPoints ?? 2100)) /
+                                  10_000
+                              )
+                          )
+                      : 'Gratis'
+                  }}
                 </span>
               </label>
             </div>
+            <p v-if="shippingRateLoading" class="mt-3 text-sm text-slate-500">Calculando disponibilidad y fecha…</p>
+            <p v-if="shippingRateError" class="mt-3 text-sm text-red-700">{{ shippingRateError }}</p>
             <p
               v-if="zipOutOfZone"
               class="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 p-3 text-sm text-amber-800"

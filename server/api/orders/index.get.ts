@@ -1,11 +1,6 @@
 import { useDatabase } from '../../db/client'
 import { requireVerifiedIdentity } from '../../utils/auth-session'
-
-function publicStatus(orderStatus: string, paymentStatus: string, paymentMethod: string) {
-  if (paymentStatus === 'captured' || paymentStatus === 'authorized') return 'pagado'
-  if (orderStatus === 'cancelled') return 'cancelado'
-  return paymentMethod === 'transferencia' ? 'pendiente_transferencia' : 'pendiente_pago'
-}
+import { publicOrderStatus } from '../../utils/order-status'
 
 export default defineEventHandler(async (event) => {
   const authenticated = await requireVerifiedIdentity(event)
@@ -16,13 +11,15 @@ export default defineEventHandler(async (event) => {
       orderStatus: string
       paymentStatus: string
       paymentMethod: string
+      fulfillmentStatus: string
       total: number
       createdAt: Date
       lines: number
     }>
   >`
     SELECT o.public_number AS id, o.order_status AS "orderStatus", o.payment_status AS "paymentStatus",
-           o.payment_method AS "paymentMethod", o.total_gross_cents AS total,
+           o.payment_method AS "paymentMethod", o.fulfillment_status AS "fulfillmentStatus",
+           o.total_gross_cents AS total,
            o.created_at AS "createdAt", count(lines.id)::int AS lines
     FROM orders o
     JOIN identities identity ON identity.customer_id = o.customer_id
@@ -35,7 +32,7 @@ export default defineEventHandler(async (event) => {
   return {
     orders: orders.map((order) => ({
       id: order.id,
-      status: publicStatus(order.orderStatus, order.paymentStatus, order.paymentMethod),
+      status: publicOrderStatus(order),
       orderStatus: order.orderStatus,
       paymentStatus: order.paymentStatus,
       paymentMethod: order.paymentMethod,

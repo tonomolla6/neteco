@@ -1,13 +1,5 @@
 import { useDatabase } from '../../db/client'
-
-function legacyStatus(orderStatus: string, paymentStatus: string, fulfillmentStatus: string, paymentMethod: string) {
-  if (orderStatus === 'cancelled') return 'cancelado'
-  if (fulfillmentStatus === 'delivered') return 'entregado'
-  if (fulfillmentStatus === 'in_transit') return 'enviado'
-  if (['picking', 'packed', 'ready_for_pickup'].includes(fulfillmentStatus)) return 'preparando'
-  if (['authorized', 'captured'].includes(paymentStatus)) return 'pagado'
-  return paymentMethod === 'transferencia' ? 'pendiente_transferencia' : 'pendiente_pago'
-}
+import { publicOrderStatus } from '../../utils/order-status'
 
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
@@ -29,6 +21,9 @@ export default defineEventHandler(async (event) => {
       total: number
       createdAt: Date
       lines: number
+      shipmentId: string | null
+      trackingNumber: string | null
+      shipmentStatus: string | null
     }>
   >`
     SELECT o.public_number AS id, o.order_status AS "orderStatus", o.payment_status AS "paymentStatus",
@@ -37,17 +32,26 @@ export default defineEventHandler(async (event) => {
            o.customer_snapshot ->> 'company' AS company, o.customer_snapshot ->> 'email' AS email,
            o.shipping_snapshot ->> 'city' AS city, o.payment_method AS "paymentMethod",
            o.shipping_method AS "shippingMethod", o.total_gross_cents AS total,
-           o.created_at AS "createdAt", count(lines.id)::int AS lines
+           o.created_at AS "createdAt", count(lines.id)::int AS lines,
+           shipment.id AS "shipmentId", shipment.tracking_number AS "trackingNumber",
+           shipment.status AS "shipmentStatus"
     FROM orders o
     LEFT JOIN order_lines lines ON lines.order_id = o.id
-    GROUP BY o.id
+    LEFT JOIN LATERAL (
+      SELECT created.id, created.tracking_number, created.status
+      FROM fulfillments fulfillment
+      JOIN shipments created ON created.fulfillment_id = fulfillment.id
+      WHERE fulfillment.order_id = o.id
+      ORDER BY created.created_at DESC LIMIT 1
+    ) shipment ON true
+    GROUP BY o.id, shipment.id, shipment.tracking_number, shipment.status
     ORDER BY o.created_at DESC
     LIMIT 200
   `
   return {
     items: items.map((order) => ({
       ...order,
-      status: legacyStatus(order.orderStatus, order.paymentStatus, order.fulfillmentStatus, order.paymentMethod),
+      status: publicOrderStatus(order),
       createdAt: order.createdAt.toISOString()
     }))
   }

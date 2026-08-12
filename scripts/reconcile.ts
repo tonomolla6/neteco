@@ -11,7 +11,7 @@ try {
     SELECT orders.id, orders.public_number AS "publicNumber"
     FROM orders
     LEFT JOIN invoices invoice ON invoice.order_id = orders.id AND invoice.kind = 'invoice' AND invoice.fiscal_version = 1
-    WHERE orders.payment_status IN ('captured', 'authorized')
+    WHERE orders.payment_status IN ('captured', 'authorized', 'partially_refunded', 'refunded')
       AND invoice.id IS NULL
   `
   for (const order of missing) {

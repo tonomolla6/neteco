@@ -4,6 +4,7 @@ export interface Parcel {
   heightMm: number
   depthMm: number
   contents: Array<{ sku: string; quantity: number }>
+  handling: 'parcel' | 'pallet' | 'adr'
 }
 
 export interface ShippingAddress {
@@ -25,6 +26,7 @@ export interface ShippingRate {
   taxRateBasisPoints: number
   estimatedDeliveryFrom: string
   estimatedDeliveryTo: string
+  profile: 'parcel' | 'multi_parcel' | 'pallet' | 'own_delivery' | 'adr' | 'pickup'
 }
 
 export interface ShipmentResult {
@@ -47,4 +49,9 @@ export interface CarrierProvider {
   cancelShipment(providerShipmentId: string): Promise<void>
   tracking(providerShipmentId: string): Promise<{ status: string; occurredAt: string }[]>
   createReturn(providerShipmentId: string, idempotencyKey: string): Promise<ShipmentResult>
+  schedulePickup(input: {
+    date: string
+    parcelCount: number
+    idempotencyKey: string
+  }): Promise<{ providerPickupId: string; status: 'scheduled' }>
 }

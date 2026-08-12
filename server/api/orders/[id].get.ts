@@ -1,5 +1,6 @@
 import { hashAccessToken } from '../../utils/access-token'
 import { useDatabase } from '../../db/client'
+import { publicOrderStatus } from '../../utils/order-status'
 
 interface OrderRow {
   id: string
@@ -19,12 +20,6 @@ interface OrderRow {
   customer_snapshot: Record<string, string | null>
   shipping_snapshot: Record<string, string | null>
   created_at: Date
-}
-
-function legacyStatus(order: OrderRow) {
-  if (order.payment_status === 'captured' || order.payment_status === 'authorized') return 'pagado'
-  if (order.order_status === 'cancelled') return 'cancelado'
-  return order.payment_method === 'transferencia' ? 'pendiente_transferencia' : 'pendiente_pago'
 }
 
 export default defineEventHandler(async (event) => {
@@ -55,11 +50,23 @@ export default defineEventHandler(async (event) => {
             AND active_session.revoked_at IS NULL AND active_session.expires_at > now()
             AND active_session.session_version = identity.session_version
         )
+        OR EXISTS (
+          SELECT 1
+          FROM auth_sessions staff_session
+          JOIN identity_roles staff_role ON staff_role.identity_id = staff_session.identity_id
+          JOIN role_permissions staff_permission ON staff_permission.role_code = staff_role.role_code
+          WHERE staff_session.identity_id = ${session.user?.id ?? null}
+            AND staff_session.id = ${session.sessionId ?? null}
+            AND staff_session.revoked_at IS NULL AND staff_session.expires_at > now()
+            AND staff_session.mfa_verified = true
+            AND staff_permission.permission_code = 'orders.read'
+            AND (staff_role.expires_at IS NULL OR staff_role.expires_at > now())
+        )
       )
   `
   if (!order) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
-  const items = await sql<Array<{ name: string; format: string; sku: string; price: number; qty: number }>>`
-    SELECT name, variant_name AS format, sku,
+  const items = await sql<Array<{ id: string; name: string; format: string; sku: string; price: number; qty: number }>>`
+    SELECT id, name, variant_name AS format, sku,
            COALESCE((logistics_snapshot ->> 'unitGrossCents')::int, total_gross_cents / quantity) AS price,
            quantity AS qty
     FROM order_lines
@@ -71,7 +78,12 @@ export default defineEventHandler(async (event) => {
   const goodsGross = items.reduce((total, item) => total + item.price * item.qty, 0)
   return {
     id: order.public_number,
-    status: legacyStatus(order),
+    status: publicOrderStatus({
+      orderStatus: order.order_status,
+      paymentStatus: order.payment_status,
+      fulfillmentStatus: order.fulfillment_status,
+      paymentMethod: order.payment_method
+    }),
     orderStatus: order.order_status,
     paymentStatus: order.payment_status,
     inventoryStatus: order.inventory_status,
