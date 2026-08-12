@@ -130,10 +130,17 @@ export default defineEventHandler((event) => {
   if (q.acabado) {
     const list = multi(q.acabado)
     if (list.length) {
+      // «Precortado» agrupa cualquier paso de precorte («Precorte cada 40 cm», «cada 20 cm»…)
       parts.push({
         key: 'acabado',
-        sql: `EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND (${list.map(() => 'v.format LIKE ?').join(' OR ')}))`,
-        params: list.map((a) => `%${a} · Color %`)
+        sql: `EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND (${list
+          .map((a) =>
+            a.toLowerCase() === 'precortado'
+              ? "(v.format LIKE '% · Precorte %' OR v.format LIKE 'Precorte %')"
+              : 'v.format LIKE ?'
+          )
+          .join(' OR ')}))`,
+        params: list.filter((a) => a.toLowerCase() !== 'precortado').map((a) => `%${a} · Color %`)
       })
     }
   }
@@ -284,22 +291,26 @@ export default defineEventHandler((event) => {
     const colores = [...colorMap.entries()]
       .map(([value, e]) => ({ value, n: e.pids.size, hex: e.hex }))
       .sort((a, b) => b.n - a.n || a.value.localeCompare(b.value))
-    const tallyAxis = (excludeKey: string, wantMedida: boolean) => {
+    const tallyAxis = (excludeKey: string, wantMedida: boolean, normalize = (s: string) => s) => {
       const map = new Map<string, Set<number>>()
       for (const r of variantRowsFor(excludeKey)) {
         const { axes, colorName } = parseAxes(r.format)
         if (!colorName) continue
         for (const a of axes) {
-          if (/\d/.test(a) !== wantMedida) continue
-          const s = map.get(a) ?? new Set<number>()
+          // medida = lleva números y NO habla de precorte («Precorte cada 40 cm» es acabado)
+          const esMedida = /\d/.test(a) && !/precort/i.test(a)
+          if (esMedida !== wantMedida) continue
+          const val = normalize(a)
+          const s = map.get(val) ?? new Set<number>()
           s.add(r.pid)
-          map.set(a, s)
+          map.set(val, s)
         }
       }
       return [...map.entries()].map(([value, s]) => ({ value, n: s.size })).sort((a, b) => b.n - a.n)
     }
     const medidas = tallyAxis('medida', true)
-    const acabados = tallyAxis('acabado', false)
+    // los precortes con paso distinto («cada 40 cm», «cada 20 cm») se agrupan como «Precortado»
+    const acabados = tallyAxis('acabado', false, (s) => (/^precorte\s/i.test(s) ? 'Precortado' : s))
 
     // distribución por categoría directa (útil en la página de búsqueda)
     const catNames = new Map(

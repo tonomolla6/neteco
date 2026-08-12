@@ -5,7 +5,7 @@ export default defineEventHandler((event) => {
   const product = db
     .prepare(
       `SELECT id, name, slug, brand, category_id AS categoryId, short_desc AS shortDesc,
-              description, usage, badges, visual, image, datasheet, featured, series
+              description, usage, badges, visual, image, datasheet, featured, series, attrs
        FROM products WHERE slug = ? AND active = 1`
     )
     .get(slug) as any
@@ -13,6 +13,7 @@ export default defineEventHandler((event) => {
 
   product.badges = JSON.parse(product.badges)
   product.visual = JSON.parse(product.visual)
+  product.attrs = JSON.parse(product.attrs ?? '[]')
 
   const variants = db
     .prepare(

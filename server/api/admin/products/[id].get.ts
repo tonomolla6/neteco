@@ -6,7 +6,7 @@ export default defineEventHandler(async (event) => {
   const product = db
     .prepare(
       `SELECT id, name, slug, brand, category_id AS categoryId, short_desc AS shortDesc,
-              description, usage, badges, visual, featured, active, series
+              description, usage, badges, visual, featured, active, series, attrs
        FROM products WHERE id = ?`
     )
     .get(id) as any
@@ -14,6 +14,7 @@ export default defineEventHandler(async (event) => {
 
   product.badges = JSON.parse(product.badges)
   product.visual = JSON.parse(product.visual)
+  product.attrs = JSON.parse(product.attrs ?? '[]')
   product.featured = !!product.featured
   product.active = !!product.active
   product.variants = db

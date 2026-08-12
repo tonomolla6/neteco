@@ -13,8 +13,8 @@ export default defineEventHandler(async (event) => {
     const id = db.transaction(() => {
       const info = db
         .prepare(
-          `INSERT INTO products (name, slug, brand, category_id, short_desc, description, usage, badges, visual, featured, active, series)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO products (name, slug, brand, category_id, short_desc, description, usage, badges, visual, featured, active, series, attrs)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           body.name,
@@ -28,7 +28,8 @@ export default defineEventHandler(async (event) => {
           JSON.stringify(body.visual),
           body.featured ? 1 : 0,
           body.active ? 1 : 0,
-          body.series || null
+          body.series || null,
+          JSON.stringify(body.attrs)
         )
       const pid = Number(info.lastInsertRowid)
       const ins = db.prepare(

@@ -17,6 +17,15 @@ export const productInput = z.object({
   featured: z.boolean().default(false),
   active: z.boolean().default(true),
   series: z.string().trim().optional().nullable(),
+  // características técnicas ordenadas (Material, Gramaje, EAN…); el orden del array es el de la ficha
+  attrs: z
+    .array(
+      z.object({
+        k: z.string().trim().min(1, 'Hay una característica sin nombre'),
+        v: z.string().trim().min(1, 'Hay una característica sin valor')
+      })
+    )
+    .default([]),
   variants: z
     .array(
       z.object({

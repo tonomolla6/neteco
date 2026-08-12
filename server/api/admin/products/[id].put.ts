@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     db.transaction(() => {
       db.prepare(
         `UPDATE products SET name = ?, slug = ?, brand = ?, category_id = ?, short_desc = ?, description = ?,
-           usage = ?, badges = ?, visual = ?, featured = ?, active = ?, series = ? WHERE id = ?`
+           usage = ?, badges = ?, visual = ?, featured = ?, active = ?, series = ?, attrs = ? WHERE id = ?`
       ).run(
         body.name,
         slug,
@@ -32,6 +32,7 @@ export default defineEventHandler(async (event) => {
         body.featured ? 1 : 0,
         body.active ? 1 : 0,
         body.series || null,
+        JSON.stringify(body.attrs),
         id
       )
 

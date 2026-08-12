@@ -120,6 +120,8 @@ function migrate(db: Database.Database) {
   addColumn('products', 'datasheet', 'datasheet TEXT')
   // 0 = oculto/descatalogado: no aparece en la web pero se conserva con todo su histórico
   addColumn('products', 'active', 'active INTEGER NOT NULL DEFAULT 1')
+  // características técnicas ordenadas: JSON [{k: 'Material', v: 'Airlaid'}, …] (estilo tabla técnica GdP)
+  addColumn('products', 'attrs', "attrs TEXT NOT NULL DEFAULT '[]'")
   // color (hex) e imagen propios de cada variante (p. ej. mantelería por colores)
   addColumn('variants', 'color', 'color TEXT')
   addColumn('variants', 'image', 'image TEXT')
