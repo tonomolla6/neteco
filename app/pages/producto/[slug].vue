@@ -2,6 +2,7 @@
 import { useCartStore } from '~/stores/cart'
 
 const route = useRoute()
+const { loggedIn } = useUserSession()
 const { data: product, error } = await useFetch<any>(`/api/products/${route.params.slug}`)
 if (error.value || !product.value) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
@@ -83,6 +84,22 @@ function perUnit(v: any): string | null {
 
 const cart = useCartStore()
 const toast = useToast()
+
+async function addFavorite() {
+  if (!loggedIn.value) {
+    await navigateTo(`/login?redirect=${encodeURIComponent(route.fullPath)}`)
+    return
+  }
+  try {
+    await $fetch('/api/account/favorites', {
+      method: 'POST',
+      body: { variantId: selected.value.uuid, quantity: qty.value }
+    })
+    toast.add({ title: 'Guardado en favoritos', icon: 'i-lucide-heart', color: 'success' })
+  } catch {
+    toast.add({ title: 'No se ha podido guardar', icon: 'i-lucide-triangle-alert', color: 'error' })
+  }
+}
 
 async function addToCart(goToCart = false) {
   try {
@@ -297,6 +314,16 @@ async function addToCart(goToCart = false) {
           </UButton>
           <UButton size="xl" variant="soft" icon="i-lucide-zap" class="justify-center" @click="addToCart(true)">
             Comprar ahora
+          </UButton>
+          <UButton
+            size="xl"
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-heart"
+            class="justify-center"
+            @click="addFavorite"
+          >
+            Favorito
           </UButton>
         </div>
 

@@ -14,6 +14,7 @@ export interface IdentityProfile {
   emailVerified: boolean
   mfaEnabled: boolean
   roles: string[]
+  company: string | null
 }
 
 const ROLE_PRIORITY = ['admin', 'finance', 'publisher', 'catalog_editor', 'warehouse', 'support', 'customer']
@@ -27,7 +28,7 @@ export async function identityProfile(identityId: string) {
   const [identity] = await sql<IdentityProfile[]>`
     SELECT i.id, i.email::text, c.name, c.phone, i.status,
            i.session_version AS "sessionVersion", i.email_verified_at IS NOT NULL AS "emailVerified",
-           mfa.verified_at IS NOT NULL AS "mfaEnabled",
+           mfa.verified_at IS NOT NULL AS "mfaEnabled", company.legal_name AS company,
            COALESCE(array_agg(DISTINCT roles.role_code) FILTER (WHERE roles.role_code IS NOT NULL),
                     ARRAY['customer']::text[]) AS roles
     FROM identities i
@@ -35,8 +36,16 @@ export async function identityProfile(identityId: string) {
     LEFT JOIN identity_roles roles ON roles.identity_id = i.id
       AND (roles.expires_at IS NULL OR roles.expires_at > now())
     LEFT JOIN identity_mfa mfa ON mfa.identity_id = i.id
+    LEFT JOIN LATERAL (
+      SELECT organizations.legal_name
+      FROM company_members membership
+      JOIN companies organizations ON organizations.id = membership.company_id
+      WHERE membership.identity_id = i.id AND membership.status = 'active'
+      ORDER BY membership.accepted_at NULLS LAST, organizations.created_at
+      LIMIT 1
+    ) company ON true
     WHERE i.id = ${identityId}
-    GROUP BY i.id, c.name, c.phone, mfa.verified_at
+    GROUP BY i.id, c.name, c.phone, mfa.verified_at, company.legal_name
   `
   return identity
 }
@@ -47,7 +56,7 @@ function publicUser(profile: IdentityProfile, mfaVerified: boolean) {
     email: profile.email,
     name: profile.name,
     phone: profile.phone,
-    company: null,
+    company: profile.company,
     role: primaryRole(profile.roles),
     roles: profile.roles,
     emailVerified: profile.emailVerified,

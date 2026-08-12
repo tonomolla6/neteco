@@ -8,8 +8,9 @@ interface OutboxEvent {
   payload: {
     recipient: string
     name?: string
-    tokenEnvelope: string
-    expiresAt: string
+    tokenEnvelope?: string
+    expiresAt?: string
+    occurredAt?: string
   }
   attempts: number
 }
@@ -32,7 +33,11 @@ async function claim(): Promise<OutboxEvent | undefined> {
       FROM outbox_events
       WHERE status IN ('pending', 'retry')
         AND available_at <= now()
-        AND event_type IN ('identity.verification.requested', 'identity.password_reset.requested')
+        AND event_type IN (
+          'identity.verification.requested', 'identity.password_reset.requested',
+          'identity.email_change.requested', 'identity.security.password_changed',
+          'identity.security.email_changed'
+        )
       ORDER BY created_at
       FOR UPDATE SKIP LOCKED
       LIMIT 1
@@ -48,13 +53,6 @@ async function claim(): Promise<OutboxEvent | undefined> {
 }
 
 function render(event: OutboxEvent) {
-  const token = decryptSecret(event.payload.tokenEnvelope, encryptionKey!)
-  const path = event.eventType === 'identity.verification.requested' ? '/verificar-email' : '/restablecer-clave'
-  const link = new URL(path, baseUrl)
-  link.searchParams.set('token', token)
-  const verification = event.eventType === 'identity.verification.requested'
-  const subject = verification ? 'Verifica tu cuenta de NETECO' : 'Restablece tu contraseña de NETECO'
-  const action = verification ? 'verificar tu dirección de correo' : 'elegir una nueva contraseña'
   const displayName = event.payload.name?.trim() || 'Hola'
   const safeName = displayName
     .replaceAll('&', '&amp;')
@@ -62,6 +60,41 @@ function render(event: OutboxEvent) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
+  if (event.eventType === 'identity.security.password_changed') {
+    return {
+      messageId: event.id,
+      to: event.payload.recipient,
+      subject: 'Tu contraseña de NETECO ha cambiado',
+      text: `${displayName}: la contraseña de tu cuenta NETECO ha cambiado. Si no has sido tú, contacta con soporte de inmediato.`,
+      html: `<p>${safeName}:</p><p>La contraseña de tu cuenta NETECO ha cambiado.</p><p>Si no has sido tú, contacta con soporte de inmediato.</p>`
+    }
+  }
+  if (event.eventType === 'identity.security.email_changed') {
+    return {
+      messageId: event.id,
+      to: event.payload.recipient,
+      subject: 'El email de tu cuenta NETECO ha cambiado',
+      text: `${displayName}: el email de acceso a tu cuenta NETECO ha cambiado. Si no has sido tú, contacta con soporte de inmediato.`,
+      html: `<p>${safeName}:</p><p>El email de acceso a tu cuenta NETECO ha cambiado.</p><p>Si no has sido tú, contacta con soporte de inmediato.</p>`
+    }
+  }
+  if (!event.payload.tokenEnvelope || !event.payload.expiresAt) throw new Error('Email token payload is incomplete')
+  const token = decryptSecret(event.payload.tokenEnvelope, encryptionKey!)
+  const verification = event.eventType === 'identity.verification.requested'
+  const emailChange = event.eventType === 'identity.email_change.requested'
+  const path = verification || emailChange ? '/verificar-email' : '/restablecer-clave'
+  const link = new URL(path, baseUrl)
+  link.searchParams.set('token', token)
+  const subject = verification
+    ? 'Verifica tu cuenta de NETECO'
+    : emailChange
+      ? 'Confirma tu nuevo email de NETECO'
+      : 'Restablece tu contraseña de NETECO'
+  const action = verification
+    ? 'verificar tu dirección de correo'
+    : emailChange
+      ? 'confirmar el nuevo email de tu cuenta'
+      : 'elegir una nueva contraseña'
   const safeLink = link.toString().replaceAll('&', '&amp;').replaceAll('"', '&quot;')
   return {
     messageId: event.id,

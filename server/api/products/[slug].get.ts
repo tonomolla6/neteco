@@ -36,6 +36,7 @@ export default defineEventHandler(async (event) => {
 
   const variants = await sql<
     Array<{
+      uuid: string
       id: number
       format: string
       sku: string
@@ -47,7 +48,7 @@ export default defineEventHandler(async (event) => {
       image: string | null
     }>
   >`
-    SELECT v.legacy_id AS id, v.format, v.sku, v.price_gross_cents AS price,
+    SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.price_gross_cents AS price,
            greatest(
              COALESCE(sum(ib.physical_quantity - ib.blocked_quantity), 0)
              - v.safety_stock

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { useDatabase } from '../../db/client'
 import { identityProfile, startAuthenticatedSession } from '../../utils/auth-session'
@@ -17,7 +18,9 @@ const schema = z.object({
   email: z.string().trim().email().max(254),
   password: passwordSchema,
   phone: z.string().trim().max(32).optional(),
-  company: z.string().trim().max(160).optional()
+  company: z.string().trim().max(160).optional(),
+  termsAccepted: z.literal(true),
+  newsletter: z.boolean().default(false)
 })
 
 export default defineEventHandler(async (event) => {
@@ -50,6 +53,36 @@ export default defineEventHandler(async (event) => {
       if (!identity) throw new Error('Identity insert returned no row')
       await transaction`
         INSERT INTO identity_roles (identity_id, role_code) VALUES (${identity.id}, 'customer')
+      `
+      if (body.company) {
+        const [company] = await transaction<{ id: string }[]>`
+          INSERT INTO companies (legal_name, trade_name, status)
+          VALUES (${body.company}, ${body.company}, 'pending') RETURNING id
+        `
+        if (!company) throw new Error('Company insert returned no row')
+        await transaction`
+          INSERT INTO company_locations (company_id, name, code, billing_email)
+          VALUES (${company.id}, 'Sede principal', 'MAIN', ${normalizedEmail})
+        `
+        await transaction`
+          INSERT INTO company_members (company_id, identity_id, role, status, accepted_at)
+          VALUES (${company.id}, ${identity.id}, 'company_admin', 'active', now())
+        `
+      }
+      await transaction`
+        INSERT INTO customer_preferences (customer_id, purpose, channel, enabled)
+        VALUES (${customer.id}, 'transactional', 'email', true),
+               (${customer.id}, 'newsletter', 'email', ${body.newsletter})
+      `
+      const accountTextHash = createHash('sha256').update('account-terms-and-privacy-2026-08-12').digest('hex')
+      const newsletterTextHash = createHash('sha256').update('newsletter-2026-08-12').digest('hex')
+      await transaction`
+        INSERT INTO consent_events (customer_id, purpose, channel, action, policy_version, text_hash, source)
+        VALUES
+          (${customer.id}, 'account_terms_and_privacy', 'web', 'granted', 'privacy-2026-08-12',
+           ${accountTextHash}, 'registration'),
+          (${customer.id}, 'newsletter', 'email', ${body.newsletter ? 'granted' : 'withdrawn'},
+           'communications-2026-08-12', ${newsletterTextHash}, 'registration')
       `
       await transaction`
         INSERT INTO identity_tokens (identity_id, purpose, token_hash, expires_at)

@@ -29,7 +29,12 @@ const cards = computed(() => [
     icon: 'i-lucide-receipt-text',
     to: '/admin/pedidos'
   },
-  { label: 'Clientes registrados', value: (stats.value as any)?.users ?? '—', icon: 'i-lucide-users', to: '/admin' }
+  {
+    label: 'Clientes registrados',
+    value: (stats.value as any)?.users ?? '—',
+    icon: 'i-lucide-users',
+    to: '/admin/clientes'
+  }
 ])
 </script>
 

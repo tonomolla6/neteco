@@ -6,9 +6,14 @@ const { fetch: refreshSession } = useUserSession()
 useSeoMeta({ title: 'Verificar email', robots: 'noindex, nofollow' })
 
 const status = ref<'loading' | 'success' | 'error'>('loading')
+const emailChanged = ref(false)
 onMounted(async () => {
   try {
-    await $fetch('/api/auth/verify-email', { method: 'POST', body: { token } })
+    const result = await $fetch<{ emailChanged?: boolean }>('/api/auth/verify-email', {
+      method: 'POST',
+      body: { token }
+    })
+    emailChanged.value = result.emailChanged ?? false
     await refreshSession()
     status.value = 'success'
   } catch {
@@ -37,18 +42,32 @@ onMounted(async () => {
       "
     />
     <h1 class="mt-5 text-2xl font-bold text-slate-900">
-      {{ status === 'loading' ? 'Verificando…' : status === 'success' ? 'Email verificado' : 'Enlace no válido' }}
+      {{
+        status === 'loading'
+          ? 'Verificando…'
+          : status === 'success'
+            ? emailChanged
+              ? 'Email actualizado'
+              : 'Email verificado'
+            : 'Enlace no válido'
+      }}
     </h1>
     <p class="mt-2 text-slate-600">
       {{
         status === 'success'
-          ? 'Tu cuenta ya está activa.'
+          ? emailChanged
+            ? 'El nuevo email ya está activo. Por seguridad, inicia sesión de nuevo.'
+            : 'Tu cuenta ya está activa.'
           : status === 'error'
             ? 'El enlace puede haber caducado o haberse utilizado ya.'
             : 'Estamos comprobando el enlace de un solo uso.'
       }}
     </p>
-    <UButton v-if="status !== 'loading'" :to="status === 'success' ? '/cuenta' : '/login'" class="mt-6">
+    <UButton
+      v-if="status !== 'loading'"
+      :to="status === 'success' && !emailChanged ? '/cuenta' : '/login'"
+      class="mt-6"
+    >
       Continuar
     </UButton>
   </main>

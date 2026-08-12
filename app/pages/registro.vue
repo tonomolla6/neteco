@@ -10,7 +10,9 @@ const form = reactive({
   phone: '',
   email: String(route.query.email ?? ''),
   password: '',
-  password2: ''
+  password2: '',
+  termsAccepted: false,
+  newsletter: false
 })
 const loading = ref(false)
 const errorMsg = ref('')
@@ -29,6 +31,10 @@ async function submit() {
     errorMsg.value = 'Las contraseñas no coinciden.'
     return
   }
+  if (!form.termsAccepted) {
+    errorMsg.value = 'Debes aceptar las condiciones de la cuenta y la política de privacidad.'
+    return
+  }
   loading.value = true
   try {
     await $fetch('/api/auth/register', {
@@ -38,7 +44,9 @@ async function submit() {
         email: form.email,
         password: form.password,
         phone: form.phone || undefined,
-        company: form.company || undefined
+        company: form.company || undefined,
+        termsAccepted: form.termsAccepted,
+        newsletter: form.newsletter
       }
     })
     await refreshSession()
@@ -91,6 +99,13 @@ async function submit() {
             icon="i-lucide-lock"
           />
         </UFormField>
+
+        <UCheckbox
+          v-model="form.termsAccepted"
+          required
+          label="Acepto las condiciones de la cuenta y la política de privacidad"
+        />
+        <UCheckbox v-model="form.newsletter" label="Quiero recibir novedades por email (opcional)" />
 
         <UAlert v-if="errorMsg" color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />
 
