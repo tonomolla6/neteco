@@ -125,7 +125,21 @@ interface Pill {
   label: string
   remove: () => void
 }
-const allFamilies = computed(() => familyTree.value.flatMap((r: any) => r.children))
+// chips en dos niveles: grupos temáticos (mismos que el mega-menú) → familias del grupo
+const chipGroups = computed(() =>
+  familyTree.value.flatMap((root: any) =>
+    root.children.length > 8
+      ? groupFamilies(root.children)
+      : [{ title: root.name, items: root.children }]
+  )
+)
+const groupOfSelected = computed(
+  () => chipGroups.value.find((g: any) => g.items.some((i: any) => i.slug === selectedCategory.value))?.title ?? ''
+)
+const selectedGroup = ref(groupOfSelected.value)
+const activeGroupItems = computed(
+  () => chipGroups.value.find((g: any) => g.title === selectedGroup.value)?.items ?? []
+)
 
 const pills = computed<Pill[]>(() => [
   ...filters.brands.map((v) => ({ label: v, remove: () => filters.brands.splice(filters.brands.indexOf(v), 1) })),
@@ -221,35 +235,61 @@ function pickCategory(slug: string) {
       </div>
     </div>
 
-    <!-- familias: acceso rápido encima del listado -->
-    <div class="-mx-4 mt-5 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0">
-      <button
-        class="shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-        :class="
-          !selectedCategory
-            ? 'border-neteco-600 bg-neteco-600 text-white'
-            : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-        "
-        @click="selectedCategory = ''"
+    <!-- familias en dos niveles: grupos temáticos → familias del grupo elegido -->
+    <div class="mt-5 space-y-2">
+      <div class="-mx-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0">
+        <button
+          class="shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            !selectedCategory && !selectedGroup
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="selectedGroup = ''; selectedCategory = ''"
+        >
+          Todas
+        </button>
+        <button
+          v-for="g in chipGroups"
+          :key="g.title"
+          :aria-expanded="selectedGroup === g.title"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            selectedGroup === g.title || groupOfSelected === g.title
+              ? 'border-neteco-500 bg-neteco-50 text-neteco-700'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="selectedGroup = selectedGroup === g.title ? '' : g.title"
+        >
+          {{ g.title }}
+          <UIcon
+            name="i-lucide-chevron-down"
+            class="size-3.5 opacity-60 transition-transform"
+            :class="selectedGroup === g.title ? 'rotate-180' : ''"
+          />
+        </button>
+      </div>
+
+      <div
+        v-if="activeGroupItems.length"
+        class="-mx-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
       >
-        Todas
-      </button>
-      <button
-        v-for="child in allFamilies"
-        :key="child.id"
-        :aria-pressed="selectedCategory === child.slug"
-        class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-        :class="
-          selectedCategory === child.slug
-            ? 'border-neteco-600 bg-neteco-600 text-white'
-            : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-        "
-        @click="pickCategory(child.slug)"
-      >
-        <span class="size-2 shrink-0 rounded-full" :style="{ background: familyColor(child.slug) }" aria-hidden="true" />
-        {{ child.name }}
-        <span :class="selectedCategory === child.slug ? 'text-neteco-100' : 'text-slate-400'">{{ child.count }}</span>
-      </button>
+        <button
+          v-for="child in activeGroupItems"
+          :key="child.id"
+          :aria-pressed="selectedCategory === child.slug"
+          class="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            selectedCategory === child.slug
+              ? 'border-neteco-600 bg-neteco-600 font-medium text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="pickCategory(child.slug)"
+        >
+          {{ child.name }}
+          <span :class="selectedCategory === child.slug ? 'text-neteco-100' : 'text-slate-400'">{{ child.count }}</span>
+        </button>
+      </div>
     </div>
 
     <!-- filtros activos -->

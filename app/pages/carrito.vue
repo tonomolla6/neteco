@@ -24,12 +24,12 @@ function confirmClear() {
             :key="item.variantId"
             class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-slate-200 bg-white p-4"
           >
-            <NuxtLink :to="`/producto/${item.slug}`" tabindex="-1" aria-hidden="true" class="w-14 shrink-0 sm:w-20">
+            <NuxtLink :to="`/producto/${item.slug}?sku=${item.sku}`" tabindex="-1" aria-hidden="true" class="w-14 shrink-0 sm:w-20">
               <ProductImage :product="item" />
             </NuxtLink>
             <div class="min-w-0 flex-1 basis-40">
               <NuxtLink
-                :to="`/producto/${item.slug}`"
+                :to="`/producto/${item.slug}?sku=${item.sku}`"
                 class="line-clamp-2 text-sm font-medium text-slate-800 hover:text-neteco-700"
               >
                 {{ item.name }}

@@ -197,10 +197,7 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
     <!-- cabecera -->
     <div class="mt-3 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 class="flex items-center gap-2.5 text-2xl font-bold text-slate-900 sm:text-3xl">
-          <span class="size-3 shrink-0 rounded" :style="{ background: familyColor(slug) }" aria-hidden="true" />
-          {{ category.name }}
-        </h1>
+        <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">{{ category.name }}</h1>
         <p class="mt-1 text-sm text-slate-500">
           {{ total }} producto{{ total === 1 ? '' : 's' }}
         </p>

@@ -34,9 +34,6 @@ const showBrand = computed(
       <p class="truncate text-sm font-semibold text-slate-800 group-hover:text-neteco-700">
         {{ product.name }}
       </p>
-      <p v-if="product.shortDesc" class="mt-0.5 line-clamp-1 text-xs text-slate-500">
-        {{ product.shortDesc }}
-      </p>
       <div v-if="product.badges.length" class="mt-1 flex flex-wrap gap-1">
         <UBadge
           v-for="b in product.badges"

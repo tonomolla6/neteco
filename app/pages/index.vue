@@ -152,11 +152,8 @@ const sectors = [
           :to="`/categoria/${f.slug}`"
           class="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-neteco-300 hover:shadow-md"
         >
-          <p class="flex items-start gap-2 font-medium leading-snug text-slate-800 group-hover:text-neteco-700">
-            <span class="mt-1.5 size-2.5 shrink-0 rounded-full" :style="{ background: familyColor(f.slug) }" aria-hidden="true" />
-            {{ f.name }}
-          </p>
-          <p class="mt-1 pl-[18px] text-xs text-slate-500">{{ f.count }} producto{{ f.count === 1 ? '' : 's' }}</p>
+          <p class="font-medium leading-snug text-slate-800 group-hover:text-neteco-700">{{ f.name }}</p>
+          <p class="mt-1 text-xs text-slate-500">{{ f.count }} producto{{ f.count === 1 ? '' : 's' }}</p>
         </NuxtLink>
       </div>
     </section>
@@ -179,7 +176,7 @@ const sectors = [
       <div class="mb-5 flex items-end justify-between gap-3">
         <div>
           <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            <span class="size-2 rounded-full" :style="{ background: familyColor(row.slug) }" /> Familia
+            <span class="size-2 rounded-full bg-neteco-500" /> Familia
           </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">{{ row.name }}</h2>
         </div>
