@@ -16,7 +16,19 @@ if (!isNew && !existing.value) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
 
-const VISUAL_TYPES = ['garrafa', 'botella', 'spray', 'caja', 'saco', 'capsulas', 'difusor', 'cubo', 'rollo', 'vaso', 'guante']
+const VISUAL_TYPES = [
+  'garrafa',
+  'botella',
+  'spray',
+  'caja',
+  'saco',
+  'capsulas',
+  'difusor',
+  'cubo',
+  'rollo',
+  'vaso',
+  'guante'
+]
 
 const e = existing.value as any
 const form = reactive({
@@ -118,7 +130,9 @@ async function removeProduct() {
   <div class="mx-auto max-w-4xl">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h1 class="text-2xl font-bold text-slate-900">{{ isNew ? 'Nuevo producto' : 'Editar producto' }}</h1>
-      <NuxtLink to="/admin/productos" class="text-sm text-slate-500 hover:text-neteco-600">← Volver al listado</NuxtLink>
+      <NuxtLink to="/admin/productos" class="text-sm text-slate-500 hover:text-neteco-600"
+        >← Volver al listado</NuxtLink
+      >
     </div>
 
     <form class="mt-6 space-y-6" @submit.prevent="save">
@@ -146,10 +160,10 @@ async function removeProduct() {
           </UFormField>
           <div class="flex flex-wrap items-end gap-6 pb-1">
             <label class="flex items-center gap-2 text-sm text-slate-700">
-              <input v-model="form.featured" type="checkbox" class="size-4 accent-neteco-600" > Destacado en portada
+              <input v-model="form.featured" type="checkbox" class="size-4 accent-neteco-600" /> Destacado en portada
             </label>
             <label class="flex items-center gap-2 text-sm text-slate-700">
-              <input v-model="form.active" type="checkbox" class="size-4 accent-neteco-600" > Visible en la tienda
+              <input v-model="form.active" type="checkbox" class="size-4 accent-neteco-600" /> Visible en la tienda
             </label>
           </div>
         </div>
@@ -157,7 +171,12 @@ async function removeProduct() {
         <div class="mt-4 flex flex-wrap gap-4">
           <span class="text-sm font-medium text-slate-700">Sellos:</span>
           <label v-for="(b, key) in BADGES" :key="key" class="flex items-center gap-1.5 text-sm text-slate-600">
-            <input type="checkbox" :checked="form.badges.includes(String(key))" class="size-4 accent-neteco-600" @change="toggleBadge(String(key))" >
+            <input
+              type="checkbox"
+              :checked="form.badges.includes(String(key))"
+              class="size-4 accent-neteco-600"
+              @change="toggleBadge(String(key))"
+            />
             {{ b.label }}
           </label>
         </div>
@@ -182,7 +201,9 @@ async function removeProduct() {
       <!-- visual -->
       <section class="rounded-2xl border border-slate-200 bg-white p-6">
         <h2 class="font-bold text-slate-900">Ilustración provisional</h2>
-        <p class="mt-1 text-sm text-slate-500">Hasta que haya fotos reales, cada producto usa un envase dibujado con un color identificativo.</p>
+        <p class="mt-1 text-sm text-slate-500">
+          Hasta que haya fotos reales, cada producto usa un envase dibujado con un color identificativo.
+        </p>
         <div class="mt-4 flex flex-wrap items-center gap-6">
           <div class="w-28"><ProductVisual :visual="form.visual" /></div>
           <UFormField label="Tipo de envase">
@@ -194,7 +215,11 @@ async function removeProduct() {
             </select>
           </UFormField>
           <UFormField label="Color">
-            <input v-model="form.visual.color" type="color" class="h-9 w-16 cursor-pointer rounded border border-slate-300" >
+            <input
+              v-model="form.visual.color"
+              type="color"
+              class="h-9 w-16 cursor-pointer rounded border border-slate-300"
+            />
           </UFormField>
         </div>
       </section>
@@ -206,8 +231,8 @@ async function removeProduct() {
           <UButton size="sm" variant="soft" icon="i-lucide-plus" @click="addVariant">Añadir variante</UButton>
         </div>
         <p class="mt-1 text-sm text-slate-500">
-          La <strong>referencia</strong> debe ser el código de artículo del ERP. El precio va en euros, <strong>IVA incluido</strong>;
-          el €/ud–€/L se calcula solo a partir del formato.
+          La <strong>referencia</strong> debe ser el código de artículo del ERP. El precio va en euros,
+          <strong>IVA incluido</strong>; el €/ud–€/L se calcula solo a partir del formato.
         </p>
         <div class="mt-4 space-y-2">
           <div
@@ -221,17 +246,28 @@ async function removeProduct() {
             <UFormField label="Referencia ERP" :ui="{ label: 'text-xs' }">
               <UInput v-model="v.sku" placeholder="1133" class="w-full" />
             </UFormField>
-            <UFormField label="Color (hex)" :ui="{ label: 'text-xs' }" class="order-last col-span-2 sm:order-none sm:col-span-1">
+            <UFormField
+              label="Color (hex)"
+              :ui="{ label: 'text-xs' }"
+              class="order-last col-span-2 sm:order-none sm:col-span-1"
+            >
               <div class="flex items-center gap-1.5">
-                <span class="size-5 shrink-0 rounded-full border border-black/15" :style="{ backgroundColor: v.color || '#ffffff' }" />
+                <span
+                  class="size-5 shrink-0 rounded-full border border-black/15"
+                  :style="{ backgroundColor: v.color || '#ffffff' }"
+                />
                 <input
                   v-model="v.color"
                   placeholder="#f7c600"
                   class="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs focus:border-neteco-500 focus:outline-none"
-                >
+                />
               </div>
             </UFormField>
-            <UFormField label="Imagen (ruta)" :ui="{ label: 'text-xs' }" class="order-last col-span-2 sm:order-none sm:col-span-1">
+            <UFormField
+              label="Imagen (ruta)"
+              :ui="{ label: 'text-xs' }"
+              class="order-last col-span-2 sm:order-none sm:col-span-1"
+            >
               <UInput v-model="v.image" placeholder="/img/products/…" class="w-full" />
             </UFormField>
             <UFormField label="Precio € (IVA inc.)" :ui="{ label: 'text-xs' }">
@@ -241,7 +277,7 @@ async function removeProduct() {
                 step="0.01"
                 min="0"
                 class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-neteco-500 focus:outline-none"
-              >
+              />
             </UFormField>
             <UFormField label="Stock" :ui="{ label: 'text-xs' }">
               <input
@@ -249,7 +285,7 @@ async function removeProduct() {
                 type="number"
                 min="0"
                 class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-neteco-500 focus:outline-none"
-              >
+              />
             </UFormField>
             <UButton
               size="sm"
@@ -265,11 +301,15 @@ async function removeProduct() {
       </section>
 
       <div class="flex flex-wrap items-center justify-between gap-3 pb-10">
-        <UButton v-if="!isNew" color="error" variant="soft" icon="i-lucide-trash-2" @click="removeProduct">Eliminar producto</UButton>
+        <UButton v-if="!isNew" color="error" variant="soft" icon="i-lucide-trash-2" @click="removeProduct"
+          >Eliminar producto</UButton
+        >
         <span v-else />
         <div class="flex gap-2">
           <UButton to="/admin/productos" variant="ghost" color="neutral">Cancelar</UButton>
-          <UButton type="submit" icon="i-lucide-save" :loading="saving">{{ isNew ? 'Crear producto' : 'Guardar cambios' }}</UButton>
+          <UButton type="submit" icon="i-lucide-save" :loading="saving">{{
+            isNew ? 'Crear producto' : 'Guardar cambios'
+          }}</UButton>
         </div>
       </div>
     </form>

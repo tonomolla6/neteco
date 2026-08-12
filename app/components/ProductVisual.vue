@@ -20,7 +20,10 @@ const color = computed(() => props.visual?.color ?? '#009ac9')
 
       <template v-else-if="type === 'botella'">
         <rect x="50" y="17" width="20" height="11" rx="3" :fill="color" stroke="none" />
-        <path d="M53 28 h14 v6 c6 4 9 8 9 14 v46 a10 10 0 0 1 -10 10 h-12 a10 10 0 0 1 -10 -10 V48 c0-6 3-10 9-14 z" fill="#fff" />
+        <path
+          d="M53 28 h14 v6 c6 4 9 8 9 14 v46 a10 10 0 0 1 -10 10 h-12 a10 10 0 0 1 -10 -10 V48 c0-6 3-10 9-14 z"
+          fill="#fff"
+        />
         <rect x="50" y="56" width="20" height="28" rx="3" :fill="color" opacity="0.14" stroke="none" />
         <rect x="50" y="56" width="20" height="8" rx="3" :fill="color" stroke="none" />
       </template>
@@ -52,7 +55,10 @@ const color = computed(() => props.visual?.color ?? '#009ac9')
       </template>
 
       <template v-else-if="type === 'capsulas'">
-        <path d="M36 42 h48 a6 6 0 0 1 6 6 v48 a8 8 0 0 1 -8 8 h-44 a8 8 0 0 1 -8 -8 V48 a6 6 0 0 1 6 -6 z" fill="#fff" />
+        <path
+          d="M36 42 h48 a6 6 0 0 1 6 6 v48 a8 8 0 0 1 -8 8 h-44 a8 8 0 0 1 -8 -8 V48 a6 6 0 0 1 6 -6 z"
+          fill="#fff"
+        />
         <rect x="30" y="32" width="60" height="10" rx="3" :fill="color" opacity="0.3" stroke="none" />
         <circle cx="49" cy="80" r="9" :fill="color" stroke="none" />
         <circle cx="66" cy="70" r="9" :fill="color" opacity="0.7" stroke="none" />

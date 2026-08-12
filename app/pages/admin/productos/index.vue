@@ -25,7 +25,11 @@ async function toggleActive(p: any) {
     refresh()
     refreshNuxtData('categories')
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido cambiar el estado', color: 'error', icon: 'i-lucide-alert-circle' })
+    toast.add({
+      title: e?.data?.statusMessage ?? 'No se ha podido cambiar el estado',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
   }
 }
 
@@ -37,7 +41,11 @@ async function removeProduct(p: any) {
     refresh()
     refreshNuxtData('categories')
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido eliminar', color: 'error', icon: 'i-lucide-alert-circle' })
+    toast.add({
+      title: e?.data?.statusMessage ?? 'No se ha podido eliminar',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
   }
 }
 </script>
@@ -95,12 +103,17 @@ async function removeProduct(p: any) {
                 <div class="w-10 shrink-0"><ProductVisual :visual="p.visual" /></div>
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
-                    <NuxtLink :to="`/admin/productos/${p.id}`" class="block truncate font-medium text-slate-800 hover:text-neteco-600">
+                    <NuxtLink
+                      :to="`/admin/productos/${p.id}`"
+                      class="block truncate font-medium text-slate-800 hover:text-neteco-600"
+                    >
                       {{ p.name }}
                     </NuxtLink>
                     <UBadge v-if="!p.active" color="neutral" variant="subtle" size="sm">Oculto</UBadge>
                   </div>
-                  <p class="text-xs text-slate-500">{{ p.brand }}<template v-if="p.series"> · gama {{ p.series }}</template></p>
+                  <p class="text-xs text-slate-500">
+                    {{ p.brand }}<template v-if="p.series"> · gama {{ p.series }}</template>
+                  </p>
                 </div>
               </div>
             </td>
@@ -120,9 +133,30 @@ async function removeProduct(p: any) {
                   :aria-label="p.active ? 'Ocultar de la tienda' : 'Publicar en la tienda'"
                   @click="toggleActive(p)"
                 />
-                <UButton v-if="p.active" :to="`/producto/${p.slug}`" target="_blank" size="xs" variant="ghost" icon="i-lucide-external-link" aria-label="Ver en la tienda" />
-                <UButton :to="`/admin/productos/${p.id}`" size="xs" variant="soft" icon="i-lucide-pencil" aria-label="Editar" />
-                <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" aria-label="Eliminar" @click="removeProduct(p)" />
+                <UButton
+                  v-if="p.active"
+                  :to="`/producto/${p.slug}`"
+                  target="_blank"
+                  size="xs"
+                  variant="ghost"
+                  icon="i-lucide-external-link"
+                  aria-label="Ver en la tienda"
+                />
+                <UButton
+                  :to="`/admin/productos/${p.id}`"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-pencil"
+                  aria-label="Editar"
+                />
+                <UButton
+                  size="xs"
+                  color="error"
+                  variant="ghost"
+                  icon="i-lucide-trash-2"
+                  aria-label="Eliminar"
+                  @click="removeProduct(p)"
+                />
               </div>
             </td>
           </tr>

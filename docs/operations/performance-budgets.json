@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "owner": "platform",
+  "templates": ["home", "category", "product", "search", "cart", "checkout"],
+  "mobile": {
+    "lcpMs": 2500,
+    "inpMs": 200,
+    "cls": 0.1,
+    "ttfbMs": 800,
+    "initialJavaScriptGzipKb": 170,
+    "initialCssGzipKb": 50,
+    "lcpImageKb": 200,
+    "thirdPartiesBeforeConsent": 0
+  },
+  "desktop": {
+    "lcpMs": 2000,
+    "inpMs": 150,
+    "cls": 0.1,
+    "ttfbMs": 600,
+    "initialJavaScriptGzipKb": 190,
+    "initialCssGzipKb": 50,
+    "lcpImageKb": 300,
+    "thirdPartiesBeforeConsent": 0
+  }
+}

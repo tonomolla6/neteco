@@ -5,10 +5,30 @@ useSeoMeta({ title: 'Panel de administración' })
 const { data: stats } = await useFetch('/api/admin/stats')
 
 const cards = computed(() => [
-  { label: 'Productos', value: (stats.value as any)?.products ?? '—', icon: 'i-lucide-package', to: '/admin/productos' },
-  { label: 'Variantes / referencias', value: (stats.value as any)?.variants ?? '—', icon: 'i-lucide-list', to: '/admin/productos' },
-  { label: 'Familias', value: (stats.value as any)?.categories ?? '—', icon: 'i-lucide-folder-tree', to: '/admin/categorias' },
-  { label: 'Pedidos (abiertos)', value: `${(stats.value as any)?.orders ?? '—'} (${(stats.value as any)?.openOrders ?? '—'})`, icon: 'i-lucide-receipt-text', to: '/admin/pedidos' },
+  {
+    label: 'Productos',
+    value: (stats.value as any)?.products ?? '—',
+    icon: 'i-lucide-package',
+    to: '/admin/productos'
+  },
+  {
+    label: 'Variantes / referencias',
+    value: (stats.value as any)?.variants ?? '—',
+    icon: 'i-lucide-list',
+    to: '/admin/productos'
+  },
+  {
+    label: 'Familias',
+    value: (stats.value as any)?.categories ?? '—',
+    icon: 'i-lucide-folder-tree',
+    to: '/admin/categorias'
+  },
+  {
+    label: 'Pedidos (abiertos)',
+    value: `${(stats.value as any)?.orders ?? '—'} (${(stats.value as any)?.openOrders ?? '—'})`,
+    icon: 'i-lucide-receipt-text',
+    to: '/admin/pedidos'
+  },
   { label: 'Clientes registrados', value: (stats.value as any)?.users ?? '—', icon: 'i-lucide-users', to: '/admin' }
 ])
 </script>
@@ -41,10 +61,22 @@ const cards = computed(() => [
         <UIcon name="i-lucide-database" class="size-4 text-neteco-600" /> Cómo funciona la base de datos
       </h2>
       <ul class="mt-2 list-disc space-y-1 pl-5">
-        <li>Los datos viven en <code class="rounded bg-slate-100 px-1">.data/neteco.db</code> (SQLite) y <strong>ya no hace falta borrarla</strong>: los cambios de esquema se aplican solos al arrancar.</li>
-        <li>Todo lo que des de alta aquí se guarda ahí directamente; el seed de demostración solo se ejecuta si la base está vacía.</li>
-        <li>Copia de seguridad: <code class="rounded bg-slate-100 px-1">npm run db:backup</code> crea un archivo fechado en <code class="rounded bg-slate-100 px-1">.data/backups/</code>.</li>
-        <li>En productos, la <strong>referencia de cada variante es el código de artículo del ERP</strong>: es el vínculo para el futuro importador, no lo cambies a la ligera.</li>
+        <li>
+          Los datos viven en <code class="rounded bg-slate-100 px-1">.data/neteco.db</code> (SQLite) y
+          <strong>ya no hace falta borrarla</strong>: los cambios de esquema se aplican solos al arrancar.
+        </li>
+        <li>
+          Todo lo que des de alta aquí se guarda ahí directamente; el seed de demostración solo se ejecuta si la base
+          está vacía.
+        </li>
+        <li>
+          Copia de seguridad: <code class="rounded bg-slate-100 px-1">npm run db:backup</code> crea un archivo fechado
+          en <code class="rounded bg-slate-100 px-1">.data/backups/</code>.
+        </li>
+        <li>
+          En productos, la <strong>referencia de cada variante es el código de artículo del ERP</strong>: es el vínculo
+          para el futuro importador, no lo cambies a la ligera.
+        </li>
       </ul>
     </div>
   </div>

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 useSeoMeta({
   title: 'Devoluciones',
-  description: 'Cómo devolver un producto NETECO: plazos, condiciones y pasos. En zona de reparto propio lo recogemos nosotros.'
+  description:
+    'Cómo devolver un producto NETECO: plazos, condiciones y pasos. En zona de reparto propio lo recogemos nosotros.'
 })
 </script>
 
@@ -36,10 +37,13 @@ useSeoMeta({
           <UIcon name="i-lucide-rotate-ccw" class="size-5 text-neteco-600" /> Cómo se hace
         </h2>
         <p class="mt-2 text-sm text-slate-600">
-          Llámanos al <a href="tel:600861334" class="font-semibold text-neteco-600 underline">600 861 334</a> o escribe a
-          <a href="mailto:administracion@neteco.es" class="font-semibold text-neteco-600 underline">administracion@neteco.es</a>
-          con el número de pedido. En la zona de reparto propio <b>pasamos a recogerlo nosotros</b> en la siguiente ruta;
-          para envíos por agencia te mandamos una etiqueta de devolución.
+          Llámanos al <a href="tel:600861334" class="font-semibold text-neteco-600 underline">600 861 334</a> o escribe
+          a
+          <a href="mailto:administracion@neteco.es" class="font-semibold text-neteco-600 underline"
+            >administracion@neteco.es</a
+          >
+          con el número de pedido. En la zona de reparto propio <b>pasamos a recogerlo nosotros</b> en la siguiente
+          ruta; para envíos por agencia te mandamos una etiqueta de devolución.
         </p>
         <p class="mt-2 text-sm text-slate-600">
           El abono se hace por el mismo método de pago en un máximo de 14 días desde que recibimos el producto.

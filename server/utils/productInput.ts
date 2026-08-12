@@ -25,7 +25,11 @@ export const productInput = z.object({
         sku: z.string().trim().optional().nullable(),
         price: z.number().positive('Hay una variante sin precio válido'),
         stock: z.number().int().min(0).default(100),
-        color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color de variante inválido (usa #rrggbb)').optional().nullable(),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/, 'Color de variante inválido (usa #rrggbb)')
+          .optional()
+          .nullable(),
         image: z.string().trim().optional().nullable()
       })
     )

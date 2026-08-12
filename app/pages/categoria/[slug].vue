@@ -90,28 +90,26 @@ watch(
   { deep: true }
 )
 
-const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } =
-  await useInfiniteProducts(
-    computed(() => ({
-      category: slug.value,
-      sort: sort.value,
-      brand: filters.brands.join(',') || undefined,
-      badge: filters.badges.join(',') || undefined,
-      envase: filters.envases.join(',') || undefined,
-      talla: filters.tallas.join(',') || undefined,
-      capacidad: filters.capacidades.join(',') || undefined,
-      color: filters.colors.join(',') || undefined,
-      medida: filters.medidas.join('|') || undefined,
-      acabado: filters.acabados.join(',') || undefined,
-      price_min: filters.priceMin ?? undefined,
-      price_max: filters.priceMax ?? undefined
-    }))
-  )
+const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
+  computed(() => ({
+    category: slug.value,
+    sort: sort.value,
+    brand: filters.brands.join(',') || undefined,
+    badge: filters.badges.join(',') || undefined,
+    envase: filters.envases.join(',') || undefined,
+    talla: filters.tallas.join(',') || undefined,
+    capacidad: filters.capacidades.join(',') || undefined,
+    color: filters.colors.join(',') || undefined,
+    medida: filters.medidas.join('|') || undefined,
+    acabado: filters.acabados.join(',') || undefined,
+    price_min: filters.priceMin ?? undefined,
+    price_max: filters.priceMax ?? undefined
+  }))
+)
 
 useSeoMeta({
   title: () => category.value?.name ?? 'Categoría',
-  description: () =>
-    `Compra ${category.value?.name ?? 'productos'} de uso profesional en la tienda online de NETECO.`
+  description: () => `Compra ${category.value?.name ?? 'productos'} de uso profesional en la tienda online de NETECO.`
 })
 
 const activeCount = computed(
@@ -175,7 +173,10 @@ const pills = computed<Pill[]>(() => [
 ])
 
 const drawerOpen = ref(false)
-watch(() => route.fullPath, () => (drawerOpen.value = false))
+watch(
+  () => route.fullPath,
+  () => (drawerOpen.value = false)
+)
 </script>
 
 <template>
@@ -201,9 +202,7 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
           <span class="size-3 shrink-0 rounded" :style="{ background: familyColor(slug) }" aria-hidden="true" />
           {{ category.name }}
         </h1>
-        <p class="mt-1 text-sm text-slate-500">
-          {{ total }} producto{{ total === 1 ? '' : 's' }}
-        </p>
+        <p class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -236,10 +235,7 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
     </div>
 
     <!-- subcategorías (carril móvil; en escritorio van en la barra lateral) -->
-    <div
-      v-if="category.children?.length"
-      class="-mx-4 mt-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:hidden"
-    >
+    <div v-if="category.children?.length" class="-mx-4 mt-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
       <NuxtLink
         v-for="child in category.children.filter((c: any) => c.count > 0)"
         :key="child.id"
@@ -268,7 +264,9 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
 
     <div class="mt-6 grid items-start gap-8 lg:grid-cols-[250px_1fr]">
       <!-- barra lateral (escritorio) -->
-      <aside class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block">
+      <aside
+        class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
+      >
         <div v-if="category.children?.length" class="border-b border-slate-100 pb-4">
           <p class="text-sm font-semibold text-slate-800">Subcategorías</p>
           <ul class="mt-3 space-y-1">
@@ -305,7 +303,9 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
           </template>
           <template v-else>
             <p class="mt-3 font-medium text-slate-600">Aún no hay productos en esta familia</p>
-            <p class="mt-1 text-sm text-slate-500">Estamos cargando el catálogo poco a poco. Llámanos si necesitas algo de aquí.</p>
+            <p class="mt-1 text-sm text-slate-500">
+              Estamos cargando el catálogo poco a poco. Llámanos si necesitas algo de aquí.
+            </p>
             <UButton to="/catalogo" variant="soft" class="mt-4" icon="i-lucide-layout-grid">Ver el catálogo</UButton>
           </template>
         </div>
@@ -321,7 +321,6 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
         <p v-else-if="items.length > 24" class="py-6 text-center text-sm text-slate-500">
           Has visto los {{ total }} productos
         </p>
-
       </div>
     </div>
 

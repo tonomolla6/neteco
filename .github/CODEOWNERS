@@ -1,0 +1,7 @@
+# Replace the team placeholders with real GitHub teams before branch protection is enabled.
+/server/domain/money.ts @PublicHer0
+/server/integrations/ @PublicHer0
+/server/domain/inventory.ts @PublicHer0
+/db/migrations/ @PublicHer0
+/infra/ @PublicHer0
+/.github/ @PublicHer0

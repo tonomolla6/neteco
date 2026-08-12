@@ -2,18 +2,34 @@ import { chromium } from 'playwright'
 import { mkdirSync } from 'node:fs'
 
 const BASE = 'http://localhost:3000'
-const OUT = process.env.SHOTS_OUT ?? "/tmp/claude-1000/-workspaces-neteco-shop/55295886-1a81-42d8-9a45-a0d117e3ded8/scratchpad/shots/"
+const OUT =
+  process.env.SHOTS_OUT ??
+  '/tmp/claude-1000/-workspaces-neteco-shop/55295886-1a81-42d8-9a45-a0d117e3ded8/scratchpad/shots/'
 mkdirSync(OUT, { recursive: true })
 
 const cart = JSON.stringify([
   {
-    productId: 1, slug: 'desengrasante-energico-dg-40', name: 'Desengrasante enérgico DG-40',
-    brand: 'NETTION', variantId: 1, format: 'Garrafa 5 L', sku: 'NE-001-1', price: 1890, qty: 2,
+    productId: 1,
+    slug: 'desengrasante-energico-dg-40',
+    name: 'Desengrasante enérgico DG-40',
+    brand: 'NETTION',
+    variantId: 1,
+    format: 'Garrafa 5 L',
+    sku: 'NE-001-1',
+    price: 1890,
+    qty: 2,
     visual: { type: 'garrafa', color: '#f97316' }
   },
   {
-    productId: 3, slug: 'lavavajillas-manual-extra', name: 'Lavavajillas manual Extra',
-    brand: 'NETTION', variantId: 6, format: 'Botella 1 L', sku: 'NE-003-1', price: 320, qty: 6,
+    productId: 3,
+    slug: 'lavavajillas-manual-extra',
+    name: 'Lavavajillas manual Extra',
+    brand: 'NETTION',
+    variantId: 6,
+    format: 'Botella 1 L',
+    sku: 'NE-003-1',
+    price: 320,
+    qty: 6,
     visual: { type: 'botella', color: '#009ac9' }
   }
 ])
@@ -31,7 +47,10 @@ const PAGES = [
 ]
 
 const browser = await chromium.launch()
-for (const [vp, width, height] of [['desktop', 1440, 900], ['mobile', 390, 844]]) {
+for (const [vp, width, height] of [
+  ['desktop', 1440, 900],
+  ['mobile', 390, 844]
+]) {
   const ctx = await browser.newContext({ viewport: { width, height } })
   for (const [name, path, needCart] of PAGES) {
     const page = await ctx.newPage()

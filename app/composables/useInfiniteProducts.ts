@@ -6,10 +6,7 @@
 // Importante: los hooks de ciclo de vida se registran ANTES de ningún await
 // (tras un await dentro de un composable se pierde la instancia del componente
 // y onMounted no se ejecutaría en cliente).
-export async function useInfiniteProducts(
-  baseParams: ComputedRef<Record<string, any>>,
-  pageSize = 24
-) {
+export async function useInfiniteProducts(baseParams: ComputedRef<Record<string, any>>, pageSize = 24) {
   const extra = ref<any[]>([]) // páginas 2+ (solo cliente)
   const page = ref(1)
   const loadingMore = ref(false)

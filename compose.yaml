@@ -1,0 +1,53 @@
+name: neteco
+
+services:
+  postgres:
+    image: postgres:17.6-alpine3.22
+    network_mode: bridge
+    environment:
+      POSTGRES_DB: neteco
+      POSTGRES_USER: neteco
+      POSTGRES_PASSWORD: neteco-local
+    ports:
+      - '127.0.0.1:${NETECO_POSTGRES_PORT:-56432}:5432'
+    volumes:
+      - neteco-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U neteco -d neteco']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  redis:
+    image: redis:8.2.1-alpine3.22
+    network_mode: bridge
+    command: ['redis-server', '--appendonly', 'yes', '--save', '60', '1']
+    ports:
+      - '127.0.0.1:${NETECO_REDIS_PORT:-56379}:6379'
+    volumes:
+      - neteco-redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    network_mode: bridge
+    ports:
+      - '127.0.0.1:${NETECO_SMTP_PORT:-51025}:1025'
+      - '127.0.0.1:${NETECO_MAILPIT_PORT:-58025}:8025'
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  neteco-postgres:
+  neteco-redis:

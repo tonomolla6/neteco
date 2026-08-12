@@ -34,13 +34,9 @@ watch(
 
 const shippingMethod = ref<'reparto' | 'envio' | 'recogida'>('reparto')
 const paymentMethod = ref<'tarjeta' | 'bizum' | 'transferencia'>('tarjeta')
-const card = reactive({ number: '', exp: '', cvc: '' })
-const bizumPhone = ref('')
 const acceptTerms = ref(false)
 
-const shippingCost = computed(() =>
-  shippingMethod.value === 'envio' && cart.subtotal < 15000 ? 590 : 0
-)
+const shippingCost = computed(() => (shippingMethod.value === 'envio' && cart.subtotal < 15000 ? 590 : 0))
 const total = computed(() => cart.subtotal + shippingCost.value)
 const tax = computed(() => total.value - Math.round(total.value / 1.21))
 
@@ -49,16 +45,22 @@ const errorMsg = ref('')
 const errors = reactive<Record<string, string>>({})
 // si el pago con tarjeta/Bizum falla, reutilizamos el pedido creado para reintentar
 const pendingOrder = ref<{ id: string; token: string } | null>(null)
+const checkoutAttempt = reactive({ idempotencyKey: crypto.randomUUID(), guestToken: crypto.randomUUID() })
 
 // cambiar el método de pago, el envío o los datos invalida el pedido pendiente:
 // el siguiente intento crea un pedido nuevo con la información correcta
-watch([paymentMethod, shippingMethod, form], () => (pendingOrder.value = null), { deep: true })
+watch(
+  [paymentMethod, shippingMethod, form],
+  () => {
+    pendingOrder.value = null
+    checkoutAttempt.idempotencyKey = crypto.randomUUID()
+    checkoutAttempt.guestToken = crypto.randomUUID()
+  },
+  { deep: true }
+)
 
 const zipOutOfZone = computed(
-  () =>
-    shippingMethod.value === 'reparto' &&
-    !!form.zip.trim() &&
-    !form.zip.trim().startsWith(REPARTO_ZIP_PREFIX)
+  () => shippingMethod.value === 'reparto' && !!form.zip.trim() && !form.zip.trim().startsWith(REPARTO_ZIP_PREFIX)
 )
 
 function validate() {
@@ -71,15 +73,6 @@ function validate() {
   if (!form.zip.trim()) errors.zip = 'Indica el código postal'
   else if (zipOutOfZone.value) errors.zip = 'CP fuera de la zona de reparto propio: elige «Envío por agencia»'
   if (!form.city.trim()) errors.city = 'Indica la población'
-  if (paymentMethod.value === 'tarjeta') {
-    const num = card.number.replace(/\s/g, '')
-    if (!/^\d{13,19}$/.test(num)) errors.card = 'Introduce un número de tarjeta válido'
-    else if (!/^\d{2}\s*\/?\s*\d{2}$/.test(card.exp.trim())) errors.card = 'Caducidad en formato MM/AA'
-    else if (!/^\d{3,4}$/.test(card.cvc.trim())) errors.card = 'CVC de 3 o 4 dígitos'
-  }
-  if (paymentMethod.value === 'bizum' && bizumPhone.value.replace(/\D/g, '').length < 9) {
-    errors.bizum = 'Introduce el teléfono asociado a Bizum'
-  }
   if (!acceptTerms.value) errors.terms = 'Debes aceptar las condiciones para continuar'
   return Object.keys(errors).length === 0
 }
@@ -90,8 +83,23 @@ function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
 
 function scrollToFirstError() {
   if (['name', 'email', 'phone', 'address', 'zip', 'city'].some((k) => errors[k])) scrollTo('sec-datos')
-  else if (errors.card || errors.bizum) scrollTo('sec-pago')
   else scrollTo('checkout-alert', 'center')
+}
+
+function submitHostedPayment(redirect: { actionUrl: string; method: 'POST'; fields: Record<string, string> }) {
+  const formElement = document.createElement('form')
+  formElement.method = redirect.method
+  formElement.action = redirect.actionUrl
+  formElement.hidden = true
+  for (const [name, value] of Object.entries(redirect.fields)) {
+    const input = document.createElement('input')
+    input.type = 'hidden'
+    input.name = name
+    input.value = value
+    formElement.appendChild(input)
+  }
+  document.body.appendChild(formElement)
+  formElement.submit()
 }
 
 async function submit() {
@@ -112,7 +120,10 @@ async function submit() {
           customer: { ...form },
           shippingMethod: shippingMethod.value,
           paymentMethod: paymentMethod.value,
-          items: cart.items.map((i) => ({ variantId: i.variantId, qty: i.qty }))
+          items: cart.items.map((i) => ({ variantId: i.variantId, qty: i.qty })),
+          idempotencyKey: checkoutAttempt.idempotencyKey,
+          guestToken: checkoutAttempt.guestToken,
+          termsAccepted: true
         }
       })
     }
@@ -122,24 +133,24 @@ async function submit() {
       return
     }
 
-    const pay = await $fetch<{ ok: boolean; error?: string }>('/api/checkout/pay', {
+    const pay = await $fetch<{
+      ok: boolean
+      redirect: { actionUrl: string; method: 'POST'; fields: Record<string, string> } | null
+    }>('/api/checkout/pay', {
       method: 'POST',
       body: {
         orderId: order.id,
         token: order.token,
-        method: paymentMethod.value,
-        card: paymentMethod.value === 'tarjeta' ? { ...card } : undefined,
-        bizumPhone: bizumPhone.value
+        method: paymentMethod.value
       }
     })
-
-    if (!pay.ok) {
+    if (pay.redirect) {
       pendingOrder.value = order
-      errorMsg.value = `${pay.error ?? 'No se ha podido completar el pago.'} Revisa los datos o elige otro método de pago.`
-      scrollTo('checkout-alert', 'center')
-      return
+      cart.clear()
+      submitHostedPayment(pay.redirect)
+    } else {
+      finish(order)
     }
-    finish(order)
   } catch (e: any) {
     errorMsg.value =
       e?.data?.statusMessage ??
@@ -154,7 +165,7 @@ async function submit() {
 function finish(order: { id: string; token: string }) {
   cart.clear()
   toast.add({ title: 'Pedido realizado', icon: 'i-lucide-check-circle-2', color: 'success' })
-  navigateTo(`/pedido/${order.id}?token=${order.token}`)
+  navigateTo(`/pedido/${order.id}`)
 }
 </script>
 
@@ -187,7 +198,10 @@ function finish(order: { id: string; token: string }) {
           <!-- datos -->
           <section id="sec-datos" class="scroll-mt-40 rounded-2xl border border-slate-200 bg-white p-6">
             <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <span class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white">1</span>
+              <span
+                class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
+                >1</span
+              >
               Datos de facturación y entrega
             </h2>
             <div class="mt-5 grid gap-4 sm:grid-cols-2">
@@ -227,7 +241,10 @@ function finish(order: { id: string; token: string }) {
           <!-- entrega -->
           <section class="rounded-2xl border border-slate-200 bg-white p-6">
             <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <span class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white">2</span>
+              <span
+                class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
+                >2</span
+              >
               Método de entrega
             </h2>
             <div class="mt-5 space-y-2">
@@ -235,10 +252,14 @@ function finish(order: { id: string; token: string }) {
                 v-for="m in SHIPPING_METHODS"
                 :key="m.value"
                 class="flex cursor-pointer items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="shippingMethod === m.value ? 'border-neteco-500 ring-1 ring-neteco-500' : 'border-slate-200 hover:border-neteco-300'"
+                :class="
+                  shippingMethod === m.value
+                    ? 'border-neteco-500 ring-1 ring-neteco-500'
+                    : 'border-slate-200 hover:border-neteco-300'
+                "
               >
                 <span class="flex items-center gap-3">
-                  <input v-model="shippingMethod" type="radio" :value="m.value" class="accent-neteco-500" >
+                  <input v-model="shippingMethod" type="radio" :value="m.value" class="accent-neteco-500" />
                   <span>
                     <span class="block font-medium text-slate-800">{{ m.label }}</span>
                     <span class="block text-xs text-slate-500">{{ m.desc }}</span>
@@ -249,63 +270,69 @@ function finish(order: { id: string; token: string }) {
                 </span>
               </label>
             </div>
-            <p v-if="zipOutOfZone" class="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+            <p
+              v-if="zipOutOfZone"
+              class="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 p-3 text-sm text-amber-800"
+            >
               <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0" />
-              Tu código postal está fuera de nuestra zona de reparto propio (Ontinyent y la Vall d'Albaida). Elige «Envío por agencia».
+              Tu código postal está fuera de nuestra zona de reparto propio (Ontinyent y la Vall d'Albaida). Elige
+              «Envío por agencia».
             </p>
           </section>
 
           <!-- pago -->
           <section id="sec-pago" class="scroll-mt-40 rounded-2xl border border-slate-200 bg-white p-6">
             <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <span class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white">3</span>
+              <span
+                class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
+                >3</span
+              >
               Pago
             </h2>
             <div class="mt-5 space-y-2">
               <label
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="paymentMethod === 'tarjeta' ? 'border-neteco-500 ring-1 ring-neteco-500' : 'border-slate-200 hover:border-neteco-300'"
+                :class="
+                  paymentMethod === 'tarjeta'
+                    ? 'border-neteco-500 ring-1 ring-neteco-500'
+                    : 'border-slate-200 hover:border-neteco-300'
+                "
               >
-                <input v-model="paymentMethod" type="radio" value="tarjeta" class="accent-neteco-500" >
+                <input v-model="paymentMethod" type="radio" value="tarjeta" class="accent-neteco-500" />
                 <UIcon name="i-lucide-credit-card" class="size-5 text-slate-500" />
                 <span class="font-medium text-slate-800">Tarjeta de crédito / débito</span>
               </label>
-              <div v-if="paymentMethod === 'tarjeta'" class="ml-2 grid gap-3 rounded-xl bg-slate-50 p-4 sm:grid-cols-4">
-                <UFormField label="Número de tarjeta" class="sm:col-span-2">
-                  <UInput v-model="card.number" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" class="w-full" />
-                </UFormField>
-                <UFormField label="Caducidad">
-                  <UInput v-model="card.exp" inputmode="numeric" autocomplete="cc-exp" placeholder="MM/AA" class="w-full" />
-                </UFormField>
-                <UFormField label="CVC">
-                  <UInput v-model="card.cvc" inputmode="numeric" autocomplete="cc-csc" placeholder="123" class="w-full" />
-                </UFormField>
-                <p v-if="errors.card" class="text-sm font-medium text-red-600 sm:col-span-4">{{ errors.card }}</p>
-                <p class="text-xs text-slate-500 sm:col-span-4">
-                  <UIcon name="i-lucide-info" class="inline size-3.5" />
-                  Pasarela simulada para la demo: cualquier tarjeta funciona; una terminada en <b>0000</b> simula un rechazo del banco.
-                </p>
+              <div v-if="paymentMethod === 'tarjeta'" class="ml-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                <UIcon name="i-lucide-shield-check" class="mr-1 inline size-4 text-emerald-600" />
+                Introducirás la tarjeta y completarás la autenticación bancaria en la página segura de Redsys. NETECO no
+                recibe ni almacena el número de tarjeta ni el CVC.
               </div>
 
               <label
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="paymentMethod === 'bizum' ? 'border-neteco-500 ring-1 ring-neteco-500' : 'border-slate-200 hover:border-neteco-300'"
+                :class="
+                  paymentMethod === 'bizum'
+                    ? 'border-neteco-500 ring-1 ring-neteco-500'
+                    : 'border-slate-200 hover:border-neteco-300'
+                "
               >
-                <input v-model="paymentMethod" type="radio" value="bizum" class="accent-neteco-500" >
+                <input v-model="paymentMethod" type="radio" value="bizum" class="accent-neteco-500" />
                 <UIcon name="i-lucide-smartphone" class="size-5 text-slate-500" />
                 <span class="font-medium text-slate-800">Bizum</span>
               </label>
-              <div v-if="paymentMethod === 'bizum'" class="ml-2 rounded-xl bg-slate-50 p-4">
-                <UFormField label="Teléfono asociado a Bizum" :error="errors.bizum">
-                  <UInput v-model="bizumPhone" type="tel" inputmode="tel" placeholder="600 000 000" class="w-full sm:w-64" />
-                </UFormField>
+              <div v-if="paymentMethod === 'bizum'" class="ml-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+                Te enviaremos a Redsys para autorizar el pago con Bizum de forma segura.
               </div>
 
               <label
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="paymentMethod === 'transferencia' ? 'border-neteco-500 ring-1 ring-neteco-500' : 'border-slate-200 hover:border-neteco-300'"
+                :class="
+                  paymentMethod === 'transferencia'
+                    ? 'border-neteco-500 ring-1 ring-neteco-500'
+                    : 'border-slate-200 hover:border-neteco-300'
+                "
               >
-                <input v-model="paymentMethod" type="radio" value="transferencia" class="accent-neteco-500" >
+                <input v-model="paymentMethod" type="radio" value="transferencia" class="accent-neteco-500" />
                 <UIcon name="i-lucide-landmark" class="size-5 text-slate-500" />
                 <span>
                   <span class="block font-medium text-slate-800">Transferencia bancaria</span>
@@ -333,7 +360,10 @@ function finish(order: { id: string; token: string }) {
             </li>
           </ul>
           <dl class="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
-            <div class="flex justify-between"><dt class="text-slate-500">Subtotal</dt><dd>{{ formatPrice(cart.subtotal) }}</dd></div>
+            <div class="flex justify-between">
+              <dt class="text-slate-500">Subtotal</dt>
+              <dd>{{ formatPrice(cart.subtotal) }}</dd>
+            </div>
             <div class="flex justify-between gap-3">
               <dt class="min-w-0 truncate text-slate-500">
                 Envío · {{ SHIPPING_METHODS.find((m) => m.value === shippingMethod)?.label }}
@@ -341,7 +371,8 @@ function finish(order: { id: string; token: string }) {
               <dd class="shrink-0">{{ shippingCost ? formatPrice(shippingCost) : 'Gratis' }}</dd>
             </div>
             <div class="flex justify-between text-xs text-slate-500">
-              <dt>IVA incluido (21 %)</dt><dd>{{ formatPrice(tax) }}</dd>
+              <dt>IVA incluido (21 %)</dt>
+              <dd>{{ formatPrice(tax) }}</dd>
             </div>
             <div class="flex justify-between border-t border-slate-100 pt-3">
               <dt class="text-base font-semibold">Total</dt>
@@ -350,12 +381,16 @@ function finish(order: { id: string; token: string }) {
           </dl>
 
           <label class="mt-4 flex items-start gap-2 text-xs text-slate-500">
-            <input v-model="acceptTerms" type="checkbox" class="mt-0.5 accent-neteco-600" >
+            <input v-model="acceptTerms" type="checkbox" class="mt-0.5 accent-neteco-600" />
             <span>
               Acepto las
-              <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline hover:text-neteco-600">condiciones de compra</a>
+              <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
+                >condiciones de compra</a
+              >
               y la
-              <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline hover:text-neteco-600">política de privacidad</a>
+              <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
+                >política de privacidad</a
+              >
               de NETECO.
             </span>
           </label>
@@ -365,18 +400,11 @@ function finish(order: { id: string; token: string }) {
             <UAlert color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />
           </div>
 
-          <UButton
-            size="xl"
-            block
-            class="mt-4"
-            :loading="submitting"
-            icon="i-lucide-lock"
-            @click="submit"
-          >
+          <UButton size="xl" block class="mt-4" :loading="submitting" icon="i-lucide-lock" @click="submit">
             {{ paymentMethod === 'transferencia' ? 'Confirmar pedido' : `Pagar ${formatPrice(total)}` }}
           </UButton>
           <p class="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-            <UIcon name="i-lucide-shield-check" class="size-3.5" /> Demo: no se realiza ningún cargo real
+            <UIcon name="i-lucide-shield-check" class="size-3.5" /> Pago protegido mediante redirección bancaria
           </p>
         </aside>
       </div>

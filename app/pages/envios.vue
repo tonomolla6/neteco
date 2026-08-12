@@ -1,14 +1,15 @@
 <script setup lang="ts">
 useSeoMeta({
   title: 'Envíos y reparto',
-  description: 'Zonas, plazos y costes de entrega de NETECO: reparto propio en Ontinyent y la Vall d\'Albaida, envío por agencia a península y recogida en almacén.'
+  description:
+    "Zonas, plazos y costes de entrega de NETECO: reparto propio en Ontinyent y la Vall d'Albaida, envío por agencia a península y recogida en almacén."
 })
 
 const methods = [
   {
     icon: 'i-lucide-truck',
     title: 'Reparto propio NETECO',
-    zone: 'Ontinyent y la Vall d\'Albaida (CP 468xx)',
+    zone: "Ontinyent y la Vall d'Albaida (CP 468xx)",
     time: '24-48 h laborables',
     cost: 'Gratis, sin pedido mínimo',
     note: 'Repartimos nosotros mismos, con nuestro equipo de siempre. Si necesitas una franja horaria o entrega en muelle, indícalo en las notas del pedido.'
@@ -40,11 +41,7 @@ const methods = [
     </p>
 
     <div class="mt-8 space-y-4">
-      <div
-        v-for="m in methods"
-        :key="m.title"
-        class="rounded-2xl border border-slate-200 bg-white p-6"
-      >
+      <div v-for="m in methods" :key="m.title" class="rounded-2xl border border-slate-200 bg-white p-6">
         <div class="flex items-start gap-4">
           <span class="rounded-xl bg-neteco-50 p-3 text-neteco-600">
             <UIcon :name="m.icon" class="block size-6" />
@@ -76,9 +73,10 @@ const methods = [
         <UIcon name="i-lucide-phone" class="size-5 text-neteco-600" /> ¿Dudas con tu entrega?
       </h2>
       <p class="mt-2 text-sm text-neteco-800">
-        Llámanos al <a href="tel:600861334" class="font-semibold underline">600 861 334</a> (lunes a viernes, 8:00-18:00)
-        o escribe a <a href="mailto:administracion@neteco.es" class="font-semibold underline">administracion@neteco.es</a>.
-        Hablas con personas que conocen tu pedido.
+        Llámanos al <a href="tel:600861334" class="font-semibold underline">600 861 334</a> (lunes a viernes,
+        8:00-18:00) o escribe a
+        <a href="mailto:administracion@neteco.es" class="font-semibold underline">administracion@neteco.es</a>. Hablas
+        con personas que conocen tu pedido.
       </p>
     </div>
 

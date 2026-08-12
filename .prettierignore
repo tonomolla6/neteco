@@ -1,0 +1,9 @@
+.nuxt
+.output
+.cache
+coverage
+node_modules
+public/docs
+public/img
+INFORME_MAESTRO_NETECO_PRODUCCION.md
+package-lock.json

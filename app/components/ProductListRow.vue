@@ -57,6 +57,9 @@ const showBrand = computed(
       </p>
       <p class="font-display text-lg font-bold text-slate-900">{{ formatPrice(product.minPrice) }}</p>
     </div>
-    <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-slate-300 transition group-hover:text-neteco-500" />
+    <UIcon
+      name="i-lucide-chevron-right"
+      class="size-4 shrink-0 text-slate-300 transition group-hover:text-neteco-500"
+    />
   </NuxtLink>
 </template>

@@ -34,7 +34,9 @@ function confirmClear() {
               >
                 {{ item.name }}
               </NuxtLink>
-              <p class="mt-0.5 text-xs text-slate-500">{{ item.format }} · <span class="font-mono">{{ item.sku }}</span></p>
+              <p class="mt-0.5 text-xs text-slate-500">
+                {{ item.format }} · <span class="font-mono">{{ item.sku }}</span>
+              </p>
             </div>
             <div class="flex w-full items-center justify-between gap-3 sm:w-auto">
               <div class="flex items-center rounded-lg border border-slate-300">

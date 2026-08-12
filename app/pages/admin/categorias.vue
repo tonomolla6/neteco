@@ -44,7 +44,11 @@ async function createCategory() {
     newName.value = ''
     await refreshNuxtData('categories')
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido crear', color: 'error', icon: 'i-lucide-alert-circle' })
+    toast.add({
+      title: e?.data?.statusMessage ?? 'No se ha podido crear',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
   }
 }
 
@@ -56,7 +60,11 @@ async function rename(row: Row) {
     toast.add({ title: 'Familia renombrada', icon: 'i-lucide-check', color: 'success' })
     await refreshNuxtData('categories')
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido renombrar', color: 'error', icon: 'i-lucide-alert-circle' })
+    toast.add({
+      title: e?.data?.statusMessage ?? 'No se ha podido renombrar',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
   }
 }
 
@@ -67,7 +75,11 @@ async function removeCategory(row: Row) {
     toast.add({ title: 'Familia eliminada', icon: 'i-lucide-trash-2', color: 'success' })
     await refreshNuxtData('categories')
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido eliminar', color: 'error', icon: 'i-lucide-alert-circle' })
+    toast.add({
+      title: e?.data?.statusMessage ?? 'No se ha podido eliminar',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
   }
 }
 </script>
@@ -76,12 +88,15 @@ async function removeCategory(row: Row) {
   <div class="mx-auto max-w-3xl">
     <h1 class="text-2xl font-bold text-slate-900">Familias de productos</h1>
     <p class="mt-1 text-sm text-slate-500">
-      El árbol de la tienda: el menú, el catálogo y los filtros se generan a partir de estas familias.
-      Los ids de las familias del ERP se conservan tal cual.
+      El árbol de la tienda: el menú, el catálogo y los filtros se generan a partir de estas familias. Los ids de las
+      familias del ERP se conservan tal cual.
     </p>
 
     <!-- alta -->
-    <form class="mt-5 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4" @submit.prevent="createCategory">
+    <form
+      class="mt-5 flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-4"
+      @submit.prevent="createCategory"
+    >
       <UFormField label="Nueva familia" class="min-w-52 flex-1">
         <UInput v-model="newName" placeholder="Nombre de la familia" class="w-full" />
       </UFormField>
@@ -105,13 +120,16 @@ async function removeCategory(row: Row) {
         class="flex items-center gap-2 border-b border-slate-100 px-4 py-2 last:border-0"
         :style="{ paddingLeft: `${1 + row.depth * 1.5}rem` }"
       >
-        <UIcon :name="row.hasChildren ? 'i-lucide-folder-tree' : 'i-lucide-folder'" class="size-4 shrink-0 text-neteco-600" />
+        <UIcon
+          :name="row.hasChildren ? 'i-lucide-folder-tree' : 'i-lucide-folder'"
+          class="size-4 shrink-0 text-neteco-600"
+        />
         <input
           v-model="names[row.id]"
           class="min-w-0 flex-1 rounded-lg border border-transparent px-2 py-1 text-sm text-slate-800 hover:border-slate-200 focus:border-neteco-500 focus:outline-none"
           :aria-label="`Nombre de ${row.name}`"
           @keydown.enter.prevent="rename(row)"
-        >
+        />
         <span class="shrink-0 text-xs text-slate-400">{{ row.count }} prod. · id {{ row.id }}</span>
         <UButton
           v-if="names[row.id]?.trim() && names[row.id] !== row.name"

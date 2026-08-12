@@ -33,7 +33,10 @@ watch(q, (val) => {
 
 const router = useRouter()
 const route = useRoute()
-watch(() => route.fullPath, () => (open.value = false))
+watch(
+  () => route.fullPath,
+  () => (open.value = false)
+)
 
 function goToResults() {
   if (!q.value.trim()) return
@@ -117,9 +120,7 @@ function onFocusOut(e: FocusEvent) {
           Ver todos los resultados de «{{ q }}»
         </button>
       </template>
-      <p v-else class="px-3 py-4 text-center text-sm text-slate-500">
-        Sin resultados para «{{ q }}»
-      </p>
+      <p v-else class="px-3 py-4 text-center text-sm text-slate-500">Sin resultados para «{{ q }}»</p>
     </div>
   </div>
 </template>

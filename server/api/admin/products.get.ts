@@ -1,41 +1,51 @@
+import { z } from 'zod'
+import { useDatabase } from '../../db/client'
+
+const querySchema = z.object({
+  q: z.string().trim().max(160).optional(),
+  category: z.coerce.number().int().positive().optional(),
+  active: z.enum(['0', '1']).optional()
+})
+
 export default defineEventHandler(async (event) => {
   await requireAdmin(event)
-  const db = useDb()
-  const q = getQuery(event)
-
-  const where: string[] = []
-  const params: any[] = []
-
-  if (q.q) {
-    const like = `%${String(q.q).trim()}%`
-    where.push(
-      '(p.name LIKE ? OR p.brand LIKE ? OR EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.sku LIKE ?))'
-    )
-    params.push(like, like, like)
-  }
-  if (q.category) {
-    where.push('p.category_id = ?')
-    params.push(Number(q.category))
-  }
-  if (q.active === '1' || q.active === '0') {
-    where.push('p.active = ?')
-    params.push(Number(q.active))
-  }
-
-  const items = (
-    db
-      .prepare(
-        `SELECT p.id, p.name, p.slug, p.brand, p.featured, p.active, p.series, p.visual,
-          p.category_id AS categoryId, c.name AS categoryName,
-          (SELECT MIN(v.price) FROM variants v WHERE v.product_id = p.id) AS minPrice,
-          (SELECT COUNT(*) FROM variants v WHERE v.product_id = p.id) AS formats
-         FROM products p JOIN categories c ON c.id = p.category_id
-         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-         ORDER BY p.name COLLATE NOCASE
-         LIMIT 500`
-      )
-      .all(...params) as any[]
-  ).map((r) => ({ ...r, visual: JSON.parse(r.visual) }))
-
+  const query = querySchema.parse(getQuery(event))
+  const sql = useDatabase()
+  const items = await sql<
+    Array<{
+      id: number
+      name: string
+      slug: string
+      brand: string
+      featured: boolean
+      active: boolean
+      series: string | null
+      visual: { type: string; color: string }
+      categoryId: number
+      categoryName: string
+      minPrice: number
+      formats: number
+    }>
+  >`
+    SELECT p.legacy_id AS id, p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
+           p.featured, p.status = 'published' AS active, p.series,
+           COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
+           c.legacy_id AS "categoryId", c.name AS "categoryName",
+           min(v.price_gross_cents)::int AS "minPrice", count(v.id)::int AS formats
+    FROM products p
+    JOIN categories c ON c.id = p.category_id
+    LEFT JOIN brands b ON b.id = p.brand_id
+    LEFT JOIN variants v ON v.product_id = p.id
+    WHERE (${query.q ?? null}::text IS NULL OR p.name ILIKE ${query.q ? `%${query.q}%` : null}
+           OR b.name ILIKE ${query.q ? `%${query.q}%` : null}
+           OR EXISTS (SELECT 1 FROM variants sku WHERE sku.product_id = p.id AND sku.sku ILIKE ${query.q ? `%${query.q}%` : null}))
+      AND (${query.category ?? null}::int IS NULL OR c.legacy_id = ${query.category ?? null})
+      AND (${query.active ?? null}::text IS NULL
+           OR (${query.active ?? null} = '1' AND p.status = 'published')
+           OR (${query.active ?? null} = '0' AND p.status <> 'published'))
+    GROUP BY p.id, b.name, c.legacy_id, c.name
+    ORDER BY lower(p.name)
+    LIMIT 500
+  `
   return { items }
 })

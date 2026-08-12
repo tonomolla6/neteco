@@ -36,7 +36,9 @@ async function logout() {
       >
         <div>
           <p class="font-semibold text-slate-800">{{ o.id }}</p>
-          <p class="text-xs text-slate-400">{{ formatDate(o.createdAt) }} · {{ o.lines }} artículo{{ o.lines === 1 ? '' : 's' }}</p>
+          <p class="text-xs text-slate-400">
+            {{ formatDate(o.createdAt) }} · {{ o.lines }} artículo{{ o.lines === 1 ? '' : 's' }}
+          </p>
         </div>
         <div class="flex items-center gap-4">
           <UBadge

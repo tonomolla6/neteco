@@ -1,36 +1,58 @@
-interface CatRow {
+import { useDatabase } from '../db/client'
+
+interface CategoryRow {
   id: number
   name: string
   slug: string
   parentId: number | null
   sort: number
+  directCount: number
 }
 
-export default defineEventHandler(() => {
-  const db = useDb()
-  const cats = db
-    .prepare('SELECT id, name, slug, parent_id AS parentId, sort FROM categories ORDER BY sort')
-    .all() as CatRow[]
-  const counts = db
-    .prepare('SELECT category_id AS id, COUNT(*) AS n FROM products WHERE active = 1 GROUP BY category_id')
-    .all() as Array<{ id: number; n: number }>
+interface CategoryNode extends Omit<CategoryRow, 'directCount'> {
+  count: number
+  children: CategoryNode[]
+}
 
-  const byId = new Map(cats.map((c) => [c.id, { ...c, count: 0, children: [] as any[] }]))
-  // los productos cuentan también en todos los ancestros de su categoría
-  for (const { id, n } of counts) {
-    let node = byId.get(id)
+export default defineEventHandler(async () => {
+  const sql = useDatabase()
+  const categories = await sql<CategoryRow[]>`
+    SELECT c.legacy_id AS id, c.name, c.slug, parent.legacy_id AS "parentId", c.sort_order AS sort,
+           count(p.id)::int AS "directCount"
+    FROM categories c
+    LEFT JOIN categories parent ON parent.id = c.parent_id
+    LEFT JOIN products p ON p.category_id = c.id AND p.status = 'published'
+    WHERE c.status = 'published'
+    GROUP BY c.id, parent.legacy_id
+    ORDER BY c.sort_order, c.name
+  `
+  const byId = new Map<number, CategoryNode>(
+    categories.map((category) => [
+      category.id,
+      {
+        id: category.id,
+        name: category.name,
+        slug: category.slug,
+        parentId: category.parentId,
+        sort: category.sort,
+        count: 0,
+        children: []
+      }
+    ])
+  )
+  for (const category of categories) {
+    let node = byId.get(category.id)
     while (node) {
-      node.count += n
-      node = node.parentId != null ? byId.get(node.parentId) : undefined
+      node.count += category.directCount
+      node = node.parentId === null ? undefined : byId.get(node.parentId)
     }
   }
-
-  const roots: any[] = []
+  const roots: CategoryNode[] = []
   for (const node of byId.values()) {
-    if (node.parentId != null && byId.has(node.parentId)) byId.get(node.parentId)!.children.push(node)
+    const parent = node.parentId === null ? undefined : byId.get(node.parentId)
+    if (parent) parent.children.push(node)
     else roots.push(node)
   }
-
-  const flat = [...byId.values()].map(({ children, ...c }) => c)
+  const flat = [...byId.values()].map(({ children: _children, ...category }) => category)
   return { roots, flat }
 })

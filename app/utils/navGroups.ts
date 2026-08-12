@@ -4,12 +4,7 @@
 const NAV_GROUPS: Array<{ title: string; slugs: string[] }> = [
   {
     title: 'Cocina y vajilla',
-    slugs: [
-      'lavado-manual-de-vajilla',
-      'lavado-automatico-de-vajilla',
-      'desengrasantes',
-      'higiene-alimentaria'
-    ]
+    slugs: ['lavado-manual-de-vajilla', 'lavado-automatico-de-vajilla', 'desengrasantes', 'higiene-alimentaria']
   },
   {
     title: 'Superficies y suelos',
@@ -34,12 +29,7 @@ const NAV_GROUPS: Array<{ title: string; slugs: string[] }> = [
   },
   {
     title: 'Ambiente e higiene',
-    slugs: [
-      'ambientadores-y-desodorantes',
-      'marketing-olfativo',
-      'higiene-personal',
-      'insecticidas-y-desinfectantes'
-    ]
+    slugs: ['ambientadores-y-desodorantes', 'marketing-olfativo', 'higiene-personal', 'insecticidas-y-desinfectantes']
   },
   {
     title: 'Líneas y sistemas',

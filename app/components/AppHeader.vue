@@ -19,10 +19,13 @@ watch(mobileOpen, (v) => {
 })
 
 const route = useRoute()
-watch(() => route.fullPath, () => {
-  mobileOpen.value = false
-  accountOpen.value = false
-})
+watch(
+  () => route.fullPath,
+  () => {
+    mobileOpen.value = false
+    accountOpen.value = false
+  }
+)
 
 async function logout() {
   await $fetch('/api/auth/logout', { method: 'POST' })
@@ -70,8 +73,8 @@ async function logout() {
       </button>
 
       <NuxtLink to="/" aria-label="NETECO, ir al inicio" class="flex shrink-0 items-center gap-2">
-        <img src="/logo-figura.png" alt="" class="h-9 w-auto" >
-        <img src="/logo-texto.png" alt="NETECO" class="hidden h-6 w-auto sm:block" >
+        <img src="/logo-figura.png" alt="" class="h-9 w-auto" />
+        <img src="/logo-texto.png" alt="NETECO" class="hidden h-6 w-auto sm:block" />
       </NuxtLink>
 
       <div class="hidden flex-1 md:block">
@@ -111,7 +114,10 @@ async function logout() {
               >
                 <UIcon name="i-lucide-settings-2" class="size-4" /> Panel de administración
               </NuxtLink>
-              <NuxtLink to="/cuenta" class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-neteco-50">
+              <NuxtLink
+                to="/cuenta"
+                class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-neteco-50"
+              >
                 <UIcon name="i-lucide-package" class="size-4" /> Mis pedidos
               </NuxtLink>
               <button
@@ -125,7 +131,10 @@ async function logout() {
               <NuxtLink to="/login" class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-neteco-50">
                 <UIcon name="i-lucide-log-in" class="size-4" /> Iniciar sesión
               </NuxtLink>
-              <NuxtLink to="/registro" class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-neteco-50">
+              <NuxtLink
+                to="/registro"
+                class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-neteco-50"
+              >
                 <UIcon name="i-lucide-user-plus" class="size-4" /> Crear cuenta
               </NuxtLink>
             </template>
@@ -232,13 +241,21 @@ async function logout() {
           class="absolute inset-y-0 left-0 flex w-80 max-w-[85vw] flex-col overflow-y-auto bg-white shadow-2xl"
         >
           <div class="flex items-center justify-between border-b border-slate-100 p-4">
-            <img src="/logo-texto.png" alt="NETECO" class="h-6 w-auto" >
-            <button ref="closeBtn" class="rounded-lg p-2 hover:bg-slate-100" aria-label="Cerrar" @click="mobileOpen = false">
+            <img src="/logo-texto.png" alt="NETECO" class="h-6 w-auto" />
+            <button
+              ref="closeBtn"
+              class="rounded-lg p-2 hover:bg-slate-100"
+              aria-label="Cerrar"
+              @click="mobileOpen = false"
+            >
               <UIcon name="i-lucide-x" class="block size-5" />
             </button>
           </div>
           <nav class="flex-1 p-2">
-            <NuxtLink to="/catalogo" class="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-neteco-700 hover:bg-neteco-50">
+            <NuxtLink
+              to="/catalogo"
+              class="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-neteco-700 hover:bg-neteco-50"
+            >
               <UIcon name="i-lucide-layout-grid" class="size-4" /> Todo el catálogo
             </NuxtLink>
             <div v-for="root in roots" :key="root.id" class="mt-1">
@@ -272,8 +289,12 @@ async function logout() {
             </div>
           </nav>
           <div class="border-t border-slate-100 p-4 text-sm text-slate-500">
-            <a href="tel:600861334" class="flex items-center gap-2 py-1"><UIcon name="i-lucide-phone" class="size-4" /> 600 861 334</a>
-            <a href="mailto:administracion@neteco.es" class="flex items-center gap-2 py-1"><UIcon name="i-lucide-mail" class="size-4" /> administracion@neteco.es</a>
+            <a href="tel:600861334" class="flex items-center gap-2 py-1"
+              ><UIcon name="i-lucide-phone" class="size-4" /> 600 861 334</a
+            >
+            <a href="mailto:administracion@neteco.es" class="flex items-center gap-2 py-1"
+              ><UIcon name="i-lucide-mail" class="size-4" /> administracion@neteco.es</a
+            >
           </div>
         </div>
       </div>

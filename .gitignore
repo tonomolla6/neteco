@@ -4,4 +4,8 @@ node_modules
 .data
 .env
 dist
+coverage
+playwright-report
+test-results
+backups
 *.log

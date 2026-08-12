@@ -10,10 +10,18 @@ async function setStatus(o: any, ev: Event) {
   const status = (ev.target as HTMLSelectElement).value
   try {
     await $fetch(`/api/admin/orders/${o.id}`, { method: 'PUT', body: { status } })
-    toast.add({ title: `Pedido ${o.id} → ${ORDER_STATUS[status]?.label ?? status}`, icon: 'i-lucide-check', color: 'success' })
+    toast.add({
+      title: `Pedido ${o.id} → ${ORDER_STATUS[status]?.label ?? status}`,
+      icon: 'i-lucide-check',
+      color: 'success'
+    })
     refresh()
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido cambiar el estado', color: 'error', icon: 'i-lucide-alert-circle' })
+    toast.add({
+      title: e?.data?.statusMessage ?? 'No se ha podido cambiar el estado',
+      color: 'error',
+      icon: 'i-lucide-alert-circle'
+    })
     refresh()
   }
 }
@@ -41,7 +49,9 @@ async function setStatus(o: any, ev: Event) {
             <td class="px-4 py-2.5 font-mono text-xs text-slate-700">{{ o.id }}</td>
             <td class="px-4 py-2.5 text-slate-600">{{ formatDate(o.createdAt) }}</td>
             <td class="px-4 py-2.5">
-              <p class="font-medium text-slate-800">{{ o.name }}<template v-if="o.company"> · {{ o.company }}</template></p>
+              <p class="font-medium text-slate-800">
+                {{ o.name }}<template v-if="o.company"> · {{ o.company }}</template>
+              </p>
               <p class="text-xs text-slate-500">{{ o.email }} · {{ o.city }}</p>
             </td>
             <td class="px-4 py-2.5 text-center text-slate-600">{{ o.lines }}</td>

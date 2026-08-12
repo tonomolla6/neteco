@@ -1,7 +1,8 @@
 <script setup lang="ts">
 useSeoMeta({
   title: 'Formas de pago',
-  description: 'Paga tus pedidos NETECO con tarjeta, Bizum o transferencia bancaria. Factura con NIF en todos los pedidos.'
+  description:
+    'Paga tus pedidos NETECO con tarjeta, Bizum o transferencia bancaria. Factura con NIF en todos los pedidos.'
 })
 
 const methods = [
@@ -26,7 +27,9 @@ const methods = [
 <template>
   <div class="mx-auto max-w-4xl px-4 py-10">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Formas de pago</h1>
-    <p class="mt-2 text-slate-600">Todas las opciones incluyen factura con tu NIF/CIF, la necesites para tu negocio o no.</p>
+    <p class="mt-2 text-slate-600">
+      Todas las opciones incluyen factura con tu NIF/CIF, la necesites para tu negocio o no.
+    </p>
 
     <div class="mt-8 grid gap-4 sm:grid-cols-3">
       <div v-for="m in methods" :key="m.title" class="rounded-2xl border border-slate-200 bg-white p-6">

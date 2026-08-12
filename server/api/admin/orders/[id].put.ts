@@ -1,23 +1,81 @@
 import { z } from 'zod'
+import { assertTransition, fulfillmentTransitions, orderTransitions } from '../../../domain/states'
+import { useDatabase } from '../../../db/client'
 
 const schema = z.object({
-  status: z.enum([
-    'pendiente_pago',
-    'pendiente_transferencia',
-    'pagado',
-    'preparando',
-    'enviado',
-    'entregado',
-    'cancelado'
-  ])
+  status: z.enum(['pagado', 'preparando', 'enviado', 'entregado', 'cancelado']),
+  reason: z.string().trim().min(3).max(500)
 })
 
 export default defineEventHandler(async (event) => {
-  await requireAdmin(event)
-  const db = useDb()
+  const administrator = await requireAdmin(event)
   const id = String(getRouterParam(event, 'id'))
   const body = await readValidatedBody(event, schema.parse)
-  const info = db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(body.status, id)
-  if (!info.changes) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
-  return { id, status: body.status }
+  const sql = useDatabase()
+  const correlationId = event.context.correlationId ?? crypto.randomUUID()
+  const updated = await sql.begin(async (transaction) => {
+    const [order] = await transaction<
+      Array<{
+        id: string
+        orderStatus: keyof typeof orderTransitions
+        paymentStatus: string
+        fulfillmentStatus: keyof typeof fulfillmentTransitions
+        inventoryStatus: string
+      }>
+    >`
+      SELECT id, order_status AS "orderStatus", payment_status AS "paymentStatus",
+             fulfillment_status AS "fulfillmentStatus", inventory_status AS "inventoryStatus"
+      FROM orders WHERE public_number = ${id} FOR UPDATE
+    `
+    if (!order) return null
+    let orderStatus = order.orderStatus
+    let fulfillmentStatus = order.fulfillmentStatus
+    if (body.status === 'pagado' && !['authorized', 'captured'].includes(order.paymentStatus)) {
+      throw createError({ statusCode: 409, statusMessage: 'Un administrador no puede fingir una captura bancaria' })
+    }
+    if (body.status === 'preparando') {
+      assertTransition(fulfillmentTransitions, fulfillmentStatus, 'picking')
+      fulfillmentStatus = 'picking'
+    } else if (body.status === 'enviado') {
+      if (fulfillmentStatus === 'picking') fulfillmentStatus = 'packed'
+      if (fulfillmentStatus === 'packed') fulfillmentStatus = 'in_transit'
+      else assertTransition(fulfillmentTransitions, fulfillmentStatus, 'in_transit')
+    } else if (body.status === 'entregado') {
+      assertTransition(fulfillmentTransitions, fulfillmentStatus, 'delivered')
+      fulfillmentStatus = 'delivered'
+      if (orderStatus === 'confirmed') orderStatus = 'completed'
+    } else if (body.status === 'cancelado') {
+      assertTransition(orderTransitions, orderStatus, 'cancelled')
+      orderStatus = 'cancelled'
+    }
+    await transaction`
+      UPDATE orders SET order_status = ${orderStatus}, fulfillment_status = ${fulfillmentStatus}, updated_at = now()
+      WHERE id = ${order.id}
+    `
+    await transaction`
+      INSERT INTO order_events (
+        order_id, event_type, actor_type, actor_id, origin, reason, from_state, to_state,
+        public_data, private_data, correlation_id, idempotency_key
+      ) VALUES (
+        ${order.id}, 'admin.order.transitioned', 'staff', ${administrator.id}, 'admin', ${body.reason},
+        ${transaction.json({ order: order.orderStatus, fulfillment: order.fulfillmentStatus })},
+        ${transaction.json({ order: orderStatus, fulfillment: fulfillmentStatus })},
+        ${transaction.json({})}, ${transaction.json({})}, ${correlationId}, ${`admin:${correlationId}`}
+      )
+    `
+    await transaction`
+      INSERT INTO audit_log (
+        actor_type, actor_id, action, resource_type, resource_id, before_redacted,
+        after_redacted, reason, correlation_id
+      ) VALUES (
+        'staff', ${administrator.id}, 'order.transition', 'order', ${id},
+        ${transaction.json({ order: order.orderStatus, fulfillment: order.fulfillmentStatus })},
+        ${transaction.json({ order: orderStatus, fulfillment: fulfillmentStatus })},
+        ${body.reason}, ${correlationId}
+      )
+    `
+    return { id, status: body.status, orderStatus, fulfillmentStatus }
+  })
+  if (!updated) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
+  return updated
 })

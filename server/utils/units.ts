@@ -3,14 +3,14 @@
 export function unitsFor(format: string, productName: string): [number, string] | null {
   const f = format.toLowerCase()
   let m = f.match(/([\d.,]+)\s*ml\b/)
-  if (m) return [parseFloat(m[1].replace(',', '.')) / 1000, 'L']
+  if (m) return [parseFloat(m[1]!.replace(',', '.')) / 1000, 'L']
   m = f.match(/([\d.,]+)\s*l\b/)
-  if (m) return [parseFloat(m[1].replace(',', '.')), 'L']
+  if (m) return [parseFloat(m[1]!.replace(',', '.')), 'L']
   m = f.match(/([\d.,]+)\s*kg\b/)
-  if (m) return [parseFloat(m[1].replace(',', '.')), 'kg']
+  if (m) return [parseFloat(m[1]!.replace(',', '.')), 'kg']
   m = f.match(/(\d+)\s*(?:unidades|uds|cápsulas|bobinas)/)
-  if (m) return [parseInt(m[1]), 'ud']
+  if (m) return [parseInt(m[1]!), 'ud']
   m = productName.toLowerCase().match(/\((?:caja|paquete)\s+(\d+)\s*uds\)/)
-  if (m) return [parseInt(m[1]), 'ud']
+  if (m) return [parseInt(m[1]!), 'ud']
   return null
 }

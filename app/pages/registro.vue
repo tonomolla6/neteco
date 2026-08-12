@@ -21,8 +21,8 @@ async function submit() {
     errorMsg.value = 'Rellena al menos nombre, email y contraseña.'
     return
   }
-  if (form.password.length < 8) {
-    errorMsg.value = 'La contraseña debe tener al menos 8 caracteres.'
+  if (form.password.length < 12 || !/[a-záéíóúñ]/i.test(form.password) || !/\d/.test(form.password)) {
+    errorMsg.value = 'La contraseña debe tener al menos 12 caracteres, una letra y un número.'
     return
   }
   if (form.password !== form.password2) {
@@ -54,11 +54,9 @@ async function submit() {
 <template>
   <div class="mx-auto max-w-md px-4 py-14">
     <div class="rounded-2xl border border-slate-200 bg-white p-8">
-      <img src="/logo-figura.png" alt="" class="mx-auto h-12 w-auto" >
+      <img src="/logo-figura.png" alt="" class="mx-auto h-12 w-auto" />
       <h1 class="mt-4 text-center text-2xl font-bold text-slate-900">Crea tu cuenta</h1>
-      <p class="mt-1 text-center text-sm text-slate-500">
-        Guarda tus datos, repite pedidos y consulta tu historial.
-      </p>
+      <p class="mt-1 text-center text-sm text-slate-500">Guarda tus datos, repite pedidos y consulta tu historial.</p>
 
       <form class="mt-6 space-y-4" @submit.prevent="submit">
         <UFormField label="Nombre y apellidos" required>
@@ -75,11 +73,23 @@ async function submit() {
         <UFormField label="Email" required>
           <UInput v-model="form.email" type="email" autocomplete="email" class="w-full" icon="i-lucide-mail" />
         </UFormField>
-        <UFormField label="Contraseña" required hint="mínimo 8 caracteres">
-          <UInput v-model="form.password" type="password" autocomplete="new-password" class="w-full" icon="i-lucide-lock" />
+        <UFormField label="Contraseña" required hint="mínimo 12 caracteres, con letras y números">
+          <UInput
+            v-model="form.password"
+            type="password"
+            autocomplete="new-password"
+            class="w-full"
+            icon="i-lucide-lock"
+          />
         </UFormField>
         <UFormField label="Repite la contraseña" required>
-          <UInput v-model="form.password2" type="password" autocomplete="new-password" class="w-full" icon="i-lucide-lock" />
+          <UInput
+            v-model="form.password2"
+            type="password"
+            autocomplete="new-password"
+            class="w-full"
+            icon="i-lucide-lock"
+          />
         </UFormField>
 
         <UAlert v-if="errorMsg" color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />

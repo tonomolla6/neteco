@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17.6-alpine3.22
+        env:
+          POSTGRES_DB: neteco_test
+          POSTGRES_USER: neteco
+          POSTGRES_PASSWORD: neteco-test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U neteco -d neteco_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:8.2.1-alpine3.22
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      APP_ENV: test
+      APP_BASE_URL: http://127.0.0.1:3100
+      DATABASE_URL: postgres://neteco:neteco-test@127.0.0.1:5432/neteco_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      NUXT_SESSION_PASSWORD: test-only-session-password-32-characters
+      PAYMENT_PROVIDER: mock
+      INVOICE_PROVIDER: mock
+      CARRIER_PROVIDER: mock
+      EMAIL_PROVIDER: log
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run coverage
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - run: npm run test:integration
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-evidence
+          path: |
+            coverage/
+            test-results/
+          if-no-files-found: ignore
+
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: neteco:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/neteco-image.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: container-image
+          path: /tmp/neteco-image.tar
+          retention-days: 3
+
+  secret-scan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2

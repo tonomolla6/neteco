@@ -34,24 +34,23 @@ function resetFilters() {
 }
 watch(q, resetFilters)
 
-const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } =
-  await useInfiniteProducts(
-    computed(() => ({
-      q: q.value || undefined,
-      category: selectedCategory.value || undefined,
-      sort: sort.value,
-      brand: filters.brands.join(',') || undefined,
-      badge: filters.badges.join(',') || undefined,
-      envase: filters.envases.join(',') || undefined,
-      talla: filters.tallas.join(',') || undefined,
-      capacidad: filters.capacidades.join(',') || undefined,
-      color: filters.colors.join(',') || undefined,
-      medida: filters.medidas.join('|') || undefined,
-      acabado: filters.acabados.join(',') || undefined,
-      price_min: filters.priceMin ?? undefined,
-      price_max: filters.priceMax ?? undefined
-    }))
-  )
+const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
+  computed(() => ({
+    q: q.value || undefined,
+    category: selectedCategory.value || undefined,
+    sort: sort.value,
+    brand: filters.brands.join(',') || undefined,
+    badge: filters.badges.join(',') || undefined,
+    envase: filters.envases.join(',') || undefined,
+    talla: filters.tallas.join(',') || undefined,
+    capacidad: filters.capacidades.join(',') || undefined,
+    color: filters.colors.join(',') || undefined,
+    medida: filters.medidas.join('|') || undefined,
+    acabado: filters.acabados.join(',') || undefined,
+    price_min: filters.priceMin ?? undefined,
+    price_max: filters.priceMax ?? undefined
+  }))
+)
 
 const activeCount = computed(
   () =>
@@ -73,7 +72,10 @@ const selectedCategoryName = computed(
 )
 
 const drawerOpen = ref(false)
-watch(() => route.fullPath, () => (drawerOpen.value = false))
+watch(
+  () => route.fullPath,
+  () => (drawerOpen.value = false)
+)
 </script>
 
 <template>
@@ -134,7 +136,9 @@ watch(() => route.fullPath, () => (drawerOpen.value = false))
 
     <div v-if="q" class="mt-6 grid items-start gap-8 lg:grid-cols-[250px_1fr]">
       <!-- barra lateral -->
-      <aside class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block">
+      <aside
+        class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
+      >
         <div v-if="categoryFacet.length" class="border-b border-slate-100 pb-4">
           <p class="text-sm font-semibold text-slate-800">Categoría</p>
           <ul class="mt-3 space-y-1">

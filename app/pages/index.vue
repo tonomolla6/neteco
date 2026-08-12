@@ -14,7 +14,10 @@ const { data: featured } = await useFetch('/api/products', {
 const families = computed(() => {
   const roots = (catData.value as any)?.roots ?? []
   const all = roots.flatMap((r: any) => r.children ?? [])
-  return all.filter((c: any) => c.count > 0).sort((a: any, b: any) => b.count - a.count).slice(0, 8)
+  return all
+    .filter((c: any) => c.count > 0)
+    .sort((a: any, b: any) => b.count - a.count)
+    .slice(0, 8)
 })
 
 // filas de producto por familia (las 3 con más catálogo), estilo mayorista
@@ -63,7 +66,9 @@ const sectors = [
   <div>
     <!-- hero -->
     <section class="relative overflow-hidden bg-gradient-to-b from-neteco-950 via-neteco-900 to-neteco-700 text-white">
-      <div class="mx-auto grid max-w-[1600px] items-center gap-12 px-4 py-14 sm:py-16 lg:grid-cols-[1fr_480px] lg:py-20">
+      <div
+        class="mx-auto grid max-w-[1600px] items-center gap-12 px-4 py-14 sm:py-16 lg:grid-cols-[1fr_480px] lg:py-20"
+      >
         <div class="max-w-2xl">
           <p class="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
             <UIcon name="i-lucide-badge-check" class="size-4" /> Más de 25 años al servicio de tu negocio
@@ -72,42 +77,56 @@ const sectors = [
             Todo lo que tu negocio necesita, <span class="text-neteco-300">en un solo pedido</span>
           </h1>
           <p class="mt-4 text-lg text-neteco-100">
-            Químicos de limpieza profesional, higiene y menaje para hostelería, comercio, industria y
-            colectividades. Con reparto propio en Ontinyent y la Vall d'Albaida.
+            Químicos de limpieza profesional, higiene y menaje para hostelería, comercio, industria y colectividades.
+            Con reparto propio en Ontinyent y la Vall d'Albaida.
           </p>
           <div class="mt-8 hidden max-w-xl md:block">
             <SearchBox size="xl" placeholder="¿Qué necesita tu negocio?" />
           </div>
           <div class="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-sm text-neteco-100">
-            <span class="flex items-center gap-1.5"><UIcon name="i-lucide-truck" class="size-4" /> Logística propia</span>
-            <span class="flex items-center gap-1.5"><UIcon name="i-lucide-messages-square" class="size-4" /> Trato de tú a tú</span>
-            <span class="flex items-center gap-1.5"><UIcon name="i-lucide-shield-check" class="size-4" /> Marcas profesionales</span>
+            <span class="flex items-center gap-1.5"
+              ><UIcon name="i-lucide-truck" class="size-4" /> Logística propia</span
+            >
+            <span class="flex items-center gap-1.5"
+              ><UIcon name="i-lucide-messages-square" class="size-4" /> Trato de tú a tú</span
+            >
+            <span class="flex items-center gap-1.5"
+              ><UIcon name="i-lucide-shield-check" class="size-4" /> Marcas profesionales</span
+            >
           </div>
         </div>
 
         <!-- la estantería: envases del catálogo, con el color de cada familia -->
         <div class="hidden lg:block" aria-hidden="true">
           <div class="flex items-end justify-center gap-2">
-            <div class="w-24 shrink-0 -rotate-3 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1">
+            <div
+              class="w-24 shrink-0 -rotate-3 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1"
+            >
               <ProductVisual :visual="{ type: 'garrafa', color: '#f97316' }" />
             </div>
-            <div class="w-20 shrink-0 rotate-2 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1">
+            <div
+              class="w-20 shrink-0 rotate-2 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1"
+            >
               <ProductVisual :visual="{ type: 'spray', color: '#16a34a' }" />
             </div>
-            <div class="w-28 shrink-0 -rotate-1 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-2">
+            <div
+              class="w-28 shrink-0 -rotate-1 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-2"
+            >
               <ProductVisual :visual="{ type: 'caja', color: '#009ac9' }" />
             </div>
-            <div class="w-20 shrink-0 rotate-3 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1">
+            <div
+              class="w-20 shrink-0 rotate-3 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1"
+            >
               <ProductVisual :visual="{ type: 'botella', color: '#7c3aed' }" />
             </div>
-            <div class="w-24 shrink-0 -rotate-2 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1">
+            <div
+              class="w-24 shrink-0 -rotate-2 rounded-xl bg-white p-1.5 shadow-xl shadow-neteco-950/40 transition hover:-translate-y-1"
+            >
               <ProductVisual :visual="{ type: 'capsulas', color: '#0891b2' }" />
             </div>
           </div>
           <div class="mx-2 mt-3 h-3 rounded-sm bg-gradient-to-b from-neteco-950/80 to-neteco-950/40" />
-          <p class="mt-4 text-center text-sm text-neteco-200">
-            Cada familia, con su color. Como en tu almacén.
-          </p>
+          <p class="mt-4 text-center text-sm text-neteco-200">Cada familia, con su color. Como en tu almacén.</p>
         </div>
       </div>
     </section>
@@ -121,7 +140,9 @@ const sectors = [
           :to="s.to"
           class="group flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-neteco-300 hover:shadow-md"
         >
-          <span class="rounded-xl bg-neteco-50 p-3 text-neteco-600 transition group-hover:bg-neteco-500 group-hover:text-white">
+          <span
+            class="rounded-xl bg-neteco-50 p-3 text-neteco-600 transition group-hover:bg-neteco-500 group-hover:text-white"
+          >
             <UIcon :name="s.icon" class="block size-6" />
           </span>
           <span>
@@ -153,7 +174,11 @@ const sectors = [
           class="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-neteco-300 hover:shadow-md"
         >
           <p class="flex items-start gap-2 font-medium leading-snug text-slate-800 group-hover:text-neteco-700">
-            <span class="mt-1.5 size-2.5 shrink-0 rounded-full" :style="{ background: familyColor(f.slug) }" aria-hidden="true" />
+            <span
+              class="mt-1.5 size-2.5 shrink-0 rounded-full"
+              :style="{ background: familyColor(f.slug) }"
+              aria-hidden="true"
+            />
             {{ f.name }}
           </p>
           <p class="mt-1 pl-[18px] text-xs text-slate-500">{{ f.count }} producto{{ f.count === 1 ? '' : 's' }}</p>
@@ -206,11 +231,11 @@ const sectors = [
             <UIcon name="i-lucide-leaf" class="size-4" /> Línea eco-profesional
           </p>
           <h2 class="mt-1 text-2xl font-bold">Limpieza profesional, respeto por el entorno</h2>
-          <p class="mt-1 text-emerald-100">
-            La gama ecológica de NETTION: misma eficacia, menos impacto.
-          </p>
+          <p class="mt-1 text-emerald-100">La gama ecológica de NETTION: misma eficacia, menos impacto.</p>
         </div>
-        <span class="inline-flex items-center gap-2 self-start rounded-full bg-white px-5 py-2.5 font-semibold text-emerald-700 transition group-hover:gap-3 sm:self-auto">
+        <span
+          class="inline-flex items-center gap-2 self-start rounded-full bg-white px-5 py-2.5 font-semibold text-emerald-700 transition group-hover:gap-3 sm:self-auto"
+        >
           Ver la línea eco <UIcon name="i-lucide-arrow-right" class="size-4" />
         </span>
       </NuxtLink>
@@ -226,7 +251,9 @@ const sectors = [
       </div>
       <div class="mx-auto grid max-w-[1600px] gap-8 px-4 py-10 md:grid-cols-3">
         <div class="flex gap-4">
-          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"><UIcon name="i-lucide-truck" class="block size-6" /></span>
+          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"
+            ><UIcon name="i-lucide-truck" class="block size-6"
+          /></span>
           <div>
             <h3 class="font-semibold text-slate-900">Logística propia</h3>
             <p class="mt-1 text-sm text-slate-500">
@@ -235,7 +262,9 @@ const sectors = [
           </div>
         </div>
         <div class="flex gap-4">
-          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"><UIcon name="i-lucide-messages-square" class="block size-6" /></span>
+          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"
+            ><UIcon name="i-lucide-messages-square" class="block size-6"
+          /></span>
           <div>
             <h3 class="font-semibold text-slate-900">Trato de tú a tú</h3>
             <p class="mt-1 text-sm text-slate-500">
@@ -244,7 +273,9 @@ const sectors = [
           </div>
         </div>
         <div class="flex gap-4">
-          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"><UIcon name="i-lucide-shield-check" class="block size-6" /></span>
+          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"
+            ><UIcon name="i-lucide-shield-check" class="block size-6"
+          /></span>
           <div>
             <h3 class="font-semibold text-slate-900">Garantía profesional</h3>
             <p class="mt-1 text-sm text-slate-500">

@@ -119,7 +119,11 @@ const THUMB =
             {{ filters.brands.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.marca ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.marca ? 'rotate-180' : ''"
+        />
       </button>
       <ul v-show="open.marca" class="mt-2">
         <li v-for="b in visibleBrands" :key="b.value">
@@ -131,7 +135,7 @@ const THUMB =
               class="sr-only"
               :checked="filters.brands.includes(b.value)"
               @change="toggle(filters.brands, b.value)"
-            >
+            />
             <span
               class="grid size-5 shrink-0 place-items-center rounded-md border-2 transition"
               :class="
@@ -173,7 +177,11 @@ const THUMB =
             {{ priceActive }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.precio ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.precio ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.precio" class="mt-4 px-1">
         <!-- slider doble -->
@@ -189,7 +197,7 @@ const THUMB =
             :class="THUMB"
             @input="onLo"
             @change="commitPrice"
-          >
+          />
           <input
             type="range"
             :min="bounds.min"
@@ -199,7 +207,7 @@ const THUMB =
             :class="THUMB"
             @input="onHi"
             @change="commitPrice"
-          >
+          />
         </div>
         <div class="mt-3 flex items-center justify-between gap-2">
           <div class="relative">
@@ -211,8 +219,13 @@ const THUMB =
               :max="bounds.max"
               aria-label="Precio mínimo en euros"
               class="w-20 rounded-lg border border-slate-300 py-1.5 pl-2.5 pr-6 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-              @change="(e) => { onLo(e); commitPrice() }"
-            >
+              @change="
+                (e) => {
+                  onLo(e)
+                  commitPrice()
+                }
+              "
+            />
             <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">€</span>
           </div>
           <span class="text-slate-300">–</span>
@@ -225,8 +238,13 @@ const THUMB =
               :max="bounds.max"
               aria-label="Precio máximo en euros"
               class="w-20 rounded-lg border border-slate-300 py-1.5 pl-2.5 pr-6 text-sm tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-              @change="(e) => { onHi(e); commitPrice() }"
-            >
+              @change="
+                (e) => {
+                  onHi(e)
+                  commitPrice()
+                }
+              "
+            />
             <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">€</span>
           </div>
         </div>
@@ -249,7 +267,11 @@ const THUMB =
             {{ filters.badges.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.etiquetas ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.etiquetas ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.etiquetas" class="mt-3 flex flex-wrap gap-1.5">
         <button
@@ -287,11 +309,15 @@ const THUMB =
             {{ filters.envases.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.envase ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.envase ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.envase" class="mt-3 grid grid-cols-3 gap-1.5">
         <button
-          v-for="e in facets.envases"
+          v-for="e in facets?.envases ?? []"
           :key="e.value"
           :aria-pressed="filters.envases.includes(e.value)"
           class="flex flex-col items-center gap-0.5 rounded-xl border-2 p-1.5 pb-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
@@ -303,9 +329,13 @@ const THUMB =
           @click="toggle(filters.envases, e.value)"
         >
           <span class="w-9">
-            <ProductVisual :visual="{ type: e.value, color: filters.envases.includes(e.value) ? '#009ac9' : '#94a3b8' }" />
+            <ProductVisual
+              :visual="{ type: e.value, color: filters.envases.includes(e.value) ? '#009ac9' : '#94a3b8' }"
+            />
           </span>
-          <span class="text-center text-[11px] leading-tight text-slate-700">{{ ENVASE_LABELS[e.value] ?? e.value }}</span>
+          <span class="text-center text-[11px] leading-tight text-slate-700">{{
+            ENVASE_LABELS[e.value] ?? e.value
+          }}</span>
           <span class="text-[10px] tabular-nums text-slate-400">{{ e.n }}</span>
         </button>
       </div>
@@ -327,11 +357,15 @@ const THUMB =
             {{ filters.capacidades.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.capacidad ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.capacidad ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.capacidad" class="mt-3 flex flex-wrap gap-1.5">
         <button
-          v-for="c in facets.capacidades"
+          v-for="c in facets?.capacidades ?? []"
           :key="c.value"
           :aria-pressed="filters.capacidades.includes(c.value)"
           class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
@@ -364,7 +398,11 @@ const THUMB =
             {{ filters.tallas.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.talla ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.talla ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.talla" class="mt-3 flex flex-wrap gap-1.5">
         <button
@@ -400,7 +438,11 @@ const THUMB =
             {{ filters.medidas.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.medida ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.medida ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.medida" class="mt-3 flex flex-wrap gap-1.5">
         <button
@@ -437,7 +479,11 @@ const THUMB =
             {{ filters.acabados.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.acabado ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.acabado ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.acabado" class="mt-3 flex flex-wrap gap-1.5">
         <button
@@ -474,7 +520,11 @@ const THUMB =
             {{ filters.colors.length }}
           </span>
         </span>
-        <UIcon name="i-lucide-chevron-down" class="size-4 text-slate-400 transition-transform" :class="open.color ? 'rotate-180' : ''" />
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-400 transition-transform"
+          :class="open.color ? 'rotate-180' : ''"
+        />
       </button>
       <div v-show="open.color" class="mt-3 flex flex-wrap gap-1.5">
         <button
@@ -490,7 +540,10 @@ const THUMB =
           "
           @click="toggle(filters.colors, c.value)"
         >
-          <span class="size-3.5 shrink-0 rounded-full border border-black/15" :style="{ backgroundColor: c.hex ?? '#e2e8f0' }" />
+          <span
+            class="size-3.5 shrink-0 rounded-full border border-black/15"
+            :style="{ backgroundColor: c.hex ?? '#e2e8f0' }"
+          />
           {{ c.value.replace(/\s*\([^)]*\)$/, '') }}
         </button>
       </div>

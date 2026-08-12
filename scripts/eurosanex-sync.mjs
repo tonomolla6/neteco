@@ -4,7 +4,7 @@
 // 3) De cada acierto extrae descripción, modo de empleo, foto y ficha técnica PDF.
 // 4) Normaliza las fotos a 800×800 sobre blanco y aplica todo a la BD.
 // Uso: node scripts/eurosanex-sync.mjs [--dry] [--limit N]
-import Database from 'better-sqlite3'
+import postgres from 'postgres'
 import fs from 'node:fs'
 import path from 'node:path'
 import { chromium } from 'playwright'
@@ -41,7 +41,8 @@ const norm = (s) =>
     .trim()
 
 // ——— FASE 1: índice de productos por crawl de categorías ———
-const EXCLUDE = /fregadoras|aspiradores|apiradores|rotativas|hidrolimpiadoras|secadores|equipos-de|maquinaria|barras|felpudos|carros|catalogo$/
+const EXCLUDE =
+  /fregadoras|aspiradores|apiradores|rotativas|hidrolimpiadoras|secadores|equipos-de|maquinaria|barras|felpudos|carros|catalogo$/
 
 async function buildIndex() {
   const cachePath = path.join(OUT.cache, 'index.json')
@@ -50,8 +51,9 @@ async function buildIndex() {
     return JSON.parse(fs.readFileSync(cachePath, 'utf8'))
   }
   const seedHtml = await (await get(`${BASE}/es/13-productos-quimicos`)).text()
-  const cats = [...new Set([...seedHtml.matchAll(/https:\/\/www\.eurosanex\.com\/es\/(\d+-[a-z0-9-]+)/g)].map((m) => m[1]))]
-    .filter((c) => !EXCLUDE.test(c))
+  const cats = [
+    ...new Set([...seedHtml.matchAll(/https:\/\/www\.eurosanex\.com\/es\/(\d+-[a-z0-9-]+)/g)].map((m) => m[1]))
+  ].filter((c) => !EXCLUDE.test(c))
   console.log(`[índice] ${cats.length} categorías a crawlear`)
 
   const index = {} // url → title
@@ -70,7 +72,9 @@ async function buildIndex() {
         continue
       }
       // productos: <a ... href="/es/{cat}/{id}-{slug}.html" ... title="TÍTULO">
-      for (const m of html.matchAll(/<a[^>]+href="(https:\/\/www\.eurosanex\.com\/es\/[a-z0-9-]+\/\d+-[a-z0-9-]+\.html)"[^>]*title="([^"]+)"/g)) {
+      for (const m of html.matchAll(
+        /<a[^>]+href="(https:\/\/www\.eurosanex\.com\/es\/[a-z0-9-]+\/\d+-[a-z0-9-]+\.html)"[^>]*title="([^"]+)"/g
+      )) {
         if (!index[m[1]]) index[m[1]] = m[2]
       }
       // paginación de la propia categoría
@@ -129,9 +133,14 @@ function textLines(html) {
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
-    .replace(/&aacute;/g, 'á').replace(/&eacute;/g, 'é').replace(/&iacute;/g, 'í')
-    .replace(/&oacute;/g, 'ó').replace(/&uacute;/g, 'ú').replace(/&ntilde;/g, 'ñ')
-    .replace(/&deg;/g, 'º').replace(/&ordm;/g, 'º')
+    .replace(/&aacute;/g, 'á')
+    .replace(/&eacute;/g, 'é')
+    .replace(/&iacute;/g, 'í')
+    .replace(/&oacute;/g, 'ó')
+    .replace(/&uacute;/g, 'ú')
+    .replace(/&ntilde;/g, 'ñ')
+    .replace(/&deg;/g, 'º')
+    .replace(/&ordm;/g, 'º')
   const seen = new Set()
   return text
     .split('\n')
@@ -162,10 +171,14 @@ function extractProduct(html, pageUrl) {
 }
 
 // ——— main ———
-const db = new Database('.data/neteco.db')
-const products = db
-  .prepare('SELECT id, name, slug, image, datasheet, usage FROM products ORDER BY id')
-  .all()
+const connection = process.env.DATABASE_URL?.trim()
+if (!connection) throw new Error('DATABASE_URL is required')
+const db = postgres(connection, { max: 1, connect_timeout: 10 })
+const products = await db`
+  SELECT id, name, slug, attributes ->> 'image' AS image,
+         attributes ->> 'datasheet' AS datasheet, usage
+  FROM products ORDER BY legacy_id
+`
 
 const index = await buildIndex()
 console.log(`[índice] ${Object.keys(index).length} productos EuroSanex indexados`)
@@ -173,7 +186,13 @@ console.log(`[índice] ${Object.keys(index).length} productos EuroSanex indexado
 const { matched, unmatched } = matchProducts(products, index)
 console.log(`[match] ${matched.length} casados, ${unmatched.length} sin match (de ${products.length})`)
 
-const report = { matchedCount: matched.length, unmatched, applied: [], errors: [], extraEurosanex: Object.keys(index).length }
+const report = {
+  matchedCount: matched.length,
+  unmatched,
+  applied: [],
+  errors: [],
+  extraEurosanex: Object.keys(index).length
+}
 const toNormalize = []
 
 let processed = 0
@@ -212,13 +231,15 @@ for (const m of matched) {
     if (data.usage) entry.got.push('modo de empleo')
 
     if (!DRY) {
-      db.prepare(
-        `UPDATE products SET
-          description = COALESCE(?, description),
-          usage = COALESCE(?, usage),
-          datasheet = COALESCE(?, datasheet)
-         WHERE id = ?`
-      ).run(data.description, data.usage, datasheetPath, product.id)
+      await db`
+        UPDATE products SET
+          description = COALESCE(${data.description}, description),
+          usage = COALESCE(${data.usage}, usage),
+          attributes = CASE WHEN ${datasheetPath}::text IS NULL THEN attributes
+                            ELSE jsonb_set(attributes, '{datasheet}', to_jsonb(${datasheetPath}::text), true) END,
+          updated_at = now()
+        WHERE id = ${product.id}
+      `
     }
     report.applied.push(entry)
     console.log(`[ok ${processed}/${matched.length}] ${product.name} → ${entry.got.join(', ') || 'nada'}`)
@@ -231,7 +252,9 @@ for (const m of matched) {
 // ——— FASE 4: normalizar fotos y aplicarlas ———
 if (!DRY && toNormalize.length) {
   console.log(`[fotos] normalizando ${toNormalize.length} imágenes…`)
-  const browser = await chromium.launch({ args: ['--disable-dev-shm-usage', '--no-sandbox', '--renderer-process-limit=1'] })
+  const browser = await chromium.launch({
+    args: ['--disable-dev-shm-usage', '--no-sandbox', '--renderer-process-limit=1']
+  })
   const page = await (await browser.newContext({ viewport: { width: 800, height: 800 } })).newPage()
   for (const slug of toNormalize) {
     const raw = path.resolve(OUT.cache, `${slug}.jpg`)
@@ -244,7 +267,12 @@ if (!DRY && toNormalize.length) {
       await page.goto('file://' + html, { waitUntil: 'networkidle', timeout: 30000 })
       await page.waitForTimeout(250)
       await page.screenshot({ path: path.join(OUT.imgs, `${slug}.jpg`), type: 'jpeg', quality: 84 })
-      db.prepare('UPDATE products SET image = ? WHERE slug = ?').run(`/img/products/${slug}.jpg`, slug)
+      await db`
+        UPDATE products
+        SET attributes = jsonb_set(attributes, '{image}', to_jsonb(${`/img/products/${slug}.jpg`}::text), true),
+            updated_at = now()
+        WHERE slug = ${slug}
+      `
     } catch (e) {
       console.log(`[fotos] fallo ${slug}: ${e.message}`)
     }
@@ -259,4 +287,4 @@ console.log('Casados:', report.matchedCount, '| Aplicados:', report.applied.leng
 console.log('Sin match:', report.unmatched.length)
 report.unmatched.slice(0, 40).forEach((u) => console.log('  -', u.name, u.reason ? `(${u.reason})` : ''))
 console.log('Informe completo: .cache/eurosanex/report.json')
-db.close()
+await db.end({ timeout: 5 })

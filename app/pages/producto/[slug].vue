@@ -13,8 +13,8 @@ useSeoMeta({
 })
 
 const selectedId = ref<number>(product.value.variants[0]?.id)
-const selected = computed(() =>
-  product.value.variants.find((v: any) => v.id === selectedId.value) ?? product.value.variants[0]
+const selected = computed(
+  () => product.value.variants.find((v: any) => v.id === selectedId.value) ?? product.value.variants[0]
 )
 const qty = ref(1)
 
@@ -60,8 +60,7 @@ function pickAxis(level: number, value: string) {
   const target =
     cands.find(
       (p: any) =>
-        p.colorName === cur.colorName &&
-        p.axes.join('|') === [...prefix, ...cur.axes.slice(level + 1)].join('|')
+        p.colorName === cur.colorName && p.axes.join('|') === [...prefix, ...cur.axes.slice(level + 1)].join('|')
     ) ??
     cands.find((p: any) => p.colorName === cur.colorName) ??
     cands[0]
@@ -133,7 +132,7 @@ function addToCart(goToCart = false) {
           :src="mainImage"
           :alt="colorMode ? `${product.name} · ${selected.format}` : product.name"
           class="mx-auto aspect-square w-full max-w-[420px] rounded-xl bg-white object-contain"
-        >
+        />
         <ProductVisual v-else :visual="product.visual" class="mx-auto max-w-[180px] sm:max-w-[260px]" />
         <div class="absolute left-6 top-6 flex flex-col items-start gap-1.5">
           <UBadge
@@ -169,7 +168,11 @@ function addToCart(goToCart = false) {
                 :key="o"
                 :aria-pressed="selectedParsed?.axes[level - 1] === o"
                 class="rounded-xl border-2 bg-white px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
-                :class="selectedParsed?.axes[level - 1] === o ? 'border-neteco-500 text-neteco-700 ring-1 ring-neteco-500' : 'border-slate-200 text-slate-700 hover:border-neteco-300'"
+                :class="
+                  selectedParsed?.axes[level - 1] === o
+                    ? 'border-neteco-500 text-neteco-700 ring-1 ring-neteco-500'
+                    : 'border-slate-200 text-slate-700 hover:border-neteco-300'
+                "
                 @click="pickAxis(level - 1, o)"
               >
                 {{ o }}
@@ -210,7 +213,11 @@ function addToCart(goToCart = false) {
               :key="v.id"
               :aria-pressed="selectedId === v.id"
               class="flex w-full items-center justify-between rounded-xl border-2 bg-white px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
-              :class="selectedId === v.id ? 'border-neteco-500 ring-1 ring-neteco-500' : 'border-slate-200 hover:border-neteco-300'"
+              :class="
+                selectedId === v.id
+                  ? 'border-neteco-500 ring-1 ring-neteco-500'
+                  : 'border-slate-200 hover:border-neteco-300'
+              "
               @click="selectedId = v.id"
             >
               <span>
@@ -235,7 +242,10 @@ function addToCart(goToCart = false) {
               :to="`/producto/${s.slug}`"
               class="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-neteco-300 hover:text-neteco-700"
             >
-              <span class="size-3 shrink-0 rounded-full border border-black/10" :style="{ backgroundColor: s.visual?.color }" />
+              <span
+                class="size-3 shrink-0 rounded-full border border-black/10"
+                :style="{ backgroundColor: s.visual?.color }"
+              />
               {{ s.name }}
             </NuxtLink>
           </div>
@@ -282,17 +292,30 @@ function addToCart(goToCart = false) {
         </div>
 
         <div class="mt-6 grid gap-2 rounded-xl bg-slate-100 p-4 text-sm text-slate-600 sm:grid-cols-2">
-          <p class="flex items-center gap-2"><UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio en Ontinyent y la Vall d'Albaida</p>
-          <p class="flex items-center gap-2"><UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Envío península 48-72 h</p>
-          <p class="flex items-center gap-2"><UIcon name="i-lucide-phone" class="size-4 text-neteco-600" /> Asesoramiento: 600 861 334</p>
-          <p class="flex items-center gap-2"><UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Envío por agencia gratis a partir de 150 €</p>
+          <p class="flex items-center gap-2">
+            <UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio en Ontinyent y la Vall
+            d'Albaida
+          </p>
+          <p class="flex items-center gap-2">
+            <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Envío península 48-72 h
+          </p>
+          <p class="flex items-center gap-2">
+            <UIcon name="i-lucide-phone" class="size-4 text-neteco-600" /> Asesoramiento: 600 861 334
+          </p>
+          <p class="flex items-center gap-2">
+            <UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Envío por agencia gratis a partir de 150
+            €
+          </p>
         </div>
       </div>
     </div>
 
     <!-- descripción y detalles -->
     <div class="mt-10 grid items-start gap-8 lg:grid-cols-3">
-      <div v-if="product.description || product.usage" class="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-2">
+      <div
+        v-if="product.description || product.usage"
+        class="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-2"
+      >
         <h2 class="text-lg font-bold text-slate-900">Descripción</h2>
         <p class="mt-3 leading-relaxed text-slate-600">{{ product.description }}</p>
         <template v-if="product.usage">
@@ -305,11 +328,26 @@ function addToCart(goToCart = false) {
       <div class="h-fit rounded-2xl border border-slate-200 bg-white p-6">
         <h2 class="text-lg font-bold text-slate-900">Características</h2>
         <dl class="mt-3 divide-y divide-slate-100 text-sm">
-          <div v-if="product.brand" class="flex justify-between py-2"><dt class="text-slate-500">Marca</dt><dd class="font-medium text-slate-700">{{ product.brand }}</dd></div>
-          <div class="flex justify-between py-2"><dt class="text-slate-500">Referencia</dt><dd class="font-mono font-medium text-slate-700">{{ selected.sku }}</dd></div>
-          <div class="flex justify-between py-2"><dt class="text-slate-500">Formato</dt><dd class="font-medium text-slate-700">{{ selected.format }}</dd></div>
-          <div v-if="selected.units && selected.unitLabel === 'ud'" class="flex justify-between py-2"><dt class="text-slate-500">Unidades por envase</dt><dd class="font-medium text-slate-700">{{ selected.units }}</dd></div>
-          <div class="flex justify-between py-2"><dt class="text-slate-500">Categoría</dt><dd class="font-medium text-slate-700">{{ product.breadcrumb.at(-1)?.name }}</dd></div>
+          <div v-if="product.brand" class="flex justify-between py-2">
+            <dt class="text-slate-500">Marca</dt>
+            <dd class="font-medium text-slate-700">{{ product.brand }}</dd>
+          </div>
+          <div class="flex justify-between py-2">
+            <dt class="text-slate-500">Referencia</dt>
+            <dd class="font-mono font-medium text-slate-700">{{ selected.sku }}</dd>
+          </div>
+          <div class="flex justify-between py-2">
+            <dt class="text-slate-500">Formato</dt>
+            <dd class="font-medium text-slate-700">{{ selected.format }}</dd>
+          </div>
+          <div v-if="selected.units && selected.unitLabel === 'ud'" class="flex justify-between py-2">
+            <dt class="text-slate-500">Unidades por envase</dt>
+            <dd class="font-medium text-slate-700">{{ selected.units }}</dd>
+          </div>
+          <div class="flex justify-between py-2">
+            <dt class="text-slate-500">Categoría</dt>
+            <dd class="font-medium text-slate-700">{{ product.breadcrumb.at(-1)?.name }}</dd>
+          </div>
         </dl>
         <div class="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
           <p class="flex items-center gap-1.5 font-medium text-slate-600">

@@ -16,6 +16,6 @@ defineProps<{
     :alt="product.name ?? ''"
     loading="lazy"
     class="block aspect-square w-full rounded-2xl border border-slate-100 bg-white object-contain"
-  >
+  />
   <ProductVisual v-else :visual="product.visual" />
 </template>

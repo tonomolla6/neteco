@@ -1,9 +1,5 @@
-import type { Database } from 'better-sqlite3'
-import { slugify } from '../utils/slug'
-import { unitsFor } from '../utils/units'
-
 // Árbol de categorías real de NETECO (ids del ERP) + raíz de menaje de demo (ids >= 100)
-const CATEGORIES: Array<[id: number, name: string, parent: number | null]> = [
+export const CATEGORIES: Array<[id: number, name: string, parent: number | null]> = [
   [7, 'Productos químicos', null],
   [11, 'Desengrasantes', 7],
   [10, 'Lavado manual de vajilla', 7],
@@ -51,7 +47,7 @@ const CATEGORIES: Array<[id: number, name: string, parent: number | null]> = [
   [106, 'Guantes de trabajo y EPI', 104]
 ]
 
-interface SeedProduct {
+export interface SeedProduct {
   name: string
   cat: number
   brand?: string
@@ -67,7 +63,7 @@ interface SeedProduct {
   variants: Array<[string, number, string?]>
 }
 
-const PRODUCTS: SeedProduct[] = [
+export const PRODUCTS: SeedProduct[] = [
   // ——— Guantes (tarifa real del ERP con IVA; el sku es el código de artículo del ERP) ———
   {
     name: 'Guante de nitrilo Nitriflex Blue (caja 100 uds)',
@@ -317,51 +313,3 @@ const PRODUCTS: SeedProduct[] = [
     variants: [['Talla única', 14.35, '1195']]
   }
 ]
-
-export function runSeed(db: Database) {
-  const { c } = db.prepare('SELECT COUNT(*) AS c FROM categories').get() as { c: number }
-  if (c > 0) return
-
-  const insertCat = db.prepare('INSERT INTO categories (id, name, slug, parent_id, sort) VALUES (?, ?, ?, ?, ?)')
-  const insertProduct = db.prepare(
-    `INSERT INTO products (name, slug, brand, category_id, short_desc, description, usage, badges, visual, featured, series)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-  const insertVariant = db.prepare(
-    'INSERT INTO variants (product_id, format, sku, price, stock, units, unit_label) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  )
-
-  db.transaction(() => {
-    CATEGORIES.forEach(([id, name, parent], i) => {
-      insertCat.run(id, name, slugify(name), parent, i)
-    })
-
-    PRODUCTS.forEach((p, pi) => {
-      const info = insertProduct.run(
-        p.name,
-        slugify(p.name),
-        p.brand ?? 'NETTION',
-        p.cat,
-        p.short,
-        p.desc,
-        p.usage ?? null,
-        JSON.stringify(p.badges ?? []),
-        JSON.stringify({ type: p.visual[0], color: p.visual[1] }),
-        p.featured ? 1 : 0,
-        p.series ?? null
-      )
-      p.variants.forEach(([format, price, sku], vi) => {
-        const u = unitsFor(format, p.name)
-        insertVariant.run(
-          info.lastInsertRowid,
-          format,
-          sku ?? `NE-${String(pi + 1).padStart(3, '0')}-${vi + 1}`,
-          Math.round(price * 100),
-          100,
-          u?.[0] ?? null,
-          u?.[1] ?? null
-        )
-      })
-    })
-  })()
-}

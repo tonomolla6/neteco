@@ -15,7 +15,7 @@ if (error.value || !order.value) {
 
 useSeoMeta({ title: `Pedido ${order.value.id}` })
 
-const status = computed(() => ORDER_STATUS[order.value.status] ?? ORDER_STATUS.pendiente_pago)
+const status = computed(() => ORDER_STATUS[order.value.status] ?? ORDER_STATUS.pendiente_pago!)
 const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.value.shippingMethod))
 </script>
 
@@ -24,7 +24,9 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
     <!-- cabecera de estado -->
     <div
       class="rounded-2xl p-6 sm:p-8"
-      :class="order.status === 'pagado' ? 'bg-emerald-50 border border-emerald-200' : 'bg-neteco-50 border border-neteco-200'"
+      :class="
+        order.status === 'pagado' ? 'bg-emerald-50 border border-emerald-200' : 'bg-neteco-50 border border-neteco-200'
+      "
     >
       <div class="flex items-start gap-4">
         <span
@@ -51,9 +53,13 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
         class="mt-5 rounded-xl bg-white p-4 text-sm text-slate-600"
       >
         <p class="font-semibold text-slate-800">Datos para la transferencia</p>
-        <p class="mt-1">Importe: <b>{{ formatPrice(order.total) }}</b></p>
+        <p class="mt-1">
+          Importe: <b>{{ formatPrice(order.total) }}</b>
+        </p>
         <p>IBAN: <b>ES00 0000 0000 0000 0000 0000</b> (demo)</p>
-        <p>Concepto: <b>{{ order.id }}</b></p>
+        <p>
+          Concepto: <b>{{ order.id }}</b>
+        </p>
         <p class="mt-2 text-xs text-slate-400">Prepararemos el pedido en cuanto recibamos el ingreso.</p>
       </div>
     </div>
@@ -86,13 +92,17 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
           </li>
         </ul>
         <dl class="mt-2 space-y-1.5 border-t border-slate-100 pt-4 text-sm">
-          <div class="flex justify-between"><dt class="text-slate-500">Subtotal</dt><dd>{{ formatPrice(order.subtotal) }}</dd></div>
+          <div class="flex justify-between">
+            <dt class="text-slate-500">Subtotal</dt>
+            <dd>{{ formatPrice(order.subtotal) }}</dd>
+          </div>
           <div class="flex justify-between">
             <dt class="text-slate-500">Envío ({{ shipping?.label ?? order.shippingMethod }})</dt>
             <dd>{{ order.shippingCost ? formatPrice(order.shippingCost) : 'Gratis' }}</dd>
           </div>
           <div class="flex justify-between text-xs text-slate-500">
-            <dt>IVA incluido (21 %)</dt><dd>{{ formatPrice(order.tax) }}</dd>
+            <dt>IVA incluido (21 %)</dt>
+            <dd>{{ formatPrice(order.tax) }}</dd>
           </div>
           <div class="flex justify-between pt-2 text-base">
             <dt class="font-semibold">Total</dt>
@@ -108,16 +118,16 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
         <p class="mt-3 font-medium text-slate-700">{{ order.name }}</p>
         <p v-if="order.company" class="text-slate-500">{{ order.company }} {{ order.nif ? `· ${order.nif}` : '' }}</p>
         <p class="mt-1 text-slate-500">{{ order.address }}</p>
-        <p class="text-slate-500">{{ order.zip }} {{ order.city }}<template v-if="order.province"> ({{ order.province }})</template></p>
+        <p class="text-slate-500">
+          {{ order.zip }} {{ order.city }}<template v-if="order.province"> ({{ order.province }})</template>
+        </p>
         <p class="mt-2 flex items-center gap-1.5 text-slate-500">
           <UIcon name="i-lucide-phone" class="size-3.5" /> {{ order.phone }}
         </p>
         <p class="flex items-center gap-1.5 text-slate-500">
           <UIcon name="i-lucide-mail" class="size-3.5" /> {{ order.email }}
         </p>
-        <p v-if="order.notes" class="mt-2 rounded-lg bg-slate-50 p-2 text-xs text-slate-500">
-          «{{ order.notes }}»
-        </p>
+        <p v-if="order.notes" class="mt-2 rounded-lg bg-slate-50 p-2 text-xs text-slate-500">«{{ order.notes }}»</p>
       </div>
     </div>
 

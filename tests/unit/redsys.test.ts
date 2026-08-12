@@ -1,0 +1,258 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  decodeMerchantParameters,
+  deriveOperationKey,
+  encodeMerchantParameters,
+  RedsysPaymentProvider,
+  signMerchantParameters,
+  verifyMerchantSignature
+} from '../../server/integrations/redsys'
+
+const SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'
+const OFFICIAL_PARAMETERS =
+  'eyJEU19NRVJDSEFOVF9BTU9VTlQiOiI5OTkiLCJEU19NRVJDSEFOVF9PUkRFUiI6IjEyMzQ1Njc4OTAiLCJEU19NRVJDSEFOVF9NRVJDSEFOVENPREUiOiI5OTkwMDg4ODEiLCJEU19NRVJDSEFOVF9DVVJSRU5DWSI6Ijk3OCIsIkRTX01FUkNIQU5UX1RSQU5TQUNUSU9OVFlQRSI6IjAiLCJEU19NRVJDSEFOVF9URVJNSU5BTCI6IjEiLCJEU19NRVJDSEFOVF9NRVJDSEFOVFVSTCI6Imh0dHA6XC9cL3d3dy5wcnVlYmEuY29tXC91cmxOb3RpZmljYWNpb24ucGhwIiwiRFNfTUVSQ0hBTlRfVVJMT0siOiJodHRwOlwvXC93d3cucHJ1ZWJhLmNvbVwvdXJsT0sucGhwIiwiRFNfTUVSQ0hBTlRfVVJMS08iOiJodHRwOlwvXC93d3cucHJ1ZWJhLmNvbVwvdXJsS08ucGhwIn0'
+const OFFICIAL_SIGNATURE = 'Vjo02eSWq249IeZZp3R-ArFnGLhKY0OuzDDlx1BuVtZDC2yhczA7_11uZhsYzLZBCMFAz8u8uzGDX3AErHKmmw'
+
+function provider(
+  fetcher: typeof fetch = fetch,
+  overrides: Partial<ConstructorParameters<typeof RedsysPaymentProvider>[0]> = {}
+) {
+  return new RedsysPaymentProvider(
+    {
+      environment: 'sandbox',
+      merchantCode: '999008881',
+      terminal: '1',
+      secretKey: SECRET,
+      merchantName: 'NETECO',
+      ...overrides
+    },
+    fetcher
+  )
+}
+
+function signedNotification(response = '0000', overrides: Record<string, string> = {}) {
+  const merchantParameters = encodeMerchantParameters({
+    Ds_Order: '1234567890',
+    Ds_Amount: '999',
+    Ds_Currency: '978',
+    Ds_MerchantCode: '999008881',
+    Ds_Terminal: '1',
+    Ds_TransactionType: '0',
+    Ds_Response: response,
+    ...overrides
+  })
+  return {
+    Ds_SignatureVersion: 'HMAC_SHA512_V2',
+    Ds_MerchantParameters: merchantParameters,
+    Ds_Signature: signMerchantParameters(merchantParameters, SECRET)
+  }
+}
+
+describe('Redsys HMAC_SHA512_V2', () => {
+  it('matches the official operation-key and signature vectors', () => {
+    expect(deriveOperationKey(SECRET, '1234567890').toString('base64')).toBe('RWt3/IPTzYRMXsQtkiGRKg==')
+    expect(signMerchantParameters(OFFICIAL_PARAMETERS, SECRET)).toBe(OFFICIAL_SIGNATURE)
+    expect(verifyMerchantSignature(OFFICIAL_PARAMETERS, OFFICIAL_SIGNATURE, SECRET)).toBe(true)
+  })
+
+  it('round-trips parameters and rejects malformed values and signatures', () => {
+    const encoded = encodeMerchantParameters({ Ds_Order: '12345', value: 'á' })
+    expect(decodeMerchantParameters(encoded)).toEqual({ DS_ORDER: '12345', VALUE: 'á' })
+    expect(() => decodeMerchantParameters('not-json')).toThrow('Invalid Redsys')
+    expect(() =>
+      decodeMerchantParameters(encodeMerchantParameters({}) && Buffer.from('null').toString('base64url'))
+    ).toThrow('Invalid Redsys')
+    expect(() => decodeMerchantParameters(Buffer.from('[]').toString('base64url'))).toThrow('Invalid Redsys')
+    expect(verifyMerchantSignature(encoded, 'broken', SECRET)).toBe(false)
+    expect(() => deriveOperationKey('á', '12345')).toThrow('single-byte')
+    expect(() => signMerchantParameters(encodeMerchantParameters({ VALUE: 'missing-order' }), SECRET)).toThrow(
+      'order is missing'
+    )
+  })
+})
+
+describe('Redsys payment provider', () => {
+  it('creates card and Bizum hosted redirects without payment credentials', async () => {
+    const base = {
+      intentId: crypto.randomUUID(),
+      orderReference: '1234567890',
+      amountCents: 999,
+      currency: 'EUR' as const,
+      returnUrl: 'https://shop.example/pedido/NE-1',
+      notificationUrl: 'https://shop.example/api/payments/redsys/notification',
+      idempotencyKey: 'test'
+    }
+    const card = await provider().createRedirect({ ...base, method: 'card' })
+    const bizum = await provider().createRedirect({ ...base, method: 'bizum' })
+    expect(card.actionUrl).toContain('sis-t.redsys.es')
+    expect(card.fields.Ds_SignatureVersion).toBe('HMAC_SHA512_V2')
+    expect(decodeMerchantParameters(card.fields.Ds_MerchantParameters!)).not.toHaveProperty('DS_MERCHANT_PAYMETHODS')
+    expect(decodeMerchantParameters(bizum.fields.Ds_MerchantParameters!)).toMatchObject({
+      DS_MERCHANT_AMOUNT: '999',
+      DS_MERCHANT_PAYMETHODS: 'z'
+    })
+    expect(JSON.stringify(card)).not.toMatch(/pan|cvc|cardnumber/i)
+    await expect(provider().createRedirect({ ...base, method: 'bank_transfer' })).rejects.toThrow('Bank transfer')
+    await expect(provider().createRedirect({ ...base, amountCents: 0, method: 'card' })).rejects.toThrow(
+      'positive safe integer'
+    )
+    await expect(provider().createRedirect({ ...base, amountCents: 1.5, method: 'card' })).rejects.toThrow(
+      'positive safe integer'
+    )
+    await expect(provider().createRedirect({ ...base, currency: 'USD' as 'EUR', method: 'card' })).rejects.toThrow(
+      'exclusively for EUR'
+    )
+    await expect(provider(undefined, { currency: '840' }).createRedirect({ ...base, method: 'card' })).rejects.toThrow(
+      'exclusively for EUR'
+    )
+    const production = await provider(undefined, { environment: 'production', currency: '978' }).createRedirect({
+      ...base,
+      method: 'card'
+    })
+    expect(production.actionUrl).toBe('https://sis.redsys.es/sis/realizarPago')
+  })
+
+  it.each([
+    ['0000', 'captured'],
+    ['0099', 'captured'],
+    ['9915', 'cancelled'],
+    ['9998', 'pending'],
+    ['0101', 'failed']
+  ])('maps response %s to %s', async (response, status) => {
+    await expect(provider().verifyNotification(signedNotification(response))).resolves.toMatchObject({
+      orderReference: '1234567890',
+      amountCents: 999,
+      status,
+      responseCode: response
+    })
+  })
+
+  it('rejects tampering and terminal mismatches', async () => {
+    const tampered = signedNotification()
+    tampered.Ds_Signature = `x${tampered.Ds_Signature}`
+    await expect(provider().verifyNotification(tampered)).rejects.toThrow('Invalid Redsys signature')
+    await expect(
+      provider().verifyNotification(signedNotification('0000', { Ds_MerchantCode: '123456789' }))
+    ).rejects.toThrow('configured terminal')
+    await expect(provider().verifyNotification(signedNotification('0000', { Ds_Terminal: '2' }))).rejects.toThrow(
+      'configured terminal'
+    )
+    await expect(provider().verifyNotification(signedNotification('0000', { Ds_Currency: '840' }))).rejects.toThrow(
+      'configured terminal'
+    )
+    await expect(
+      provider().verifyNotification(signedNotification('0000', { Ds_TransactionType: '1' }))
+    ).rejects.toThrow('configured terminal')
+  })
+
+  it('accepts the all-uppercase notification envelope used by some Redsys clients', async () => {
+    const signed = signedNotification()
+    await expect(
+      provider().verifyNotification({
+        DS_SIGNATUREVERSION: signed.Ds_SignatureVersion,
+        DS_MERCHANTPARAMETERS: signed.Ds_MerchantParameters,
+        DS_SIGNATURE: signed.Ds_Signature
+      })
+    ).resolves.toMatchObject({ status: 'captured', responseCode: '0000' })
+  })
+
+  it('sends and validates a signed refund', async () => {
+    const responseParameters = encodeMerchantParameters({
+      Ds_Order: '1234567890',
+      Ds_Response: '0900',
+      Ds_AuthorisationCode: 'ABC123'
+    })
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          Ds_SignatureVersion: 'HMAC_SHA512_V2',
+          Ds_MerchantParameters: responseParameters,
+          Ds_Signature: signMerchantParameters(responseParameters, SECRET)
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    await expect(
+      provider(fetcher).refund({
+        paymentReference: 'pay-1',
+        orderReference: '1234567890',
+        amountCents: 500,
+        reason: 'customer_request',
+        idempotencyKey: 'refund-1'
+      })
+    ).resolves.toEqual({ providerReference: 'ABC123', status: 'succeeded' })
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(await fetcher.mock.calls[0]![1]?.body).toContain('HMAC_SHA512_V2')
+  })
+
+  it('uses the payment reference when Redsys omits an authorization code', async () => {
+    const responseParameters = encodeMerchantParameters({ Ds_Order: '1234567890', Ds_Response: '0900' })
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          Ds_SignatureVersion: 'HMAC_SHA512_V2',
+          Ds_MerchantParameters: responseParameters,
+          Ds_Signature: signMerchantParameters(responseParameters, SECRET)
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    await expect(
+      provider(fetcher).refund({
+        paymentReference: 'pay-fallback',
+        orderReference: '1234567890',
+        amountCents: 1,
+        reason: 'customer_request',
+        idempotencyKey: 'refund-fallback'
+      })
+    ).resolves.toEqual({ providerReference: 'pay-fallback', status: 'succeeded' })
+  })
+
+  it('fails closed on invalid refund requests and provider responses', async () => {
+    const request = {
+      paymentReference: 'pay-1',
+      orderReference: '1234567890',
+      amountCents: 500,
+      reason: 'customer_request',
+      idempotencyKey: 'refund-errors'
+    }
+    await expect(provider().refund({ ...request, amountCents: 0 })).rejects.toThrow('positive safe integer')
+    await expect(provider().refund({ ...request, amountCents: 1.5 })).rejects.toThrow('positive safe integer')
+
+    await expect(
+      provider(vi.fn<typeof fetch>().mockResolvedValue(new Response('down', { status: 503 }))).refund(request)
+    ).rejects.toThrow('transport failed')
+
+    const validParameters = encodeMerchantParameters({ Ds_Order: request.orderReference, Ds_Response: '0900' })
+    const invalidSignatureFetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          Ds_SignatureVersion: 'HMAC_SHA512_V2',
+          Ds_MerchantParameters: validParameters,
+          Ds_Signature: 'invalid'
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+    await expect(provider(invalidSignatureFetcher).refund(request)).rejects.toThrow('refund signature')
+
+    for (const parameters of [
+      { Ds_Order: '9999999999', Ds_Response: '0900' },
+      { Ds_Order: request.orderReference, Ds_Response: '0101' },
+      { Ds_Order: request.orderReference }
+    ]) {
+      const encoded = encodeMerchantParameters(parameters)
+      const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            Ds_SignatureVersion: 'HMAC_SHA512_V2',
+            Ds_MerchantParameters: encoded,
+            Ds_Signature: signMerchantParameters(encoded, SECRET)
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      )
+      await expect(provider(fetcher).refund(request)).rejects.toThrow('refund rejected')
+    }
+  })
+})
