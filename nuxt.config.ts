@@ -1,7 +1,13 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: false },
-  modules: ['@nuxt/ui', '@pinia/nuxt', 'nuxt-auth-utils'],
+  modules: ['@nuxt/ui', '@pinia/nuxt', 'nuxt-auth-utils', '@nuxt/image'],
+  // imágenes responsivas: se guarda UNA master por foto y aquí se generan
+  // los tamaños y el WebP automáticamente (estándar de rendimiento e-commerce)
+  image: {
+    quality: 80,
+    screens: { xs: 320, sm: 640, md: 768, lg: 1024, xl: 1280 }
+  },
   css: ['~/assets/css/main.css'],
   // la tienda es siempre clara: sin modo oscuro aunque el navegador lo prefiera
   ui: { colorMode: false },
