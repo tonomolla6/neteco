@@ -5,7 +5,7 @@ import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
 const schema = z.object({
   orderId: z.string().regex(/^[A-Za-z0-9]{5,12}$/),
-  token: z.string().uuid(),
+  token: z.string().uuid().optional(),
   method: z.enum(['tarjeta', 'bizum'])
 })
 
@@ -13,11 +13,19 @@ export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const correlationId = event.context.correlationId ?? crypto.randomUUID()
+  const accessCookie = getCookie(event, 'neteco-order-access')
+  const cookieToken = accessCookie?.startsWith(`${body.orderId}.`)
+    ? accessCookie.slice(body.orderId.length + 1)
+    : undefined
+  const guestToken = body.token ?? cookieToken
+  if (!guestToken || !z.string().uuid().safeParse(guestToken).success) {
+    throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
+  }
 
   if (runtime.paymentProvider === 'mock') {
     const order = await confirmMockPayment({
       publicNumber: body.orderId,
-      guestToken: body.token,
+      guestToken,
       method: body.method,
       correlationId
     })
@@ -26,7 +34,7 @@ export default defineEventHandler(async (event) => {
 
   const order = await markPaymentRedirectPending({
     publicNumber: body.orderId,
-    guestToken: body.token,
+    guestToken,
     method: body.method
   })
   const provider = new RedsysPaymentProvider({

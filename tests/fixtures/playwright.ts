@@ -1,4 +1,5 @@
 import { expect, test as base } from '@playwright/test'
+import { createHmac } from 'node:crypto'
 import postgres from 'postgres'
 import { deterministicTestData, type DeterministicTestData } from './deterministic'
 
@@ -30,16 +31,19 @@ export const test = base.extend<NetecoFixtures>({
     { auto: true }
   ],
   cartCleanup: [
-    async ({ context, baseURL }, use) => {
+    async ({ context }, use) => {
       await use()
       const cartCookie = (await context.cookies()).find((cookie) => cookie.name === 'neteco-cart')
-      if (!cartCookie || !baseURL) return
-      const response = await context.request.get(new URL('/api/cart', baseURL).toString())
-      if (!response.ok()) return
-      const cart = (await response.json()) as { id?: string }
-      if (!cart.id) return
+      if (!cartCookie) return
+      const pepper = process.env.AUTH_TOKEN_PEPPER ?? 'local-only-token-pepper-change-me'
+      const tokenHash = createHmac('sha256', pepper).update(cartCookie.value, 'utf8').digest('hex')
       const sql = postgres(databaseConnection, { max: 1 })
       try {
+        const [cart] = await sql<{ id: string; referenced: boolean }[]>`
+          SELECT cart.id, EXISTS (SELECT 1 FROM orders WHERE orders.cart_id = cart.id) AS referenced
+          FROM carts cart WHERE cart.public_token_hash = ${tokenHash}
+        `
+        if (!cart || cart.referenced) return
         await sql`DELETE FROM cart_operations WHERE cart_id = ${cart.id}`
         await sql`DELETE FROM cart_items WHERE cart_id = ${cart.id}`
         await sql`DELETE FROM carts WHERE id = ${cart.id}`

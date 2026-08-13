@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { OrderDetailView } from '~~/shared/types/orders'
+import { submitHostedPayment, type HostedPaymentRedirect } from '~/utils/hosted-payment'
 
 const route = useRoute()
 const { loggedIn } = useUserSession()
@@ -23,6 +24,28 @@ useSeoMeta({ title: `Pedido ${order.value.id}` })
 
 const status = computed(() => ORDER_STATUS[order.value.status] ?? ORDER_STATUS.pendiente_pago!)
 const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.value.shippingMethod))
+const retryingPayment = ref(false)
+const paymentRetryError = ref('')
+
+async function retryPayment() {
+  paymentRetryError.value = ''
+  retryingPayment.value = true
+  try {
+    const result = await $fetch<{ redirect: HostedPaymentRedirect | null }>('/api/checkout/pay', {
+      method: 'POST',
+      body: {
+        orderId: order.value.id,
+        method: order.value.paymentMethod
+      }
+    })
+    if (result.redirect) submitHostedPayment(result.redirect)
+    else await refreshNuxtData()
+  } catch (paymentError) {
+    paymentRetryError.value = apiErrorMessage(paymentError, 'No se ha podido reintentar el pago.')
+  } finally {
+    retryingPayment.value = false
+  }
+}
 </script>
 
 <template>
@@ -72,6 +95,16 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
           Concepto: <b>{{ order.transferInstructions.reference }}</b>
         </p>
         <p class="mt-2 text-xs text-slate-400">Prepararemos el pedido en cuanto recibamos el ingreso.</p>
+      </div>
+
+      <div v-if="order.paymentStatus === 'failed'" class="mt-5 rounded-xl border border-amber-200 bg-white p-4">
+        <p class="text-sm text-slate-700">
+          El banco no ha confirmado el pago. El pedido sigue disponible para reintentar.
+        </p>
+        <UButton class="mt-3" :loading="retryingPayment" icon="i-lucide-refresh-cw" @click="retryPayment">
+          Reintentar pago
+        </UButton>
+        <p v-if="paymentRetryError" role="alert" class="mt-2 text-sm text-red-700">{{ paymentRetryError }}</p>
       </div>
     </div>
 

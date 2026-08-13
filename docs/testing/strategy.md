@@ -21,9 +21,17 @@ caducada, incompleta o duplicada bloquea el gate.
 
 Cada test crea un contexto de [`fixtures/deterministic.ts`](../../tests/fixtures/deterministic.ts) con namespace
 propio: IDs, tokens, emails y reloj se repiten sin depender del orden de ejecución. El setup de integración construye
-una plantilla PostgreSQL vacía→migrada→seed sintético; cada caso clona su propia base y la elimina al terminar. Los E2E
-usan namespaces por proyecto y limpian solo sus registros PostgreSQL/Redis antes y después. `NETECO_TEST_NOW` congela
-el reloj de aplicación exclusivamente bajo `APP_ENV=test`. Las suites Vitest bloquean `fetch` externo y el fixture de
+una plantilla PostgreSQL vacía→migrada→seed sintético; cada caso clona su propia base y la elimina al terminar. El
+runner E2E clona otra base efímera para la ejecución completa, cada caso usa un namespace propio y la base se elimina
+incluso cuando Playwright falla. `NETECO_TEST_NOW` congela el reloj de aplicación exclusivamente bajo `APP_ENV=test`.
+Las suites Vitest bloquean `fetch` externo y el fixture de
 Playwright aborta navegación de navegador fuera del origen bajo prueba. El audit automático rechaza UUID/PRNG/reloj
 de pared/clientes de red nativos, URLs externas en `APIRequestContext` y cualquier spec E2E que omita el fixture.
 Cualquier fixture con PII real está prohibida.
+
+## Redsys E2E
+
+Playwright ejecuta la rama real del adaptador Redsys con el vector sandbox publicado y sin alcanzar la red externa.
+El TPV alojado se simula únicamente interceptando el formulario del navegador; las notificaciones firmadas atraviesan
+el endpoint HTTP real y PostgreSQL. La suite cubre éxito, rechazo, abandono, callback antes/después del retorno,
+duplicado, importe/firma inválidos y reintento visible. CI conserva traces, vídeo y screenshots solo en fallo.

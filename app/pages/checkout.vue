@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
+import { submitHostedPayment } from '~/utils/hosted-payment'
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 
 useSeoMeta({ title: 'Tramitar pedido' })
@@ -273,22 +274,6 @@ function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
 function scrollToFirstError() {
   if (Object.entries(errors).some(([key, value]) => key !== 'terms' && value)) scrollTo('sec-datos')
   else scrollTo('checkout-alert', 'center')
-}
-
-function submitHostedPayment(redirect: { actionUrl: string; method: 'POST'; fields: Record<string, string> }) {
-  const formElement = document.createElement('form')
-  formElement.method = redirect.method
-  formElement.action = redirect.actionUrl
-  formElement.hidden = true
-  for (const [name, value] of Object.entries(redirect.fields)) {
-    const input = document.createElement('input')
-    input.type = 'hidden'
-    input.name = name
-    input.value = value
-    formElement.appendChild(input)
-  }
-  document.body.appendChild(formElement)
-  formElement.submit()
 }
 
 async function submit() {
