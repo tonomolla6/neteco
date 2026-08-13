@@ -15,6 +15,7 @@ try {
       fiscalExceptions: number
       staleShipments: number
       supportOverdue: number
+      communicationFailures: number
     }>
   >`
     SELECT
@@ -37,7 +38,9 @@ try {
        WHERE status NOT IN ('delivered', 'cancelled', 'returned')
          AND updated_at < now() - interval '48 hours') AS "staleShipments",
       (SELECT count(*)::int FROM support_tickets
-       WHERE status NOT IN ('resolved', 'closed') AND sla_due_at < now()) AS "supportOverdue"
+       WHERE status NOT IN ('resolved', 'closed') AND sla_due_at < now()) AS "supportOverdue",
+      (SELECT count(*)::int FROM communication_deliveries
+       WHERE status IN ('bounced', 'complained') AND updated_at > now() - interval '15 minutes') AS "communicationFailures"
   `
   if (!signals) throw new Error('Operational signal query returned no row')
   const thresholds = {
@@ -48,7 +51,8 @@ try {
     inventoryExceptions: 0,
     fiscalExceptions: 0,
     staleShipments: 0,
-    supportOverdue: 0
+    supportOverdue: 0,
+    communicationFailures: Number(process.env.ALERT_COMMUNICATION_FAILURES ?? 0)
   }
   const alerts = [
     signals.deadLetters > thresholds.deadLetters ? 'dead_letters' : null,
@@ -58,7 +62,8 @@ try {
     signals.inventoryExceptions > thresholds.inventoryExceptions ? 'inventory_reconciliation' : null,
     signals.fiscalExceptions > thresholds.fiscalExceptions ? 'fiscal_reconciliation' : null,
     signals.staleShipments > thresholds.staleShipments ? 'stale_shipments' : null,
-    signals.supportOverdue > thresholds.supportOverdue ? 'support_sla' : null
+    signals.supportOverdue > thresholds.supportOverdue ? 'support_sla' : null,
+    signals.communicationFailures > thresholds.communicationFailures ? 'communication_delivery' : null
   ].filter(Boolean)
   process.stdout.write(
     `${JSON.stringify({

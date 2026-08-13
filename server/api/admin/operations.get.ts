@@ -17,7 +17,10 @@ export default defineEventHandler(async (event) => {
        WHERE balance.physical_quantity < 0 OR balance.blocked_quantity > balance.physical_quantity) AS "inventoryExceptions",
       (SELECT count(*)::int FROM shipments
        WHERE status NOT IN ('delivered', 'cancelled', 'returned')
-         AND updated_at < now() - interval '48 hours') AS "staleShipments"
+         AND updated_at < now() - interval '48 hours') AS "staleShipments",
+      (SELECT count(*)::int FROM communication_deliveries
+       WHERE status IN ('bounced', 'complained')
+         AND updated_at > now() - interval '24 hours') AS "communicationFailures"
   `
   const queues = await sql`
     SELECT event_type AS "eventType", status, count(*)::int AS depth,

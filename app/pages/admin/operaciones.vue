@@ -26,7 +26,8 @@ const cards = computed(() => [
   ['Excepciones fiscales', data.value?.summary.fiscalExceptions ?? '—', 'i-lucide-file-warning'],
   ['Reembolsos estancados', data.value?.summary.staleRefunds ?? '—', 'i-lucide-banknote-x'],
   ['Inventario anómalo', data.value?.summary.inventoryExceptions ?? '—', 'i-lucide-package-x'],
-  ['Envíos sin avance', data.value?.summary.staleShipments ?? '—', 'i-lucide-truck']
+  ['Envíos sin avance', data.value?.summary.staleShipments ?? '—', 'i-lucide-truck'],
+  ['Correo rebotado/queja', data.value?.summary.communicationFailures ?? '—', 'i-lucide-mail-warning']
 ])
 
 async function retry(id: string) {

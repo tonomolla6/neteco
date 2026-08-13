@@ -1,5 +1,5 @@
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const SIGNED_WEBHOOK_PATHS = new Set(['/api/payments/redsys/notification'])
+const SIGNED_WEBHOOK_PATHS = new Set(['/api/payments/redsys/notification', '/api/webhooks/email'])
 
 function configuredOrigins(baseUrl: string) {
   const configured = (process.env.CORS_ALLOWED_ORIGINS ?? '')

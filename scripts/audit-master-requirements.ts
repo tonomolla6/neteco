@@ -55,7 +55,7 @@ const mvpMissing = ids('TST-004;TST-006;CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;COM-004..005'
   )
 )
 const currentPartialExternal = new Set(
@@ -102,6 +102,8 @@ function evidenceFor(id: string) {
     'ADM-011': 'db/migrations/0022_typed_content_cms.sql; server/api/admin/content/pages/[id]/rollback.post.ts',
     'ADM-017':
       'db/migrations/0023_feature_flag_governance.sql; server/api/admin/feature-flags; app/pages/admin/flags.vue',
+    'COM-004': 'scripts/outbox-worker.ts; db/migrations/0015_support_and_communications.sql',
+    'COM-005': 'server/api/webhooks/email.post.ts; db/migrations/0025_email_delivery_webhooks.sql',
     'PER-003': 'app/plugins/rum.client.ts; server/api/analytics/events.post.ts',
     'PER-013': 'app/plugins/rum.client.ts; server/api/analytics/events.post.ts; db/migrations/0019_rum_measurement.sql'
   }
