@@ -19,6 +19,12 @@ function label(reference: string) {
 
 const trackingCalls = new Map<string, number>()
 
+function failTestOperation(operation: string) {
+  if (process.env.APP_ENV === 'test' && process.env.NETECO_TEST_CARRIER_FAILURE === operation) {
+    throw new Error(`Simulated carrier outage during ${operation}`)
+  }
+}
+
 function configuredTrackingEvents(providerShipmentId: string) {
   const sequence = process.env.MOCK_CARRIER_TRACKING_SEQUENCE?.split(',')
     .map((step) => step.trim())
@@ -94,6 +100,7 @@ export class MockCarrierProvider implements CarrierProvider {
     serviceCode: string
     idempotencyKey: string
   }): Promise<ShipmentResult> {
+    failTestOperation('createShipment')
     assertShippingAddress(input.destination)
     classifyShipment(input.parcels)
     if (!input.serviceCode.trim() || !input.idempotencyKey.trim())

@@ -21,6 +21,7 @@
     "test:unit": "vitest run --project unit",
     "test:nuxt": "vitest run --project nuxt",
     "test:integration": "vitest run --project integration",
+    "test:recovery": "vitest run --project integration tests/integration/provider-recovery.test.ts",
     "test:e2e": "tsx scripts/run-e2e.ts",
     "test:a11y": "npm run test:e2e -- --project=chromium --workers=2 tests/e2e/accessibility.spec.ts",
     "test:performance": "tsx scripts/run-performance.ts",
