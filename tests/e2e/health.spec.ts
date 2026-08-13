@@ -19,9 +19,17 @@ test('publishes crawl policy and a catalog sitemap without private routes', asyn
   expect(sitemap.ok()).toBe(true)
   expect(sitemap.headers()['content-type']).toContain('application/xml')
   const body = await sitemap.text()
-  expect(body).toContain('<urlset')
-  expect(body).toContain('/producto/')
+  expect(body).toContain('<sitemapindex')
+  expect(body).toContain('/sitemaps/products.xml')
   expect(body).not.toContain('/pedido/')
+
+  const products = await request.get('/sitemaps/products.xml')
+  expect(products.ok()).toBeTruthy()
+  expect(products.headers()['content-type']).toContain('application/xml')
+  const productsBody = await products.text()
+  expect(productsBody).toContain('<urlset')
+  expect(productsBody).toContain('/producto/')
+  expect(productsBody).not.toContain('/pedido/')
 })
 
 test('storefront purchase path is keyboard-accessible and keeps a server cart', async ({ page, request }) => {
