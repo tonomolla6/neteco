@@ -10,6 +10,7 @@ import type { PaymentNotification } from '../integrations/payment-provider'
 import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
 import { shippingCommercialPolicy } from '../utils/shipping-policy'
+import { requestNewsletterSubscription, type NewsletterSecrets } from './newsletter'
 
 export const TERMS_VERSION = process.env.LEGAL_TERMS_VERSION || 'purchase-2026-08-12'
 export const PRIVACY_VERSION = process.env.LEGAL_PRIVACY_VERSION || 'privacy-2026-08-12'
@@ -54,6 +55,7 @@ export interface CreateOrderInput {
   guestTokenEnvelope?: string
   termsAccepted: true
   marketingConsent: boolean
+  newsletterSecrets: NewsletterSecrets
   correlationId: string
 }
 
@@ -481,19 +483,13 @@ export async function createOrder(input: CreateOrderInput) {
       )
     `
     if (input.marketingConsent) {
-      await transaction`
-        INSERT INTO consent_events (customer_id, purpose, channel, action, policy_version, text_hash, source)
-        VALUES (
-          ${customer.id}, 'newsletter', 'email', 'granted', ${PRIVACY_VERSION},
-          encode(digest(${`newsletter:${PRIVACY_VERSION}`}, 'sha256'), 'hex'), 'checkout'
-        )
-      `
-      await transaction`
-        INSERT INTO customer_preferences (customer_id, purpose, channel, enabled, frequency)
-        VALUES (${customer.id}, 'newsletter', 'email', true, 'weekly')
-        ON CONFLICT (customer_id, purpose, channel) DO UPDATE
-        SET enabled = true, updated_at = now()
-      `
+      await requestNewsletterSubscription(transaction, {
+        email: input.customer.email,
+        customerId: customer.id,
+        source: 'checkout',
+        correlationId: input.correlationId,
+        secrets: input.newsletterSecrets
+      })
     }
     await transaction`
       INSERT INTO outbox_events (

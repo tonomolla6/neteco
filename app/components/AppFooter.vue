@@ -1,7 +1,33 @@
 <script setup lang="ts">
+import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
+
 const year = new Date().getFullYear()
 const runtime = useRuntimeConfig()
 const isProduction = runtime.public.appEnv === 'production'
+const newsletterEmail = ref('')
+const newsletterConsent = ref(false)
+const newsletterWebsite = ref('')
+const newsletterState = ref<'idle' | 'loading' | 'sent' | 'error'>('idle')
+
+async function subscribeNewsletter() {
+  newsletterState.value = 'loading'
+  try {
+    await $fetch('/api/newsletter/subscribe', {
+      method: 'POST',
+      body: {
+        email: newsletterEmail.value,
+        consent: newsletterConsent.value,
+        source: 'footer',
+        website: newsletterWebsite.value
+      }
+    })
+    newsletterState.value = 'sent'
+    newsletterEmail.value = ''
+    newsletterConsent.value = false
+  } catch {
+    newsletterState.value = 'error'
+  }
+}
 
 function configureCookies() {
   window.dispatchEvent(new Event('neteco-open-consent'))
@@ -20,6 +46,33 @@ function configureCookies() {
           Más de 25 años suministrando higiene, limpieza y equipamiento a empresas, hostelería y colectividades de la
           Vall d'Albaida.
         </p>
+        <form class="mt-5 space-y-3" @submit.prevent="subscribeNewsletter">
+          <label for="footer-newsletter-email" class="block text-sm font-semibold text-white">Newsletter</label>
+          <UInput
+            id="footer-newsletter-email"
+            v-model="newsletterEmail"
+            type="email"
+            autocomplete="email"
+            required
+            placeholder="tu@email.es"
+            class="w-full"
+          />
+          <label class="flex items-start gap-2 text-xs leading-relaxed text-slate-400">
+            <input v-model="newsletterConsent" required type="checkbox" class="mt-0.5 accent-neteco-500" />
+            <span>{{ NEWSLETTER_CONSENT_TEXT }}</span>
+          </label>
+          <label class="sr-only" aria-hidden="true">
+            Sitio web
+            <input v-model="newsletterWebsite" tabindex="-1" autocomplete="off" />
+          </label>
+          <UButton type="submit" size="sm" :loading="newsletterState === 'loading'">Solicitar suscripción</UButton>
+          <p v-if="newsletterState === 'sent'" role="status" class="text-xs text-emerald-300">
+            {{ NEWSLETTER_CONFIRMATION_NOTICE }}
+          </p>
+          <p v-else-if="newsletterState === 'error'" role="alert" class="text-xs text-red-300">
+            No se ha podido tramitar la solicitud. Revisa los datos e inténtalo de nuevo.
+          </p>
+        </form>
       </div>
 
       <div>

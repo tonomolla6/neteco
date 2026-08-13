@@ -77,6 +77,10 @@ export default defineEventHandler(async (event) => {
   const order = await createOrder({
     ...body,
     guestTokenEnvelope: encryptSecret(body.guestToken, runtime.auth.encryptionKey),
+    newsletterSecrets: {
+      tokenPepper: runtime.auth.tokenPepper,
+      encryptionKey: runtime.auth.encryptionKey
+    },
     correlationId: event.context.correlationId ?? crypto.randomUUID()
   })
   const sql = useDatabase()

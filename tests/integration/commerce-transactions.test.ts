@@ -88,6 +88,10 @@ async function cartInput(quantity = 1): Promise<CreateOrderInput> {
     guestToken: randomUUID(),
     termsAccepted: true,
     marketingConsent: false,
+    newsletterSecrets: {
+      tokenPepper: 'integration-newsletter-token-pepper',
+      encryptionKey: Buffer.alloc(32, 7).toString('base64')
+    },
     correlationId: randomUUID()
   }
 }
@@ -130,6 +134,21 @@ async function cleanupOrders() {
           orders.flatMap((order) => (order.customerId ? [order.customerId] : []))
         )}
       `
+      const subscriptionIds = await transaction<{ id: string }[]>`
+        SELECT id FROM newsletter_subscriptions
+        WHERE customer_id IN ${transaction(orders.flatMap((order) => (order.customerId ? [order.customerId] : [])))}
+      `
+      if (subscriptionIds.length) {
+        await transaction`
+          DELETE FROM outbox_events
+          WHERE aggregate_type = 'newsletter_subscription'
+            AND aggregate_id IN ${transaction(subscriptionIds.map((subscription) => subscription.id))}
+        `
+        await transaction`
+          DELETE FROM newsletter_subscriptions
+          WHERE id IN ${transaction(subscriptionIds.map((subscription) => subscription.id))}
+        `
+      }
     })
   }
   await sql`DELETE FROM carts WHERE id IN ${sql(carts)}`
@@ -238,6 +257,8 @@ describe('commerce transaction spine', () => {
         combinedConsent: number
         marketingConsent: number
         marketingEnabled: boolean
+        subscriptionStatus: string
+        confirmationQueued: number
       }[]
     >`
       SELECT orders.shipping_snapshot ->> 'line1' AS "shippingLine",
@@ -251,7 +272,13 @@ describe('commerce transaction spine', () => {
          WHERE customer_id = orders.customer_id AND purpose = 'newsletter')::int AS "marketingConsent",
         COALESCE((SELECT enabled FROM customer_preferences
          WHERE customer_id = orders.customer_id AND purpose = 'newsletter' AND channel = 'email'), false)
-          AS "marketingEnabled"
+          AS "marketingEnabled",
+        (SELECT status FROM newsletter_subscriptions WHERE customer_id = orders.customer_id)
+          AS "subscriptionStatus",
+        (SELECT count(*) FROM outbox_events event
+         JOIN newsletter_subscriptions subscription ON subscription.id = event.aggregate_id
+         WHERE subscription.customer_id = orders.customer_id
+           AND event.event_type = 'newsletter.confirmation.requested')::int AS "confirmationQueued"
       FROM orders WHERE public_number = ${order.id}
     `
     expect(state).toEqual({
@@ -260,8 +287,10 @@ describe('commerce transaction spine', () => {
       billingTaxId: 'A58818501',
       termsConsent: 1,
       combinedConsent: 0,
-      marketingConsent: 1,
-      marketingEnabled: true
+      marketingConsent: 0,
+      marketingEnabled: false,
+      subscriptionStatus: 'pending',
+      confirmationQueued: 1
     })
   })
 

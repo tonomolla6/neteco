@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
+import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 
 useSeoMeta({ title: 'Tramitar pedido' })
 
@@ -713,7 +714,7 @@ async function finish(order: { id: string; token: string }) {
 
           <label class="mt-3 flex items-start gap-2 text-xs text-slate-500">
             <input v-model="marketingConsent" type="checkbox" class="mt-0.5 accent-neteco-600" />
-            <span>Quiero recibir por email novedades y consejos de NETECO. Es opcional y puedo darme de baja.</span>
+            <span>{{ NEWSLETTER_CONSENT_TEXT }} {{ NEWSLETTER_CONFIRMATION_NOTICE }}</span>
           </label>
 
           <div v-if="errorMsg" id="checkout-alert" role="alert" class="mt-4 scroll-mt-40">

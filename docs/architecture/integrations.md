@@ -7,6 +7,7 @@
 | Carrier externo     | `CarrierProvider`        | dirección, bultos, etiqueta y tracking                        | credencial scoped           | rate 4 s, label 10 s; circuit breaker        | sandbox contractual; Logística |
 | Reparto propio      | `CarrierProvider`        | CP, ruta, ventana, POD minimizada                             | rol operativo               | local; no retry destructivo                  | datos demo; Logística          |
 | Email transaccional | `EmailProvider`          | plantilla y destinatario                                      | token separado de marketing | 8 s, reintento + suppression                 | Mailpit/allowlist; Soporte     |
+| Email marketing     | `EmailProvider` aislado  | consentimiento, plantilla y destinatario                      | dominio/credencial propios  | outbox, backoff y suppression global         | Mailpit/allowlist; Marketing   |
 | Object storage      | `ObjectStorageProvider`  | media, PDFs y exports                                         | identidad de workload       | multipart, checksum y AV                     | bucket aislado; Producto       |
 | Redis               | infraestructura derivada | locks, cuotas, caché, trabajos                                | TLS/ACL                     | fallback seguro por capacidad                | contenedor local; Plataforma   |
 

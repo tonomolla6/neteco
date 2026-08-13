@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
+
 useSeoMeta({ title: 'Crear cuenta' })
 const runtime = useRuntimeConfig()
 
@@ -110,7 +112,10 @@ async function submit() {
           >
           sobre el tratamiento necesario para crear y mantener tu cuenta.
         </p>
-        <UCheckbox v-model="form.newsletter" label="Quiero recibir novedades por email (opcional)" />
+        <UCheckbox v-model="form.newsletter" :label="NEWSLETTER_CONSENT_TEXT" />
+        <p v-if="form.newsletter" class="text-xs leading-relaxed text-slate-500">
+          {{ NEWSLETTER_CONFIRMATION_NOTICE }}
+        </p>
 
         <UAlert v-if="errorMsg" color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />
 

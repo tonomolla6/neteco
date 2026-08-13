@@ -1,6 +1,10 @@
 import postgres from 'postgres'
 import { createHash } from 'node:crypto'
-import { emailProviderFromEnvironment } from '../server/integrations/email-provider'
+import {
+  emailProviderFromEnvironment,
+  marketingEmailProviderFromEnvironment
+} from '../server/integrations/email-provider'
+import { renderNewsletterEmail } from '../server/services/newsletter-email'
 import { decryptSecret } from '../server/utils/secrets'
 
 interface OutboxEvent {
@@ -19,6 +23,9 @@ interface OutboxEvent {
     statusLabel?: string
     trackingNumber?: string
     refundCents?: number
+    policyVersion?: string
+    unsubscribeTokenEnvelope?: string
+    unsubscribeExpiresAt?: string
   }
   attempts: number
 }
@@ -31,7 +38,8 @@ if (!encryptionKey) throw new Error('AUTH_ENCRYPTION_KEY is required')
 if (!baseUrl) throw new Error('APP_BASE_URL is required')
 
 const sql = postgres(connection, { max: 2, connect_timeout: 10 })
-const provider = emailProviderFromEnvironment()
+const transactionalProvider = emailProviderFromEnvironment()
+const marketingProvider = marketingEmailProviderFromEnvironment()
 const workerId = `email-${process.pid}`
 
 function escapeHtml(value: string) {
@@ -56,7 +64,8 @@ async function claim(): Promise<OutboxEvent | undefined> {
           'identity.security.email_changed', 'order.created', 'order.confirmed', 'support.ticket.received',
           'support.ticket.reply'
           , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
-          'order.shipped', 'order.delivered', 'refund.succeeded.email'
+          'order.shipped', 'order.delivered', 'refund.succeeded.email',
+          'newsletter.confirmation.requested', 'newsletter.welcome'
         )
     `
     const [event] = await transaction<OutboxEvent[]>`
@@ -89,7 +98,8 @@ async function claim(): Promise<OutboxEvent | undefined> {
           'identity.security.email_changed', 'order.created', 'order.confirmed', 'support.ticket.received',
           'support.ticket.reply'
           , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
-          'order.shipped', 'order.delivered', 'refund.succeeded.email'
+          'order.shipped', 'order.delivered', 'refund.succeeded.email',
+          'newsletter.confirmation.requested', 'newsletter.welcome'
         )
       ORDER BY event.created_at
       FOR UPDATE OF event SKIP LOCKED
@@ -106,6 +116,11 @@ async function claim(): Promise<OutboxEvent | undefined> {
 }
 
 function render(event: OutboxEvent) {
+  const newsletterEmail = renderNewsletterEmail(event, {
+    baseUrl: baseUrl!,
+    encryptionKey: encryptionKey!
+  })
+  if (newsletterEmail) return newsletterEmail
   const displayName = event.payload.name?.trim() || 'Hola'
   const safeName = escapeHtml(displayName)
   if (event.eventType === 'identity.security.password_changed') {
@@ -247,11 +262,16 @@ function render(event: OutboxEvent) {
 async function processOne(event: OutboxEvent) {
   try {
     const email = render(event)
+    const marketing = event.eventType === 'newsletter.welcome'
+    const provider = marketing ? marketingProvider : transactionalProvider
     const recipientHash = createHash('sha256').update(email.to.trim().toLowerCase()).digest('hex')
+    const suppressionReasons = marketing
+      ? ['unsubscribe', 'hard_bounce', 'complaint', 'manual', 'legal']
+      : ['hard_bounce', 'complaint', 'manual', 'legal']
     const [suppression] = await sql<{ reason: string }[]>`
       SELECT reason FROM communication_suppressions
       WHERE channel = 'email' AND destination_hash = ${recipientHash}
-        AND reason IN ('hard_bounce', 'complaint', 'manual', 'legal')
+        AND reason IN ${sql(suppressionReasons)}
     `
     if (suppression) {
       await sql.begin(async (transaction) => {

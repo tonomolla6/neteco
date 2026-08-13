@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { useDatabase } from '../../db/client'
+import { requestNewsletterSubscription } from '../../services/newsletter'
 import { identityProfile, startAuthenticatedSession } from '../../utils/auth-session'
 import { enforceRateLimit } from '../../utils/rate-limit'
 import { encryptSecret, hashOpaqueToken, randomOpaqueToken } from '../../utils/secrets'
@@ -74,18 +75,26 @@ export default defineEventHandler(async (event) => {
       await transaction`
         INSERT INTO customer_preferences (customer_id, purpose, channel, enabled)
         VALUES (${customer.id}, 'transactional', 'email', true),
-               (${customer.id}, 'newsletter', 'email', ${body.newsletter})
+               (${customer.id}, 'newsletter', 'email', false)
       `
       const accountTextHash = createHash('sha256').update('account-terms-2026-08-12').digest('hex')
-      const newsletterTextHash = createHash('sha256').update('newsletter-2026-08-12').digest('hex')
       await transaction`
         INSERT INTO consent_events (customer_id, purpose, channel, action, policy_version, text_hash, source)
-        VALUES
-          (${customer.id}, 'account_terms', 'web', 'granted', 'account-terms-2026-08-12',
-           ${accountTextHash}, 'registration'),
-          (${customer.id}, 'newsletter', 'email', ${body.newsletter ? 'granted' : 'withdrawn'},
-           'communications-2026-08-12', ${newsletterTextHash}, 'registration')
+        VALUES (${customer.id}, 'account_terms', 'web', 'granted', 'account-terms-2026-08-12',
+                ${accountTextHash}, 'registration')
       `
+      if (body.newsletter) {
+        await requestNewsletterSubscription(transaction, {
+          email: normalizedEmail,
+          customerId: customer.id,
+          source: 'registration',
+          correlationId,
+          secrets: {
+            tokenPepper: runtime.auth.tokenPepper,
+            encryptionKey: runtime.auth.encryptionKey
+          }
+        })
+      }
       await transaction`
         INSERT INTO identity_tokens (identity_id, purpose, token_hash, expires_at)
         VALUES (

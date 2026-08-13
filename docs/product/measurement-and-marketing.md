@@ -28,3 +28,18 @@ RUM usa `PerformanceObserver`, nunca carga un tercero y solo envía LCP/CLS/INP 
 - Todo descuento conserva precio anterior válido, vigencia, exclusiones, uso y margen.
 - Banners/modales tienen owner, objetivo, segmentación, frecuencia, preview, métricas y fecha de retirada; nunca interrumpen checkout.
 - Comunicación transaccional y marketing usan dominios, credenciales, listas y suppression separados.
+
+## Newsletter y doble opt-in
+
+La captación pública, el registro, el checkout y el centro de cuenta crean una solicitud `pending`. La preferencia no
+se activa ni se registra un consentimiento concedido hasta que la persona usa el enlace de confirmación, válido durante
+48 horas. Los tokens se guardan únicamente como HMAC; los sobres necesarios para generar enlaces se cifran con
+`AUTH_ENCRYPTION_KEY`.
+
+Cada confirmación registra versión, hash del texto mostrado, fuente, fecha y auditoría. Cada email comercial incluye una
+baja pública sin login. La baja desactiva la preferencia, registra retirada y crea una supresión inmediata; no bloquea
+confirmaciones de identidad, pedidos, seguridad o soporte. Rebotes duros, quejas y supresiones manuales o legales tienen
+precedencia y no se eliminan al volver a solicitar la newsletter.
+
+En producción el worker exige `MARKETING_EMAIL_PROVIDER=smtp` y sus propias variables `MARKETING_SMTP_*` y
+`MARKETING_EMAIL_FROM`. No cae por defecto sobre las credenciales `SMTP_*` transaccionales.

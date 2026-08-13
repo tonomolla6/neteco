@@ -247,7 +247,9 @@ async function savePreferences() {
   }))
   await $fetch('/api/account/preferences', { method: 'PUT', body: { preferences } })
   await refreshPreferences()
-  notice.value = 'Preferencias actualizadas.'
+  notice.value = communication.newsletter
+    ? 'Preferencias actualizadas. Revisa tu email para confirmar la newsletter si todavía no estaba activa.'
+    : 'Preferencias actualizadas. La baja de la newsletter tiene efecto inmediato.'
 }
 
 async function revokeSession(id: string) {
@@ -502,7 +504,13 @@ async function logout() {
           Los mensajes operativos de pedidos y seguridad siempre permanecen activos.
         </p>
         <div class="mt-4 space-y-3">
-          <UCheckbox v-model="communication.newsletter" label="Newsletter por email" />
+          <UCheckbox
+            v-model="communication.newsletter"
+            label="Quiero recibir por email novedades y contenidos comerciales de NETECO. Puedo darme de baja en cualquier momento."
+          />
+          <p class="text-xs text-slate-500">
+            Si la activas, te enviaremos un email de confirmación y no recibirás marketing hasta que lo confirmes.
+          </p>
           <UCheckbox v-model="communication.product_updates" label="Novedades de producto por email" />
           <UCheckbox v-model="communication.replenishment" label="Recordatorios de reposición por email" />
         </div>

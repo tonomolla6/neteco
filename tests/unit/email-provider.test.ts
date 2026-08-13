@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   emailProviderFromEnvironment,
   LogEmailProvider,
+  marketingEmailProviderFromEnvironment,
   SmtpEmailProvider,
   type TransactionalEmail
 } from '../../server/integrations/email-provider'
@@ -68,6 +69,29 @@ describe('transactional email providers', () => {
     expect(mail.createTransport).toHaveBeenCalledWith(expect.objectContaining({ auth: undefined }))
   })
 
+  it('passes safe unsubscribe headers and rejects header injection', async () => {
+    const provider = new SmtpEmailProvider('pedidos@neteco.test', {
+      host: '127.0.0.1',
+      port: 1025,
+      secure: false
+    })
+    await provider.send({
+      ...message,
+      headers: { 'List-Unsubscribe': '<https://neteco.test/newsletter/baja?token=safe>' }
+    })
+    expect(mail.sendMail).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        headers: { 'List-Unsubscribe': '<https://neteco.test/newsletter/baja?token=safe>' }
+      })
+    )
+    await expect(
+      provider.send({ ...message, headers: { 'List-Unsubscribe': '<https://safe.test>\r\nBcc: victim@test' } })
+    ).rejects.toThrow('invalid line break')
+    await expect(provider.send({ ...message, headers: { 'Invalid Header': 'value' } })).rejects.toThrow(
+      'Invalid email header name'
+    )
+  })
+
   it('logs only non-sensitive delivery metadata in local mode', async () => {
     const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
     const provider = new LogEmailProvider()
@@ -125,5 +149,24 @@ describe('transactional email providers', () => {
         auth: { user: 'user', pass: 'password' }
       })
     )
+  })
+
+  it('requires a separately configured marketing provider in production', () => {
+    expect(marketingEmailProviderFromEnvironment({ APP_ENV: 'local' }).name).toBe('marketing-log')
+    expect(() => marketingEmailProviderFromEnvironment({ APP_ENV: 'production' })).toThrow('separately configured')
+    expect(() =>
+      marketingEmailProviderFromEnvironment({
+        APP_ENV: 'production',
+        MARKETING_EMAIL_PROVIDER: 'smtp'
+      })
+    ).toThrow('MARKETING_SMTP_HOST')
+    const provider = marketingEmailProviderFromEnvironment({
+      APP_ENV: 'production',
+      MARKETING_EMAIL_PROVIDER: 'smtp',
+      MARKETING_SMTP_HOST: 'marketing.smtp.test',
+      MARKETING_EMAIL_FROM: 'newsletter@neteco.es'
+    })
+    expect(provider).toBeInstanceOf(SmtpEmailProvider)
+    expect(provider.name).toBe('marketing-smtp')
   })
 })
