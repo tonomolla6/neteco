@@ -48,10 +48,10 @@ function ids(specification: string) {
 }
 
 const mvpRepoEvidence = ids(
-  'CAT-003;PRI-001..002;SEA-001;CHK-001;PAY-001..002;BEP-003..004;ORD-001;INV-002;SHP-001..002;CUS-001..002;ADM-001..002;MED-002;SEO-001..002;DAT-001..002;MKT-001;COM-001..002;SEC-001..003;INT-001..004;TST-001..003;TST-005;TST-007..010;CIC-001..006;CIC-008;OBS-001..002;OBS-004'
+  'CAT-003;PRI-001..002;SEA-001;CHK-001;PAY-001..002;BEP-003..004;ORD-001;INV-002;SHP-001..002;CUS-001..002;ADM-001..002;MED-002;SEO-001..002;DAT-001..002;MKT-001;COM-001..002;SEC-001..003;INT-001..004;TST-001..003;TST-005..010;CIC-001..006;CIC-008;OBS-001..002;OBS-004'
 )
 const mvpExternal = ids('CAT-001..002;BEP-001..002;INV-001;MED-001;PER-001..002;SUP-001;LEG-001..002;OBS-003')
-const mvpMissing = ids('TST-004;TST-006;CIC-007')
+const mvpMissing = ids('TST-004;CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
@@ -111,6 +111,8 @@ function evidenceFor(id: string) {
       'server/api/orders/[id].get.ts; server/api/orders/[id]/invoice.get.ts; server/api/auth/reset-password.post.ts; server/api/auth/verify-email.post.ts; server/api/account/email-change.post.ts',
     'COM-008':
       'scripts/outbox-worker.ts; server/integrations/email-provider.ts; server/utils/email-base-url.ts; tests/unit/email-provider.test.ts; tests/unit/email-base-url.test.ts; tests/unit/invoice-email.test.ts',
+    'TST-006':
+      'docs/testing/coverage-policy.json; scripts/audit-coverage-policy.ts; vitest.config.ts; .github/workflows/ci.yml',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':

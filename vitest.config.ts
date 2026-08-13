@@ -1,5 +1,6 @@
 import { defineConfig, defineProject } from 'vitest/config'
 import { defineVitestProject } from '@nuxt/test-utils/config'
+import coveragePolicy from './docs/testing/coverage-policy.json' with { type: 'json' }
 
 export default defineConfig({
   test: {
@@ -34,15 +35,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'html', 'lcov'],
-      include: ['server/domain/**/*.ts', 'server/integrations/**/*.ts'],
-      exclude: ['**/*.d.ts'],
-      thresholds: {
-        perFile: true,
-        lines: 100,
-        functions: 100,
-        statements: 100,
-        branches: 100
-      }
+      include: coveragePolicy.include,
+      exclude: coveragePolicy.exclusions.map((exclusion) => exclusion.pattern),
+      thresholds: coveragePolicy.thresholds
     }
   }
 })

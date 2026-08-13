@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "owner": "NETECO Engineering",
+  "reviewedBy": "NETECO Engineering",
+  "reviewedOn": "2026-08-13",
+  "nextReviewOn": "2027-02-13",
+  "include": ["server/domain/**/*.ts", "server/integrations/**/*.ts"],
+  "thresholds": {
+    "perFile": true,
+    "lines": 100,
+    "functions": 100,
+    "statements": 100,
+    "branches": 100
+  },
+  "exclusions": [
+    {
+      "pattern": "**/*.d.ts",
+      "reason": "TypeScript declaration files contain types only and produce no executable runtime statements.",
+      "owner": "NETECO Engineering",
+      "reviewedBy": "NETECO Engineering",
+      "reviewedOn": "2026-08-13",
+      "expiresOn": "2027-02-13"
+    }
+  ]
+}

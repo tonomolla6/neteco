@@ -12,6 +12,11 @@
 
 No se admiten tests skipped, cuarentena silenciosa ni retries para convertir rojo en verde. Un test inestable bloquea hasta repararse o necesita issue, owner y fecha. Coverage complementa mutation testing (mínimo 90 % inicial), property tests y fault injection.
 
+El alcance, los umbrales y cada exclusión de cobertura se gobiernan en
+[`coverage-policy.json`](./coverage-policy.json). Vitest consume ese archivo directamente; CI valida responsable,
+revisión, caducidad y umbrales antes de medir, y publica la política junto al informe de cobertura. Una exclusión
+caducada, incompleta o duplicada bloquea el gate.
+
 ## Datos y determinismo
 
 Factories usan UUID/reloj inyectables. Cada integración y E2E parte de base aislada y seed sintético. Preview/demo interceptan email y no resuelven endpoints productivos. Cualquier fixture con PII real está prohibida.
