@@ -93,6 +93,8 @@ export default defineNuxtConfig({
     '/buscar': { swr: 30 },
     '/robots.txt': { swr: 3600 },
     '/sitemap.xml': { swr: 3600 },
+    '/sitemaps/**': { swr: 3600 },
+    '/feeds/**': { swr: 900 },
     '/carrito': {
       ssr: true,
       headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }

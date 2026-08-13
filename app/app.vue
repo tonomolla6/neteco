@@ -3,6 +3,30 @@
 // y se desvanece entonces. Evita clics muertos durante la carga inicial.
 // Las navegaciones posteriores entre páginas usan la barra fina superior.
 const hydrated = useHydrated()
+const runtime = useRuntimeConfig()
+const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
+useHead({
+  script: [
+    {
+      key: 'organization-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'Organization',
+        '@id': `${origin}/#organization`,
+        name: 'NETECO',
+        url: origin,
+        logo: `${origin}/logo-figura.png`,
+        contactPoint: {
+          '@type': 'ContactPoint',
+          telephone: '+34 600 861 334',
+          contactType: 'customer service',
+          availableLanguage: ['es']
+        }
+      })
+    }
+  ]
+})
 onMounted(() => {
   // doble rAF: deja que la app pinte bajo el splash antes de desvanecerlo
   requestAnimationFrame(() => requestAnimationFrame(() => (hydrated.value = true)))
