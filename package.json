@@ -23,6 +23,7 @@
     "test:integration": "vitest run --project integration",
     "test:e2e": "tsx scripts/run-e2e.ts",
     "test:a11y": "npm run test:e2e -- --project=chromium --workers=2 tests/e2e/accessibility.spec.ts",
+    "audit:a11y:manual": "tsx scripts/audit-manual-accessibility-evidence.ts",
     "test:contract:redsys:sandbox": "tsx scripts/redsys-sandbox-contract.ts",
     "test:contract:beply:sandbox": "tsx scripts/beply-sandbox-contract.ts",
     "test:determinism": "tsx scripts/audit-test-determinism.ts --publish",

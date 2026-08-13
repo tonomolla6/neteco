@@ -60,7 +60,9 @@ const currentRepoEvidence = new Set(
   )
 )
 const currentPartialExternal = new Set(
-  ids('SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019')
+  ids(
+    'SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019;TST-023'
+  )
 )
 
 function statusFor(requirement: Requirement): Status {
@@ -135,6 +137,8 @@ function evidenceFor(id: string) {
       'tests/e2e/security.spec.ts; tests/e2e/authorization-idor.spec.ts; tests/e2e/privacy.spec.ts; tests/unit/security-boundaries.test.ts; tests/unit/media-upload.test.ts; tests/unit/beply.test.ts; tests/unit/invoice-email.test.ts; server/integrations/beply.ts; server/utils/outbound-url.ts; server/utils/csv.ts; server/utils/private-cookie.ts; server/utils/security-headers.ts; server/utils/abuse-limit.ts; docs/testing/input-output-security.md; .github/workflows/ci.yml',
     'TST-022':
       'tests/e2e/accessibility.spec.ts; docs/testing/automated-accessibility.md; package.json; playwright.config.ts; .github/workflows/ci.yml',
+    'TST-023':
+      'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':

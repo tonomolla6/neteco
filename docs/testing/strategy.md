@@ -106,6 +106,11 @@ consentimiento, navegación/filtros móviles, cuenta y panel autenticado con MFA
 falla CI y conserva evidencia diagnóstica. Esta automatización complementa, pero no sustituye, la revisión manual de
 TST-023.
 
+TST-023 usa el [protocolo manual por release mayor](./manual-accessibility.md). Su manifest enlaza artefactos
+hasheados, defectos/retests y aprobación contra el SHA desplegado. El validador puede comprobar la evidencia, pero el
+estado permanece externo hasta que una persona complete teclado, foco, lector, zoom/reflow, contraste, errores y
+autenticación sobre la release candidata.
+
 ## Transferencia bancaria E2E
 
 El journey de transferencia atraviesa catálogo, carrito, checkout y página de pedido con una reserva real de 72 horas.
