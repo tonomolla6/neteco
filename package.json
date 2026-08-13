@@ -39,7 +39,8 @@
     "outbox:credit": "tsx scripts/credit-note-worker.ts",
     "alerts:check": "tsx scripts/operational-alerts.ts",
     "synthetic:check": "tsx scripts/synthetic-check.ts",
-    "catalog:release": "tsx scripts/catalog-release.ts"
+    "catalog:release": "tsx scripts/catalog-release.ts",
+    "requirements:audit": "tsx scripts/audit-master-requirements.ts"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "5.3.0",
