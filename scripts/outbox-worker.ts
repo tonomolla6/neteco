@@ -7,6 +7,7 @@ import {
 import { renderNewsletterEmail } from '../server/services/newsletter-email'
 import { renderInvoiceEmail } from '../server/services/invoice-email'
 import { hashAccessToken } from '../server/utils/access-token'
+import { validatedEmailBaseUrl } from '../server/utils/email-base-url'
 import { decryptSecret, encryptSecret, randomOpaqueToken } from '../server/utils/secrets'
 
 interface OutboxEvent {
@@ -37,10 +38,11 @@ interface OutboxEvent {
 
 const connection = process.env.DATABASE_URL?.trim()
 const encryptionKey = process.env.AUTH_ENCRYPTION_KEY?.trim()
-const baseUrl = process.env.APP_BASE_URL?.trim()
+const configuredBaseUrl = process.env.APP_BASE_URL?.trim()
 if (!connection) throw new Error('DATABASE_URL is required')
 if (!encryptionKey) throw new Error('AUTH_ENCRYPTION_KEY is required')
-if (!baseUrl) throw new Error('APP_BASE_URL is required')
+if (!configuredBaseUrl) throw new Error('APP_BASE_URL is required')
+const baseUrl = validatedEmailBaseUrl(configuredBaseUrl, process.env.APP_ENV)
 
 const sql = postgres(connection, { max: 2, connect_timeout: 10 })
 const transactionalProvider = emailProviderFromEnvironment()

@@ -55,7 +55,7 @@ const mvpMissing = ids('TST-004;TST-006;CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..007'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008'
   )
 )
 const currentPartialExternal = new Set(
@@ -109,6 +109,8 @@ function evidenceFor(id: string) {
       'scripts/outbox-worker.ts; scripts/invoice-worker.ts; server/domain/admin-order-status.ts; server/services/invoice-email.ts; tests/unit/invoice-email.test.ts; tests/integration/commerce-transactions.test.ts',
     'COM-007':
       'server/api/orders/[id].get.ts; server/api/orders/[id]/invoice.get.ts; server/api/auth/reset-password.post.ts; server/api/auth/verify-email.post.ts; server/api/account/email-change.post.ts',
+    'COM-008':
+      'scripts/outbox-worker.ts; server/integrations/email-provider.ts; server/utils/email-base-url.ts; tests/unit/email-provider.test.ts; tests/unit/email-base-url.test.ts; tests/unit/invoice-email.test.ts',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':
