@@ -8,6 +8,7 @@ const links = [
   { to: '/admin/categorias', label: 'Familias', icon: 'i-lucide-folder-tree' },
   { to: '/admin/busqueda', label: 'Búsqueda', icon: 'i-lucide-search-check' },
   { to: '/admin/contenido', label: 'Contenido', icon: 'i-lucide-panels-top-left' },
+  { to: '/admin/flags', label: 'Flags', icon: 'i-lucide-toggle-right' },
   { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text' },
   { to: '/admin/clientes', label: 'Clientes', icon: 'i-lucide-building-2' },
   { to: '/admin/devoluciones', label: 'Devoluciones', icon: 'i-lucide-rotate-ccw' },
