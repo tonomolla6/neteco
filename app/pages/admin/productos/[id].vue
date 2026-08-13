@@ -46,6 +46,7 @@ const form = reactive({
   featured: !!product?.featured,
   active: product?.active ?? true,
   series: product?.series ?? '',
+  attrs: (product?.attrs ?? []).map((attribute) => ({ k: attribute.k, v: attribute.v })),
   variants: (product?.variants ?? []).map((variant) => ({
     id: variant.id,
     format: variant.format,
@@ -75,6 +76,18 @@ function addVariant() {
 function removeVariant(i: number) {
   form.variants.splice(i, 1)
 }
+function addAttr() {
+  form.attrs.push({ k: '', v: '' })
+}
+function moveAttr(i: number, dir: number) {
+  const j = i + dir
+  if (j < 0 || j >= form.attrs.length) return
+  const current = form.attrs[i]
+  const target = form.attrs[j]
+  if (!current || !target) return
+  form.attrs[i] = target
+  form.attrs[j] = current
+}
 
 const toast = useToast()
 const saving = ref(false)
@@ -94,6 +107,7 @@ async function save() {
       featured: form.featured,
       active: form.active,
       series: form.series || null,
+      attrs: form.attrs.filter((a) => a.k.trim() && a.v.trim()),
       variants: form.variants.map((v) => ({
         ...(v.id != null ? { id: v.id } : {}),
         format: v.format,
@@ -201,6 +215,52 @@ async function removeProduct() {
         </div>
       </section>
 
+      <!-- características técnicas -->
+      <section class="rounded-2xl border border-slate-200 bg-white p-6">
+        <div class="flex items-center justify-between">
+          <h2 class="font-bold text-slate-900">Características técnicas</h2>
+          <UButton size="sm" variant="soft" icon="i-lucide-plus" @click="addAttr">Añadir</UButton>
+        </div>
+        <p class="mt-1 text-sm text-slate-500">
+          Salen en la tabla «Características» de la ficha, en este mismo orden: Material, Gramaje, Unidades/caja,
+          Certificaciones, EAN…
+        </p>
+        <div v-if="form.attrs.length" class="mt-4 space-y-2">
+          <div v-for="(a, i) in form.attrs" :key="i" class="grid grid-cols-[1fr_2fr_auto] items-center gap-2">
+            <UInput v-model="a.k" placeholder="Material" />
+            <UInput v-model="a.v" placeholder="Tejido sin tejer 55 g/m²" />
+            <div class="flex gap-0.5">
+              <UButton
+                size="xs"
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-chevron-up"
+                :disabled="i === 0"
+                aria-label="Subir"
+                @click="moveAttr(i, -1)"
+              />
+              <UButton
+                size="xs"
+                variant="ghost"
+                color="neutral"
+                icon="i-lucide-chevron-down"
+                :disabled="i === form.attrs.length - 1"
+                aria-label="Bajar"
+                @click="moveAttr(i, 1)"
+              />
+              <UButton
+                size="xs"
+                color="error"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                aria-label="Quitar"
+                @click="form.attrs.splice(i, 1)"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- visual -->
       <section class="rounded-2xl border border-slate-200 bg-white p-6">
         <h2 class="font-bold text-slate-900">Ilustración provisional</h2>
@@ -271,7 +331,7 @@ async function removeProduct() {
               :ui="{ label: 'text-xs' }"
               class="order-last col-span-2 sm:order-none sm:col-span-1"
             >
-              <UInput v-model="v.image" placeholder="/img/products/…" class="w-full" />
+              <UInput v-model="v.image" placeholder="/img/products/<producto>/<acabado>/<COD>.jpg" class="w-full" />
             </UFormField>
             <UFormField label="Precio € (IVA inc.)" :ui="{ label: 'text-xs' }">
               <input

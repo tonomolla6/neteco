@@ -537,7 +537,9 @@ async function logout() {
           :key="item.variantId"
           class="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3"
         >
-          <NuxtLink :to="`/producto/${item.slug}`" class="font-medium">{{ item.name }} · {{ item.sku }}</NuxtLink>
+          <NuxtLink :to="`/producto/${item.slug}?sku=${encodeURIComponent(item.sku)}`" class="font-medium">
+            {{ item.name }} · {{ item.sku }}
+          </NuxtLink>
           <UButton size="xs" color="error" variant="ghost" @click="removeFavorite(item.variantId)">Quitar</UButton>
         </div>
       </div>

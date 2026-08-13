@@ -20,13 +20,15 @@ export default defineEventHandler(async (event) => {
       featured: boolean
       active: boolean
       series: string | null
+      attrs: Array<{ k: string; v: string }>
     }>
   >`
     SELECT p.id AS uuid, p.legacy_id AS id, p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
            c.legacy_id AS "categoryId", p.short_description AS "shortDesc", p.description,
            p.usage, COALESCE(p.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(p.attributes -> 'visual', '{"type":"caja","color":"#009ac9"}'::jsonb) AS visual,
-           p.featured, p.status = 'published' AS active, p.series
+           p.featured, p.status = 'published' AS active, p.series,
+           COALESCE(p.attributes -> 'attrs', '[]'::jsonb) AS attrs
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
@@ -49,7 +51,7 @@ export default defineEventHandler(async (event) => {
     SELECT v.legacy_id AS id, v.format, v.sku, v.price_gross_cents AS price,
            COALESCE(sum(balance.physical_quantity), 0)::int AS stock,
            v.content_quantity::float8 AS units, v.unit_label AS "unitLabel",
-           NULL::text AS color, NULL::text AS image
+           v.color, v.image
     FROM variants v
     LEFT JOIN inventory_balances balance ON balance.variant_id = v.id
     WHERE v.product_id = ${product.uuid} AND v.status <> 'discontinued'

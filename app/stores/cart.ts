@@ -27,6 +27,8 @@ interface ServerCart {
   subtotal: number
 }
 
+let loadPromise: Promise<void> | null = null
+
 export const useCartStore = defineStore('cart', {
   state: () => ({
     items: [] as CartItem[],
@@ -53,38 +55,46 @@ export const useCartStore = defineStore('cart', {
       if (import.meta.client) localStorage.setItem('neteco-cart-cache', JSON.stringify(this.items))
     },
     async load() {
-      if (!import.meta.client || this.loading) return
-      this.loading = true
-      const cached = localStorage.getItem('neteco-cart-cache') ?? localStorage.getItem('neteco-cart')
-      if (!this.ready && cached) {
-        try {
-          this.items = JSON.parse(cached)
-        } catch {
-          this.items = []
-        }
-      }
-      try {
-        let cart = await $fetch<ServerCart>('/api/cart')
-        if (cart.items.length === 0 && this.items.length > 0) {
-          for (const item of this.items) {
-            cart = await $fetch<ServerCart>('/api/cart/items', {
-              method: 'POST',
-              body: {
-                variantId: item.variantId,
-                quantity: item.qty,
-                expectedVersion: cart.version,
-                idempotencyKey: crypto.randomUUID()
-              }
-            })
+      if (!import.meta.client) return
+      if (loadPromise) return loadPromise
+      loadPromise = (async () => {
+        this.loading = true
+        const cached = localStorage.getItem('neteco-cart-cache') ?? localStorage.getItem('neteco-cart')
+        if (!this.ready && cached) {
+          try {
+            this.items = JSON.parse(cached)
+          } catch {
+            this.items = []
           }
-          localStorage.removeItem('neteco-cart')
         }
-        this.apply(cart)
-      } catch {
-        this.error = 'No se ha podido sincronizar el carrito'
-        this.ready = true
+        try {
+          let cart = await $fetch<ServerCart>('/api/cart')
+          if (cart.items.length === 0 && this.items.length > 0) {
+            for (const item of this.items) {
+              cart = await $fetch<ServerCart>('/api/cart/items', {
+                method: 'POST',
+                body: {
+                  variantId: item.variantId,
+                  quantity: item.qty,
+                  expectedVersion: cart.version,
+                  idempotencyKey: crypto.randomUUID()
+                }
+              })
+            }
+            localStorage.removeItem('neteco-cart')
+          }
+          this.apply(cart)
+        } catch {
+          this.error = 'No se ha podido sincronizar el carrito'
+          this.ready = true
+        } finally {
+          this.loading = false
+        }
+      })()
+      try {
+        await loadPromise
       } finally {
-        this.loading = false
+        loadPromise = null
       }
     },
     async ensureLoaded() {

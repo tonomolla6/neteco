@@ -14,3 +14,4 @@ Las licencias BY/BY-SA exigen mantener esta atribución mientras se usen.
 
 Nota: `vinilo-caja.jpg` muestra la marca "GlovePlus" (foto CC0 de un producto de terceros);
 válida solo como maqueta de demo, nunca en producción.
+— Fotos de AZ/LI/NA del sin precorte 1×50: origen clientes.karme.es (portal del proveedor), ficha NR1X, ago 2026.

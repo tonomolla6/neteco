@@ -41,3 +41,22 @@ test('private administration is not indexable and requires a session', async ({ 
   await page.goto('/admin')
   await expect(page).toHaveURL(/\/login\?redirect=/)
 })
+
+test('keeps the selected product variant in a shareable SKU URL', async ({ page, request }) => {
+  const catalogResponse = await request.get('/api/products?limit=1')
+  const catalog = (await catalogResponse.json()) as { items: Array<{ slug: string }> }
+  const productResponse = await request.get(`/api/products/${catalog.items[0]!.slug}`)
+  const product = (await productResponse.json()) as {
+    slug: string
+    variants: Array<{ sku: string; format: string }>
+  }
+  expect(product.variants.length).toBeGreaterThan(1)
+  const first = product.variants[0]!
+  const second = product.variants[1]!
+
+  await page.goto(`/producto/${product.slug}?sku=${encodeURIComponent(second.sku)}`)
+  await expect(page.locator('button[aria-pressed="true"]').filter({ hasText: second.sku })).toBeVisible()
+
+  await page.getByRole('button').filter({ hasText: first.sku }).first().click()
+  await expect(page).toHaveURL(new RegExp(`[?&]sku=${encodeURIComponent(first.sku)}(?:&|$)`))
+})

@@ -12,21 +12,29 @@ export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const sql = useDatabase()
   const correlationId = event.context.correlationId ?? crypto.randomUUID()
-  const [product] = await sql<{ uuid: string; previous: string }[]>`
-    UPDATE products SET status = ${body.active ? 'published' : 'hidden'},
-      published_at = CASE WHEN ${body.active} THEN COALESCE(published_at, now()) ELSE published_at END,
-      updated_at = now()
-    WHERE legacy_id = ${id}
-    RETURNING id AS uuid, status AS previous
-  `
+  const product = await sql.begin(async (transaction) => {
+    const [current] = await transaction<{ uuid: string; status: string }[]>`
+      SELECT id AS uuid, status FROM products WHERE legacy_id = ${id} FOR UPDATE
+    `
+    if (!current) return null
+    await transaction`
+      UPDATE products SET status = ${body.active ? 'published' : 'hidden'},
+        published_at = CASE WHEN ${body.active} THEN COALESCE(published_at, now()) ELSE published_at END,
+        updated_at = now()
+      WHERE id = ${current.uuid}
+    `
+    await transaction`
+      INSERT INTO audit_log (
+        actor_type, actor_id, action, resource_type, resource_id, before_redacted,
+        after_redacted, reason, correlation_id
+      ) VALUES (
+        'staff', ${administrator.id}, 'product.publication.update', 'product', ${String(id)},
+        ${transaction.json({ status: current.status })},
+        ${transaction.json({ active: body.active })}, ${body.reason}, ${correlationId}
+      )
+    `
+    return current
+  })
   if (!product) throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado' })
-  await sql`
-    INSERT INTO audit_log (
-      actor_type, actor_id, action, resource_type, resource_id, after_redacted, reason, correlation_id
-    ) VALUES (
-      'staff', ${administrator.id}, 'product.publication.update', 'product', ${String(id)},
-      ${sql.json({ active: body.active })}, ${body.reason}, ${correlationId}
-    )
-  `
   return { id, active: body.active }
 })

@@ -43,5 +43,27 @@ describe('PostgreSQL foundation', () => {
         AND contype IN ('p', 'f', 'u', 'c')
     `
     expect(constraintCount!.count).toBeGreaterThan(80)
+
+    const columns = await sql<{ columnName: string }[]>`
+      SELECT column_name AS "columnName"
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'variants'
+        AND column_name IN ('color', 'image')
+      ORDER BY column_name
+    `
+    expect(columns.map((column) => column.columnName)).toEqual(['color', 'image'])
+
+    await expect(
+      sql.begin(async (transaction) => {
+        const [variant] = await transaction<{ id: string }[]>`SELECT id FROM variants ORDER BY id LIMIT 1`
+        await transaction`UPDATE variants SET color = 'blue' WHERE id = ${variant!.id}`
+      })
+    ).rejects.toMatchObject({ code: '23514' })
+
+    await sql.begin(async (transaction) => {
+      const [variant] = await transaction<{ id: string }[]>`SELECT id FROM variants ORDER BY id LIMIT 1`
+      await transaction`UPDATE variants SET image = '/img/products/example/principal.jpg' WHERE id = ${variant!.id}`
+      await transaction`UPDATE variants SET image = NULL WHERE id = ${variant!.id}`
+    })
   })
 })

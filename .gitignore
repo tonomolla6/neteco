@@ -13,3 +13,5 @@ reports/stryker-incremental.json
 stryker-setup-*.js
 backups
 *.log
+
+.cache

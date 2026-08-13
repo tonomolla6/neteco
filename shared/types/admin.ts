@@ -38,6 +38,7 @@ export interface AdminProductDetail {
   featured: boolean
   active: boolean
   series: string | null
+  attrs: Array<{ k: string; v: string }>
   variants: Array<{
     id: number
     format: string

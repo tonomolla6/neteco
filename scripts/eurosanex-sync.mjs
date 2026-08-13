@@ -120,7 +120,16 @@ function matchProducts(products, index) {
     const ends = cands.filter((e) => e.n.trimEnd().endsWith(key.trimEnd()))
     if (ends.length) cands = ends
     cands.sort((a, b) => a.title.length - b.title.length)
-    matched.push({ product: p, url: cands[0].url, title: cands[0].title, ambiguous: cands.length > 1 })
+    if (cands.length > 1) {
+      unmatched.push({
+        name: p.name,
+        key: key.trim(),
+        reason: 'coincidencia ambigua; requiere revisión',
+        candidates: cands.slice(0, 10).map((candidate) => candidate.url)
+      })
+      continue
+    }
+    matched.push({ product: p, url: cands[0].url, title: cands[0].title, ambiguous: false })
   }
   return { matched, unmatched }
 }
@@ -266,10 +275,17 @@ if (!DRY && toNormalize.length) {
     try {
       await page.goto('file://' + html, { waitUntil: 'networkidle', timeout: 30000 })
       await page.waitForTimeout(250)
-      await page.screenshot({ path: path.join(OUT.imgs, `${slug}.jpg`), type: 'jpeg', quality: 84 })
+      // Convención de carpetas: <familia>/<modelo>.jpg cuando ya existe una
+      // familia de fabricante; para el resto, <slug>/principal.jpg.
+      const [family, ...modelParts] = slug.split('-')
+      const hasFamilyDirectory = Boolean(family && modelParts.length && fs.existsSync(path.join(OUT.imgs, family)))
+      const rel = hasFamilyDirectory ? `${family}/${modelParts.join('-')}.jpg` : `${slug}/principal.jpg`
+      const dest = path.join(OUT.imgs, rel)
+      fs.mkdirSync(path.dirname(dest), { recursive: true })
+      await page.screenshot({ path: dest, type: 'jpeg', quality: 84 })
       await db`
         UPDATE products
-        SET attributes = jsonb_set(attributes, '{image}', to_jsonb(${`/img/products/${slug}.jpg`}::text), true),
+        SET attributes = jsonb_set(attributes, '{image}', to_jsonb(${`/img/products/${rel}`}::text), true),
             updated_at = now()
         WHERE slug = ${slug}
       `

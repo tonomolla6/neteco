@@ -16,6 +16,7 @@ interface ProductDetail {
   datasheet: string | null
   featured: boolean
   series: string | null
+  attrs: Array<{ k: string; v: string }>
 }
 
 export default defineEventHandler(async (event) => {
@@ -26,7 +27,8 @@ export default defineEventHandler(async (event) => {
            c.legacy_id AS "categoryId", p.short_description AS "shortDesc", p.description,
            p.usage, COALESCE(p.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
-           p.attributes ->> 'image' AS image, p.attributes ->> 'datasheet' AS datasheet, p.featured, p.series
+           p.attributes ->> 'image' AS image, p.attributes ->> 'datasheet' AS datasheet, p.featured, p.series,
+           COALESCE(p.attributes -> 'attrs', '[]'::jsonb) AS attrs
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
@@ -44,6 +46,9 @@ export default defineEventHandler(async (event) => {
       stock: number
       units: number
       unitLabel: string
+      minimumQuantity: number
+      maximumQuantity: number | null
+      quantityIncrement: number
       color: string | null
       image: string | null
     }>
@@ -60,16 +65,16 @@ export default defineEventHandler(async (event) => {
              0
            )::int AS stock,
            v.content_quantity::float8 AS units, v.unit_label AS "unitLabel",
-           NULL::text AS color, NULL::text AS image
+           v.minimum_quantity AS "minimumQuantity", v.maximum_quantity AS "maximumQuantity",
+           v.quantity_increment AS "quantityIncrement", v.color, v.image
     FROM variants v
     LEFT JOIN inventory_balances ib ON ib.variant_id = v.id
     WHERE v.product_id = ${product.uuid} AND v.status = 'published'
     GROUP BY v.id
     ORDER BY v.legacy_id
   `
-
   const siblings = product.series
-    ? await sql<Array<{ name: string; slug: string; visual: { type: string; color: string }; image: null }>>`
+    ? await sql<Array<{ name: string; slug: string; visual: { type: string; color: string }; image: string | null }>>`
         SELECT sibling.name, sibling.slug,
                COALESCE(sibling.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
                sibling.attributes ->> 'image' AS image
@@ -100,7 +105,7 @@ export default defineEventHandler(async (event) => {
       brand: string
       badges: string[]
       visual: { type: string; color: string }
-      image: null
+      image: string | null
       minPrice: number
       formats: number
     }>

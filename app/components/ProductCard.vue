@@ -41,9 +41,6 @@ const showBrand = computed(
       <p class="line-clamp-2 text-sm font-semibold leading-snug text-slate-800 group-hover:text-neteco-700">
         {{ product.name }}
       </p>
-      <p v-if="product.shortDesc" class="mt-0.5 line-clamp-2 text-xs leading-snug text-slate-500">
-        {{ product.shortDesc }}
-      </p>
     </div>
 
     <div class="mt-auto flex items-end justify-between">

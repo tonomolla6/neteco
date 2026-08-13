@@ -149,7 +149,7 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
              'type', COALESCE(p.attributes->'visual'->>'type', 'bottle'),
              'color', COALESCE(p.attributes->'visual'->>'color', '#64748b')
            ) AS visual,
-           (
+           COALESCE(v.image, (
              SELECT asset.source_url
              FROM product_media media
              JOIN media_assets asset ON asset.id = media.asset_id
@@ -158,7 +158,7 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
                AND asset.quarantine_status = 'clean'
              ORDER BY media.variant_id NULLS LAST, media.sort_order
              LIMIT 1
-           ) AS image,
+           ), p.attributes ->> 'image') AS image,
            v.minimum_quantity AS "minimumQuantity", v.maximum_quantity AS "maximumQuantity",
            v.quantity_increment AS "quantityIncrement"
     FROM cart_items ci

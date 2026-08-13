@@ -21,11 +21,11 @@ export default defineEventHandler(async (event) => {
     if (body.parentId && !parent) {
       throw createError({ statusCode: 400, statusMessage: 'La familia superior no existe' })
     }
+    await transaction`SELECT pg_advisory_xact_lock(hashtext('neteco:catalog:category-legacy-id'))`
     const [next] = await transaction<{ legacyId: number; sort: number }[]>`
       SELECT greatest(COALESCE(max(legacy_id), 999), 999)::int + 1 AS "legacyId",
              COALESCE(max(sort_order), 0)::int + 1 AS sort
       FROM categories
-      FOR UPDATE
     `
     if (!next) throw new Error('Could not allocate category identifier')
     const baseSlug = slugify(body.name)

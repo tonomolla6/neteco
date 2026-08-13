@@ -167,12 +167,20 @@ export default defineEventHandler(async (event) => {
   }
   const finishes = multi(query.acabado)
   if (finishes.length) {
+    const finishParameters = finishes
+      .filter((finish) => finish.toLocaleLowerCase('es') !== 'precortado')
+      .map((finish) => `%${finish} · Color %`)
+    const finishClauses = finishes.map((finish) =>
+      finish.toLocaleLowerCase('es') === 'precortado'
+        ? "(finish_variant.format ILIKE '% · Precorte %' OR finish_variant.format ILIKE 'Precorte %')"
+        : 'finish_variant.format ILIKE ?'
+    )
     filters.push({
       key: 'acabado',
       clause: `EXISTS (SELECT 1 FROM variants finish_variant
                        WHERE finish_variant.product_id = p.id AND finish_variant.status = 'published'
-                         AND finish_variant.format ILIKE ANY(?::text[]))`,
-      parameters: [finishes.map((finish) => `%${finish} · Color %`)]
+                         AND (${finishClauses.join(' OR ')}))`,
+      parameters: finishParameters
     })
   }
   const priceMinimum = query.price_min === undefined ? null : Math.round(Number(query.price_min) * 100)
@@ -275,8 +283,16 @@ export default defineEventHandler(async (event) => {
 
     const variantsFor = async (context: ProductRow[]) => {
       if (!context.length) return []
-      return sql.unsafe<Array<{ productId: string; format: string; units: number; label: string }>>(
-        `SELECT product_id AS "productId", format, content_quantity::float8 AS units, unit_label AS label
+      return sql.unsafe<
+        Array<{
+          productId: string
+          format: string
+          units: number
+          label: string
+          color: string | null
+        }>
+      >(
+        `SELECT product_id AS "productId", format, content_quantity::float8 AS units, unit_label AS label, color
          FROM variants WHERE status = 'published' AND product_id = ANY($1::uuid[])`,
         [context.map((row) => row.uuid)]
       )
@@ -321,26 +337,33 @@ export default defineEventHandler(async (event) => {
         (left, right) =>
           (capacityOrder[left.label] ?? 9) - (capacityOrder[right.label] ?? 9) || left.units - right.units
       )
-    const colorMap = new Map<string, Set<string>>()
+    const colorMap = new Map<string, { products: Set<string>; hex: string | null }>()
     for (const variant of colorVariants) {
       const { color } = parseAxes(variant.format)
       if (!color) continue
-      const products = colorMap.get(color) ?? new Set<string>()
-      products.add(variant.productId)
-      colorMap.set(color, products)
+      const entry = colorMap.get(color) ?? { products: new Set<string>(), hex: variant.color }
+      entry.products.add(variant.productId)
+      if (!entry.hex && variant.color) entry.hex = variant.color
+      colorMap.set(color, entry)
     }
     const colores = [...colorMap.entries()]
-      .map(([value, products]) => ({ value, n: products.size, hex: null }))
+      .map(([value, entry]) => ({ value, n: entry.products.size, hex: entry.hex }))
       .sort((left, right) => right.n - left.n || left.value.localeCompare(right.value, 'es'))
-    const axisFacet = (variants: Awaited<ReturnType<typeof variantsFor>>, measurement: boolean) => {
+    const axisFacet = (
+      variants: Awaited<ReturnType<typeof variantsFor>>,
+      measurement: boolean,
+      normalize: (value: string) => string = (value) => value
+    ) => {
       const values = new Map<string, Set<string>>()
       for (const variant of variants) {
         const axes = parseAxes(variant.format).axes
         for (const axis of axes) {
-          if (/\d/.test(axis) !== measurement) continue
-          const products = values.get(axis) ?? new Set<string>()
+          const isMeasurement = /\d/.test(axis) && !/precort/i.test(axis)
+          if (isMeasurement !== measurement) continue
+          const value = normalize(axis)
+          const products = values.get(value) ?? new Set<string>()
           products.add(variant.productId)
-          values.set(axis, products)
+          values.set(value, products)
         }
       }
       return [...values.entries()]
@@ -367,7 +390,7 @@ export default defineEventHandler(async (event) => {
       capacidades,
       colores,
       medidas: axisFacet(measurementVariants, true),
-      acabados: axisFacet(finishVariants, false),
+      acabados: axisFacet(finishVariants, false, (value) => (/^precorte\s/i.test(value) ? 'Precortado' : value)),
       price,
       categories
     }

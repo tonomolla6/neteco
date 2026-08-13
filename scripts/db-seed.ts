@@ -76,7 +76,12 @@ try {
           ${productId}, ${productIndex + 1}, ${stableUuid(`category:${product.cat}`)}, ${brandId}, ${sourceId},
           ${product.name}, ${slugify(product.name)}, ${product.short}, ${product.desc}, ${product.usage ?? null},
           ${product.series ?? null}, 'published', ${product.featured ?? false},
-          ${transaction.json({ badges: product.badges ?? [], visual: { type: product.visual[0], color: product.visual[1] } })},
+          ${transaction.json({
+            badges: product.badges ?? [],
+            visual: { type: product.visual[0], color: product.visual[1] },
+            attrs: [],
+            ...(product.image ? { image: product.image } : {})
+          })},
           'demo-v1'
         ) ON CONFLICT (id) DO UPDATE SET
           category_id = EXCLUDED.category_id,

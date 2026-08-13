@@ -11,6 +11,9 @@ interface ProductVariant {
   stock: number
   units: number
   unitLabel: string
+  minimumQuantity: number
+  maximumQuantity: number | null
+  quantityIncrement: number
   color: string | null
   image: string | null
 }
@@ -27,6 +30,7 @@ interface ProductDetail {
   visual: ProductVisualData
   image: string | null
   datasheet: string | null
+  attrs: Array<{ k: string; v: string }>
   variants: ProductVariant[]
   siblings: Array<{ name: string; slug: string; visual: ProductVisualData; image: string | null }>
   breadcrumb: Array<{ name: string; slug: string }>
@@ -46,11 +50,34 @@ useSeoMeta({
   description: product.value.shortDesc
 })
 
-const selectedId = ref(product.value.variants[0]!.id)
+// La variante seleccionada vive en la URL (?sku=REF): el enlace es compartible
+// y la selección sobrevive a recargas sin añadir entradas al historial.
+const firstVariant = product.value.variants[0]!
+const initialVariant = product.value.variants.find((variant) => variant.sku === String(route.query.sku ?? ''))
+const selectedId = ref(initialVariant?.id ?? firstVariant.id)
 const selected = computed(
-  () => product.value.variants.find((variant) => variant.id === selectedId.value) ?? product.value.variants[0]!
+  () => product.value.variants.find((variant) => variant.id === selectedId.value) ?? firstVariant
 )
-const qty = ref(1)
+const qty = ref(firstVariant.minimumQuantity)
+const maximumQuantity = computed(() => Math.min(selected.value.maximumQuantity ?? Infinity, selected.value.stock))
+const outOfStock = computed(() => selected.value.stock < selected.value.minimumQuantity)
+const canIncrease = computed(() => qty.value + selected.value.quantityIncrement <= maximumQuantity.value)
+
+watch(selected, (variant) => {
+  qty.value = outOfStock.value ? variant.minimumQuantity : Math.min(variant.minimumQuantity, maximumQuantity.value)
+})
+
+const router = useRouter()
+watch(selected, (v) => {
+  if (!v || product.value.variants.length < 2) return
+  if (String(route.query.sku ?? '') !== String(v.sku)) {
+    router.replace({ query: { ...route.query, sku: v.sku } })
+  }
+})
+
+// canónica sin query: las 36 variantes son la misma página para los buscadores
+const reqUrl = useRequestURL()
+useHead({ link: [{ rel: 'canonical', href: `${reqUrl.origin}/producto/${product.value.slug}` }] })
 
 // si todas las variantes tienen color propio (p. ej. mantelería), el selector son círculos de color.
 // El formato admite ejes previos separados por « · », p. ej. «1,20 × 50 m · Precortado · Color Azul (AZ)»:
@@ -84,8 +111,35 @@ function axisOptions(level: number): string[] {
   return opts
 }
 function axisLabel(level: number): string {
-  return axisOptions(level).some((o) => /\d/.test(o)) ? 'Medida' : 'Acabado'
+  const opts = axisOptions(level)
+  if (opts.some((o) => /precort/i.test(o))) return 'Precorte'
+  if (opts.length && opts.every((o) => /\d/.test(o))) return 'Medida'
+  return 'Acabado'
 }
+// la píldora muestra solo «Precortado»; el detalle «cada X cm» vive en Características
+function axisDisplay(o: string): string {
+  return /^precorte\s/i.test(o) ? 'Precortado' : o
+}
+
+// filas de Características derivadas de la selección (Medida / Precorte / Color con su muestra)
+const selectedSpecs = computed(() => {
+  if (!colorMode.value || !selectedParsed.value) return null
+  const rows: Array<{ k: string; v: string; color?: string | null }> = []
+  selectedParsed.value.axes.forEach((a: string, i: number) => {
+    const label = axisLabel(i)
+    const value =
+      label === 'Precorte' && /^precorte\s+/i.test(a)
+        ? a.replace(/^precorte\s+/i, '').replace(/^\p{L}/u, (c: string) => c.toUpperCase())
+        : a
+    rows.push({ k: label, v: value })
+  })
+  rows.push({
+    k: 'Color',
+    v: (selectedParsed.value.colorName ?? '').replace(/\s*\([^)]*\)$/, ''),
+    color: selected.value?.color ?? null
+  })
+  return rows
+})
 function pickAxis(level: number, value: string) {
   const cur = selectedParsed.value
   if (!cur) return
@@ -108,7 +162,72 @@ const colorOptions = computed(() => {
   if (!axisCount.value || !cur) return parsedVariants.value
   return parsedVariants.value.filter((parsed) => parsed.axes.join('|') === cur.axes.join('|'))
 })
-const mainImage = computed(() => selected.value?.image ?? product.value.image ?? null)
+// en productos por colores, una variante sin foto propia enseña la ilustración neutra:
+// nunca la foto de otro color/producto. Y si la foto FALLA al cargar, también cae a la ilustración.
+const mainImage = computed(() =>
+  colorMode.value ? (selected.value?.image ?? null) : (selected.value?.image ?? product.value.image ?? null)
+)
+// la imagen visible solo cambia cuando la nueva ya está comprobada (precarga en segundo plano):
+// sin fogonazos en blanco ni saltos al pasar a un color cuya foto aún no existe
+const shownImage = ref<string | null>(mainImage.value)
+// esqueleto pulsante bajo la imagen grande mientras baja el derivado optimizado
+const fichaImgLoaded = ref(false)
+watch(shownImage, () => (fichaImgLoaded.value = false))
+// URL optimizada (webp) que muestra la ficha. La precarga usa EXACTAMENTE esta URL:
+// así al confirmar la carga el navegador ya la tiene en caché y el cambio es inmediato
+// (antes se comprobaba la original y luego se descargaba el derivado: doble descarga)
+const imgApi = useImage()
+const fichaUrl = (src: string) => imgApi(src, { format: 'webp', quality: 80, width: 1120 })
+watch(
+  mainImage,
+  (src) => {
+    if (!src) {
+      shownImage.value = null
+      return
+    }
+    if (!import.meta.client) {
+      shownImage.value = src
+      return
+    }
+    const im = new Image()
+    im.onload = () => {
+      if (mainImage.value === src) shownImage.value = src
+    }
+    im.onerror = () => {
+      if (mainImage.value === src) shownImage.value = null
+    }
+    im.src = fichaUrl(src)
+  },
+  { immediate: true }
+)
+// candidata LCP: precargar el derivado inicial desde el HTML
+useHead({
+  link: () => (shownImage.value ? [{ rel: 'preload', as: 'image', href: fichaUrl(shownImage.value) }] : [])
+})
+// pre-descarga en segundo plano (en ratos libres del navegador) de todos los colores
+// de la rama activa: pasar de un color a otro queda instantáneo, ya están en caché
+const prefetched = new Set<string>()
+watch(
+  colorOptions,
+  (opts) => {
+    if (!import.meta.client) return
+    const urls = opts
+      .map((parsed) => parsed.v.image)
+      .filter((source): source is string => Boolean(source))
+      .map((source) => fichaUrl(source))
+      .filter((url) => !prefetched.has(url))
+    if (!urls.length) return
+    urls.forEach((u: string) => prefetched.add(u))
+    const go = () =>
+      urls.forEach((u: string) => {
+        const im = new Image()
+        im.src = u
+      })
+    if ('requestIdleCallback' in window) requestIdleCallback(go, { timeout: 2000 })
+    else setTimeout(go, 400)
+  },
+  { immediate: true }
+)
 
 // precio informativo por unidad/litro/kilo del envase (estilo mayorista)
 function perUnit(variant: ProductVariant): string | null {
@@ -117,6 +236,43 @@ function perUnit(variant: ProductVariant): string | null {
   const digits = per < 0.1 ? 3 : 2
   return `${per.toLocaleString('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits })} €/${variant.unitLabel}`
 }
+
+// lupa: la imagen se abre a pantalla completa (como el lightbox de Karme).
+// Dos tamaños por convención (como Karme): la pequeña en la carpeta y la grande en big/;
+// si la grande no existe (la imagen da error), la lupa cae a la normal.
+const lightbox = ref(false)
+const lightboxSrc = computed(() =>
+  shownImage.value ? imgApi(shownImage.value, { format: 'webp', quality: 85, width: 1800 }) : null
+)
+watch(lightbox, (open) => {
+  if (!open) zoomed.value = false
+})
+
+// zoom dentro de la lupa: clic amplía ×2,5 sobre el punto pulsado y el ratón recorre la imagen
+const zoomed = ref(false)
+const zoomOrigin = ref('50% 50%')
+function setZoomOrigin(e: MouseEvent) {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  zoomOrigin.value = `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}% ${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`
+}
+function toggleZoom(e: MouseEvent) {
+  setZoomOrigin(e)
+  zoomed.value = !zoomed.value
+}
+function onZoomMove(e: MouseEvent) {
+  if (zoomed.value) setZoomOrigin(e)
+}
+function onLightboxKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') lightbox.value = false
+}
+watch(lightbox, (v) => {
+  if (import.meta.client) document.body.style.overflow = v ? 'hidden' : ''
+})
+onMounted(() => window.addEventListener('keydown', onLightboxKey))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onLightboxKey)
+  if (import.meta.client) document.body.style.overflow = ''
+})
 
 const cart = useCartStore()
 const toast = useToast()
@@ -150,7 +306,7 @@ async function addToCart(goToCart = false) {
         sku: selected.value.sku,
         price: selected.value.price,
         visual: product.value.visual,
-        image: selected.value.image ?? product.value.image ?? null
+        image: selected.value.image ?? (colorMode.value ? null : product.value.image) ?? null
       },
       qty.value
     )
@@ -189,13 +345,33 @@ async function addToCart(goToCart = false) {
     <div class="mt-6 grid gap-8 lg:grid-cols-5">
       <!-- imagen -->
       <div class="relative self-start rounded-2xl border border-slate-200 bg-white p-6 sm:p-10 lg:col-span-2">
-        <img
-          v-if="mainImage"
-          :src="mainImage"
-          :alt="colorMode ? `${product.name} · ${selected.format}` : product.name"
-          class="mx-auto aspect-square w-full max-w-[420px] rounded-xl bg-white object-contain"
-        />
-        <ProductVisual v-else :visual="product.visual" class="mx-auto max-w-[180px] sm:max-w-[260px]" />
+        <button
+          v-if="shownImage"
+          type="button"
+          class="group relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
+          aria-label="Ver la imagen a pantalla completa"
+          @click="lightbox = true"
+        >
+          <span
+            v-if="!fichaImgLoaded"
+            class="absolute inset-0 animate-pulse rounded-xl bg-slate-100"
+            aria-hidden="true"
+          />
+          <img
+            :src="fichaUrl(shownImage)"
+            :alt="colorMode ? `${product.name} · ${selected.format}` : product.name"
+            class="relative mx-auto aspect-square w-full rounded-xl bg-white object-contain"
+            @load="fichaImgLoaded = true"
+          />
+          <span
+            class="absolute bottom-3 right-3 rounded-full bg-white/95 p-2.5 text-slate-600 opacity-0 shadow-md transition group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            <UIcon name="i-lucide-zoom-in" class="block size-5" />
+          </span>
+        </button>
+        <div v-else class="flex aspect-square w-full items-center justify-center">
+          <ProductVisual :visual="product.visual" class="w-full max-w-[260px]" />
+        </div>
         <div class="absolute left-6 top-6 flex flex-col items-start gap-1.5">
           <UBadge
             v-for="b in product.badges"
@@ -218,7 +394,7 @@ async function addToCart(goToCart = false) {
           {{ product.brand }}
         </p>
         <h1 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{{ product.name }}</h1>
-        <p class="mt-3 text-slate-600">{{ product.shortDesc }}</p>
+        <p v-if="product.shortDesc" class="mt-3 text-slate-600">{{ product.shortDesc }}</p>
 
         <!-- selector de color (variantes con color propio; eje opcional de acabado) -->
         <div v-if="colorMode" class="mt-6 space-y-4">
@@ -237,7 +413,7 @@ async function addToCart(goToCart = false) {
                 "
                 @click="pickAxis(level - 1, o)"
               >
-                {{ o }}
+                {{ axisDisplay(o) }}
               </button>
             </div>
           </div>
@@ -318,17 +494,18 @@ async function addToCart(goToCart = false) {
           <div class="flex items-center rounded-xl border border-slate-300">
             <button
               class="rounded-l-xl px-3.5 py-3 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 disabled:opacity-30"
-              :disabled="qty <= 1"
+              :disabled="qty <= selected.minimumQuantity"
               aria-label="Menos unidades"
-              @click="qty--"
+              @click="qty -= selected.quantityIncrement"
             >
               <UIcon name="i-lucide-minus" class="block size-5" />
             </button>
             <span role="status" aria-label="Cantidad" class="w-10 text-center font-semibold">{{ qty }}</span>
             <button
-              class="rounded-r-xl px-3.5 py-3 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+              class="rounded-r-xl px-3.5 py-3 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 disabled:opacity-30"
+              :disabled="!canIncrease"
               aria-label="Más unidades"
-              @click="qty++"
+              @click="qty += selected.quantityIncrement"
             >
               <UIcon name="i-lucide-plus" class="block size-5" />
             </button>
@@ -339,16 +516,30 @@ async function addToCart(goToCart = false) {
               IVA incluido<template v-if="perUnit(selected)"> · {{ perUnit(selected) }}</template>
             </p>
           </div>
-          <p class="flex items-center gap-1.5 text-sm text-emerald-700">
-            <span class="size-2 rounded-full bg-emerald-600" /> En stock
+          <p class="flex items-center gap-1.5 text-sm" :class="outOfStock ? 'text-red-700' : 'text-emerald-700'">
+            <span class="size-2 rounded-full" :class="outOfStock ? 'bg-red-600' : 'bg-emerald-600'" />
+            {{ outOfStock ? 'Agotado' : `${selected.stock} disponibles` }}
           </p>
         </div>
 
         <div class="mt-5 flex flex-col gap-3 sm:flex-row">
-          <UButton size="xl" icon="i-lucide-shopping-cart" class="justify-center sm:flex-1" @click="addToCart(false)">
+          <UButton
+            size="xl"
+            icon="i-lucide-shopping-cart"
+            class="justify-center sm:flex-1"
+            :disabled="outOfStock"
+            @click="addToCart(false)"
+          >
             Añadir al carrito
           </UButton>
-          <UButton size="xl" variant="soft" icon="i-lucide-zap" class="justify-center" @click="addToCart(true)">
+          <UButton
+            size="xl"
+            variant="soft"
+            icon="i-lucide-zap"
+            class="justify-center"
+            :disabled="outOfStock"
+            @click="addToCart(true)"
+          >
             Comprar ahora
           </UButton>
           <UButton
@@ -389,7 +580,7 @@ async function addToCart(goToCart = false) {
         class="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-2"
       >
         <h2 class="text-lg font-bold text-slate-900">Descripción</h2>
-        <p class="mt-3 leading-relaxed text-slate-600">{{ product.description }}</p>
+        <p class="mt-3 whitespace-pre-line leading-relaxed text-slate-600">{{ product.description }}</p>
         <template v-if="product.usage">
           <h3 class="mt-6 flex items-center gap-2 font-semibold text-slate-900">
             <UIcon name="i-lucide-beaker" class="size-4 text-neteco-600" /> Modo de empleo y dosificación
@@ -408,13 +599,30 @@ async function addToCart(goToCart = false) {
             <dt class="text-slate-500">Referencia</dt>
             <dd class="font-mono font-medium text-slate-700">{{ selected.sku }}</dd>
           </div>
-          <div class="flex justify-between py-2">
+          <template v-if="selectedSpecs">
+            <div v-for="(s, index) in selectedSpecs" :key="`${s.k}-${index}`" class="flex justify-between gap-4 py-2">
+              <dt class="shrink-0 text-slate-500">{{ s.k }}</dt>
+              <dd class="flex items-center justify-end gap-1.5 text-right font-medium text-slate-700">
+                <span
+                  v-if="s.color"
+                  class="size-3.5 shrink-0 rounded-full border border-black/15"
+                  :style="{ backgroundColor: s.color }"
+                />
+                {{ s.v }}
+              </dd>
+            </div>
+          </template>
+          <div v-else class="flex justify-between py-2">
             <dt class="text-slate-500">Formato</dt>
             <dd class="font-medium text-slate-700">{{ selected.format }}</dd>
           </div>
           <div v-if="selected.units && selected.unitLabel === 'ud'" class="flex justify-between py-2">
             <dt class="text-slate-500">Unidades por envase</dt>
             <dd class="font-medium text-slate-700">{{ selected.units }}</dd>
+          </div>
+          <div v-for="attribute in product.attrs" :key="attribute.k" class="flex justify-between gap-4 py-2">
+            <dt class="shrink-0 text-slate-500">{{ attribute.k }}</dt>
+            <dd class="text-right font-medium text-slate-700">{{ attribute.v }}</dd>
           </div>
           <div class="flex justify-between py-2">
             <dt class="text-slate-500">Categoría</dt>
@@ -448,6 +656,41 @@ async function addToCart(goToCart = false) {
         <ProductCard v-for="p in product.related" :key="p.id" :product="p" />
       </div>
     </section>
+
+    <!-- lupa: imagen a pantalla completa -->
+    <Teleport to="body">
+      <div
+        v-if="lightbox && shownImage"
+        class="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-slate-900/85 p-4"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="`Imagen de ${product.name}`"
+        @click="lightbox = false"
+      >
+        <img
+          :src="lightboxSrc ?? shownImage"
+          :alt="colorMode ? `${product.name} · ${selected.format}` : product.name"
+          class="max-h-[92vh] max-w-[94vw] select-none rounded-xl bg-white object-contain shadow-2xl transition-transform duration-200 ease-out"
+          :class="zoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'"
+          :style="{ transform: zoomed ? 'scale(2.5)' : 'none', transformOrigin: zoomOrigin }"
+          draggable="false"
+          @click.stop="toggleZoom"
+          @mousemove="onZoomMove"
+        />
+        <button
+          class="absolute right-4 top-4 z-10 rounded-full bg-white/95 p-2.5 text-slate-700 shadow-md transition hover:bg-white"
+          aria-label="Cerrar la imagen"
+          @click="lightbox = false"
+        >
+          <UIcon name="i-lucide-x" class="block size-5" />
+        </button>
+        <p
+          class="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-900/70 px-4 py-1.5 text-xs text-white"
+        >
+          {{ zoomed ? 'Mueve el ratón para recorrer · clic para alejar' : 'Haz clic sobre la imagen para ampliar' }}
+        </p>
+      </div>
+    </Teleport>
 
     <!-- barra de compra fija (móvil) -->
     <div

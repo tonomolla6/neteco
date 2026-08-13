@@ -53,6 +53,7 @@ export interface SeedProduct {
   brand?: string
   badges?: string[]
   visual: [type: string, color: string]
+  image?: string
   featured?: boolean
   // productos hermanos (misma gama en otro color/versión) comparten `series`
   series?: string
@@ -72,6 +73,7 @@ export const PRODUCTS: SeedProduct[] = [
     series: 'guantes-nitriflex',
     featured: true,
     visual: ['caja', '#2563eb'],
+    image: '/img/products/guante-de-nitrilo-nitriflex-blue-caja-100-uds/principal.jpg',
     short: 'Guante de nitrilo azul de un solo uso, ambidiestro y sin látex. Caja dispensadora de 100 unidades.',
     desc: 'Nitrilo azul flexible y resistente para limpieza, hostelería y manipulación general. Caja dispensadora de 100 guantes ambidiestros, con tallas de la XS a la XL.',
     variants: [
@@ -88,6 +90,7 @@ export const PRODUCTS: SeedProduct[] = [
     brand: 'NETECO',
     series: 'guantes-nitriflex',
     visual: ['caja', '#334155'],
+    image: '/img/products/guante-de-nitrilo-nitriflex-black-soft-caja-100-uds/principal.jpg',
     short: 'Guante de nitrilo negro de tacto suave. Caja dispensadora de 100 unidades.',
     desc: 'Acabado negro de la gama Nitriflex con tacto más suave y flexible. Habitual en estética, talleres y hostelería de cara al público.',
     variants: [
@@ -116,6 +119,7 @@ export const PRODUCTS: SeedProduct[] = [
     brand: 'NETECO',
     series: 'guantes-extreme-lite',
     visual: ['caja', '#1e293b'],
+    image: '/img/products/guante-de-nitrilo-extreme-lite-negro-caja-100-uds/principal.jpg',
     short: 'Guante de nitrilo negro ligero, gama Extreme Lite. Caja dispensadora de 100 unidades.',
     desc: 'Versión aligerada de la gama Extreme en color negro: menor gramaje y gran sensibilidad táctil, con tallas de la S a la XL.',
     variants: [
@@ -144,6 +148,7 @@ export const PRODUCTS: SeedProduct[] = [
     brand: 'NETECO',
     series: 'guantes-dermolite',
     visual: ['caja', '#0ea5e9'],
+    image: '/img/products/guante-de-nitrilo-dermolite-azul-caja-100-uds/principal.jpg',
     short: 'Guante de nitrilo azul fino y elástico, gama Dermolite. Caja dispensadora de 100 unidades.',
     desc: 'Nitrilo de tacto fino que reduce la fatiga de la mano en usos prolongados. Tallas de la XS a la XL.',
     variants: [
@@ -218,6 +223,7 @@ export const PRODUCTS: SeedProduct[] = [
     cat: 105,
     brand: 'NETECO',
     visual: ['caja', '#52525b'],
+    image: '/img/products/guante-de-nitrilo-aachenfeel-negro-caja-100-uds/principal.jpg',
     short: 'Guante de nitrilo negro AachenFeel en talla XXL. Caja dispensadora de 100 unidades.',
     desc: 'Referencia en talla grande XXL para manos que no encuentran su talla en las gamas estándar.',
     variants: [['Talla XXL', 5.93, '2657']]
@@ -258,6 +264,7 @@ export const PRODUCTS: SeedProduct[] = [
     brand: 'NETECO',
     series: 'guantes-vinilo',
     visual: ['caja', '#a5b4fc'],
+    image: '/img/products/guante-de-vinilo-sin-polvo-caja-100-uds/principal.jpg',
     short: 'Guante de vinilo sin polvo. Caja dispensadora de 100 unidades.',
     desc: 'La alternativa económica y sin látex para tareas ligeras de corta duración.',
     variants: [
@@ -272,6 +279,7 @@ export const PRODUCTS: SeedProduct[] = [
     brand: 'NETECO',
     series: 'guantes-vinilo',
     visual: ['caja', '#94a3b8'],
+    image: '/img/products/guante-de-vinilo-con-polvo-caja-100-uds/principal.jpg',
     short: 'Guante de vinilo empolvado. Caja dispensadora de 100 unidades.',
     desc: 'Vinilo empolvado de fácil colocación para usos rápidos y tareas ligeras.',
     variants: [['Talla M', 4.96, '1709']]
@@ -308,6 +316,7 @@ export const PRODUCTS: SeedProduct[] = [
     cat: 106,
     brand: 'NETECO',
     visual: ['guante', '#2563eb'],
+    image: '/img/products/guante-ignifugo-azul-par/principal.jpg',
     short: 'Guante de protección ignífuga. Se vende por pares.',
     desc: 'Guante ignífugo azul para manipulación en caliente. Consultar la ficha del fabricante para los niveles de protección certificados.',
     variants: [['Talla única', 14.35, '1195']]

@@ -108,7 +108,7 @@ function onFocusOut(e: FocusEvent) {
           @click="select(item)"
           @mousemove="active = i"
         >
-          <div class="w-10 shrink-0"><ProductImage :product="item" /></div>
+          <div class="w-10 shrink-0"><ProductImage :product="item" sizes="40px" /></div>
           <div class="min-w-0 flex-1">
             <p class="truncate text-sm font-medium text-slate-800">{{ item.name }}</p>
             <p v-if="item.brand" class="text-xs text-slate-500">{{ item.brand }}</p>

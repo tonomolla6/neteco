@@ -16,6 +16,24 @@ interface ProductIdentity {
   categoryId: string
 }
 
+async function nextProductLegacyId(transaction: TransactionSql) {
+  await transaction`SELECT pg_advisory_xact_lock(hashtext('neteco:catalog:product-legacy-id'))`
+  const [next] = await transaction<{ legacyId: number }[]>`
+    SELECT COALESCE(max(legacy_id), 0)::int + 1 AS "legacyId" FROM products
+  `
+  if (!next) throw new Error('Could not allocate product identifier')
+  return next.legacyId
+}
+
+async function nextVariantLegacyId(transaction: TransactionSql) {
+  await transaction`SELECT pg_advisory_xact_lock(hashtext('neteco:catalog:variant-legacy-id'))`
+  const [next] = await transaction<{ legacyId: number }[]>`
+    SELECT COALESCE(max(legacy_id), 0)::int + 1 AS "legacyId" FROM variants
+  `
+  if (!next) throw new Error('Could not allocate variant identifier')
+  return next.legacyId
+}
+
 async function requiredReferences(transaction: TransactionSql, categoryLegacyId: number, brandName?: string | null) {
   const [category] = await transaction<{ id: string }[]>`
     SELECT id FROM categories WHERE legacy_id = ${categoryLegacyId}
@@ -23,11 +41,13 @@ async function requiredReferences(transaction: TransactionSql, categoryLegacyId:
   if (!category) throw createError({ statusCode: 400, statusMessage: 'La familia elegida no existe' })
   const normalizedBrand = brandName?.trim() || 'NETECO'
   const brandSlug = slugify(normalizedBrand)
-  const [brand] = await transaction<{ id: string }[]>`
+  await transaction`
     INSERT INTO brands (name, slug, status)
     VALUES (${normalizedBrand}, ${brandSlug}, 'published')
-    ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
-    RETURNING id
+    ON CONFLICT (slug) DO NOTHING
+  `
+  const [brand] = await transaction<{ id: string }[]>`
+    SELECT id FROM brands WHERE slug = ${brandSlug}
   `
   const [tax] = await transaction<{ id: string }[]>`
     SELECT id FROM tax_classes
@@ -95,39 +115,34 @@ export async function createCatalogProduct(input: ProductInput, actor: CatalogAc
   const sql = useDatabase()
   return sql.begin(async (transaction) => {
     const references = await requiredReferences(transaction, input.categoryId, input.brand)
-    const [next] = await transaction<{ legacyId: number }[]>`
-      SELECT COALESCE(max(legacy_id), 0)::int + 1 AS "legacyId" FROM products FOR UPDATE
-    `
-    if (!next) throw new Error('Could not allocate product identifier')
-    const slug = await uniqueProductSlug(transaction, input.name, next.legacyId)
+    const productLegacyId = await nextProductLegacyId(transaction)
+    const slug = await uniqueProductSlug(transaction, input.name, productLegacyId)
     const [product] = await transaction<{ id: string }[]>`
       INSERT INTO products (
         legacy_id, category_id, brand_id, name, slug, short_description, description,
         usage, series, status, featured, attributes, source_version, published_at
       ) VALUES (
-        ${next.legacyId}, ${references.categoryId}, ${references.brandId}, ${input.name}, ${slug},
+        ${productLegacyId}, ${references.categoryId}, ${references.brandId}, ${input.name}, ${slug},
         ${input.shortDesc}, ${input.description}, ${input.usage || null}, ${input.series || null},
         ${input.active ? 'published' : 'draft'}, ${input.featured},
-        ${transaction.json({ badges: input.badges, visual: input.visual })}, 'admin-v1',
+        ${transaction.json({ badges: input.badges, visual: input.visual, attrs: input.attrs })}, 'admin-v1',
         ${input.active ? new Date() : null}
       ) RETURNING id
     `
     if (!product) throw new Error('Product insert returned no row')
     for (const [index, variant] of input.variants.entries()) {
-      const [nextVariant] = await transaction<{ legacyId: number }[]>`
-        SELECT COALESCE(max(legacy_id), 0)::int + 1 AS "legacyId" FROM variants FOR UPDATE
-      `
-      if (!nextVariant) throw new Error('Could not allocate variant identifier')
+      const variantLegacyId = await nextVariantLegacyId(transaction)
       const unit = unitsFor(variant.format, input.name)
-      const sku = variant.sku?.trim() || `NE-${next.legacyId}-${index + 1}`
+      const sku = variant.sku?.trim() || `NE-${productLegacyId}-${index + 1}`
       const [created] = await transaction<{ id: string }[]>`
         INSERT INTO variants (
           legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
-          unit_label, content_quantity, price_gross_cents, source_version
+          unit_label, content_quantity, price_gross_cents, color, image, source_version
         ) VALUES (
-          ${nextVariant.legacyId}, ${product.id}, ${references.taxId}, ${references.shippingId},
+          ${variantLegacyId}, ${product.id}, ${references.taxId}, ${references.shippingId},
           ${sku}, ${variant.format}, ${input.active ? 'published' : 'draft'},
-          ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${Math.round(variant.price * 100)}, 'admin-v1'
+          ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${Math.round(variant.price * 100)},
+          ${variant.color || null}, ${variant.image || null}, 'admin-v1'
         ) RETURNING id
       `
       if (!created) throw new Error('Variant insert returned no row')
@@ -143,12 +158,12 @@ export async function createCatalogProduct(input: ProductInput, actor: CatalogAc
       INSERT INTO audit_log (
         actor_type, actor_id, action, resource_type, resource_id, after_redacted, correlation_id
       ) VALUES (
-        'staff', ${actor.id}, 'product.create', 'product', ${String(next.legacyId)},
+        'staff', ${actor.id}, 'product.create', 'product', ${String(productLegacyId)},
         ${transaction.json({ name: input.name, categoryId: input.categoryId, variants: input.variants.length })},
         ${correlationId}
       )
     `
-    return { id: next.legacyId, slug }
+    return { id: productLegacyId, slug }
   })
 }
 
@@ -176,7 +191,7 @@ export async function updateCatalogProduct(
         slug = ${slug}, short_description = ${input.shortDesc}, description = ${input.description},
         usage = ${input.usage || null}, series = ${input.series || null},
         status = ${input.active ? 'published' : 'draft'}, featured = ${input.featured},
-        attributes = ${transaction.json({ badges: input.badges, visual: input.visual })},
+        attributes = attributes || ${transaction.json({ badges: input.badges, visual: input.visual, attrs: input.attrs })},
         source_version = 'admin-v1', published_at = CASE WHEN ${input.active} THEN COALESCE(published_at, now()) ELSE published_at END,
         updated_at = now()
       WHERE id = ${current.id}
@@ -197,22 +212,22 @@ export async function updateCatalogProduct(
             tax_class_id = ${references.taxId}, shipping_profile_id = ${references.shippingId},
             sku = ${sku}, format = ${variant.format}, status = ${input.active ? 'published' : 'draft'},
             unit_label = ${unit?.[1] ?? 'unidad'}, content_quantity = ${unit?.[0] ?? 1},
-            price_gross_cents = ${Math.round(variant.price * 100)}, source_version = 'admin-v1', updated_at = now()
+            price_gross_cents = ${Math.round(variant.price * 100)}, color = ${variant.color || null},
+            image = ${variant.image || null}, source_version = 'admin-v1', updated_at = now()
           WHERE id = ${existingUuid}
         `
         variantUuid = existingUuid
       } else {
-        const [nextVariant] = await transaction<{ legacyId: number }[]>`
-          SELECT COALESCE(max(legacy_id), 0)::int + 1 AS "legacyId" FROM variants FOR UPDATE
-        `
+        const variantLegacyId = await nextVariantLegacyId(transaction)
         const [created] = await transaction<{ id: string }[]>`
           INSERT INTO variants (
             legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
-            unit_label, content_quantity, price_gross_cents, source_version
+            unit_label, content_quantity, price_gross_cents, color, image, source_version
           ) VALUES (
-            ${nextVariant!.legacyId}, ${current.id}, ${references.taxId}, ${references.shippingId},
+            ${variantLegacyId}, ${current.id}, ${references.taxId}, ${references.shippingId},
             ${sku}, ${variant.format}, ${input.active ? 'published' : 'draft'},
-            ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${Math.round(variant.price * 100)}, 'admin-v1'
+            ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${Math.round(variant.price * 100)},
+            ${variant.color || null}, ${variant.image || null}, 'admin-v1'
           ) RETURNING id
         `
         variantUuid = created!.id
@@ -228,14 +243,7 @@ export async function updateCatalogProduct(
     }
     for (const variant of existingVariants) {
       if (kept.has(variant.id)) continue
-      const [referenced] = await transaction<{ exists: boolean }[]>`
-        SELECT EXISTS (SELECT 1 FROM order_lines WHERE variant_id = ${variant.id}) AS exists
-      `
-      if (referenced?.exists) {
-        await transaction`UPDATE variants SET status = 'discontinued', updated_at = now() WHERE id = ${variant.id}`
-      } else {
-        await transaction`DELETE FROM variants WHERE id = ${variant.id}`
-      }
+      await transaction`UPDATE variants SET status = 'discontinued', updated_at = now() WHERE id = ${variant.id}`
     }
     await transaction`
       INSERT INTO audit_log (
