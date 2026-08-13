@@ -114,7 +114,6 @@ const maximumQuantity = computed(() =>
 const outOfStock = computed(
   () => selected.value.stock < selected.value.minimumQuantity && !selected.value.backorderAllowed
 )
-const canIncrease = computed(() => qty.value + selected.value.quantityIncrement <= maximumQuantity.value)
 const availability = computed(() => {
   if (selected.value.stock >= selected.value.minimumQuantity) {
     const lowThreshold = Math.max(selected.value.minimumQuantity * 3, 5)
@@ -621,22 +620,8 @@ async function addToCart(goToCart = false) {
 
         <!-- formatos -->
         <div v-else class="mt-6">
-          <p class="mb-2 text-sm font-semibold text-slate-700">
-            Formato <span class="font-normal text-slate-500">({{ product.variants.length }} disponibles)</span>
-          </p>
-          <div class="space-y-2">
-            <button
-              v-for="v in product.variants"
-              :key="v.id"
-              :aria-pressed="selectedId === v.id"
-              class="flex w-full items-center justify-between rounded-xl border-2 bg-white px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
-              :class="
-                selectedId === v.id
-                  ? 'border-neteco-500 ring-1 ring-neteco-500'
-                  : 'border-slate-200 hover:border-neteco-300'
-              "
-              @click="selectedId = v.id"
-            >
+          <VariantSelector v-model="selectedId" :variants="product.variants">
+            <template #default="{ variant: v }">
               <span>
                 <span class="block font-medium text-slate-800">{{ v.format }}</span>
                 <span class="block font-mono text-xs text-slate-500">Ref. {{ v.sku }}</span>
@@ -650,8 +635,8 @@ async function addToCart(goToCart = false) {
                 </span>
                 <span v-if="perUnit(v)" class="block text-xs text-slate-500">{{ perUnit(v) }}</span>
               </span>
-            </button>
-          </div>
+            </template>
+          </VariantSelector>
         </div>
 
         <!-- otros colores/versiones de la gama -->
@@ -675,25 +660,13 @@ async function addToCart(goToCart = false) {
 
         <!-- cantidad + precio -->
         <div class="mt-6 flex flex-wrap items-center gap-4">
-          <div class="flex items-center rounded-xl border border-slate-300">
-            <button
-              class="rounded-l-xl px-3.5 py-3 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 disabled:opacity-30"
-              :disabled="qty <= selected.minimumQuantity"
-              aria-label="Menos unidades"
-              @click="qty -= selected.quantityIncrement"
-            >
-              <UIcon name="i-lucide-minus" class="block size-5" />
-            </button>
-            <span role="status" aria-label="Cantidad" class="w-10 text-center font-semibold">{{ qty }}</span>
-            <button
-              class="rounded-r-xl px-3.5 py-3 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 disabled:opacity-30"
-              :disabled="!canIncrease"
-              aria-label="Más unidades"
-              @click="qty += selected.quantityIncrement"
-            >
-              <UIcon name="i-lucide-plus" class="block size-5" />
-            </button>
-          </div>
+          <QuantityStepper
+            v-model="qty"
+            :minimum="selected.minimumQuantity"
+            :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
+            :step="selected.quantityIncrement"
+            label="Cantidad"
+          />
           <div>
             <p class="font-display text-2xl font-bold text-slate-900">
               {{ formatPrice((showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) * qty) }}

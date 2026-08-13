@@ -49,43 +49,15 @@ async function submit() {
       <h1 class="mt-4 text-center text-2xl font-bold text-slate-900">Inicia sesión</h1>
       <p class="mt-1 text-center text-sm text-slate-500">Accede a tus pedidos y compra más rápido.</p>
 
-      <form class="mt-6 space-y-4" @submit.prevent="submit">
-        <UFormField v-if="!mfa.challenge" label="Email">
-          <UInput v-model="form.email" type="email" autocomplete="email" class="w-full" icon="i-lucide-mail" />
-        </UFormField>
-        <UFormField v-if="!mfa.challenge" label="Contraseña">
-          <UInput
-            v-model="form.password"
-            type="password"
-            autocomplete="current-password"
-            class="w-full"
-            icon="i-lucide-lock"
-          />
-        </UFormField>
-        <UFormField v-else label="Código de autenticación" hint="6 dígitos o un código de recuperación">
-          <UInput
-            v-model="mfa.code"
-            autocomplete="one-time-code"
-            inputmode="numeric"
-            class="w-full"
-            icon="i-lucide-shield-check"
-            autofocus
-          />
-        </UFormField>
-
-        <UAlert
-          v-if="errorMsg"
-          role="alert"
-          color="error"
-          variant="subtle"
-          icon="i-lucide-alert-circle"
-          :title="errorMsg"
-        />
-
-        <UButton type="submit" block size="lg" :loading="loading">
-          {{ mfa.challenge ? 'Confirmar código' : 'Iniciar sesión' }}
-        </UButton>
-      </form>
+      <LoginForm
+        v-model:email="form.email"
+        v-model:password="form.password"
+        v-model:mfa-code="mfa.code"
+        :mfa-challenge="mfa.challenge"
+        :loading="loading"
+        :error="errorMsg"
+        @submit="submit"
+      />
 
       <p v-if="!mfa.challenge" class="mt-4 text-center text-sm">
         <NuxtLink to="/recuperar-clave" class="font-medium text-neteco-600 hover:text-neteco-500">

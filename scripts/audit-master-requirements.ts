@@ -56,7 +56,7 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..025'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..026'
   )
 )
 const currentPartialExternal = new Set(
@@ -141,6 +141,8 @@ function evidenceFor(id: string) {
       'scripts/run-performance.ts; scripts/lib/performance.ts; server/api/__test__/pool.get.ts; server/db/redis.ts; docs/operations/performance-budgets.json; tests/unit/performance-harness.test.ts; .github/workflows/ci.yml',
     'TST-025':
       'tests/integration/provider-recovery.test.ts; tests/fixtures/postgres-failover-client.ts; server/integrations/mock-carrier.ts; scripts/invoice-worker.ts; scripts/outbox-worker.ts; docs/testing/provider-outage-recovery.md; package.json; .github/workflows/ci.yml',
+    'TST-026':
+      'tests/components/; app/components/SearchBox.vue; app/components/ProductFilters.vue; app/components/VariantSelector.vue; app/components/QuantityStepper.vue; app/components/CartLineControls.vue; app/components/LoginForm.vue; app/components/ConsentManager.vue; app/components/AdminOrderTable.vue; app/components/RoleGate.vue; docs/testing/critical-component-tests.md; vitest.config.ts; package.json; .github/workflows/ci.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':

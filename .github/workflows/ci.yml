@@ -58,6 +58,7 @@ jobs:
       - run: npm run test:determinism
       - run: npm run coverage
       - run: npm run test:nuxt
+      - run: npm run test:component
       - run: npm run db:migrate
       - run: npm run db:seed
       - run: npm run test:integration

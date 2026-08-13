@@ -9,6 +9,7 @@ const runtime = useRuntimeConfig()
 const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 const open = ref(false)
 const loading = ref(false)
+const errorMessage = ref('')
 const active = ref(-1)
 const rootEl = ref<HTMLElement | null>(null)
 const listboxId = `search-listbox-${useId()}`
@@ -25,12 +26,15 @@ watch(q, (val) => {
   }
   timer = setTimeout(async () => {
     loading.value = true
+    errorMessage.value = ''
     try {
       const res = await $fetch<{ items: SearchSuggestion[] }>('/api/search', { params: { q: val.trim() } })
       items.value = res.items
       open.value = true
     } catch {
       items.value = []
+      open.value = true
+      errorMessage.value = 'No se han podido cargar las sugerencias.'
     } finally {
       loading.value = false
     }
@@ -101,7 +105,10 @@ function onFocusOut(e: FocusEvent) {
       role="listbox"
       class="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
     >
-      <template v-if="items.length">
+      <p v-if="errorMessage" class="px-3 py-4 text-center text-sm text-red-700" role="alert">
+        {{ errorMessage }}
+      </p>
+      <template v-else-if="items.length">
         <button
           v-for="(item, i) in items"
           :id="optionId(i)"

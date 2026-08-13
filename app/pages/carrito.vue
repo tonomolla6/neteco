@@ -8,20 +8,27 @@ const runtime = useRuntimeConfig()
 const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 
 const tax = computed(() => cart.tax)
+const lineErrors = reactive<Record<number, string>>({})
 
 async function updateQuantity(item: (typeof cart.items)[number], quantity: number) {
+  lineErrors[item.variantId] = ''
   try {
     await cart.setQty(item.variantId, quantity)
   } catch (error) {
-    toast.add({ title: apiErrorMessage(error, 'No se ha podido actualizar la cantidad'), color: 'error' })
+    const message = apiErrorMessage(error, 'No se ha podido actualizar la cantidad')
+    lineErrors[item.variantId] = message
+    toast.add({ title: message, color: 'error' })
   }
 }
 
 async function removeItem(item: (typeof cart.items)[number]) {
+  lineErrors[item.variantId] = ''
   try {
     await cart.remove(item.variantId)
   } catch (error) {
-    toast.add({ title: apiErrorMessage(error, 'No se ha podido quitar el producto'), color: 'error' })
+    const message = apiErrorMessage(error, 'No se ha podido quitar el producto')
+    lineErrors[item.variantId] = message
+    toast.add({ title: message, color: 'error' })
   }
 }
 
@@ -68,40 +75,22 @@ async function confirmClear() {
               </p>
             </div>
             <div class="flex w-full items-center justify-between gap-3 sm:w-auto">
-              <div class="flex items-center rounded-lg border border-slate-300">
-                <button
-                  class="rounded-l-lg px-3 py-2.5 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 disabled:opacity-30"
-                  :disabled="item.qty <= (item.minimumQuantity ?? 1)"
-                  :aria-label="`Menos unidades de ${item.name}`"
-                  @click="updateQuantity(item, item.qty - (item.quantityIncrement ?? 1))"
-                >
-                  <UIcon name="i-lucide-minus" class="block size-4" />
-                </button>
-                <span role="status" class="w-8 text-center text-sm font-semibold">{{ item.qty }}</span>
-                <button
-                  class="rounded-r-lg px-3 py-2.5 text-slate-500 hover:text-neteco-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-                  :disabled="
-                    item.maximumQuantity != null && item.qty + (item.quantityIncrement ?? 1) > item.maximumQuantity
-                  "
-                  :aria-label="`Más unidades de ${item.name}`"
-                  @click="updateQuantity(item, item.qty + (item.quantityIncrement ?? 1))"
-                >
-                  <UIcon name="i-lucide-plus" class="block size-4" />
-                </button>
-              </div>
+              <CartLineControls
+                :quantity="item.qty"
+                :minimum="item.minimumQuantity ?? 1"
+                :maximum="item.maximumQuantity"
+                :step="item.quantityIncrement ?? 1"
+                :label="item.name"
+                :error="lineErrors[item.variantId]"
+                @quantity="updateQuantity(item, $event)"
+                @remove="removeItem(item)"
+              />
               <p class="w-28 text-right font-semibold text-slate-800">
                 {{ formatPrice((showNetPrices ? item.netPrice : item.price) * item.qty) }}
                 <span v-if="showNetPrices" class="block text-xs font-normal text-slate-500">
                   {{ formatPrice(item.price * item.qty) }} con IVA
                 </span>
               </p>
-              <button
-                class="rounded-lg p-2.5 text-slate-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
-                :aria-label="`Quitar ${item.name} del carrito`"
-                @click="removeItem(item)"
-              >
-                <UIcon name="i-lucide-trash-2" class="block size-5" />
-              </button>
             </div>
           </div>
 

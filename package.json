@@ -20,6 +20,7 @@
     "test": "npm run test:unit",
     "test:unit": "vitest run --project unit",
     "test:nuxt": "vitest run --project nuxt",
+    "test:component": "vitest run --project component",
     "test:integration": "vitest run --project integration",
     "test:recovery": "vitest run --project integration tests/integration/provider-recovery.test.ts",
     "test:e2e": "tsx scripts/run-e2e.ts",

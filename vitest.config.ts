@@ -23,6 +23,15 @@ export default defineConfig({
           testTimeout: 20_000
         }
       }),
+      await defineVitestProject({
+        test: {
+          name: 'component',
+          include: ['tests/components/**/*.test.ts'],
+          setupFiles: ['tests/support/no-external-network.ts'],
+          environment: 'nuxt',
+          testTimeout: 20_000
+        }
+      }),
       defineProject({
         test: {
           name: 'integration',
