@@ -20,7 +20,9 @@ export default defineEventHandler(async (event) => {
          AND updated_at < now() - interval '48 hours') AS "staleShipments",
       (SELECT count(*)::int FROM communication_deliveries
        WHERE status IN ('bounced', 'complained')
-         AND updated_at > now() - interval '24 hours') AS "communicationFailures"
+         AND updated_at > now() - interval '24 hours') AS "communicationFailures",
+      (SELECT count(*)::int FROM bank_transfer_movements
+       WHERE status = 'needs_review') AS "bankTransfersPendingReview"
   `
   const queues = await sql`
     SELECT event_type AS "eventType", status, count(*)::int AS depth,
@@ -37,5 +39,14 @@ export default defineEventHandler(async (event) => {
     FROM outbox_events WHERE status = 'dead'
     ORDER BY created_at LIMIT 100
   `
-  return { summary, queues, deadLetters, generatedAt: new Date().toISOString() }
+  const bankTransfers = await sql`
+    SELECT movement.id, movement.external_id AS "externalId", movement.booked_at AS "bookedAt",
+           movement.amount_cents AS "amountCents", movement.currency, movement.reference,
+           movement.review_reason AS "reviewReason"
+    FROM bank_transfer_movements movement
+    WHERE movement.status = 'needs_review'
+    ORDER BY movement.booked_at, movement.id
+    LIMIT 100
+  `
+  return { summary, queues, deadLetters, bankTransfers, generatedAt: new Date().toISOString() }
 })

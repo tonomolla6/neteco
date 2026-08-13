@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createError } from 'h3'
 import type { TransactionSql } from 'postgres'
 import { calculateQuote, selectVolumeUnitPrice, splitGross, type VolumePriceTier } from '../domain/money'
@@ -1011,6 +1011,237 @@ export async function recordRejectedWebhook(input: { payloadHash: string; correl
       ${input.correlationId}, now()
     ) ON CONFLICT (provider, payload_hash) DO NOTHING
   `
+}
+
+export interface BankTransferMovementInput {
+  provider: string
+  externalId: string
+  bookedAt: Date
+  amountCents: number
+  currency: string
+  reference: string
+  correlationId: string
+}
+
+interface BankTransferMovementRecord {
+  id: string
+  provider: string
+  external_id: string
+  booked_at: Date
+  amount_cents: number
+  currency: string
+  reference: string
+  payload_hash: string
+  status: 'pending' | 'needs_review' | 'matched'
+  matched_order_id: string | null
+}
+
+function bankTransferPayloadHash(input: BankTransferMovementInput) {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        provider: input.provider,
+        externalId: input.externalId,
+        bookedAt: input.bookedAt.toISOString(),
+        amountCents: input.amountCents,
+        currency: input.currency,
+        reference: input.reference
+      })
+    )
+    .digest('hex')
+}
+
+function automaticOrderReference(reference: string) {
+  const normalized = reference.trim().toUpperCase()
+  return /^NE[A-F0-9]{10}$/.test(normalized) ? normalized : null
+}
+
+async function markBankTransferForReview(transaction: TransactionSql, movementId: string, reason: string) {
+  await transaction`
+    UPDATE bank_transfer_movements
+    SET status = 'needs_review', review_reason = ${reason}, updated_at = now()
+    WHERE id = ${movementId} AND status <> 'matched'
+  `
+  return { status: 'needs_review' as const, reason }
+}
+
+async function matchBankTransfer(
+  transaction: TransactionSql,
+  movement: BankTransferMovementRecord,
+  publicNumber: string,
+  mode: 'automatic' | 'manual',
+  correlationId: string,
+  actorId?: string
+) {
+  const order = await lockedPaymentOrder(transaction, publicNumber)
+  if (!order || order.provider !== 'bank-transfer' || order.payment_method !== 'transferencia') {
+    return markBankTransferForReview(transaction, movement.id, 'order_not_found')
+  }
+  if (order.amount_cents !== movement.amount_cents || order.total_gross_cents !== movement.amount_cents) {
+    return markBankTransferForReview(transaction, movement.id, 'amount_mismatch')
+  }
+  if (order.order_currency !== movement.currency || order.payment_currency !== movement.currency) {
+    return markBankTransferForReview(transaction, movement.id, 'currency_mismatch')
+  }
+  if (order.order_status === 'cancelled' || (order.expires_at && order.expires_at <= new Date())) {
+    return markBankTransferForReview(transaction, movement.id, 'reservation_expired')
+  }
+  if (['captured', 'authorized', 'partially_refunded', 'refunded', 'chargeback'].includes(order.payment_status)) {
+    return markBankTransferForReview(transaction, movement.id, 'order_already_paid')
+  }
+  if (!['pending', 'initiated'].includes(order.payment_status)) {
+    return markBankTransferForReview(transaction, movement.id, 'payment_not_reconcilable')
+  }
+
+  const providerEventId = `bank:${movement.provider}:${movement.external_id}`
+  await transaction`
+    INSERT INTO payment_events (
+      payment_intent_id, provider_event_id, event_type, status, amount_cents,
+      response_code, payload_hash, sanitized_payload, correlation_id
+    ) VALUES (
+      ${order.payment_intent_id}, ${providerEventId}, 'payment.captured', 'captured', ${movement.amount_cents},
+      'BANK_TRANSFER', ${movement.payload_hash},
+      ${transaction.json({ bookedAt: movement.booked_at.toISOString(), matchMode: mode })}, ${correlationId}
+    ) ON CONFLICT (payment_intent_id, provider_event_id) DO NOTHING
+  `
+  await allocateOrder(
+    transaction,
+    order,
+    correlationId,
+    providerEventId,
+    `${movement.provider}:${movement.external_id}`
+  )
+  const [confirmed] = await transaction<{ orderStatus: string; paymentStatus: string }[]>`
+    SELECT order_status AS "orderStatus", payment_status AS "paymentStatus"
+    FROM orders WHERE id = ${order.id}
+  `
+  if (confirmed?.orderStatus !== 'confirmed' || confirmed.paymentStatus !== 'captured') {
+    return markBankTransferForReview(transaction, movement.id, 'captured_requires_review')
+  }
+  await transaction`
+    UPDATE bank_transfer_movements
+    SET status = 'matched', review_reason = NULL, matched_order_id = ${order.id}, match_mode = ${mode},
+        reconciled_by = ${actorId ?? null}, reconciled_at = now(), updated_at = now()
+    WHERE id = ${movement.id} AND status <> 'matched'
+  `
+  return { status: 'matched' as const, orderNumber: order.public_number }
+}
+
+export async function ingestBankTransferMovement(input: BankTransferMovementInput) {
+  const movementInput = {
+    ...input,
+    provider: input.provider.trim(),
+    externalId: input.externalId.trim(),
+    reference: input.reference.trim()
+  }
+  if (!movementInput.provider || !movementInput.externalId || !movementInput.reference) {
+    throw new RangeError('Bank transfer movement identifiers are required')
+  }
+  if (!Number.isSafeInteger(movementInput.amountCents) || movementInput.amountCents <= 0) {
+    throw new RangeError('Bank transfer amount is invalid')
+  }
+  if (!/^[A-Z]{3}$/.test(movementInput.currency)) throw new RangeError('Bank transfer currency is invalid')
+  if (Number.isNaN(movementInput.bookedAt.getTime())) throw new RangeError('Bank transfer booking date is invalid')
+  const payloadHash = bankTransferPayloadHash(movementInput)
+  return inSerializableTransaction(async (transaction) => {
+    const inserted = await transaction<{ id: string }[]>`
+      INSERT INTO bank_transfer_movements (
+        provider, external_id, booked_at, amount_cents, currency, reference, payload_hash, correlation_id
+      ) VALUES (
+        ${movementInput.provider}, ${movementInput.externalId}, ${movementInput.bookedAt}, ${movementInput.amountCents},
+        ${movementInput.currency}, ${movementInput.reference}, ${payloadHash}, ${movementInput.correlationId}
+      ) ON CONFLICT (provider, external_id) DO NOTHING
+      RETURNING id
+    `
+    const [movement] = await transaction<BankTransferMovementRecord[]>`
+      SELECT id, provider, external_id, booked_at, amount_cents, currency, reference,
+             payload_hash, status, matched_order_id
+      FROM bank_transfer_movements
+      WHERE provider = ${movementInput.provider} AND external_id = ${movementInput.externalId}
+      FOR UPDATE
+    `
+    if (!movement) throw new Error('Bank transfer movement insert returned no row')
+    if (movement.payload_hash !== payloadHash) {
+      throw createError({ statusCode: 409, statusMessage: 'El identificador bancario ya existe con otros datos' })
+    }
+    if (!inserted[0] || movement.status === 'matched') {
+      return { duplicate: true, status: movement.status, movementId: movement.id }
+    }
+    const publicNumber = automaticOrderReference(movement.reference)
+    if (!publicNumber) {
+      const result = await markBankTransferForReview(transaction, movement.id, 'reference_not_found')
+      return { duplicate: false, movementId: movement.id, ...result }
+    }
+    const result = await matchBankTransfer(
+      transaction,
+      movement,
+      publicNumber,
+      'automatic',
+      movementInput.correlationId
+    )
+    return { duplicate: false, movementId: movement.id, ...result }
+  })
+}
+
+export async function reconcileBankTransferManually(input: {
+  movementId: string
+  publicNumber: string
+  actorId: string
+  reason: string
+  correlationId: string
+}) {
+  return inSerializableTransaction(async (transaction) => {
+    const [movement] = await transaction<BankTransferMovementRecord[]>`
+      SELECT id, provider, external_id, booked_at, amount_cents, currency, reference,
+             payload_hash, status, matched_order_id
+      FROM bank_transfer_movements WHERE id = ${input.movementId} FOR UPDATE
+    `
+    if (!movement) throw createError({ statusCode: 404, statusMessage: 'Movimiento bancario no encontrado' })
+    if (movement.status === 'matched') {
+      const [matched] = await transaction<{ publicNumber: string }[]>`
+        SELECT public_number AS "publicNumber" FROM orders WHERE id = ${movement.matched_order_id}
+      `
+      if (matched?.publicNumber !== input.publicNumber) {
+        throw createError({ statusCode: 409, statusMessage: 'El movimiento ya está conciliado con otro pedido' })
+      }
+      return { duplicate: true, status: 'matched' as const, orderNumber: matched.publicNumber }
+    }
+    const result = await matchBankTransfer(
+      transaction,
+      movement,
+      input.publicNumber.trim().toUpperCase(),
+      'manual',
+      input.correlationId,
+      input.actorId
+    )
+    if (result.status !== 'matched') {
+      const messages: Record<string, string> = {
+        order_not_found: 'El pedido no existe o no admite transferencia',
+        amount_mismatch: 'El importe no coincide con el pedido',
+        currency_mismatch: 'La moneda no coincide con el pedido',
+        reservation_expired: 'La reserva del pedido ha caducado',
+        order_already_paid: 'El pedido ya está pagado',
+        payment_not_reconcilable: 'El pago no se puede conciliar en su estado actual',
+        captured_requires_review: 'El ingreso se capturó pero requiere revisión operativa'
+      }
+      throw createError({
+        statusCode: 409,
+        statusMessage: messages[result.reason] ?? 'No se puede conciliar el ingreso'
+      })
+    }
+    await transaction`
+      INSERT INTO audit_log (
+        actor_type, actor_id, action, resource_type, resource_id, reason, correlation_id,
+        before_redacted, after_redacted
+      ) VALUES (
+        'staff', ${input.actorId}, 'payment.bank_transfer.reconcile', 'bank_transfer_movement', ${movement.id},
+        ${input.reason}, ${input.correlationId},
+        ${transaction.json({ status: movement.status, reviewReason: movement.status === 'needs_review' })},
+        ${transaction.json({ status: 'matched', orderNumber: result.orderNumber })}
+      )
+    `
+    return { duplicate: false, ...result }
+  })
 }
 
 export async function expireInventoryReservations(limit = 100) {

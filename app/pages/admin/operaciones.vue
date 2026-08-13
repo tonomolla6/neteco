@@ -13,11 +13,21 @@ interface Operations {
     errorMessage: string
     createdAt: string
   }>
+  bankTransfers: Array<{
+    id: string
+    externalId: string
+    bookedAt: string
+    amountCents: number
+    currency: string
+    reference: string
+    reviewReason: string
+  }>
   generatedAt: string
 }
 
 const { data, refresh } = await useFetch<Operations>('/api/admin/operations')
 const toast = useToast()
+const bankTransferOrders = reactive<Record<string, string>>({})
 
 const cards = computed(() => [
   ['Cola activa', data.value?.summary.queueDepth ?? '—', 'i-lucide-list-restart'],
@@ -27,8 +37,30 @@ const cards = computed(() => [
   ['Reembolsos estancados', data.value?.summary.staleRefunds ?? '—', 'i-lucide-banknote-x'],
   ['Inventario anómalo', data.value?.summary.inventoryExceptions ?? '—', 'i-lucide-package-x'],
   ['Envíos sin avance', data.value?.summary.staleShipments ?? '—', 'i-lucide-truck'],
-  ['Correo rebotado/queja', data.value?.summary.communicationFailures ?? '—', 'i-lucide-mail-warning']
+  ['Correo rebotado/queja', data.value?.summary.communicationFailures ?? '—', 'i-lucide-mail-warning'],
+  ['Transferencias por revisar', data.value?.summary.bankTransfersPendingReview ?? '—', 'i-lucide-landmark']
 ])
+
+async function reconcileBankTransfer(item: Operations['bankTransfers'][number]) {
+  const orderNumber = bankTransferOrders[item.id]?.trim().toUpperCase()
+  if (!orderNumber) {
+    toast.add({ title: 'Indica el pedido que corresponde al ingreso', color: 'warning' })
+    return
+  }
+  const reason = window.prompt('Motivo de la conciliación manual (obligatorio):')?.trim()
+  if (!reason || reason.length < 3) return
+  try {
+    await $fetch(`/api/admin/operations/bank-transfers/${item.id}/reconcile`, {
+      method: 'POST',
+      body: { orderNumber, reason }
+    })
+    toast.add({ title: `Transferencia conciliada con ${orderNumber}`, color: 'success', icon: 'i-lucide-check' })
+    bankTransferOrders[item.id] = ''
+    await refresh()
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'No se ha podido conciliar'), color: 'error' })
+  }
+}
 
 async function retry(id: string) {
   const reason = window.prompt('Motivo del replay (obligatorio):')?.trim()
@@ -89,6 +121,52 @@ async function retry(id: string) {
           </tr>
           <tr v-if="!data?.queues.length">
             <td colspan="5" class="px-4 py-8 text-center text-slate-500">No hay backlog.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="mt-6 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+      <div class="px-4 pt-4">
+        <h2 class="font-bold text-slate-900">Transferencias pendientes de conciliación</h2>
+        <p class="mt-1 text-sm text-slate-500">
+          Solo se confirma si pedido, importe, moneda y reserva siguen siendo válidos.
+        </p>
+      </div>
+      <table class="mt-2 w-full min-w-[900px] text-sm">
+        <thead>
+          <tr class="border-y border-slate-200 text-left text-xs uppercase text-slate-500">
+            <th class="px-4 py-3">Movimiento</th>
+            <th class="px-4 py-3">Referencia recibida</th>
+            <th class="px-4 py-3">Importe</th>
+            <th class="px-4 py-3">Incidencia</th>
+            <th class="px-4 py-3">Pedido</th>
+            <th class="px-4 py-3 text-right">Acción</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in data?.bankTransfers" :key="item.id" class="border-b border-slate-100">
+            <td class="px-4 py-3">
+              <p class="font-mono text-xs">{{ item.externalId }}</p>
+              <p class="text-xs text-slate-400">{{ new Date(item.bookedAt).toLocaleString('es-ES') }}</p>
+            </td>
+            <td class="px-4 py-3 font-mono text-xs">{{ item.reference }}</td>
+            <td class="px-4 py-3">{{ formatPrice(item.amountCents) }} {{ item.currency }}</td>
+            <td class="px-4 py-3">{{ item.reviewReason }}</td>
+            <td class="px-4 py-3">
+              <UInput
+                v-model="bankTransferOrders[item.id]"
+                :aria-label="`Pedido para movimiento ${item.externalId}`"
+                placeholder="NE…"
+                class="w-44"
+              />
+            </td>
+            <td class="px-4 py-3 text-right">
+              <UButton size="xs" variant="soft" @click="reconcileBankTransfer(item)">Conciliar</UButton>
+            </td>
+          </tr>
+          <tr v-if="!data?.bankTransfers.length">
+            <td colspan="6" class="px-4 py-8 text-center text-slate-500">No hay transferencias por revisar.</td>
           </tr>
         </tbody>
       </table>

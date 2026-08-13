@@ -35,6 +35,7 @@
     "outbox:email": "tsx scripts/outbox-worker.ts",
     "outbox:invoice": "tsx scripts/invoice-worker.ts",
     "reconcile": "tsx scripts/reconcile.ts",
+    "reconcile:bank-transfers": "tsx scripts/bank-transfer-reconcile.ts",
     "expire:reservations": "tsx scripts/reservation-worker.ts",
     "admin:provision": "tsx scripts/provision-admin.ts",
     "outbox:refund": "tsx scripts/refund-worker.ts",

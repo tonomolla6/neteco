@@ -43,3 +43,11 @@ solo desde el outbox de la base efímera. Comprueba registro, verificación, log
 Redsys, pedido, emisión y descarga de factura mock, reset y revocación de sesiones. El segundo usuario demuestra que
 direcciones, pedidos y facturas no cruzan identidades; además, reinyecta las cookies anteriores de acceso a pedido y
 carrito para verificar que el logout revocó sus tokens.
+
+## Transferencia bancaria E2E
+
+El journey de transferencia atraviesa catálogo, carrito, checkout y página de pedido con una reserva real de 72 horas.
+La suite importa un extracto sintético por el mismo job que usa Operaciones, confirma el pedido y prueba el replay
+concurrente del movimiento sin repetir captura, asignación ni evento. Una referencia incompleta pasa a revisión y se
+concilia desde el panel con permiso financiero y MFA; un importe divergente permanece bloqueado. Un tercer pedido
+caduca mediante dos workers simultáneos y demuestra una única transición, liberación y notificación.
