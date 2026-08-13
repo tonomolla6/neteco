@@ -11,6 +11,8 @@ import { createOrderShipment, quoteCartShipping } from '../../server/services/sh
 import { deterministicTestData, type DeterministicTestData } from '../fixtures/deterministic'
 import { isolatedPostgresDatabase, type IsolatedPostgresDatabase } from '../fixtures/postgres'
 
+// determinism-audit: allow-local-network-harness -- controlled loopback fault injection only.
+
 const execFileAsync = promisify(execFile)
 const baseConnection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
 const baseRedisUrl = process.env.REDIS_URL

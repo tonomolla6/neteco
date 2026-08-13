@@ -76,7 +76,7 @@ test('accepts and deduplicates a consented first-party event without PII', async
       .toBe(true)
     const analyticsCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'neteco-analytics-id')
     expect(analyticsCookie).toMatchObject({ httpOnly: true, secure: false, sameSite: 'Lax', path: '/' })
-    expect(analyticsCookie!.expires).toBeGreaterThan(Date.now() / 1000)
+    expect(analyticsCookie!.expires).toBeGreaterThan(deterministic.date().getTime() / 1000)
   } finally {
     await sql`DELETE FROM analytics_events WHERE event_id = ${eventId}`
     await sql.end({ timeout: 5 })

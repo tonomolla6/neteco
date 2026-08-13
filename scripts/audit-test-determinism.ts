@@ -33,7 +33,13 @@ const violations: Violation[] = []
 for (const file of files) {
   const source = await readFile(file, 'utf8')
   for (const rule of rules) {
-    if (rule.pattern.test(source)) violations.push({ file: relative(process.cwd(), file), rule: rule.name })
+    const controlledLocalNetwork =
+      rule.name === 'raw Node network client' &&
+      relative(process.cwd(), file) === 'tests/integration/provider-recovery.test.ts' &&
+      source.includes('determinism-audit: allow-local-network-harness')
+    if (rule.pattern.test(source) && !controlledLocalNetwork) {
+      violations.push({ file: relative(process.cwd(), file), rule: rule.name })
+    }
   }
   if (file.includes('/tests/e2e/') && file.endsWith('.spec.ts') && !source.includes("from '../fixtures/playwright'")) {
     violations.push({ file: relative(process.cwd(), file), rule: 'missing Playwright network/data fixture' })
@@ -47,8 +53,8 @@ for (const file of files) {
 }
 
 const vitestConfig = await readFile(resolve('vitest.config.ts'), 'utf8')
-if ((vitestConfig.match(/setupFiles:\s*\['tests\/support\/no-external-network\.ts'\]/g) ?? []).length !== 3) {
-  violations.push({ file: 'vitest.config.ts', rule: 'external network guard must cover unit, Nuxt and integration' })
+if ((vitestConfig.match(/setupFiles:\s*\['tests\/support\/no-external-network\.ts'\]/g) ?? []).length !== 4) {
+  violations.push({ file: 'vitest.config.ts', rule: 'external network guard must cover every Vitest project' })
 }
 if (!vitestConfig.includes('sequence: { concurrent: false }')) {
   violations.push({ file: 'vitest.config.ts', rule: 'integration tests must not share state concurrently' })
