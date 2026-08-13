@@ -31,6 +31,7 @@
     "test:analytics": "npm run test:e2e -- --project=chromium tests/e2e/analytics.spec.ts",
     "test:performance": "tsx scripts/run-performance.ts",
     "audit:a11y:manual": "tsx scripts/audit-manual-accessibility-evidence.ts",
+    "audit:exploratory": "tsx scripts/audit-exploratory-evidence.ts docs/testing/exploratory-runs/2026-08-13-tst034.json",
     "test:contract:redsys:sandbox": "tsx scripts/redsys-sandbox-contract.ts",
     "test:contract:beply:sandbox": "tsx scripts/beply-sandbox-contract.ts",
     "test:determinism": "tsx scripts/audit-test-determinism.ts --publish",

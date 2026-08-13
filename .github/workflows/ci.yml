@@ -57,6 +57,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run requirements:audit
       - run: npm run test:determinism
+      - run: npm run audit:exploratory
       - run: npm run coverage
       - run: npm run test:nuxt
       - run: npm run test:component

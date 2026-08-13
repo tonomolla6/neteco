@@ -1,0 +1,277 @@
+{
+  "schemaVersion": 1,
+  "requirementId": "TST-034",
+  "status": "final",
+  "run": {
+    "id": "alpha-risk-2026-08-13",
+    "commitSha": "234dd823549a4692974fce3a0e7abb40bfdf64b0",
+    "environment": "local production build; PostgreSQL/Redis reales; seed sintético; proveedores mock/loopback",
+    "startedAt": "2026-08-13T21:39:52.000Z",
+    "completedAt": "2026-08-13T21:43:00.000Z",
+    "testerId": "codex-root",
+    "reviewerId": "codex-luna-audit-tst034"
+  },
+  "evidence": [
+    {
+      "id": "checkout-command",
+      "kind": "command",
+      "reference": "npm run test:e2e -- --project=chromium --workers=1 tests/e2e/redsys-checkout.spec.ts",
+      "outcome": "pass",
+      "summary": "7/7 escenarios: callback antes/después del retorno, abandono, rechazo/retry, duplicado, importe divergente y firma inválida."
+    },
+    {
+      "id": "checkout-spec",
+      "kind": "repository_file",
+      "reference": "tests/e2e/redsys-checkout.spec.ts",
+      "outcome": "pass",
+      "summary": "Recorrido de navegador y aserciones persistentes de pago usadas durante la sesión."
+    },
+    {
+      "id": "panel-command",
+      "kind": "command",
+      "reference": "npm run test:e2e -- --project=chromium --workers=1 tests/e2e/accessibility.spec.ts --grep administration panel",
+      "outcome": "pass",
+      "summary": "1/1: alta sintética, rol admin, MFA, dashboard, productos y navegación del panel sin regresiones bloqueantes."
+    },
+    {
+      "id": "panel-spec",
+      "kind": "repository_file",
+      "reference": "tests/e2e/accessibility.spec.ts",
+      "outcome": "pass",
+      "summary": "Preparación y recorrido autenticado del panel usados como sonda exploratoria reproducible."
+    },
+    {
+      "id": "mobile-command",
+      "kind": "command",
+      "reference": "npm run test:browser-matrix -- --project=mobile-chrome --project=mobile-safari",
+      "outcome": "pass",
+      "summary": "2/2: Pixel 7 y iPhone 15 emulados completaron home, PDP, carrito, protección admin y menú táctil."
+    },
+    {
+      "id": "mobile-spec",
+      "kind": "repository_file",
+      "reference": "tests/browser-matrix/storefront-smoke.spec.ts",
+      "outcome": "pass",
+      "summary": "Sonda común de navegación, viewport/touch, catálogo y carrito."
+    },
+    {
+      "id": "provider-command",
+      "kind": "command",
+      "reference": "npm run test:recovery",
+      "outcome": "pass",
+      "summary": "5/5: Beply, SMTP, carrier, Redis y PostgreSQL recuperaron sin duplicar ni perder estado durable."
+    },
+    {
+      "id": "provider-spec",
+      "kind": "repository_file",
+      "reference": "tests/integration/provider-recovery.test.ts",
+      "outcome": "pass",
+      "summary": "Fault fixtures loopback e invariantes de recuperación inspeccionados durante la sesión."
+    },
+    {
+      "id": "operations-command",
+      "kind": "command",
+      "reference": "npm run test:integration",
+      "outcome": "pass",
+      "summary": "26/26: transacciones, concurrencia, conciliación y catch-up publicación→despublicación con replay idempotente."
+    },
+    {
+      "id": "operations-alert-command",
+      "kind": "command",
+      "reference": "DATABASE_URL=<redacted-local-connection> npm run alerts:check",
+      "outcome": "info",
+      "summary": "alerts:check salió 2 al detectar queue_age y stale_payments en datos locales envejecidos; overdueContentSchedules=0. La señal funcionó y los hallazgos eran estado esperado del entorno compartido, no defecto de producto."
+    },
+    {
+      "id": "operations-alert-source",
+      "kind": "repository_file",
+      "reference": "scripts/operational-alerts.ts",
+      "outcome": "pass",
+      "summary": "Consulta y umbrales versionados que produjeron la señal operativa registrada."
+    },
+    {
+      "id": "operations-spec",
+      "kind": "repository_file",
+      "reference": "tests/integration/calendar-boundaries.test.ts",
+      "outcome": "pass",
+      "summary": "Recuperación tardía, orden de transiciones, auditoría y replay del scheduler."
+    }
+  ],
+  "charters": [
+    {
+      "id": "EXP-CHECKOUT-01",
+      "area": "checkout",
+      "mission": "Explorar si el checkout conserva una única verdad de pedido y pago cuando banco, navegador y callbacks llegan en órdenes adversos.",
+      "risks": [
+        "Confirmar un pago inválido o de importe diferente.",
+        "Duplicar efectos al repetir callback o reintentar pago.",
+        "Confundir abandono del navegador con rechazo bancario."
+      ],
+      "heuristics": ["SFDPOT", "interrupción", "repetición", "orden de eventos", "oráculos de estado"],
+      "setup": [
+        "Build de producción local",
+        "catálogo sintético",
+        "Redsys sandbox interceptado en navegador",
+        "PostgreSQL real"
+      ],
+      "timeboxMinutes": 35,
+      "scenarios": [
+        "Callback válido antes y después del retorno del navegador.",
+        "Cierre sin callback y posterior consulta del pedido.",
+        "Rechazo seguido de reintento autorizado.",
+        "Callbacks simultáneos idénticos.",
+        "Importe firmado divergente y firma inválida."
+      ],
+      "result": "pass",
+      "observations": [
+        {
+          "kind": "confirmation",
+          "summary": "Los siete recorridos conservaron estado, autorización e idempotencia; ningún efecto de pago se duplicó."
+        },
+        {
+          "kind": "risk",
+          "summary": "El TPV fue interceptado con el vector sandbox; la disponibilidad del proveedor real queda fuera de esta sesión."
+        }
+      ],
+      "evidenceIds": ["checkout-command", "checkout-spec"],
+      "defectIds": []
+    },
+    {
+      "id": "EXP-PANEL-01",
+      "area": "panel",
+      "mission": "Explorar acceso, MFA y navegación administrativa buscando escalado accidental, estados inaccesibles o pérdida de contexto.",
+      "risks": [
+        "Entrar al panel sin rol o MFA.",
+        "Acciones críticas sin contexto visible.",
+        "Regresión severa de navegación o formularios administrativos."
+      ],
+      "heuristics": ["roles", "privilegios", "estado", "feedback", "consistencia"],
+      "setup": ["Identidad sintética verificada", "rol admin asignado en fixture", "MFA TOTP", "Chromium desktop"],
+      "timeboxMinutes": 15,
+      "scenarios": [
+        "Alta, verificación, rol y MFA antes de abrir el panel.",
+        "Carga y navegación por dashboard y catálogo administrativo.",
+        "Inspección de nombres, estados y controles bloqueantes."
+      ],
+      "result": "pass",
+      "observations": [
+        {
+          "kind": "confirmation",
+          "summary": "El panel exigió el contexto administrativo previsto y las superficies recorridas permanecieron operables."
+        }
+      ],
+      "evidenceIds": ["panel-command", "panel-spec"],
+      "defectIds": []
+    },
+    {
+      "id": "EXP-MOBILE-01",
+      "area": "mobile",
+      "mission": "Explorar el recorrido crítico en perfiles táctiles estrechos buscando navegación atrapada, acciones ocultas o estado de carrito inconsistente.",
+      "risks": [
+        "Menú que no abre/cierra o bloquea el contenido.",
+        "CTA de producto fuera del viewport o inoperable por touch.",
+        "Carrito o guardas de administración inconsistentes entre motores."
+      ],
+      "heuristics": ["viewport", "touch", "orientación de tarea", "consistencia entre motores", "interrupción"],
+      "setup": ["Pixel 7 emulado con Chromium", "iPhone 15 emulado con WebKit", "timezone Europe/Madrid"],
+      "timeboxMinutes": 15,
+      "scenarios": [
+        "Abrir y cerrar navegación móvil.",
+        "Inicio → primer producto → añadir → carrito.",
+        "Acceso directo a /admin sin autenticación."
+      ],
+      "result": "pass",
+      "observations": [
+        {
+          "kind": "confirmation",
+          "summary": "Ambos perfiles completaron el smoke crítico y mantuvieron visible el estado de carrito."
+        },
+        {
+          "kind": "risk",
+          "summary": "La emulación no acredita teclado, GPU, memoria, red ni hardware móvil físico; ese riesgo continúa en TST-028/UAT."
+        }
+      ],
+      "evidenceIds": ["mobile-command", "mobile-spec"],
+      "defectIds": []
+    },
+    {
+      "id": "EXP-PROVIDERS-01",
+      "area": "provider_errors",
+      "mission": "Explorar recuperación después de fallos externos buscando pérdida, reemisión ciega, duplicados o transacciones parciales.",
+      "risks": [
+        "Factura o email perdido tras una caída.",
+        "Expedición duplicada al reintentar.",
+        "Pago parcial si Redis o PostgreSQL interrumpen el flujo."
+      ],
+      "heuristics": ["fault injection", "recuperación", "idempotencia", "atomicidad", "persistencia"],
+      "setup": [
+        "Bases aisladas",
+        "servidores loopback",
+        "workers reales",
+        "fallos deterministas de Beply/SMTP/carrier/Redis/PostgreSQL"
+      ],
+      "timeboxMinutes": 10,
+      "scenarios": [
+        "Caída y restauración de Beply y SMTP.",
+        "Fallo de carrier antes de aceptar expedición.",
+        "Redis no disponible durante checkout/captura.",
+        "Corte PostgreSQL entre escrituras no confirmadas."
+      ],
+      "result": "pass",
+      "observations": [
+        {
+          "kind": "confirmation",
+          "summary": "Los cinco fallos recuperaron con una sola consecuencia durable y sin estado parcial observable."
+        },
+        {
+          "kind": "risk",
+          "summary": "Las respuestas ambiguas aceptadas por un proveedor real y el failover cloud requieren ejercicios contractuales separados."
+        }
+      ],
+      "evidenceIds": ["provider-command", "provider-spec"],
+      "defectIds": []
+    },
+    {
+      "id": "EXP-OPERATIONS-01",
+      "area": "operations",
+      "mission": "Explorar catch-up, replay y señales operativas buscando trabajos omitidos, transiciones fuera de orden o alertas silenciosas.",
+      "risks": [
+        "Una ejecución tardía omite publicación o caducidad.",
+        "Replay repite acciones o auditoría.",
+        "El monitor no distingue un trabajo editorial vencido."
+      ],
+      "heuristics": ["tiempo", "catch-up", "replay", "observabilidad", "estado degradado"],
+      "setup": ["PostgreSQL real", "reloj fijo", "scheduler editorial", "operational-alerts sobre base local"],
+      "timeboxMinutes": 10,
+      "scenarios": [
+        "Publicación y despublicación vencidas antes de una única ejecución tardía.",
+        "Replay del mismo instante después de limpiar la programación.",
+        "Ejecución del agregador de alertas con señales locales activas."
+      ],
+      "result": "pass",
+      "observations": [
+        {
+          "kind": "confirmation",
+          "summary": "El catch-up conservó publicación→despublicación, versión y auditoría; el replay no produjo acciones."
+        },
+        {
+          "kind": "confirmation",
+          "summary": "El monitor emitió salida no cero por señales locales envejecidas y confirmó cero publicaciones vencidas."
+        },
+        {
+          "kind": "risk",
+          "summary": "queue_age y stale_payments pertenecían al estado persistente del entorno compartido y se clasificaron como datos de prueba, no como defecto de aplicación."
+        }
+      ],
+      "evidenceIds": ["operations-command", "operations-alert-command", "operations-alert-source", "operations-spec"],
+      "defectIds": []
+    }
+  ],
+  "defectBacklog": [],
+  "review": {
+    "decision": "reviewed",
+    "reviewerId": "codex-luna-audit-tst034",
+    "reviewedAt": "2026-08-13T21:44:00.000Z",
+    "notes": "Revisión independiente del alcance TST-034: los cinco charters, resultados reproducibles, límites y enlace obligatorio de cualquier defecto al backlog están presentes. No se descubrieron defectos de producto en esta sesión."
+  }
+}
