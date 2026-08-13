@@ -61,7 +61,7 @@ const currentRepoEvidence = new Set(
 )
 const currentPartialExternal = new Set(
   ids(
-    'SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019;TST-023'
+    'SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019;TST-023;TST-028'
   )
 )
 
@@ -145,6 +145,8 @@ function evidenceFor(id: string) {
       'tests/components/; app/components/SearchBox.vue; app/components/ProductFilters.vue; app/components/VariantSelector.vue; app/components/QuantityStepper.vue; app/components/CartLineControls.vue; app/components/LoginForm.vue; app/components/ConsentManager.vue; app/components/AdminOrderTable.vue; app/components/RoleGate.vue; docs/testing/critical-component-tests.md; vitest.config.ts; package.json; .github/workflows/ci.yml',
     'TST-027':
       'tests/visual/templates.spec.ts; tests/visual/templates.spec.ts-snapshots/; playwright.visual.config.ts; docs/testing/visual-regression.md; package.json; .github/workflows/ci.yml',
+    'TST-028':
+      'tests/browser-matrix/storefront-smoke.spec.ts; playwright.matrix.config.ts; playwright.config.ts; docs/testing/browser-device-matrix.md; docs/testing/strategy.md; package.json; .github/workflows/ci.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':

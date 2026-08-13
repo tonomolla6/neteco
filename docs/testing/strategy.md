@@ -6,7 +6,7 @@
 2. Integración: PostgreSQL y Redis reales; migraciones vacío→latest, constraints, transacciones, locks, outbox/inbox y concurrencia.
 3. Contrato: fixtures oficiales/versionados para Redsys, Beply, carrier y email; nunca red externa en unit tests.
 4. Nuxt/component: formularios, errores, teclado, estados, permisos y schema/data layer.
-5. E2E: journeys felices y fallos en Chromium, Firefox, WebKit y dos perfiles móviles; trace, vídeo y screenshot solo al fallar.
+5. E2E: journeys felices y fallos completos en Chromium; smoke crítico en Chromium, Firefox, WebKit y dos perfiles móviles; trace, vídeo y screenshot solo al fallar.
 6. Seguridad/accesibilidad/SEO/rendimiento: IDOR, CSRF/XSS/SSRF/upload, axe, schema/canonical/sitemap, budgets y carga.
 7. UAT/manual: almacén, administración, soporte, lector de pantalla, zoom/reflow, móvil real, sandbox y restore.
 
