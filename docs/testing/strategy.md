@@ -79,6 +79,16 @@ Redsys, pedido, emisión y descarga de factura mock, reset y revocación de sesi
 direcciones, pedidos y facturas no cruzan identidades; además, reinyecta las cookies anteriores de acceso a pedido y
 carrito para verificar que el logout revocó sus tokens.
 
+## Autorización e IDOR E2E
+
+La [matriz automática de autorización e IDOR](./authorization-idor.md) separa autenticación, ownership, membresía de
+empresa, MFA y permiso global. Usa recursos reales de un cliente A y ataques desde un cliente/empresa B, y después
+eleva B a administrador con MFA para probar tanto el acceso administrativo intencionado como identificadores
+inventados. La matriz distingue además los scopes internos de tienda de `support`, `warehouse` y `finance` frente a
+los roles de empresa. Exportación de PII, invoice/label PDF, upload y acciones financieras forman parte del gate. Cada
+bloque denegado compara filas completas y efectos atribuidos por actor/recurso/correlación para seguir siendo estable
+durante la ejecución paralela de Playwright.
+
 ## Transferencia bancaria E2E
 
 El journey de transferencia atraviesa catálogo, carrito, checkout y página de pedido con una reserva real de 72 horas.

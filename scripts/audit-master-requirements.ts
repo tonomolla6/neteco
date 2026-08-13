@@ -55,7 +55,7 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020'
   )
 )
 const currentPartialExternal = new Set(
@@ -133,6 +133,8 @@ function evidenceFor(id: string) {
       'tests/unit/beply.test.ts; tests/integration/commerce-transactions.test.ts; server/integrations/beply.ts; scripts/invoice-worker.ts; scripts/credit-note-worker.ts; scripts/reconcile.ts; scripts/beply-sandbox-contract.ts; docs/testing/strategy.md',
     'TST-019':
       'server/integrations/carrier-provider.ts; server/integrations/mock-carrier.ts; server/integrations/carrier-factory.ts; tests/unit/shipping.test.ts; tests/e2e/shipping-fulfillment.spec.ts; docs/testing/carrier-contract.md',
+    'TST-020':
+      'tests/e2e/authorization-idor.spec.ts; tests/e2e/authenticated-purchase.spec.ts; tests/e2e/bank-transfer.spec.ts; docs/testing/authorization-idor.md; playwright.config.ts; .github/workflows/ci.yml',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':
