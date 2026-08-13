@@ -56,7 +56,7 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..027;TST-029..034'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..027;TST-029..035'
   )
 )
 const currentPartialExternal = new Set(
@@ -159,6 +159,8 @@ function evidenceFor(id: string) {
       'server/utils/madrid-calendar.ts; server/utils/shipping-policy.ts; server/domain/shipping.ts; server/integrations/beply.ts; server/services/content-publication.ts; server/api/admin/content/pages/[id]/schedule.post.ts; app/pages/admin/contenido.vue; scripts/content-publication-worker.ts; scripts/operational-alerts.ts; db/migrations/0029_scheduled_content_publication.sql; tests/unit/madrid-calendar.test.ts; tests/unit/shipping.test.ts; tests/unit/shipping-policy.test.ts; tests/unit/feature-flags.test.ts; tests/unit/beply.test.ts; tests/integration/calendar-boundaries.test.ts; tests/integration/pricing-schedules.test.ts; docs/testing/timezone-calendar.md; package.json; .github/workflows/ci.yml',
     'TST-034':
       'docs/testing/exploratory-testing.md; docs/testing/exploratory-runs/2026-08-13-tst034.json; scripts/lib/exploratory-evidence.ts; scripts/audit-exploratory-evidence.ts; scripts/operational-alerts.ts; tests/unit/exploratory-evidence.test.ts; tests/e2e/redsys-checkout.spec.ts; tests/e2e/accessibility.spec.ts; tests/browser-matrix/storefront-smoke.spec.ts; tests/integration/provider-recovery.test.ts; tests/integration/calendar-boundaries.test.ts; package.json; .github/workflows/ci.yml',
+    'TST-035':
+      'scripts/lib/flaky-policy.ts; scripts/audit-flaky-policy.ts; scripts/run-flake-monitor.ts; scripts/audit-playwright-flake-report.ts; tests/unit/flaky-policy.test.ts; test-results/flaky-rate.json; test-results/flaky-browser-rate.json; playwright.config.ts; playwright.flake.config.ts; vitest.config.ts; docs/testing/flaky-tests.md; package.json; .github/workflows/ci.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':
