@@ -138,8 +138,9 @@ try {
         `
         await transaction`
           INSERT INTO inventory_movements (
-            variant_id, location_id, movement_type, quantity, reference_type, reason, idempotency_key
-          ) VALUES (${variantId}, ${warehouseId}, 'initial', 100, 'seed', 'Synthetic demo inventory', ${`seed:${variantId}`})
+            variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+            reference_type, reason, idempotency_key
+          ) VALUES (${variantId}, ${warehouseId}, 'initial', 100, 100, 0, 'seed', 'Synthetic demo inventory', ${`seed:${variantId}`})
           ON CONFLICT (idempotency_key) DO NOTHING
         `
       }

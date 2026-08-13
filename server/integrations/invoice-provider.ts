@@ -26,6 +26,7 @@ export interface IssueInvoiceRequest {
   lines: InvoiceLine[]
   shippingNetCents: number
   currency: 'EUR'
+  paymentMethod?: 'redsys' | 'bank_transfer'
   idempotencyKey: string
 }
 

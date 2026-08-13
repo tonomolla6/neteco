@@ -113,7 +113,7 @@ export const invoiceTransitions: TransitionMap<InvoiceState> = {
 
 export const returnTransitions: TransitionMap<ReturnState> = {
   requested: ['approved', 'rejected'],
-  approved: ['in_transit', 'received', 'resolved'],
+  approved: ['in_transit', 'received'],
   rejected: [],
   in_transit: ['received'],
   received: ['inspected'],

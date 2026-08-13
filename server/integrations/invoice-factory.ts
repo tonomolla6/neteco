@@ -11,8 +11,11 @@ export function invoiceProviderFromEnvironment(environment: NodeJS.ProcessEnv = 
     token: environment.BEPLY_API_TOKEN ?? '',
     invoiceSeries: environment.BEPLY_INVOICE_SERIES ?? '',
     correctiveSeries: environment.BEPLY_CORRECTIVE_SERIES ?? '',
+    taxCode0: environment.BEPLY_TAX_CODE_0 ?? '',
+    taxCode10: environment.BEPLY_TAX_CODE_10 ?? '',
     taxCode21: environment.BEPLY_TAX_CODE_21 ?? '',
     paymentCodeRedsys: environment.BEPLY_PAYMENT_CODE_REDSYS ?? '',
+    paymentCodeBankTransfer: environment.BEPLY_PAYMENT_CODE_BANK_TRANSFER ?? '',
     companyId: environment.BEPLY_COMPANY_ID ?? ''
   })
 }

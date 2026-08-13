@@ -19,6 +19,7 @@ export interface PaymentRedirect {
 
 export interface PaymentNotification {
   providerEventId: string
+  providerReference?: string
   orderReference: string
   amountCents: number
   currency: 'EUR'

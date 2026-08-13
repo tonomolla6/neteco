@@ -78,13 +78,26 @@ async function upsertInventory(
   transaction: TransactionSql,
   input: { variantId: string; locationId: string; stock: number; auditKey: string; actorId: string }
 ) {
-  const [current] = await transaction<{ physicalQuantity: number }[]>`
-    SELECT physical_quantity AS "physicalQuantity"
+  const [current] = await transaction<{ physicalQuantity: number; blockedQuantity: number }[]>`
+    SELECT physical_quantity AS "physicalQuantity", blocked_quantity AS "blockedQuantity"
     FROM inventory_balances
     WHERE variant_id = ${input.variantId} AND location_id = ${input.locationId}
     FOR UPDATE
   `
   const previous = current?.physicalQuantity ?? 0
+  const [commitment] = await transaction<{ reservedQuantity: number }[]>`
+    SELECT COALESCE(sum(quantity), 0)::int AS "reservedQuantity"
+    FROM inventory_reservations
+    WHERE variant_id = ${input.variantId} AND location_id = ${input.locationId}
+      AND status = 'active' AND expires_at > now()
+  `
+  const committed = (commitment?.reservedQuantity ?? 0) + (current?.blockedQuantity ?? 0)
+  if (input.stock < committed) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: `El stock no puede quedar por debajo de ${committed} unidades comprometidas o bloqueadas`
+    })
+  }
   if (current) {
     await transaction`
       UPDATE inventory_balances
@@ -101,10 +114,11 @@ async function upsertInventory(
   if (difference !== 0) {
     await transaction`
       INSERT INTO inventory_movements (
-        variant_id, location_id, movement_type, quantity, reference_type, actor_id,
+        variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+        reference_type, actor_id,
         reason, idempotency_key
       ) VALUES (
-        ${input.variantId}, ${input.locationId}, 'adjustment', ${difference}, 'catalog_admin',
+        ${input.variantId}, ${input.locationId}, 'adjustment', ${difference}, ${difference}, 0, 'catalog_admin',
         ${input.actorId}, 'Admin stock adjustment', ${input.auditKey}
       ) ON CONFLICT (idempotency_key) DO NOTHING
     `

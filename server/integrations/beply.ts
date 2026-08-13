@@ -8,8 +8,11 @@ export interface BeplyConfiguration {
   token: string
   invoiceSeries: string
   correctiveSeries: string
+  taxCode0: string
+  taxCode10: string
   taxCode21: string
   paymentCodeRedsys: string
+  paymentCodeBankTransfer: string
   companyId: string
   timeoutMs?: number
 }
@@ -100,8 +103,11 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
       token: z.string().min(1).parse(configuration.token),
       invoiceSeries: z.string().min(1).max(10).parse(configuration.invoiceSeries),
       correctiveSeries: z.string().min(1).max(10).parse(configuration.correctiveSeries),
+      taxCode0: z.string().min(1).max(20).parse(configuration.taxCode0),
+      taxCode10: z.string().min(1).max(20).parse(configuration.taxCode10),
       taxCode21: z.string().min(1).max(20).parse(configuration.taxCode21),
       paymentCodeRedsys: z.string().min(1).max(20).parse(configuration.paymentCodeRedsys),
+      paymentCodeBankTransfer: z.string().min(1).max(20).parse(configuration.paymentCodeBankTransfer),
       companyId: z.string().min(1).max(20).parse(configuration.companyId),
       timeoutMs: z
         .number()
@@ -195,13 +201,19 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
   }
 
   private invoiceLines(request: IssueInvoiceRequest) {
+    const taxCode = (basisPoints: number) => {
+      if (basisPoints === 0) return this.configuration.taxCode0
+      if (basisPoints === 1000) return this.configuration.taxCode10
+      if (basisPoints === 2100) return this.configuration.taxCode21
+      throw new Error(`Unsupported Beply tax rate: ${basisPoints}`)
+    }
     const lines = request.lines.map((line) => ({
       referencia: line.sku,
       descripcion: line.description,
       cantidad: line.quantity,
       pvpunitario: Number((line.lineNetCents / line.quantity / 100).toFixed(6)),
       dtopor: 0,
-      codimpuesto: this.configuration.taxCode21,
+      codimpuesto: taxCode(line.taxRateBasisPoints),
       iva: line.taxRateBasisPoints / 100
     }))
     if (request.shippingNetCents > 0) {
@@ -231,7 +243,10 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
         codcliente: code,
         lineas: JSON.stringify(this.invoiceLines(request)),
         codserie: options.series,
-        codpago: this.configuration.paymentCodeRedsys,
+        codpago:
+          request.paymentMethod === 'bank_transfer'
+            ? this.configuration.paymentCodeBankTransfer
+            : this.configuration.paymentCodeRedsys,
         idempresa: this.configuration.companyId,
         fecha: date,
         hora: time,

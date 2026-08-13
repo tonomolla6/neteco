@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createError } from 'h3'
 import type { TransactionSql } from 'postgres'
-import { calculateQuote } from '../domain/money'
+import { calculateQuote, splitGross } from '../domain/money'
 import { sellableQuantity } from '../domain/inventory'
 import { chargeableWeightGrams, classifyShipment, standardShippingNetCents } from '../domain/shipping'
 import type { Parcel } from '../integrations/carrier-provider'
@@ -100,7 +100,7 @@ function orderResponse(order: ExistingOrder, guestToken: string) {
 }
 
 function serializableFailure(error: unknown) {
-  return !!error && typeof error === 'object' && 'code' in error && error.code === '40001'
+  return !!error && typeof error === 'object' && 'code' in error && ['40001', '40P01'].includes(String(error.code))
 }
 
 async function inSerializableTransaction<T>(operation: (transaction: TransactionSql) => Promise<T>) {
@@ -159,6 +159,7 @@ export async function createOrder(input: CreateOrderInput) {
       WHERE v.legacy_id IN ${transaction(legacyIds)}
         AND v.status = 'published'
         AND p.status = 'published'
+      ORDER BY v.id
     `
     if (variants.length !== requested.length) {
       throw createError({ statusCode: 409, statusMessage: 'Uno o más artículos ya no están disponibles' })
@@ -356,10 +357,11 @@ export async function createOrder(input: CreateOrderInput) {
       `
       await transaction`
         INSERT INTO inventory_movements (
-          variant_id, location_id, movement_type, quantity, reference_type, reference_id,
+          variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+          reference_type, reference_id,
           reason, idempotency_key
         ) VALUES (
-          ${variant.id}, ${balance.location_id}, 'reserve', ${-quantity}, 'order', ${orderId},
+          ${variant.id}, ${balance.location_id}, 'reserve', ${-quantity}, 0, ${quantity}, 'order', ${orderId},
           'Checkout stock reservation', ${`${input.idempotencyKey}:reserve-movement:${variant.id}`}
         )
       `
@@ -411,11 +413,13 @@ export async function createOrder(input: CreateOrderInput) {
 }
 
 interface PaymentOrderRecord extends ExistingOrder {
+  order_currency: string
   order_status: string
   inventory_status: string
   payment_intent_id: string
   payment_intent_status: string
   amount_cents: number
+  payment_currency: string
   provider: string
   method: string
   idempotency_key: string
@@ -423,10 +427,11 @@ interface PaymentOrderRecord extends ExistingOrder {
 
 async function lockedPaymentOrder(transaction: TransactionSql, publicNumber: string) {
   const [order] = await transaction<PaymentOrderRecord[]>`
-    SELECT o.id, o.public_number, o.guest_access_hash, o.order_status, o.payment_status,
+    SELECT o.id, o.public_number, o.guest_access_hash, o.currency AS order_currency,
+           o.order_status, o.payment_status,
            o.inventory_status, o.payment_method, o.total_gross_cents, o.expires_at,
            pi.id AS payment_intent_id, pi.status AS payment_intent_status,
-           pi.amount_cents, pi.provider, pi.method, pi.idempotency_key
+           pi.amount_cents, pi.currency AS payment_currency, pi.provider, pi.method, pi.idempotency_key
     FROM orders o
     JOIN payment_intents pi ON pi.order_id = o.id
     WHERE o.public_number = ${publicNumber}
@@ -435,61 +440,164 @@ async function lockedPaymentOrder(transaction: TransactionSql, publicNumber: str
   return order
 }
 
+async function holdCapturedOrder(
+  transaction: TransactionSql,
+  order: PaymentOrderRecord,
+  correlationId: string,
+  providerEventId: string,
+  providerReference: string,
+  reason: string,
+  privateData: Record<string, unknown> = {}
+) {
+  await transaction`
+    UPDATE payment_intents
+    SET status = 'captured', provider_reference = COALESCE(provider_reference, ${providerReference}), updated_at = now()
+    WHERE id = ${order.payment_intent_id}
+  `
+  await transaction`
+    UPDATE orders
+    SET order_status = 'on_hold', payment_status = 'captured', updated_at = now()
+    WHERE id = ${order.id}
+  `
+  await transaction`
+    INSERT INTO order_events (
+      order_id, event_type, actor_type, origin, from_state, to_state, public_data,
+      private_data, correlation_id, idempotency_key
+    ) VALUES (
+      ${order.id}, 'payment.captured_without_stock', 'provider', ${order.provider},
+      ${transaction.json({ order: order.order_status, payment: order.payment_status, inventory: order.inventory_status })},
+      ${transaction.json({ order: 'on_hold', payment: 'captured', inventory: order.inventory_status })},
+      ${transaction.json({ actionRequired: true })},
+      ${transaction.json({ providerEventId, reason, ...privateData })},
+      ${correlationId}, ${`payment:${providerEventId}:captured-without-stock`}
+    ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
+  `
+  await transaction`
+    INSERT INTO outbox_events (
+      aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+    ) VALUES (
+      'order', ${order.id}, 'payment.refund.review.requested',
+      ${transaction.json({ orderId: order.id, orderNumber: order.public_number, reason })},
+      ${correlationId}, ${`refund-review:${order.id}:${providerEventId}`}
+    ) ON CONFLICT (idempotency_key) DO NOTHING
+  `
+}
+
 async function allocateOrder(
   transaction: TransactionSql,
   order: PaymentOrderRecord,
   correlationId: string,
-  providerEventId: string
+  providerEventId: string,
+  providerReference = providerEventId
 ) {
-  if (order.payment_status === 'captured') return
+  if (['captured', 'partially_refunded', 'refunded', 'chargeback'].includes(order.payment_status)) return
   const reservations = await transaction<{ id: string; variant_id: string; location_id: string; quantity: number }[]>`
-    UPDATE inventory_reservations
-    SET status = 'allocated', updated_at = now()
+    SELECT id, variant_id, location_id, quantity
+    FROM inventory_reservations
     WHERE order_id = ${order.id} AND status = 'active'
-    RETURNING id, variant_id, location_id, quantity
+    ORDER BY variant_id, location_id, id
+    FOR UPDATE
   `
-  if (reservations.length === 0 && order.inventory_status !== 'allocated') {
-    await transaction`
-      UPDATE payment_intents
-      SET status = 'captured', provider_reference = COALESCE(provider_reference, ${providerEventId}), updated_at = now()
-      WHERE id = ${order.payment_intent_id}
-    `
-    await transaction`
-      UPDATE orders
-      SET order_status = 'on_hold', payment_status = 'captured', updated_at = now()
-      WHERE id = ${order.id}
-    `
-    await transaction`
-      INSERT INTO order_events (
-        order_id, event_type, actor_type, origin, from_state, to_state, public_data,
-        private_data, correlation_id, idempotency_key
-      ) VALUES (
-        ${order.id}, 'payment.captured_without_stock', 'provider', ${order.provider},
-        ${transaction.json({ order: order.order_status, payment: order.payment_status, inventory: order.inventory_status })},
-        ${transaction.json({ order: 'on_hold', payment: 'captured', inventory: order.inventory_status })},
-        ${transaction.json({ actionRequired: true })}, ${transaction.json({ providerEventId })},
-        ${correlationId}, ${`payment:${providerEventId}:captured-without-stock`}
-      ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
-    `
-    await transaction`
-      INSERT INTO outbox_events (
-        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
-      ) VALUES (
-        'order', ${order.id}, 'payment.refund.review.requested',
-        ${transaction.json({ orderId: order.id, orderNumber: order.public_number, reason: 'reservation_expired' })},
-        ${correlationId}, ${`refund-review:${order.id}:${providerEventId}`}
-      ) ON CONFLICT (idempotency_key) DO NOTHING
-    `
+  const lateOrCancelled =
+    order.order_status === 'cancelled' ||
+    ['failed', 'cancelled'].includes(order.payment_status) ||
+    (!!order.expires_at && order.expires_at <= new Date())
+  if (lateOrCancelled) {
+    for (const reservation of reservations) {
+      await transaction`
+        UPDATE inventory_reservations SET status = 'released', updated_at = now()
+        WHERE id = ${reservation.id} AND status = 'active'
+      `
+      await transaction`
+        INSERT INTO inventory_movements (
+          variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+          reference_type, reference_id,
+          reason, idempotency_key
+        ) VALUES (
+          ${reservation.variant_id}, ${reservation.location_id}, 'release', ${reservation.quantity},
+          0, ${-reservation.quantity},
+          'order', ${order.id}, 'Late capture after order expiry or cancellation',
+          ${`${order.idempotency_key}:late-capture-release:${reservation.id}`}
+        ) ON CONFLICT (idempotency_key) DO NOTHING
+      `
+    }
+    if (reservations.length > 0) {
+      await transaction`
+        UPDATE orders SET inventory_status = 'released', updated_at = now() WHERE id = ${order.id}
+      `
+      order.inventory_status = 'released'
+    }
+    await holdCapturedOrder(
+      transaction,
+      order,
+      correlationId,
+      providerEventId,
+      providerReference,
+      order.order_status === 'cancelled' ? 'order_cancelled' : 'reservation_expired'
+    )
     return
   }
+  if (reservations.length === 0 && order.inventory_status !== 'allocated') {
+    await holdCapturedOrder(
+      transaction,
+      order,
+      correlationId,
+      providerEventId,
+      providerReference,
+      'reservation_missing'
+    )
+    return
+  }
+
+  const unavailable: string[] = []
+  for (const reservation of reservations) {
+    const [balance] = await transaction<{ physical_quantity: number }[]>`
+      SELECT physical_quantity
+      FROM inventory_balances
+      WHERE variant_id = ${reservation.variant_id} AND location_id = ${reservation.location_id}
+      FOR UPDATE
+    `
+    if (!balance || balance.physical_quantity < reservation.quantity) unavailable.push(reservation.id)
+  }
+  if (unavailable.length > 0) {
+    await transaction`
+      UPDATE inventory_reservations
+      SET expires_at = GREATEST(expires_at, now() + interval '7 days'), updated_at = now()
+      WHERE order_id = ${order.id} AND status = 'active'
+    `
+    await holdCapturedOrder(
+      transaction,
+      order,
+      correlationId,
+      providerEventId,
+      providerReference,
+      'insufficient_physical_stock',
+      { unavailableReservationIds: unavailable }
+    )
+    return
+  }
+
   for (const reservation of reservations) {
     await transaction`
+      UPDATE inventory_balances
+      SET physical_quantity = physical_quantity - ${reservation.quantity},
+          version = version + 1,
+          updated_at = now()
+      WHERE variant_id = ${reservation.variant_id} AND location_id = ${reservation.location_id}
+    `
+    await transaction`
+      UPDATE inventory_reservations
+      SET status = 'allocated', updated_at = now()
+      WHERE id = ${reservation.id} AND status = 'active'
+    `
+    await transaction`
       INSERT INTO inventory_movements (
-        variant_id, location_id, movement_type, quantity, reference_type, reference_id,
+        variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+        reference_type, reference_id,
         reason, idempotency_key
       ) VALUES (
-        ${reservation.variant_id}, ${reservation.location_id}, 'allocate', ${reservation.quantity},
-        'order', ${order.id}, 'Payment captured',
+        ${reservation.variant_id}, ${reservation.location_id}, 'allocate', ${-reservation.quantity},
+        ${-reservation.quantity}, ${-reservation.quantity}, 'order', ${order.id}, 'Payment captured',
         ${`${order.idempotency_key}:allocate:${reservation.id}`}
       ) ON CONFLICT (idempotency_key) DO NOTHING
     `
@@ -501,7 +609,7 @@ async function allocateOrder(
   }
   await transaction`
     UPDATE payment_intents
-    SET status = 'captured', provider_reference = COALESCE(provider_reference, ${providerEventId}), updated_at = now()
+    SET status = 'captured', provider_reference = COALESCE(provider_reference, ${providerReference}), updated_at = now()
     WHERE id = ${order.payment_intent_id}
   `
   await transaction`
@@ -542,12 +650,48 @@ async function allocateOrder(
   `
 }
 
+async function authorizeOrder(
+  transaction: TransactionSql,
+  order: PaymentOrderRecord,
+  correlationId: string,
+  providerEventId: string,
+  providerReference = providerEventId
+) {
+  if (!['initiated', 'pending'].includes(order.payment_status)) return
+  await transaction`
+    UPDATE inventory_reservations
+    SET expires_at = 'infinity'::timestamptz, updated_at = now()
+    WHERE order_id = ${order.id} AND status = 'active'
+  `
+  await transaction`
+    UPDATE payment_intents
+    SET status = 'authorized', provider_reference = COALESCE(provider_reference, ${providerReference}), updated_at = now()
+    WHERE id = ${order.payment_intent_id}
+  `
+  await transaction`
+    UPDATE orders SET payment_status = 'authorized', expires_at = NULL, updated_at = now()
+    WHERE id = ${order.id}
+  `
+  await transaction`
+    INSERT INTO order_events (
+      order_id, event_type, actor_type, origin, from_state, to_state, public_data,
+      private_data, correlation_id, idempotency_key
+    ) VALUES (
+      ${order.id}, 'payment.authorized', 'provider', ${order.provider},
+      ${transaction.json({ payment: order.payment_status })}, ${transaction.json({ payment: 'authorized' })},
+      ${transaction.json({})}, ${transaction.json({ providerEventId })}, ${correlationId},
+      ${`payment:${providerEventId}:authorized`}
+    ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
+  `
+}
+
 async function releaseOrder(
   transaction: TransactionSql,
   order: PaymentOrderRecord,
   correlationId: string,
   providerEventId: string
 ) {
+  if (!['initiated', 'pending', 'authorized', 'failed'].includes(order.payment_status)) return
   const reservations = await transaction<{ id: string; variant_id: string; location_id: string; quantity: number }[]>`
     UPDATE inventory_reservations
     SET status = 'released', updated_at = now()
@@ -557,10 +701,12 @@ async function releaseOrder(
   for (const reservation of reservations) {
     await transaction`
       INSERT INTO inventory_movements (
-        variant_id, location_id, movement_type, quantity, reference_type, reference_id,
+        variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+        reference_type, reference_id,
         reason, idempotency_key
       ) VALUES (
         ${reservation.variant_id}, ${reservation.location_id}, 'release', ${reservation.quantity},
+        0, ${-reservation.quantity},
         'order', ${order.id}, 'Payment cancelled',
         ${`${order.idempotency_key}:release:${reservation.id}`}
       ) ON CONFLICT (idempotency_key) DO NOTHING
@@ -665,9 +811,10 @@ export async function processPaymentNotification(notification: PaymentNotificati
           amountCents: notification.amountCents,
           currency: notification.currency,
           status: notification.status,
-          responseCode: notification.responseCode
+          responseCode: notification.responseCode,
+          providerReference: notification.providerReference
         })}, true, 'processing', ${correlationId}
-      ) ON CONFLICT (provider, payload_hash) DO NOTHING
+      ) ON CONFLICT DO NOTHING
       RETURNING id
     `
     if (!inserted[0]) return { accepted: true, duplicate: true }
@@ -679,7 +826,13 @@ export async function processPaymentNotification(notification: PaymentNotificati
       `
       return { accepted: false, duplicate: false, reason: 'order_not_found' }
     }
-    if (order.amount_cents !== notification.amountCents || notification.currency !== 'EUR') {
+    if (
+      order.amount_cents !== notification.amountCents ||
+      order.total_gross_cents !== notification.amountCents ||
+      notification.currency !== 'EUR' ||
+      order.order_currency !== notification.currency ||
+      order.payment_currency !== notification.currency
+    ) {
       await transaction`
         UPDATE webhook_inbox SET status = 'rejected', processed_at = now() WHERE id = ${inserted[0].id}
       `
@@ -696,11 +849,25 @@ export async function processPaymentNotification(notification: PaymentNotificati
         ${correlationId}
       ) ON CONFLICT (payment_intent_id, provider_event_id) DO NOTHING
     `
-    if (notification.status === 'captured' || notification.status === 'authorized') {
-      await allocateOrder(transaction, order, correlationId, notification.providerEventId)
+    if (notification.status === 'captured') {
+      await allocateOrder(
+        transaction,
+        order,
+        correlationId,
+        notification.providerEventId,
+        notification.providerReference
+      )
+    } else if (notification.status === 'authorized') {
+      await authorizeOrder(
+        transaction,
+        order,
+        correlationId,
+        notification.providerEventId,
+        notification.providerReference
+      )
     } else if (notification.status === 'cancelled') {
       await releaseOrder(transaction, order, correlationId, notification.providerEventId)
-    } else {
+    } else if (!['authorized', 'captured', 'cancelled'].includes(order.payment_status)) {
       await transaction`
         UPDATE payment_intents SET status = ${notification.status}, updated_at = now()
         WHERE id = ${order.payment_intent_id} AND status <> 'captured'
@@ -762,10 +929,12 @@ export async function expireInventoryReservations(limit = 100) {
       for (const reservation of reservations) {
         await transaction`
           INSERT INTO inventory_movements (
-            variant_id, location_id, movement_type, quantity, reference_type, reference_id,
+            variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+            reference_type, reference_id,
             reason, idempotency_key
           ) VALUES (
             ${reservation.variant_id}, ${reservation.location_id}, 'release', ${reservation.quantity},
+            0, ${-reservation.quantity},
             'order', ${order.id}, 'Reservation TTL expired',
             ${`${order.idempotency_key}:expiry-release:${reservation.id}`}
           ) ON CONFLICT (idempotency_key) DO NOTHING
@@ -803,5 +972,257 @@ export async function expireInventoryReservations(limit = 100) {
       `
     }
     return { correlationId, expiredOrders: orders.length }
+  })
+}
+
+export async function cancelOrderByAdmin(input: {
+  publicNumber: string
+  actorId: string
+  reason: string
+  correlationId: string
+}) {
+  return inSerializableTransaction(async (transaction) => {
+    const [order] = await transaction<
+      Array<
+        PaymentOrderRecord & {
+          fulfillment_status: string
+          invoice_status: string
+        }
+      >
+    >`
+      SELECT o.id, o.public_number, o.guest_access_hash, o.currency AS order_currency,
+             o.order_status, o.payment_status, o.inventory_status, o.fulfillment_status,
+             o.invoice_status, o.payment_method, o.total_gross_cents, o.expires_at,
+             pi.id AS payment_intent_id, pi.status AS payment_intent_status,
+             pi.amount_cents, pi.currency AS payment_currency, pi.provider, pi.method, pi.idempotency_key
+      FROM orders o
+      JOIN payment_intents pi ON pi.order_id = o.id
+      WHERE o.public_number = ${input.publicNumber}
+      FOR UPDATE OF o, pi
+    `
+    if (!order) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
+    if (order.order_status === 'cancelled') {
+      return { id: input.publicNumber, orderStatus: 'cancelled', duplicate: true }
+    }
+    if (order.fulfillment_status !== 'pending') {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'El pedido ya está en preparación o expedición; debe tramitarse como devolución'
+      })
+    }
+
+    const active = await transaction<{ id: string; variant_id: string; location_id: string; quantity: number }[]>`
+      UPDATE inventory_reservations SET status = 'released', updated_at = now()
+      WHERE order_id = ${order.id} AND status = 'active'
+      RETURNING id, variant_id, location_id, quantity
+    `
+    for (const reservation of active) {
+      await transaction`
+        INSERT INTO inventory_movements (
+          variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+          reference_type, reference_id, actor_id, reason, idempotency_key
+        ) VALUES (
+          ${reservation.variant_id}, ${reservation.location_id}, 'release', ${reservation.quantity},
+          0, ${-reservation.quantity}, 'order', ${order.id}, ${input.actorId}, ${input.reason},
+          ${`${order.idempotency_key}:admin-cancel-release:${reservation.id}`}
+        ) ON CONFLICT (idempotency_key) DO NOTHING
+      `
+    }
+
+    const allocated = await transaction<{ id: string; variant_id: string; location_id: string; quantity: number }[]>`
+      UPDATE inventory_reservations SET status = 'released', updated_at = now()
+      WHERE order_id = ${order.id} AND status = 'allocated'
+      RETURNING id, variant_id, location_id, quantity
+    `
+    for (const reservation of allocated) {
+      await transaction`
+        UPDATE inventory_balances
+        SET physical_quantity = physical_quantity + ${reservation.quantity},
+            version = version + 1,
+            updated_at = now()
+        WHERE variant_id = ${reservation.variant_id} AND location_id = ${reservation.location_id}
+      `
+      await transaction`
+        INSERT INTO inventory_movements (
+          variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+          reference_type, reference_id, actor_id, reason, idempotency_key
+        ) VALUES (
+          ${reservation.variant_id}, ${reservation.location_id}, 'return', ${reservation.quantity},
+          ${reservation.quantity}, 0, 'order', ${order.id}, ${input.actorId}, ${input.reason},
+          ${`${order.idempotency_key}:admin-cancel-restock:${reservation.id}`}
+        ) ON CONFLICT (idempotency_key) DO NOTHING
+      `
+    }
+
+    const authorizedOnly = order.payment_status === 'authorized'
+    const paid = ['captured', 'partially_refunded'].includes(order.payment_status)
+    let refundId: string | null = null
+    if (authorizedOnly) {
+      await transaction`
+        INSERT INTO outbox_events (
+          aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+        ) VALUES (
+          'payment_intent', ${order.payment_intent_id}, 'payment.authorization.void.requested',
+          ${transaction.json({ paymentIntentId: order.payment_intent_id, orderId: order.id, provider: order.provider })},
+          ${input.correlationId}, ${`payment:${order.payment_intent_id}:void`}
+        ) ON CONFLICT (idempotency_key) DO NOTHING
+      `
+    }
+    if (paid) {
+      const [existingCancellationRefund] = await transaction<{ id: string }[]>`
+        SELECT id FROM refunds WHERE idempotency_key = ${`cancel:${order.id}:refund`}
+      `
+      refundId = existingCancellationRefund?.id ?? null
+      if (refundId) {
+        return { id: input.publicNumber, orderStatus: 'on_hold', refundId, duplicate: true }
+      }
+      const [refunded] = await transaction<{ amount: number }[]>`
+        SELECT COALESCE(sum(amount_cents), 0)::int AS amount
+        FROM refunds
+        WHERE payment_intent_id = ${order.payment_intent_id}
+          AND status NOT IN ('failed', 'cancelled')
+      `
+      const remaining = order.amount_cents - (refunded?.amount ?? 0)
+      if (remaining > 0) {
+        const [refund] = await transaction<{ id: string }[]>`
+          INSERT INTO refunds (
+            order_id, payment_intent_id, amount_cents, status, reason, idempotency_key
+          ) VALUES (
+            ${order.id}, ${order.payment_intent_id}, ${remaining}, 'requested',
+            ${`Cancelación: ${input.reason}`}, ${`cancel:${order.id}:refund`}
+          ) ON CONFLICT (idempotency_key) DO UPDATE SET idempotency_key = EXCLUDED.idempotency_key
+          RETURNING id
+        `
+        refundId = refund?.id ?? null
+        if (refundId) {
+          const fiscalLines = await transaction<
+            Array<{
+              id: string
+              quantity: number
+              grossCents: number
+              taxRateBasisPoints: number
+              sku: string
+              name: string
+              variantName: string
+            }>
+          >`
+            SELECT id, quantity, total_gross_cents AS "grossCents",
+                   tax_rate_basis_points AS "taxRateBasisPoints", sku, name,
+                   variant_name AS "variantName"
+            FROM order_lines WHERE order_id = ${order.id} ORDER BY id
+          `
+          const goodsGross = fiscalLines.reduce((total, line) => total + line.grossCents, 0)
+          const components = [
+            ...fiscalLines.map((line) => ({
+              orderLineId: line.id,
+              componentType: 'line' as const,
+              quantity: line.quantity,
+              grossCapacity: line.grossCents,
+              taxRateBasisPoints: line.taxRateBasisPoints,
+              snapshot: { sku: line.sku, name: line.name, variantName: line.variantName }
+            })),
+            ...(order.total_gross_cents > goodsGross
+              ? [
+                  {
+                    orderLineId: null,
+                    componentType: 'shipping' as const,
+                    quantity: 1,
+                    grossCapacity: order.total_gross_cents - goodsGross,
+                    taxRateBasisPoints: 2100,
+                    snapshot: { sku: 'ENVIO', name: 'Gastos de envío', variantName: '' }
+                  }
+                ]
+              : [])
+          ]
+          let fiscalAllocated = 0
+          const fiscalCapacity = components.reduce((total, component) => total + component.grossCapacity, 0)
+          for (const [index, component] of components.entries()) {
+            const grossCents =
+              index === components.length - 1
+                ? remaining - fiscalAllocated
+                : Math.min(
+                    component.grossCapacity,
+                    Math.floor((remaining * component.grossCapacity) / Math.max(fiscalCapacity, 1))
+                  )
+            if (grossCents <= 0) continue
+            fiscalAllocated += grossCents
+            const split = splitGross(grossCents, component.taxRateBasisPoints)
+            await transaction`
+              INSERT INTO refund_lines (
+                refund_id, order_line_id, component_type, quantity, gross_cents, net_cents,
+                tax_cents, tax_rate_basis_points, fiscal_snapshot
+              ) VALUES (
+                ${refundId}, ${component.orderLineId}, ${component.componentType}, ${component.quantity},
+                ${grossCents}, ${split.netCents}, ${split.taxCents}, ${component.taxRateBasisPoints},
+                ${transaction.json(component.snapshot)}
+              )
+            `
+          }
+          if (fiscalAllocated !== remaining) throw new Error('Cancellation refund fiscal allocation does not balance')
+          await transaction`
+            INSERT INTO outbox_events (
+              aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+            ) VALUES (
+              'refund', ${refundId}, 'refund.execute.requested',
+              ${transaction.json({ refundId, orderId: order.id, amountCents: remaining, source: 'admin_cancellation' })},
+              ${input.correlationId}, ${`refund:${refundId}:execute`}
+            ) ON CONFLICT (idempotency_key) DO NOTHING
+          `
+        }
+      }
+    }
+
+    if (!paid && !authorizedOnly) {
+      await transaction`
+        UPDATE payment_intents SET status = 'cancelled', updated_at = now()
+        WHERE id = ${order.payment_intent_id}
+      `
+    }
+    if (!['issued', 'fiscal_pending', 'rectified'].includes(order.invoice_status)) {
+      await transaction`
+        UPDATE outbox_events
+        SET status = 'completed', completed_at = now(), locked_at = NULL, locked_by = NULL,
+            last_error_code = 'order_cancelled', last_error_message = 'Invoice cancelled before issue'
+        WHERE aggregate_id = ${order.id} AND event_type = 'invoice.issue.requested'
+          AND status IN ('pending', 'retry')
+      `
+    }
+    const orderStatus = authorizedOnly || (paid && refundId) ? 'on_hold' : 'cancelled'
+    const paymentStatus = authorizedOnly ? 'authorized' : paid ? order.payment_status : 'cancelled'
+    await transaction`
+      UPDATE orders
+      SET order_status = ${orderStatus}, payment_status = ${paymentStatus}, inventory_status = 'released',
+          invoice_status = CASE
+            WHEN invoice_status IN ('issued', 'fiscal_pending', 'rectified') THEN invoice_status
+            ELSE 'not_requested'
+          END,
+          updated_at = now()
+      WHERE id = ${order.id}
+    `
+    await transaction`
+      INSERT INTO order_events (
+        order_id, event_type, actor_type, actor_id, origin, reason, from_state, to_state,
+        public_data, private_data, correlation_id, idempotency_key
+      ) VALUES (
+        ${order.id}, ${paid || authorizedOnly ? 'order.cancellation_requested' : 'order.cancelled'}, 'staff', ${input.actorId},
+        'admin', ${input.reason},
+        ${transaction.json({ order: order.order_status, payment: order.payment_status, inventory: order.inventory_status })},
+        ${transaction.json({ order: orderStatus, payment: paymentStatus, inventory: 'released' })},
+        ${transaction.json({ refundPending: !!refundId })}, ${transaction.json({ refundId })},
+        ${input.correlationId}, ${`admin-cancel:${order.id}`}
+      ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
+    `
+    await transaction`
+      INSERT INTO audit_log (
+        actor_type, actor_id, action, resource_type, resource_id, before_redacted,
+        after_redacted, reason, correlation_id
+      ) VALUES (
+        'staff', ${input.actorId}, 'order.cancel', 'order', ${input.publicNumber},
+        ${transaction.json({ order: order.order_status, payment: order.payment_status, inventory: order.inventory_status })},
+        ${transaction.json({ order: orderStatus, payment: paymentStatus, inventory: 'released', refundId })},
+        ${input.reason}, ${input.correlationId}
+      )
+    `
+    return { id: input.publicNumber, orderStatus, refundId, duplicate: false }
   })
 }

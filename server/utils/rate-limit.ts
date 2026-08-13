@@ -28,7 +28,7 @@ export async function enforceRateLimit(
     result = (await redis.eval(FIXED_WINDOW_SCRIPT, 1, key, String(input.windowSeconds * 1000))) as [number, number]
   } catch {
     if (process.env.APP_ENV === 'production') {
-      throw createError({ statusCode: 503, statusMessage: 'Authentication protection is unavailable' })
+      throw createError({ statusCode: 503, statusMessage: 'La protección contra abuso no está disponible' })
     }
     return
   }

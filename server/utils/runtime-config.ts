@@ -38,8 +38,11 @@ export const runtimeConfigurationSchema = z
       token: z.string(),
       invoiceSeries: z.string(),
       correctiveSeries: z.string(),
+      taxCode0: z.string(),
+      taxCode10: z.string(),
       taxCode21: z.string(),
       paymentCodeRedsys: z.string(),
+      paymentCodeBankTransfer: z.string(),
       companyId: z.string()
     }),
     public: z.object({
@@ -72,8 +75,11 @@ export const runtimeConfigurationSchema = z
       !config.beply.token ||
       !config.beply.invoiceSeries ||
       !config.beply.correctiveSeries ||
+      !config.beply.taxCode0 ||
+      !config.beply.taxCode10 ||
       !config.beply.taxCode21 ||
       !config.beply.paymentCodeRedsys ||
+      !config.beply.paymentCodeBankTransfer ||
       !config.beply.companyId
     ) {
       context.addIssue({ code: 'custom', path: ['beply'], message: 'Production requires configured Beply invoicing' })

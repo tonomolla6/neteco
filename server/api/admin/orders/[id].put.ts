@@ -1,6 +1,8 @@
 import { z } from 'zod'
-import { assertTransition, fulfillmentTransitions, orderTransitions } from '../../../domain/states'
+import { assertTransition, fulfillmentTransitions } from '../../../domain/states'
+import type { orderTransitions } from '../../../domain/states'
 import { useDatabase } from '../../../db/client'
+import { cancelOrderByAdmin } from '../../../services/orders'
 
 const schema = z.object({
   status: z.enum(['pagado', 'preparando', 'enviado', 'entregado', 'cancelado']),
@@ -13,6 +15,14 @@ export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const sql = useDatabase()
   const correlationId = event.context.correlationId ?? crypto.randomUUID()
+  if (body.status === 'cancelado') {
+    return cancelOrderByAdmin({
+      publicNumber: id,
+      actorId: administrator.id,
+      reason: body.reason,
+      correlationId
+    })
+  }
   const updated = await sql.begin(async (transaction) => {
     const [order] = await transaction<
       Array<{
@@ -33,6 +43,12 @@ export default defineEventHandler(async (event) => {
     if (body.status === 'pagado' && !['authorized', 'captured'].includes(order.paymentStatus)) {
       throw createError({ statusCode: 409, statusMessage: 'Un administrador no puede fingir una captura bancaria' })
     }
+    if (
+      ['preparando', 'enviado', 'entregado'].includes(body.status) &&
+      !['captured', 'partially_refunded'].includes(order.paymentStatus)
+    ) {
+      throw createError({ statusCode: 409, statusMessage: 'El pedido no puede prepararse sin pago capturado' })
+    }
     if (body.status === 'preparando') {
       assertTransition(fulfillmentTransitions, fulfillmentStatus, 'picking')
       fulfillmentStatus = 'picking'
@@ -44,9 +60,6 @@ export default defineEventHandler(async (event) => {
       assertTransition(fulfillmentTransitions, fulfillmentStatus, 'delivered')
       fulfillmentStatus = 'delivered'
       if (orderStatus === 'confirmed') orderStatus = 'completed'
-    } else if (body.status === 'cancelado') {
-      assertTransition(orderTransitions, orderStatus, 'cancelled')
-      orderStatus = 'cancelled'
     }
     await transaction`
       UPDATE orders SET order_status = ${orderStatus}, fulfillment_status = ${fulfillmentStatus}, updated_at = now()

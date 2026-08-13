@@ -27,8 +27,11 @@ const localConfiguration = {
     token: '',
     invoiceSeries: '',
     correctiveSeries: '',
+    taxCode0: '',
+    taxCode10: '',
     taxCode21: '',
     paymentCodeRedsys: '',
+    paymentCodeBankTransfer: '',
     companyId: ''
   },
   public: { appEnv: 'local', baseUrl: 'http://localhost:3000', appVersion: 'test' }

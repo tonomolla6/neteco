@@ -9,8 +9,11 @@ const configuration = {
   token: 'test-token',
   invoiceSeries: 'NE',
   correctiveSeries: 'NR',
+  taxCode0: 'IVA0',
+  taxCode10: 'IVA10',
   taxCode21: 'IVA21',
   paymentCodeRedsys: 'REDSYS',
+  paymentCodeBankTransfer: 'TRANSFER',
   companyId: '1',
   timeoutMs: 2_000
 }
@@ -192,6 +195,34 @@ describe('Beply invoice provider', () => {
     expect(body.has('telefono1')).toBe(false)
   })
 
+  it('maps supported tax rates and bank transfer to explicit Beply codes', async () => {
+    const fetcher = issueFetcher()
+    const provider = new BeplyInvoiceProvider(configuration, fetcher)
+    await provider.issueInvoice({
+      ...request,
+      paymentMethod: 'bank_transfer',
+      shippingNetCents: 0,
+      lines: [
+        { ...request.lines[0]!, sku: 'ZERO', taxRateBasisPoints: 0 },
+        { ...request.lines[0]!, sku: 'TEN', taxRateBasisPoints: 1000 }
+      ]
+    })
+    const body = fetcher.mock.calls[3]![1]?.body as URLSearchParams
+    expect(body.get('codpago')).toBe('TRANSFER')
+    expect(JSON.parse(body.get('lineas')!)).toEqual([
+      expect.objectContaining({ referencia: 'ZERO', codimpuesto: 'IVA0', iva: 0 }),
+      expect.objectContaining({ referencia: 'TEN', codimpuesto: 'IVA10', iva: 10 })
+    ])
+
+    await expect(
+      new BeplyInvoiceProvider(configuration, issueFetcher()).issueInvoice({
+        ...request,
+        shippingNetCents: 0,
+        lines: [{ ...request.lines[0]!, taxRateBasisPoints: 400 }]
+      })
+    ).rejects.toThrow('Unsupported Beply tax rate')
+  })
+
   it('marks an invoice paid and retrieves a validated PDF', async () => {
     const bytes = new TextEncoder().encode('%PDF-1.7\nvalid')
     const fetcher = vi
@@ -325,8 +356,11 @@ describe('invoice providers and factory', () => {
       BEPLY_API_TOKEN: configuration.token,
       BEPLY_INVOICE_SERIES: configuration.invoiceSeries,
       BEPLY_CORRECTIVE_SERIES: configuration.correctiveSeries,
+      BEPLY_TAX_CODE_0: configuration.taxCode0,
+      BEPLY_TAX_CODE_10: configuration.taxCode10,
       BEPLY_TAX_CODE_21: configuration.taxCode21,
       BEPLY_PAYMENT_CODE_REDSYS: configuration.paymentCodeRedsys,
+      BEPLY_PAYMENT_CODE_BANK_TRANSFER: configuration.paymentCodeBankTransfer,
       BEPLY_COMPANY_ID: configuration.companyId
     })
     expect(production).toBeInstanceOf(BeplyInvoiceProvider)

@@ -30,8 +30,8 @@ function provider(
   )
 }
 
-function signedNotification(response = '0000', overrides: Record<string, string> = {}) {
-  const merchantParameters = encodeMerchantParameters({
+function signedNotification(response = '0000', overrides: Record<string, string | undefined> = {}) {
+  const values = {
     Ds_Order: '1234567890',
     Ds_Amount: '999',
     Ds_Currency: '978',
@@ -39,13 +39,31 @@ function signedNotification(response = '0000', overrides: Record<string, string>
     Ds_Terminal: '1',
     Ds_TransactionType: '0',
     Ds_Response: response,
+    Ds_Date: '13/08/2026',
+    Ds_Hour: '12:00',
     ...overrides
-  })
+  }
+  const merchantParameters = encodeMerchantParameters(
+    Object.fromEntries(Object.entries(values).filter((entry): entry is [string, string] => entry[1] !== undefined))
+  )
   return {
     Ds_SignatureVersion: 'HMAC_SHA512_V2',
     Ds_MerchantParameters: merchantParameters,
     Ds_Signature: signMerchantParameters(merchantParameters, SECRET, '1234567890')
   }
+}
+
+function refundResponse(amount: string, overrides: Record<string, string> = {}) {
+  return encodeMerchantParameters({
+    Ds_Order: '1234567890',
+    Ds_Amount: amount,
+    Ds_Currency: '978',
+    Ds_MerchantCode: '999008881',
+    Ds_Terminal: '1',
+    Ds_TransactionType: '3',
+    Ds_Response: '0900',
+    ...overrides
+  })
 }
 
 describe('Redsys HMAC_SHA512_V2', () => {
@@ -124,9 +142,7 @@ describe('Redsys payment provider', () => {
     await expect(provider().createRedirect({ ...base, currency: 'USD' as 'EUR', method: 'card' })).rejects.toThrow(
       'exclusively for EUR'
     )
-    await expect(provider(undefined, { currency: '840' }).createRedirect({ ...base, method: 'card' })).rejects.toThrow(
-      'exclusively for EUR'
-    )
+    expect(() => provider(undefined, { currency: '840' })).toThrow()
     const production = await provider(undefined, { environment: 'production', currency: '978' }).createRedirect({
       ...base,
       method: 'card'
@@ -158,7 +174,7 @@ describe('Redsys payment provider', () => {
       status,
       responseCode: response
     })
-    expect(result.providerEventId).toBe(`1234567890:${response}:${result.payloadHash.slice(0, 16)}`)
+    expect(result.providerEventId).toBe(`1234567890:0:${response}:occurred:13/08/2026:12:00`)
     expect(result.payloadHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
@@ -190,6 +206,9 @@ describe('Redsys payment provider', () => {
     ]) {
       await expect(provider().verifyNotification(signedNotification('0000', overrides))).rejects.toThrow()
     }
+    await expect(provider().verifyNotification(signedNotification('0000', { Ds_Amount: '0' }))).rejects.toThrow(
+      'Invalid Redsys amount'
+    )
   })
 
   it('accepts the all-uppercase notification envelope used by some Redsys clients', async () => {
@@ -203,12 +222,23 @@ describe('Redsys payment provider', () => {
     ).resolves.toMatchObject({ status: 'captured', responseCode: '0000' })
   })
 
-  it('sends and validates a signed refund', async () => {
-    const responseParameters = encodeMerchantParameters({
-      Ds_Order: '1234567890',
-      Ds_Response: '0900',
-      Ds_AuthorisationCode: 'ABC123'
+  it('uses a stable authorization reference and deterministic fallback without optional occurrence fields', async () => {
+    await expect(
+      provider().verifyNotification(signedNotification('0000', { Ds_AuthorisationCode: 'AUTH42' }))
+    ).resolves.toMatchObject({
+      providerEventId: '1234567890:0:0000:authorization:AUTH42',
+      providerReference: '1234567890:AUTH42'
     })
+    await expect(
+      provider().verifyNotification(signedNotification('0000', { Ds_Date: undefined, Ds_Hour: undefined }))
+    ).resolves.toMatchObject({
+      providerEventId: '1234567890:0:0000:occurred:unknown:unknown',
+      providerReference: undefined
+    })
+  })
+
+  it('sends and validates a signed refund', async () => {
+    const responseParameters = refundResponse('500', { Ds_AuthorisationCode: 'ABC123' })
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -247,7 +277,7 @@ describe('Redsys payment provider', () => {
   })
 
   it('uses the payment reference when Redsys omits an authorization code', async () => {
-    const responseParameters = encodeMerchantParameters({ Ds_Order: '1234567890', Ds_Response: '0900' })
+    const responseParameters = refundResponse('1')
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -284,7 +314,7 @@ describe('Redsys payment provider', () => {
       provider(vi.fn<typeof fetch>().mockResolvedValue(new Response('down', { status: 503 }))).refund(request)
     ).rejects.toThrow('transport failed')
 
-    const validParameters = encodeMerchantParameters({ Ds_Order: request.orderReference, Ds_Response: '0900' })
+    const validParameters = refundResponse('500')
     const invalidSignatureFetcher = vi.fn<typeof fetch>().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -298,22 +328,25 @@ describe('Redsys payment provider', () => {
     await expect(provider(invalidSignatureFetcher).refund(request)).rejects.toThrow('refund signature')
 
     for (const parameters of [
-      { Ds_Order: '9999999999', Ds_Response: '0900' },
-      { Ds_Order: request.orderReference, Ds_Response: '0101' },
-      { Ds_Order: request.orderReference }
+      refundResponse('500', { Ds_Order: '9999999999' }),
+      refundResponse('500', { Ds_Response: '0101' }),
+      refundResponse('499'),
+      refundResponse('500', { Ds_Currency: '840' }),
+      refundResponse('500', { Ds_MerchantCode: '123456789' }),
+      refundResponse('500', { Ds_Terminal: '2' }),
+      refundResponse('500', { Ds_TransactionType: '0' })
     ]) {
-      const encoded = encodeMerchantParameters(parameters)
       const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
         new Response(
           JSON.stringify({
             Ds_SignatureVersion: 'HMAC_SHA512_V2',
-            Ds_MerchantParameters: encoded,
-            Ds_Signature: signMerchantParameters(encoded, SECRET)
+            Ds_MerchantParameters: parameters,
+            Ds_Signature: signMerchantParameters(parameters, SECRET)
           }),
           { status: 200, headers: { 'content-type': 'application/json' } }
         )
       )
-      await expect(provider(fetcher).refund(request)).rejects.toThrow('refund rejected')
+      await expect(provider(fetcher).refund(request)).rejects.toThrow()
     }
   })
 })

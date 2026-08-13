@@ -52,8 +52,11 @@ export default defineNuxtConfig({
       token: process.env.BEPLY_API_TOKEN || '',
       invoiceSeries: process.env.BEPLY_INVOICE_SERIES || '',
       correctiveSeries: process.env.BEPLY_CORRECTIVE_SERIES || '',
+      taxCode0: process.env.BEPLY_TAX_CODE_0 || '',
+      taxCode10: process.env.BEPLY_TAX_CODE_10 || '',
       taxCode21: process.env.BEPLY_TAX_CODE_21 || '',
       paymentCodeRedsys: process.env.BEPLY_PAYMENT_CODE_REDSYS || '',
+      paymentCodeBankTransfer: process.env.BEPLY_PAYMENT_CODE_BANK_TRANSFER || '',
       companyId: process.env.BEPLY_COMPANY_ID || ''
     },
     public: {

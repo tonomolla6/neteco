@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createError, getCookie, type H3Event } from 'h3'
 import { assertTransition, returnTransitions, type ReturnState } from '../domain/states'
+import { splitGross } from '../domain/money'
 import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
 
@@ -146,13 +147,67 @@ export async function transitionReturn(input: {
       FOR UPDATE OF r, payment
     `
     if (!record) throw createError({ statusCode: 404, statusMessage: 'Devolución no encontrada' })
-    if (record.status === input.status) return { id: input.publicNumber, status: record.status, duplicate: true }
-    assertTransition(returnTransitions, record.status, input.status)
-    if (input.status === 'resolved' && !input.resolution?.trim()) {
+    if (record.status === input.status) {
+      if (input.refundAmountCents) {
+        const [existingRefund] = await transaction<{ id: string }[]>`
+          SELECT id FROM refunds WHERE idempotency_key = ${`refund:${record.id}:v1`}
+        `
+        if (existingRefund) {
+          return { id: input.publicNumber, status: record.status, refundId: existingRefund.id, duplicate: true }
+        }
+      } else {
+        return { id: input.publicNumber, status: record.status, duplicate: true }
+      }
+    }
+    if (record.status !== input.status) assertTransition(returnTransitions, record.status, input.status)
+    if (input.status === 'resolved' && record.status !== 'resolved' && !input.resolution?.trim()) {
       throw createError({ statusCode: 422, statusMessage: 'La resolución es obligatoria' })
     }
 
     let refundId: string | null = null
+    if (input.status === 'resolved' && record.status !== 'resolved') {
+      const restockLines = await transaction<
+        { returnLineId: string; variantId: string; quantity: number; locationId: string }[]
+      >`
+        SELECT returned.id AS "returnLineId", line.variant_id AS "variantId", returned.quantity,
+               reservation.location_id AS "locationId"
+        FROM return_lines returned
+        JOIN order_lines line ON line.id = returned.order_line_id
+        JOIN LATERAL (
+          SELECT location_id
+          FROM inventory_reservations
+          WHERE order_id = ${record.order_id} AND variant_id = line.variant_id
+          ORDER BY created_at
+          LIMIT 1
+        ) reservation ON true
+        WHERE returned.return_id = ${record.id}
+        ORDER BY line.variant_id, reservation.location_id, returned.id
+      `
+      for (const line of restockLines) {
+        await transaction`
+          UPDATE inventory_balances
+          SET physical_quantity = physical_quantity + ${line.quantity},
+              version = version + 1,
+              updated_at = now()
+          WHERE variant_id = ${line.variantId} AND location_id = ${line.locationId}
+        `
+        await transaction`
+          INSERT INTO inventory_movements (
+            variant_id, location_id, movement_type, quantity, physical_delta, reserved_delta,
+            reference_type, reference_id, actor_id, reason, idempotency_key
+          ) VALUES (
+            ${line.variantId}, ${line.locationId}, 'return', ${line.quantity}, ${line.quantity}, 0,
+            'return', ${record.id}, ${input.actorId}, ${input.reason.trim()},
+            ${`return:${record.id}:restock:${line.returnLineId}`}
+          ) ON CONFLICT (idempotency_key) DO NOTHING
+        `
+      }
+      if (restockLines.length > 0) {
+        await transaction`
+          UPDATE orders SET inventory_status = 'returned', updated_at = now() WHERE id = ${record.order_id}
+        `
+      }
+    }
     if (input.refundAmountCents) {
       if (input.status !== 'resolved') {
         throw createError({ statusCode: 422, statusMessage: 'El reembolso requiere resolver la devolución' })
@@ -175,6 +230,60 @@ export async function transitionReturn(input: {
           ${input.refundAmountCents}, 'requested', ${input.reason.trim()}, ${`refund:${record.id}:v1`}
         )
       `
+      const refundSourceLines = await transaction<
+        Array<{
+          orderLineId: string
+          quantity: number
+          orderQuantity: number
+          totalGrossCents: number
+          taxRateBasisPoints: number
+          sku: string
+          name: string
+          variantName: string
+        }>
+      >`
+        SELECT line.id AS "orderLineId", returned.quantity, line.quantity AS "orderQuantity",
+               line.total_gross_cents AS "totalGrossCents",
+               line.tax_rate_basis_points AS "taxRateBasisPoints", line.sku, line.name,
+               line.variant_name AS "variantName"
+        FROM return_lines returned
+        JOIN order_lines line ON line.id = returned.order_line_id
+        WHERE returned.return_id = ${record.id}
+        ORDER BY line.id
+        FOR UPDATE OF line
+      `
+      const refundableGross = refundSourceLines.reduce(
+        (total, line) => total + Math.floor((line.totalGrossCents * line.quantity) / line.orderQuantity),
+        0
+      )
+      if (input.refundAmountCents > refundableGross) {
+        throw createError({ statusCode: 422, statusMessage: 'El reembolso supera el valor de las líneas devueltas' })
+      }
+      let allocatedGross = 0
+      for (const [index, line] of refundSourceLines.entries()) {
+        const lineCapacity = Math.floor((line.totalGrossCents * line.quantity) / line.orderQuantity)
+        const grossCents =
+          index === refundSourceLines.length - 1
+            ? input.refundAmountCents - allocatedGross
+            : Math.min(
+                lineCapacity,
+                Math.floor((input.refundAmountCents * lineCapacity) / Math.max(refundableGross, 1))
+              )
+        if (grossCents <= 0) continue
+        allocatedGross += grossCents
+        const split = splitGross(grossCents, line.taxRateBasisPoints)
+        await transaction`
+          INSERT INTO refund_lines (
+            refund_id, order_line_id, component_type, quantity, gross_cents, net_cents, tax_cents,
+            tax_rate_basis_points, fiscal_snapshot
+          ) VALUES (
+            ${refundId}, ${line.orderLineId}, 'line', ${line.quantity}, ${grossCents}, ${split.netCents},
+            ${split.taxCents}, ${line.taxRateBasisPoints},
+            ${transaction.json({ sku: line.sku, name: line.name, variantName: line.variantName })}
+          )
+        `
+      }
+      if (allocatedGross !== input.refundAmountCents) throw new Error('Refund fiscal allocation does not balance')
       await transaction`
         INSERT INTO outbox_events (
           aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
@@ -183,6 +292,18 @@ export async function transitionReturn(input: {
           ${transaction.json({ refundId, returnId: record.id, amountCents: input.refundAmountCents })},
           ${input.correlationId}, ${`refund:${refundId}:execute`}
         )
+      `
+      await transaction`
+        INSERT INTO order_events (
+          order_id, event_type, actor_type, actor_id, origin, reason, to_state,
+          public_data, private_data, correlation_id, idempotency_key
+        ) VALUES (
+          ${record.order_id}, 'refund.requested', 'staff', ${input.actorId}, 'admin', ${input.reason.trim()},
+          ${transaction.json({ refund: 'requested' })},
+          ${transaction.json({ amountCents: input.refundAmountCents })},
+          ${transaction.json({ refundId, returnId: record.id })}, ${input.correlationId},
+          ${`refund:${refundId}:requested`}
+        ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
       `
     }
 

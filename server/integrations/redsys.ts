@@ -32,9 +32,15 @@ const notificationParametersSchema = z
     DS_TERMINAL: terminalSchema,
     DS_TRANSACTIONTYPE: z.string(),
     DS_RESPONSE: z.string().regex(/^\d{1,4}$/),
-    DS_AUTHORISATIONCODE: z.string().optional()
+    DS_AUTHORISATIONCODE: z.string().optional(),
+    DS_DATE: z.string().optional(),
+    DS_HOUR: z.string().optional()
   })
   .passthrough()
+
+const refundParametersSchema = notificationParametersSchema.extend({
+  DS_TRANSACTIONTYPE: z.literal('3')
+})
 
 const signedEnvelopeSchema = z.object({
   Ds_SignatureVersion: z.literal(REDSYS_SIGNATURE_VERSION),
@@ -128,7 +134,7 @@ export class RedsysPaymentProvider implements PaymentProvider {
       ...configuration,
       merchantCode: merchantCodeSchema.parse(configuration.merchantCode),
       terminal: paddedTerminal(terminalSchema.parse(configuration.terminal)),
-      currency: configuration.currency ?? '978',
+      currency: z.literal('978').parse(configuration.currency ?? '978'),
       secretKey: z.string().min(1).parse(configuration.secretKey),
       merchantName: z.string().min(1).max(25).parse(configuration.merchantName)
     }
@@ -197,11 +203,19 @@ export class RedsysPaymentProvider implements PaymentProvider {
       throw new Error('Redsys notification does not match the configured terminal')
     }
 
+    const amountCents = Number(parameters.DS_AMOUNT)
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new Error('Invalid Redsys amount')
     const payloadHash = createHash('sha256').update(envelope.Ds_MerchantParameters, 'utf8').digest('hex')
+    const operationReference = parameters.DS_AUTHORISATIONCODE
+      ? `authorization:${parameters.DS_AUTHORISATIONCODE}`
+      : `occurred:${parameters.DS_DATE ?? 'unknown'}:${parameters.DS_HOUR ?? 'unknown'}`
     return {
-      providerEventId: `${parameters.DS_ORDER}:${parameters.DS_RESPONSE}:${payloadHash.slice(0, 16)}`,
+      providerEventId: `${parameters.DS_ORDER}:${parameters.DS_TRANSACTIONTYPE}:${parameters.DS_RESPONSE}:${operationReference}`,
+      providerReference: parameters.DS_AUTHORISATIONCODE
+        ? `${parameters.DS_ORDER}:${parameters.DS_AUTHORISATIONCODE}`
+        : undefined,
       orderReference: parameters.DS_ORDER,
-      amountCents: Number(parameters.DS_AMOUNT),
+      amountCents,
       currency: 'EUR',
       status: notificationStatus(parameters.DS_RESPONSE),
       responseCode: parameters.DS_RESPONSE.padStart(4, '0'),
@@ -236,9 +250,16 @@ export class RedsysPaymentProvider implements PaymentProvider {
     if (!verifyMerchantSignature(envelope.Ds_MerchantParameters, envelope.Ds_Signature, this.configuration.secretKey)) {
       throw new Error('Invalid Redsys refund signature')
     }
-    const parameters = decodeMerchantParameters(envelope.Ds_MerchantParameters)
-    if (parameters.DS_ORDER !== orderReference || parameters.DS_RESPONSE !== '0900') {
-      throw new Error(`Redsys refund rejected (${parameters.DS_RESPONSE ?? 'unknown'})`)
+    const parameters = refundParametersSchema.parse(decodeMerchantParameters(envelope.Ds_MerchantParameters))
+    if (
+      parameters.DS_ORDER !== orderReference ||
+      parameters.DS_RESPONSE !== '0900' ||
+      parameters.DS_MERCHANTCODE !== this.configuration.merchantCode ||
+      paddedTerminal(parameters.DS_TERMINAL) !== this.configuration.terminal ||
+      parameters.DS_CURRENCY !== this.configuration.currency ||
+      Number(parameters.DS_AMOUNT) !== request.amountCents
+    ) {
+      throw new Error(`Redsys refund rejected (${parameters.DS_RESPONSE})`)
     }
     return {
       providerReference: parameters.DS_AUTHORISATIONCODE ?? request.paymentReference,
