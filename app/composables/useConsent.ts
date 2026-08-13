@@ -15,6 +15,9 @@ export function useConsent() {
     secure: runtime.public.appEnv === 'production'
   })
   const preferences = useState<ConsentPreferences | null>('neteco-consent', () => cookie.value)
+  // Public pages are SWR-cached and their serialized state must never override the
+  // visitor's current browser decision after a full navigation.
+  if (import.meta.client) preferences.value = cookie.value
 
   function save(value: Pick<ConsentPreferences, 'analytics' | 'marketing'>) {
     const decision: ConsentPreferences = {

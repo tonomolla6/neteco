@@ -56,7 +56,7 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..027;TST-029..031'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..027;TST-029..032'
   )
 )
 const currentPartialExternal = new Set(
@@ -153,6 +153,8 @@ function evidenceFor(id: string) {
       'server/services/catalog-tabular.ts; server/services/catalog-import.ts; scripts/catalog-tabular.ts; tests/unit/catalog-tabular.test.ts; tests/integration/catalog-import.test.ts; docs/testing/catalog-import-export.md; package.json; .github/workflows/ci.yml',
     'TST-031':
       'app/utils/seo.ts; app/composables/useInfiniteProducts.ts; app/app.vue; app/pages/catalogo.vue; app/pages/categoria/[slug].vue; server/routes/robots.txt.get.ts; server/routes/sitemap.xml.get.ts; server/routes/sitemaps/; server/middleware/01-security-headers.ts; server/middleware/04-canonical-redirects.ts; server/utils/robots.ts; tests/unit/seo.test.ts; tests/e2e/seo.spec.ts; docs/testing/automated-seo.md; package.json; .github/workflows/ci.yml',
+    'TST-032':
+      'app/composables/useAnalytics.ts; app/composables/useConsent.ts; app/plugins/analytics.client.ts; app/plugins/rum.client.ts; server/api/analytics/events.post.ts; server/api/analytics/session.delete.ts; server/utils/analytics.ts; server/services/orders.ts; scripts/refund-worker.ts; tests/unit/analytics.test.ts; tests/e2e/analytics.spec.ts; tests/integration/commerce-transactions.test.ts; docs/testing/automated-analytics.md; package.json; .github/workflows/ci.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':

@@ -434,6 +434,34 @@ describe('commerce transaction spine', () => {
       FROM orders WHERE orders.public_number = ${order.id}
     `
     expect(state).toEqual({ paymentStatus: 'captured', physical: 9, allocations: 1, invoiceEvents: 1 })
+    const analytics = await sql<
+      Array<{
+        eventName: string
+        source: string
+        orderId: string
+        dedupeKey: string
+        properties: Record<string, unknown>
+      }>
+    >`
+      SELECT event.event_name AS "eventName", event.source, event.order_id AS "orderId",
+             event.dedupe_key AS "dedupeKey", event.properties
+      FROM analytics_events event
+      JOIN orders ON orders.id = event.order_id
+      WHERE orders.public_number = ${order.id} AND event.event_name = 'order_confirmed'
+    `
+    expect(analytics).toEqual([
+      expect.objectContaining({
+        eventName: 'order_confirmed',
+        source: 'server',
+        dedupeKey: `order:${analytics[0]?.orderId}:confirmed`,
+        properties: {
+          orderNumber: order.id,
+          totalCents: order.total,
+          currency: 'EUR',
+          paymentMethod: 'tarjeta'
+        }
+      })
+    ])
   })
 
   it('cancels an unpaid order by releasing its reservation exactly once', async () => {
@@ -660,6 +688,11 @@ describe('commerce transaction spine', () => {
     )
     await execFileAsync(
       'node_modules/.bin/tsx',
+      ['scripts/refund-worker.ts', '--once', `--aggregate-id=${cancelled.refundId}`],
+      { cwd: process.cwd(), env: workerEnvironment }
+    )
+    await execFileAsync(
+      'node_modules/.bin/tsx',
       ['scripts/credit-note-worker.ts', '--once', `--aggregate-id=${cancelled.refundId}`],
       { cwd: process.cwd(), env: workerEnvironment }
     )
@@ -681,6 +714,33 @@ describe('commerce transaction spine', () => {
       GROUP BY refund.id
     `
     expect(refund).toEqual({ status: 'succeeded', lines: 1, gross: order.total })
+    const analytics = await sql<
+      Array<{
+        eventName: string
+        source: string
+        orderId: string
+        dedupeKey: string
+        properties: Record<string, unknown>
+      }>
+    >`
+      SELECT event_name AS "eventName", source, order_id AS "orderId", dedupe_key AS "dedupeKey", properties
+      FROM analytics_events WHERE order_id = ${internal!.id}
+      ORDER BY event_name
+    `
+    expect(analytics).toEqual([
+      expect.objectContaining({ eventName: 'order_confirmed', source: 'server' }),
+      expect.objectContaining({
+        eventName: 'refund_confirmed',
+        source: 'server',
+        orderId: internal!.id,
+        dedupeKey: `refund:${cancelled.refundId}:confirmed`,
+        properties: {
+          orderNumber: order.id,
+          refundId: cancelled.refundId,
+          amountCents: order.total
+        }
+      })
+    ])
   })
 
   it('routes an ambiguous Beply duplicate to fiscal reconciliation without blind reissue', async () => {
