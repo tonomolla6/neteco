@@ -27,6 +27,7 @@
     "test:browser-matrix": "tsx scripts/run-e2e.ts --config=playwright.matrix.config.ts",
     "test:visual": "tsx scripts/run-e2e.ts --config=playwright.visual.config.ts",
     "test:a11y": "npm run test:e2e -- --project=chromium --workers=2 tests/e2e/accessibility.spec.ts",
+    "test:seo": "npm run test:e2e -- --project=chromium tests/e2e/seo.spec.ts",
     "test:performance": "tsx scripts/run-performance.ts",
     "audit:a11y:manual": "tsx scripts/audit-manual-accessibility-evidence.ts",
     "test:contract:redsys:sandbox": "tsx scripts/redsys-sandbox-contract.ts",

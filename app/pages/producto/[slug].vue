@@ -199,7 +199,6 @@ watch(selected, (v) => {
 
 // canónica sin query: las 36 variantes son la misma página para los buscadores
 const canonicalUrl = `${canonicalOrigin}/producto/${product.value.slug}`
-useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 // si todas las variantes tienen color propio (p. ej. mantelería), el selector son círculos de color.
 // El formato admite ejes previos separados por « · », p. ej. «1,20 × 50 m · Precortado · Color Azul (AZ)»:

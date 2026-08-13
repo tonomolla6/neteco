@@ -3,7 +3,6 @@ import type { CategoryNode, CategoryResponse } from '~~/shared/types/catalog'
 
 const route = useRoute()
 const router = useRouter()
-const runtime = useRuntimeConfig()
 const slug = computed(() => route.params.slug as string)
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
@@ -116,22 +115,45 @@ watch(
 )
 watch(() => route.fullPath, applyRouteFilters)
 
-const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
-  computed(() => ({
-    category: slug.value,
-    sort: sort.value,
-    brand: filters.brands.join(',') || undefined,
-    badge: filters.badges.join(',') || undefined,
-    envase: filters.envases.join(',') || undefined,
-    talla: filters.tallas.join(',') || undefined,
-    capacidad: filters.capacidades.join(',') || undefined,
-    color: filters.colors.join(',') || undefined,
-    medida: filters.medidas.join('|') || undefined,
-    acabado: filters.acabados.join(',') || undefined,
-    price_min: filters.priceMin ?? undefined,
-    price_max: filters.priceMax ?? undefined
-  }))
-)
+const { items, total, page, pages, facets, status, loadingMore, canLoadMore, loadMore, sentinel } =
+  await useInfiniteProducts(
+    computed(() => ({
+      category: slug.value,
+      sort: sort.value,
+      brand: filters.brands.join(',') || undefined,
+      badge: filters.badges.join(',') || undefined,
+      envase: filters.envases.join(',') || undefined,
+      talla: filters.tallas.join(',') || undefined,
+      capacidad: filters.capacidades.join(',') || undefined,
+      color: filters.colors.join(',') || undefined,
+      medida: filters.medidas.join('|') || undefined,
+      acabado: filters.acabados.join(',') || undefined,
+      price_min: filters.priceMin ?? undefined,
+      price_max: filters.priceMax ?? undefined
+    }))
+  )
+
+const paginationQuery = (target: number) => ({ ...route.query, page: target > 1 ? String(target) : undefined })
+useHead(() => ({
+  link: [
+    ...(page.value > 1
+      ? [
+          {
+            rel: 'prev' as const,
+            href: router.resolve({ path: `/categoria/${slug.value}`, query: paginationQuery(page.value - 1) }).href
+          }
+        ]
+      : []),
+    ...(page.value < pages.value
+      ? [
+          {
+            rel: 'next' as const,
+            href: router.resolve({ path: `/categoria/${slug.value}`, query: paginationQuery(page.value + 1) }).href
+          }
+        ]
+      : [])
+  ]
+}))
 
 const { track } = useAnalytics()
 watch(
@@ -147,17 +169,8 @@ watch(
 useSeoMeta({
   title: () => category.value?.name ?? 'Categoría',
   description: () => `Compra ${category.value?.name ?? 'productos'} de uso profesional en la tienda online de NETECO.`,
-  robots: () => (Object.keys(route.query).length ? 'noindex, follow' : 'index, follow')
+  robots: () => (isIndexableCatalogQuery(route.query) ? 'index, follow' : 'noindex, follow')
 })
-useHead(() => ({
-  link: [
-    {
-      rel: 'canonical',
-      href: `${String(runtime.public.baseUrl).replace(/\/$/, '')}/categoria/${encodeURIComponent(slug.value)}`
-    }
-  ]
-}))
-
 const activeCount = computed(
   () =>
     filters.brands.length +
@@ -365,6 +378,10 @@ watch(
         <div v-else-if="canLoadMore" class="py-6 text-center">
           <UButton variant="soft" @click="loadMore">Cargar más</UButton>
         </div>
+        <nav v-if="pages > 1" aria-label="Paginación de la categoría" class="flex justify-center gap-3 py-4">
+          <NuxtLink v-if="page > 1" :to="{ query: paginationQuery(page - 1) }">Página anterior</NuxtLink>
+          <NuxtLink v-if="page < pages" :to="{ query: paginationQuery(page + 1) }">Página siguiente</NuxtLink>
+        </nav>
         <p v-else-if="items.length > 24" class="py-6 text-center text-sm text-slate-500">
           Has visto los {{ total }} productos
         </p>

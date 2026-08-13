@@ -2,11 +2,8 @@
 const route = useRoute()
 const router = useRouter()
 const q = computed(() => String(route.query.q ?? '').trim())
-const runtime = useRuntimeConfig()
-const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
 useSeoMeta({ title: () => (q.value ? `Resultados para «${q.value}»` : 'Buscar'), robots: 'noindex, follow' })
-useHead({ link: [{ rel: 'canonical', href: `${canonicalOrigin}/buscar` }] })
 
 const sort = ref('featured')
 const selectedCategory = ref('')

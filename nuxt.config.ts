@@ -77,7 +77,9 @@ export default defineNuxtConfig({
     },
     public: {
       appEnv: process.env.APP_ENV || 'local',
-      baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
+      // NUXT_PUBLIC_* is the runtime override used by the built Nitro image.
+      // APP_BASE_URL remains the shared origin for workers and build-time configuration.
+      baseUrl: process.env.NUXT_PUBLIC_BASE_URL || process.env.APP_BASE_URL || 'http://localhost:3000',
       appVersion: process.env.APP_VERSION || 'dev',
       priceDisplayMode: process.env.PRICE_DISPLAY_MODE || 'gross',
       legalTermsUrl: process.env.LEGAL_TERMS_URL || 'https://neteco.es/legal',

@@ -36,6 +36,7 @@ jobs:
     env:
       APP_ENV: test
       APP_BASE_URL: http://127.0.0.1:3100
+      NUXT_PUBLIC_BASE_URL: http://127.0.0.1:3100
       DATABASE_URL: postgres://neteco:neteco-test@127.0.0.1:5432/neteco_test
       REDIS_URL: redis://127.0.0.1:6379/0
       NUXT_SESSION_PASSWORD: test-only-session-password-32-characters

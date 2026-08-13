@@ -3,17 +3,12 @@ import type { CategoryResponse } from '~~/shared/types/catalog'
 
 const route = useRoute()
 const router = useRouter()
-const runtime = useRuntimeConfig()
 
 useSeoMeta({
   title: 'Todo el catálogo',
   description:
     'Catálogo completo de NETECO: químicos de limpieza profesional, higiene, guantes y menaje. Filtra por familia, marca, precio y formato.',
-  robots: () => (Object.keys(route.query).length ? 'noindex, follow' : 'index, follow')
-})
-
-useHead({
-  link: [{ rel: 'canonical', href: `${String(runtime.public.baseUrl).replace(/\/$/, '')}/catalogo` }]
+  robots: () => (isIndexableCatalogQuery(route.query) ? 'index, follow' : 'noindex, follow')
 })
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
@@ -114,22 +109,45 @@ watch(
   { deep: true }
 )
 
-const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
-  computed(() => ({
-    category: selectedCategory.value || undefined,
-    sort: sort.value,
-    brand: filters.brands.join(',') || undefined,
-    badge: filters.badges.join(',') || undefined,
-    envase: filters.envases.join(',') || undefined,
-    talla: filters.tallas.join(',') || undefined,
-    capacidad: filters.capacidades.join(',') || undefined,
-    color: filters.colors.join(',') || undefined,
-    medida: filters.medidas.join('|') || undefined,
-    acabado: filters.acabados.join(',') || undefined,
-    price_min: filters.priceMin ?? undefined,
-    price_max: filters.priceMax ?? undefined
-  }))
-)
+const { items, total, page, pages, facets, status, loadingMore, canLoadMore, loadMore, sentinel } =
+  await useInfiniteProducts(
+    computed(() => ({
+      category: selectedCategory.value || undefined,
+      sort: sort.value,
+      brand: filters.brands.join(',') || undefined,
+      badge: filters.badges.join(',') || undefined,
+      envase: filters.envases.join(',') || undefined,
+      talla: filters.tallas.join(',') || undefined,
+      capacidad: filters.capacidades.join(',') || undefined,
+      color: filters.colors.join(',') || undefined,
+      medida: filters.medidas.join('|') || undefined,
+      acabado: filters.acabados.join(',') || undefined,
+      price_min: filters.priceMin ?? undefined,
+      price_max: filters.priceMax ?? undefined
+    }))
+  )
+
+const paginationQuery = (target: number) => ({ ...route.query, page: target > 1 ? String(target) : undefined })
+useHead(() => ({
+  link: [
+    ...(page.value > 1
+      ? [
+          {
+            rel: 'prev' as const,
+            href: router.resolve({ path: '/catalogo', query: paginationQuery(page.value - 1) }).href
+          }
+        ]
+      : []),
+    ...(page.value < pages.value
+      ? [
+          {
+            rel: 'next' as const,
+            href: router.resolve({ path: '/catalogo', query: paginationQuery(page.value + 1) }).href
+          }
+        ]
+      : [])
+  ]
+}))
 
 const selectedCategoryName = computed(() => {
   if (!selectedCategory.value) return ''
@@ -402,6 +420,10 @@ watch(() => route.fullPath, applyRouteFilters)
         <div v-else-if="canLoadMore" class="py-6 text-center">
           <UButton variant="soft" @click="loadMore">Cargar más</UButton>
         </div>
+        <nav v-if="pages > 1" aria-label="Paginación del catálogo" class="flex justify-center gap-3 py-4">
+          <NuxtLink v-if="page > 1" :to="{ query: paginationQuery(page - 1) }">Página anterior</NuxtLink>
+          <NuxtLink v-if="page < pages" :to="{ query: paginationQuery(page + 1) }">Página siguiente</NuxtLink>
+        </nav>
         <p v-else-if="items.length > 24" class="py-6 text-center text-sm text-slate-500">
           Has visto los {{ total }} productos
         </p>

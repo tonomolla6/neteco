@@ -8,21 +8,23 @@
 // y onMounted no se ejecutaría en cliente).
 import type { CatalogQueryParameters, ProductListResponse, ProductSummary } from '~~/shared/types/catalog'
 
-export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryParameters>, pageSize = 24) {
+export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryParameters>, pageSize = 12) {
+  const route = useRoute()
+  const requestedPage = computed(() => Math.max(Number.parseInt(String(route.query.page ?? '1'), 10) || 1, 1))
   const extra = ref<ProductSummary[]>([]) // páginas 2+ (solo cliente)
-  const page = ref(1)
+  const loadedPage = ref(requestedPage.value)
   const loadingMore = ref(false)
   let generation = 0
 
   // sin await: arranca la petición pero deja el contexto síncrono intacto
   const asyncData = useFetch<ProductListResponse>('/api/products', {
-    params: computed(() => ({ ...baseParams.value, page: 1, limit: pageSize, facets: 1 }))
+    params: computed(() => ({ ...baseParams.value, page: requestedPage.value, limit: pageSize, facets: 1 }))
   })
   const { data, status } = asyncData
 
   watch(data, () => {
     extra.value = []
-    page.value = 1
+    loadedPage.value = requestedPage.value
     generation++
   })
 
@@ -30,7 +32,7 @@ export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryPa
   const total = computed(() => data.value?.total ?? 0)
   const pages = computed(() => data.value?.pages ?? 1)
   const facets = computed(() => data.value?.facets ?? null)
-  const canLoadMore = computed(() => page.value < pages.value)
+  const canLoadMore = computed(() => loadedPage.value < pages.value)
 
   async function loadMore() {
     if (loadingMore.value || !canLoadMore.value) return
@@ -39,11 +41,11 @@ export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryPa
     try {
       // sin facets: las peticiones de scroll son más ligeras
       const next = await $fetch<ProductListResponse>('/api/products', {
-        params: { ...baseParams.value, page: page.value + 1, limit: pageSize }
+        params: { ...baseParams.value, page: loadedPage.value + 1, limit: pageSize }
       })
       if (gen !== generation) return // los filtros cambiaron mientras cargaba: descartar
       extra.value.push(...(next.items ?? []))
-      page.value++
+      loadedPage.value++
     } finally {
       loadingMore.value = false
     }
@@ -75,5 +77,5 @@ export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryPa
   // esperar la primera página para que el SSR salga con contenido
   await asyncData
 
-  return { items, total, pages, facets, status, loadingMore, canLoadMore, loadMore, sentinel }
+  return { items, total, page: requestedPage, pages, facets, status, loadingMore, canLoadMore, loadMore, sentinel }
 }

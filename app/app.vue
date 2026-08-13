@@ -3,9 +3,16 @@
 // y se desvanece entonces. Evita clics muertos durante la carga inicial.
 // Las navegaciones posteriores entre páginas usan la barra fina superior.
 const hydrated = useHydrated()
+const route = useRoute()
 const runtime = useRuntimeConfig()
 const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
-useHead({
+const canonicalUrl = computed(() => `${origin}${canonicalPath(route.path, route.query)}`)
+useHead(() => ({
+  link: [
+    { rel: 'canonical', href: canonicalUrl.value },
+    { rel: 'alternate', hreflang: 'es-ES', href: canonicalUrl.value },
+    { rel: 'alternate', hreflang: 'x-default', href: canonicalUrl.value }
+  ],
   script: [
     {
       key: 'organization-structured-data',
@@ -26,7 +33,7 @@ useHead({
       })
     }
   ]
-})
+}))
 onMounted(() => {
   // doble rAF: deja que la app pinte bajo el splash antes de desvanecerlo
   requestAnimationFrame(() => requestAnimationFrame(() => (hydrated.value = true)))
