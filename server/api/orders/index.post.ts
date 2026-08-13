@@ -7,6 +7,7 @@ import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 import { encryptSecret } from '../../utils/secrets'
 import { hashAccessToken } from '../../utils/access-token'
 import { requireVerifiedIdentity } from '../../utils/auth-session'
+import { privateCookieOptions } from '../../utils/private-cookie'
 
 const trimmed = (minimum: number, maximum: number) => z.string().trim().min(minimum).max(maximum)
 const taxId = z
@@ -119,13 +120,7 @@ export default defineEventHandler(async (event) => {
     ON CONFLICT (order_id, token_hash) DO UPDATE
     SET expires_at = EXCLUDED.expires_at, revoked_at = NULL
   `
-  setCookie(event, 'neteco-order-access', `${order.id}.${order.token}`, {
-    httpOnly: true,
-    secure: process.env.APP_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24
-  })
+  setCookie(event, 'neteco-order-access', `${order.id}.${order.token}`, privateCookieOptions(60 * 60 * 24))
   deleteCookie(event, 'neteco-cart', { path: '/' })
   setResponseStatus(event, 201)
   return order

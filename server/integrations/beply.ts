@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { FiscalCustomer, InvoiceProvider, IssueInvoiceRequest, ProviderInvoice } from './invoice-provider'
+import { assertPublicOutboundTarget, type OutboundDnsResolver } from '../utils/outbound-url'
 
 type Fetcher = typeof globalThis.fetch
 
@@ -15,6 +16,11 @@ export interface BeplyConfiguration {
   paymentCodeBankTransfer: string
   companyId: string
   timeoutMs?: number
+}
+
+export interface BeplyOutboundPolicy {
+  allowedDomainSuffixes: readonly string[]
+  resolver?: OutboundDnsResolver
 }
 
 export class BeplyError extends Error {
@@ -96,7 +102,8 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
 
   constructor(
     configuration: BeplyConfiguration,
-    private readonly fetcher: Fetcher = globalThis.fetch
+    private readonly fetcher: Fetcher = globalThis.fetch,
+    private readonly outboundPolicy?: BeplyOutboundPolicy
   ) {
     this.configuration = {
       baseUrl: z.string().url().parse(trimSlashes(configuration.baseUrl)),
@@ -125,8 +132,17 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
     const method = options.method ?? 'GET'
     let response: Response
     try {
-      response = await this.fetcher(`${this.configuration.baseUrl}/${path.replace(/^\/+/, '')}`, {
+      const target = `${this.configuration.baseUrl}/${path.replace(/^\/+/, '')}`
+      if (this.outboundPolicy) {
+        await assertPublicOutboundTarget(
+          target,
+          this.outboundPolicy.allowedDomainSuffixes,
+          this.outboundPolicy.resolver
+        )
+      }
+      response = await this.fetcher(target, {
         method,
+        redirect: 'error',
         headers: {
           Token: this.configuration.token,
           Accept: options.accept ?? 'application/json',

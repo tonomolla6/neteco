@@ -3,7 +3,8 @@ import {
   detectMediaType,
   imageDimensions,
   safeMediaFilename,
-  stripMediaMetadata
+  stripMediaMetadata,
+  validateMediaUploadEnvelope
 } from '../../server/utils/media-upload'
 
 function pngChunk(type: string, data = Buffer.alloc(0)) {
@@ -60,5 +61,34 @@ describe('secure media normalization', () => {
   it('rejects truncated raster inputs', () => {
     expect(() => imageDimensions(Buffer.from([0x89]), 'image/png')).toThrow('PNG incompleto')
     expect(() => imageDimensions(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), 'image/jpeg')).toThrow('JPEG sin dimensiones')
+  })
+
+  it('enforces upload size and declared MIME before storage', () => {
+    const bytes = png()
+    expect(validateMediaUploadEnvelope({ bytes, declaredType: 'image/png', maximumBytes: bytes.length })).toBe(
+      'image/png'
+    )
+    expect(
+      validateMediaUploadEnvelope({ bytes, declaredType: 'application/octet-stream', maximumBytes: bytes.length })
+    ).toBe('image/png')
+    expect(() =>
+      validateMediaUploadEnvelope({ bytes, declaredType: 'image/jpeg', maximumBytes: bytes.length })
+    ).toThrow('MIME')
+    expect(() =>
+      validateMediaUploadEnvelope({ bytes, declaredType: 'image/png', maximumBytes: bytes.length - 1 })
+    ).toThrow('tamaño')
+    expect(() => validateMediaUploadEnvelope({ bytes: Buffer.from('GIF89a'), maximumBytes: 100 })).toThrow(
+      'no es JPEG, PNG o PDF'
+    )
+  })
+
+  it('keeps hostile filenames inside a generated flat storage key', () => {
+    for (const name of ['../../etc/passwd', '..\\..\\windows\\system.ini', '/absolute/.env', 'a/../b.pdf']) {
+      const filename = safeMediaFilename(name, 'application/pdf', 'fixed-id')
+      expect(filename).toMatch(/^fixed-id-[a-z0-9_-]+\.pdf$/)
+      expect(filename).not.toContain('..')
+      expect(filename).not.toContain('/')
+      expect(filename).not.toContain('\\')
+    }
   })
 })

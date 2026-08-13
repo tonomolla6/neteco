@@ -4,11 +4,12 @@ import { resolve } from 'node:path'
 import { useDatabase } from '../../db/client'
 import {
   clamAvScan,
-  detectMediaType,
   imageDimensions,
   safeMediaFilename,
-  stripMediaMetadata
+  stripMediaMetadata,
+  validateMediaUploadEnvelope
 } from '../../utils/media-upload'
+import type { AllowedMediaType } from '../../utils/media-upload'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
 function field(parts: Awaited<ReturnType<typeof readMultipartFormData>>, name: string) {
@@ -28,12 +29,17 @@ export default defineEventHandler(async (event) => {
   if (!upload?.filename || !upload.data.length)
     throw createError({ statusCode: 400, statusMessage: 'Falta el archivo' })
   const originalName = upload.filename
-  if (upload.data.length > runtime.media.maxBytes) {
-    throw createError({ statusCode: 413, statusMessage: 'El archivo supera el tamaño permitido' })
-  }
-  const type = detectMediaType(upload.data)
-  if (upload.type && upload.type !== type && upload.type !== 'application/octet-stream') {
-    throw createError({ statusCode: 415, statusMessage: 'El MIME declarado no coincide con el contenido' })
+  let type: AllowedMediaType
+  try {
+    type = validateMediaUploadEnvelope({
+      bytes: upload.data,
+      declaredType: upload.type,
+      maximumBytes: runtime.media.maxBytes
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Archivo inválido'
+    const statusCode = message.includes('tamaño') ? 413 : message.includes('MIME') ? 415 : 422
+    throw createError({ statusCode, statusMessage: message })
   }
   const ownerName = field(parts, 'ownerName')
   const license = field(parts, 'license')

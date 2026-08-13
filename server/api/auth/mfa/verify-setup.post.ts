@@ -3,6 +3,7 @@ import { useDatabase } from '../../../db/client'
 import { validateTotp } from '../../../domain/mfa'
 import { identityProfile, refreshAuthenticatedSession, requireVerifiedIdentity } from '../../../utils/auth-session'
 import { enforceRateLimit } from '../../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../../utils/abuse-limit'
 import { decryptSecret } from '../../../utils/secrets'
 import { validateRuntimeConfiguration } from '../../../utils/runtime-config'
 
@@ -10,7 +11,7 @@ const schema = z.object({ code: z.string().regex(/^\d{6}$/) })
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
-  await enforceRateLimit(event, { scope: 'mfa-setup', limit: 6, windowSeconds: 300 })
+  await enforceRateLimit(event, sensitiveRateLimit('mfa-setup'))
   const authenticated = await requireVerifiedIdentity(event)
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const sql = useDatabase()

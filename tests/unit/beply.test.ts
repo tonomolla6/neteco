@@ -83,6 +83,7 @@ describe('Beply invoice provider', () => {
     expect(fetcher.mock.calls[0]![0]).toBe('https://tenant.beply.es/api/3/clientes')
     expect(fetcher.mock.calls[0]![1]).toMatchObject({
       method: 'POST',
+      redirect: 'error',
       headers: {
         Token: 'test-token',
         Accept: 'application/json',
@@ -297,6 +298,43 @@ describe('Beply invoice provider', () => {
     await expect(invalidPdf.downloadPdf('15')).rejects.toBeInstanceOf(BeplyError)
   })
 
+  it('blocks private DNS resolution and redirects in the real provider request flow', async () => {
+    const privateFetcher = vi.fn<typeof fetch>()
+    const privateTarget = new BeplyInvoiceProvider(configuration, privateFetcher, {
+      allowedDomainSuffixes: ['beply.es'],
+      resolver: async () => ['127.0.0.1']
+    })
+    await expect(privateTarget.markPaid('15', request.issuedOn, 'redsys')).rejects.toMatchObject({
+      category: 'transport',
+      retryable: true
+    })
+    expect(privateFetcher).not.toHaveBeenCalled()
+
+    const redirectFetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } }))
+    const redirecting = new BeplyInvoiceProvider(configuration, redirectFetcher, {
+      allowedDomainSuffixes: ['beply.es'],
+      resolver: async () => ['8.8.8.8']
+    })
+    await expect(redirecting.markPaid('15', request.issuedOn, 'redsys')).rejects.toMatchObject({ status: 302 })
+    expect(redirectFetcher).toHaveBeenCalledTimes(1)
+    expect(redirectFetcher.mock.calls[0]![1]).toMatchObject({ redirect: 'error' })
+
+    const pdfFetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response('%PDF-1.7\nvalid', { headers: { 'content-type': 'application/pdf' } }))
+    const publicTargetWithQuery = new BeplyInvoiceProvider(configuration, pdfFetcher, {
+      allowedDomainSuffixes: ['beply.es'],
+      resolver: async () => ['8.8.8.8']
+    })
+    await expect(publicTargetWithQuery.downloadPdf('15')).resolves.toEqual(expect.any(Uint8Array))
+    expect(pdfFetcher.mock.calls[0]![0]).toBe(
+      'https://tenant.beply.es/api/3/exportarFacturaCliente/15?type=PDF&lang=es_ES'
+    )
+    expect(pdfFetcher.mock.calls[0]![1]).toMatchObject({ redirect: 'error' })
+  })
+
   it('validates configuration and document responses', async () => {
     expect(() => new BeplyInvoiceProvider({ ...configuration, token: '' })).toThrow()
     await expect(
@@ -386,5 +424,37 @@ describe('invoice providers and factory', () => {
       'must be beply'
     )
     expect(() => invoiceProviderFromEnvironment({ APP_ENV: 'production', INVOICE_PROVIDER: 'beply' })).toThrow()
+    expect(() =>
+      invoiceProviderFromEnvironment({
+        APP_ENV: 'production',
+        INVOICE_PROVIDER: 'beply',
+        BEPLY_BASE_URL: 'https://169.254.169.254/latest/meta-data',
+        BEPLY_API_TOKEN: configuration.token,
+        BEPLY_INVOICE_SERIES: configuration.invoiceSeries,
+        BEPLY_CORRECTIVE_SERIES: configuration.correctiveSeries,
+        BEPLY_TAX_CODE_0: configuration.taxCode0,
+        BEPLY_TAX_CODE_10: configuration.taxCode10,
+        BEPLY_TAX_CODE_21: configuration.taxCode21,
+        BEPLY_PAYMENT_CODE_REDSYS: configuration.paymentCodeRedsys,
+        BEPLY_PAYMENT_CODE_BANK_TRANSFER: configuration.paymentCodeBankTransfer,
+        BEPLY_COMPANY_ID: configuration.companyId
+      })
+    ).toThrow('local or private network')
+    expect(() =>
+      invoiceProviderFromEnvironment({
+        APP_ENV: 'production',
+        INVOICE_PROVIDER: 'beply',
+        BEPLY_BASE_URL: 'https://attacker.invalid/beply-proxy',
+        BEPLY_API_TOKEN: configuration.token,
+        BEPLY_INVOICE_SERIES: configuration.invoiceSeries,
+        BEPLY_CORRECTIVE_SERIES: configuration.correctiveSeries,
+        BEPLY_TAX_CODE_0: configuration.taxCode0,
+        BEPLY_TAX_CODE_10: configuration.taxCode10,
+        BEPLY_TAX_CODE_21: configuration.taxCode21,
+        BEPLY_PAYMENT_CODE_REDSYS: configuration.paymentCodeRedsys,
+        BEPLY_PAYMENT_CODE_BANK_TRANSFER: configuration.paymentCodeBankTransfer,
+        BEPLY_COMPANY_ID: configuration.companyId
+      })
+    ).toThrow('allowlist')
   })
 })

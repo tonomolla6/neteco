@@ -3,6 +3,7 @@ import type { TransactionSql } from 'postgres'
 import { selectVolumeUnitPrice, splitGross, validateQuantity, type VolumePriceTier } from '../domain/money'
 import { useDatabase } from '../db/client'
 import { hashOpaqueToken, randomOpaqueToken } from '../utils/secrets'
+import { privateCookieOptions } from '../utils/private-cookie'
 
 const CART_COOKIE = 'neteco-cart'
 const CART_TTL_SECONDS = 60 * 60 * 24 * 90
@@ -51,13 +52,7 @@ export interface ServerCart {
 }
 
 function cartCookieOptions() {
-  return {
-    httpOnly: true,
-    secure: process.env.APP_ENV === 'production',
-    sameSite: 'lax' as const,
-    path: '/',
-    maxAge: CART_TTL_SECONDS
-  }
+  return privateCookieOptions(CART_TTL_SECONDS)
 }
 
 async function optionalCustomerId(event: H3Event) {

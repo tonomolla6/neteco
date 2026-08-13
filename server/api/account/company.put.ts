@@ -5,6 +5,7 @@ import { redactTaxId } from '../../domain/company'
 import { requireCustomerAccount } from '../../utils/account'
 import { identityProfile, refreshAuthenticatedSession } from '../../utils/auth-session'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 
 const schema = z.object({
   legalName: z.string().trim().min(2).max(200),
@@ -21,12 +22,7 @@ const schema = z.object({
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const account = await requireCustomerAccount(event)
-  await enforceRateLimit(event, {
-    scope: 'professional-account',
-    subject: account.profile.id,
-    limit: 5,
-    windowSeconds: 3600
-  })
+  await enforceRateLimit(event, sensitiveRateLimit('professional-account', account.profile.id))
   if (account.profile.mfaEnabled && !account.mfaVerified) {
     throw createError({ statusCode: 403, statusMessage: 'Confirma tu MFA antes de modificar datos fiscales' })
   }

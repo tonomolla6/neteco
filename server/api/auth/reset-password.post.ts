@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { useDatabase } from '../../db/client'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 import { hashOpaqueToken } from '../../utils/secrets'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
@@ -16,7 +17,7 @@ const schema = z.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
-  await enforceRateLimit(event, { scope: 'reset-password', limit: 5, windowSeconds: 900 })
+  await enforceRateLimit(event, sensitiveRateLimit('reset-password'))
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const sql = useDatabase()
   const tokenHash = hashOpaqueToken(body.token, runtime.auth.tokenPepper)

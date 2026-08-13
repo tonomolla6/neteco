@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { useDatabase } from '../../db/client'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 import { encryptSecret, hashOpaqueToken, randomOpaqueToken } from '../../utils/secrets'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
@@ -9,7 +10,7 @@ const schema = z.object({ email: z.string().trim().email().max(254) })
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const email = body.email.toLowerCase()
-  await enforceRateLimit(event, { scope: 'forgot-password', subject: email, limit: 3, windowSeconds: 3600 })
+  await enforceRateLimit(event, sensitiveRateLimit('forgot-password', email))
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const sql = useDatabase()
   const [identity] = await sql<{ id: string; name: string | null }[]>`

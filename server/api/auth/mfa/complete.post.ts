@@ -3,6 +3,7 @@ import { useDatabase } from '../../../db/client'
 import { findRecoveryCode, validateTotp } from '../../../domain/mfa'
 import { identityProfile, startAuthenticatedSession } from '../../../utils/auth-session'
 import { enforceRateLimit } from '../../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../../utils/abuse-limit'
 import { decryptSecret, hashOpaqueToken } from '../../../utils/secrets'
 import { validateRuntimeConfiguration } from '../../../utils/runtime-config'
 
@@ -13,7 +14,7 @@ const schema = z.object({
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
-  await enforceRateLimit(event, { scope: 'mfa-complete', limit: 6, windowSeconds: 300 })
+  await enforceRateLimit(event, sensitiveRateLimit('mfa-complete'))
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const sql = useDatabase()
   const challengeHash = hashOpaqueToken(body.challenge, runtime.auth.tokenPepper)

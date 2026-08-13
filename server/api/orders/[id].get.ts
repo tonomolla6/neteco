@@ -3,6 +3,7 @@ import { useDatabase } from '../../db/client'
 import { publicOrderStatus } from '../../utils/order-status'
 import { displayIban } from '../../domain/iban'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
+import { privateCookieOptions } from '../../utils/private-cookie'
 
 interface OrderRow {
   id: string
@@ -91,13 +92,7 @@ export default defineEventHandler(async (event) => {
       ON CONFLICT (order_id, token_hash) DO UPDATE
       SET expires_at = EXCLUDED.expires_at, revoked_at = NULL
     `
-    setCookie(event, 'neteco-order-access', `${id}.${claimToken}`, {
-      httpOnly: true,
-      secure: process.env.APP_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 60 * 60 * 24
-    })
+    setCookie(event, 'neteco-order-access', `${id}.${claimToken}`, privateCookieOptions(60 * 60 * 24))
   }
   const items = await sql<Array<{ id: string; name: string; format: string; sku: string; price: number; qty: number }>>`
     SELECT id, name, variant_name AS format, sku,

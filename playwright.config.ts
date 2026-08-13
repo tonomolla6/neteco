@@ -1,8 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
+import { resolve } from 'node:path'
 import { REDSYS_OFFICIAL_CONTRACT } from './tests/fixtures/redsys-official'
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 3100)
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`
+const mediaStorageDirectory = resolve(process.cwd(), '.data/e2e-media')
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -75,7 +77,11 @@ export default defineConfig({
           NUXT_BANK_TRANSFER_BENEFICIARY: 'NETECO E2E',
           INVOICE_PROVIDER: 'mock',
           CARRIER_PROVIDER: 'mock',
-          MOCK_CARRIER_TRACKING_SEQUENCE: 'exception,delivered+exception'
+          MOCK_CARRIER_TRACKING_SEQUENCE: 'exception,delivered+exception',
+          MEDIA_STORAGE_DIRECTORY: mediaStorageDirectory,
+          NUXT_MEDIA_STORAGE_DIRECTORY: mediaStorageDirectory,
+          MEDIA_MAX_BYTES: '1000',
+          NUXT_MEDIA_MAX_BYTES: '1000'
         }
       }
 })

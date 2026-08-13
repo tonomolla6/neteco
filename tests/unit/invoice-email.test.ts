@@ -13,7 +13,7 @@ describe('invoice email rendering', () => {
         eventType: 'invoice.issued',
         payload: {
           recipient: 'customer@example.test',
-          name: '<Cliente>',
+          name: '<img src=x onerror="globalThis.pwned=true">&Cliente',
           invoiceId: 'f3b554c0-5a9a-4f60-b6fe-625ad0e14b23',
           orderNumber: 'NE12345',
           code: 'F-2026-001',
@@ -27,7 +27,8 @@ describe('invoice email rendering', () => {
       '/api/orders/NE12345/invoice?document=f3b554c0-5a9a-4f60-b6fe-625ad0e14b23&token=invoice-access-token'
     )
     expect(email?.text).not.toContain(envelope)
-    expect(email?.html).toContain('&lt;Cliente&gt;')
+    expect(email?.html).toContain('&lt;img src=x onerror=&quot;globalThis.pwned=true&quot;&gt;&amp;Cliente')
+    expect(email?.html).not.toContain('<img')
     expect(email?.subject).toBe('Factura F-2026-001 · pedido NE12345')
   })
 

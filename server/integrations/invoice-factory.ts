@@ -1,21 +1,29 @@
 import type { InvoiceProvider } from './invoice-provider'
 import { BeplyInvoiceProvider } from './beply'
 import { MockInvoiceProvider } from './mock-invoice'
+import { validatedOutboundHttpsUrl } from '../utils/outbound-url'
 
 export function invoiceProviderFromEnvironment(environment: NodeJS.ProcessEnv = process.env): InvoiceProvider {
   const provider = environment.INVOICE_PROVIDER ?? 'mock'
   if (provider === 'mock' && environment.APP_ENV !== 'production') return new MockInvoiceProvider()
   if (provider !== 'beply') throw new Error('Production invoice provider must be beply')
-  return new BeplyInvoiceProvider({
-    baseUrl: environment.BEPLY_BASE_URL ?? '',
-    token: environment.BEPLY_API_TOKEN ?? '',
-    invoiceSeries: environment.BEPLY_INVOICE_SERIES ?? '',
-    correctiveSeries: environment.BEPLY_CORRECTIVE_SERIES ?? '',
-    taxCode0: environment.BEPLY_TAX_CODE_0 ?? '',
-    taxCode10: environment.BEPLY_TAX_CODE_10 ?? '',
-    taxCode21: environment.BEPLY_TAX_CODE_21 ?? '',
-    paymentCodeRedsys: environment.BEPLY_PAYMENT_CODE_REDSYS ?? '',
-    paymentCodeBankTransfer: environment.BEPLY_PAYMENT_CODE_BANK_TRANSFER ?? '',
-    companyId: environment.BEPLY_COMPANY_ID ?? ''
-  })
+  const production = environment.APP_ENV === 'production'
+  return new BeplyInvoiceProvider(
+    {
+      baseUrl: production
+        ? validatedOutboundHttpsUrl(environment.BEPLY_BASE_URL ?? '', ['beply.es'])
+        : (environment.BEPLY_BASE_URL ?? ''),
+      token: environment.BEPLY_API_TOKEN ?? '',
+      invoiceSeries: environment.BEPLY_INVOICE_SERIES ?? '',
+      correctiveSeries: environment.BEPLY_CORRECTIVE_SERIES ?? '',
+      taxCode0: environment.BEPLY_TAX_CODE_0 ?? '',
+      taxCode10: environment.BEPLY_TAX_CODE_10 ?? '',
+      taxCode21: environment.BEPLY_TAX_CODE_21 ?? '',
+      paymentCodeRedsys: environment.BEPLY_PAYMENT_CODE_REDSYS ?? '',
+      paymentCodeBankTransfer: environment.BEPLY_PAYMENT_CODE_BANK_TRANSFER ?? '',
+      companyId: environment.BEPLY_COMPANY_ID ?? ''
+    },
+    globalThis.fetch,
+    production ? { allowedDomainSuffixes: ['beply.es'] } : undefined
+  )
 }

@@ -89,6 +89,15 @@ los roles de empresa. Exportación de PII, invoice/label PDF, upload y acciones 
 bloque denegado compara filas completas y efectos atribuidos por actor/recurso/correlación para seguir siendo estable
 durante la ejecución paralela de Playwright.
 
+## Seguridad de entrada y salida
+
+La [matriz de seguridad de entrada y salida](./input-output-security.md) prueba XSS, SQL injection, CSRF/CORS, SSRF,
+path traversal, fórmulas CSV, upload, headers, cookies y rate limits. Los checks se colocan en la frontera más fuerte:
+E2E cuando importa el middleware/render/cookie/Redis/storage real y unitario cuando la propiedad es un serializador,
+allowlist o parser determinista. La URL de Beply queda limitada a HTTPS bajo `beply.es`, se comprueba después de
+resolver DNS y se consume sin redirects; el CSV de trazabilidad usa el mismo serializador endurecido que cubren los
+payloads de fórmula.
+
 ## Transferencia bancaria E2E
 
 El journey de transferencia atraviesa catálogo, carrito, checkout y página de pedido con una reserva real de 72 horas.

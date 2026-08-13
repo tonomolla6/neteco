@@ -3,6 +3,7 @@ import { useDatabase } from '../../db/client'
 import { requireCustomerAccount } from '../../utils/account'
 import { identityProfile, refreshAuthenticatedSession } from '../../utils/auth-session'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 
 const schema = z.object({
   currentPassword: z.string().min(1).max(128),
@@ -17,12 +18,7 @@ const schema = z.object({
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const account = await requireCustomerAccount(event)
-  await enforceRateLimit(event, {
-    scope: 'account-password',
-    subject: account.profile.id,
-    limit: 5,
-    windowSeconds: 900
-  })
+  await enforceRateLimit(event, sensitiveRateLimit('account-password', account.profile.id))
   if (account.profile.mfaEnabled && !account.mfaVerified) {
     throw createError({ statusCode: 403, statusMessage: 'Confirma tu MFA antes de cambiar la contraseña' })
   }

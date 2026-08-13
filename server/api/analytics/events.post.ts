@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { useDatabase } from '../../db/client'
 import { applicationNow } from '../../utils/application-clock'
+import { privateCookieOptions } from '../../utils/private-cookie'
 
 const base = {
   eventId: z.string().uuid(),
@@ -154,13 +155,7 @@ export default defineEventHandler(async (event) => {
   let anonymousId = getCookie(event, 'neteco-analytics-id')
   if (!anonymousId || !z.string().uuid().safeParse(anonymousId).success) {
     anonymousId = crypto.randomUUID()
-    setCookie(event, 'neteco-analytics-id', anonymousId, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.APP_ENV === 'production',
-      maxAge: 180 * 24 * 60 * 60,
-      path: '/'
-    })
+    setCookie(event, 'neteco-analytics-id', anonymousId, privateCookieOptions(180 * 24 * 60 * 60))
   }
   const occurredAt = new Date(body.occurredAt)
   if (Math.abs(applicationNow().getTime() - occurredAt.getTime()) > 24 * 60 * 60 * 1000) {

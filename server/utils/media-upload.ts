@@ -2,6 +2,19 @@ import { createConnection } from 'node:net'
 
 export type AllowedMediaType = 'image/jpeg' | 'image/png' | 'application/pdf'
 
+export function validateMediaUploadEnvelope(input: { bytes: Uint8Array; declaredType?: string; maximumBytes: number }) {
+  if (!Number.isSafeInteger(input.maximumBytes) || input.maximumBytes < 1) {
+    throw new RangeError('El límite de archivo no es válido')
+  }
+  if (!input.bytes.byteLength) throw new Error('Falta el archivo')
+  if (input.bytes.byteLength > input.maximumBytes) throw new Error('El archivo supera el tamaño permitido')
+  const detectedType = detectMediaType(input.bytes)
+  if (input.declaredType && input.declaredType !== detectedType && input.declaredType !== 'application/octet-stream') {
+    throw new Error('El MIME declarado no coincide con el contenido')
+  }
+  return detectedType
+}
+
 export function detectMediaType(bytes: Uint8Array): AllowedMediaType {
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
   if (

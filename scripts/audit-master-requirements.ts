@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { csvCell } from '../server/utils/csv'
 
 const reportPath = resolve('INFORME_MAESTRO_NETECO_PRODUCCION.md')
 const outputPath = resolve('docs/production/requirements-traceability.csv')
@@ -55,17 +56,12 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..021'
   )
 )
 const currentPartialExternal = new Set(
   ids('SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019')
 )
-
-function csv(value: string | number) {
-  const text = String(value).replaceAll('"', '""')
-  return `"${text}"`
-}
 
 function statusFor(requirement: Requirement): Status {
   if (mvpRepoEvidence.includes(requirement.id)) return 'REPO_EVIDENCE'
@@ -135,6 +131,8 @@ function evidenceFor(id: string) {
       'server/integrations/carrier-provider.ts; server/integrations/mock-carrier.ts; server/integrations/carrier-factory.ts; tests/unit/shipping.test.ts; tests/e2e/shipping-fulfillment.spec.ts; docs/testing/carrier-contract.md',
     'TST-020':
       'tests/e2e/authorization-idor.spec.ts; tests/e2e/authenticated-purchase.spec.ts; tests/e2e/bank-transfer.spec.ts; docs/testing/authorization-idor.md; playwright.config.ts; .github/workflows/ci.yml',
+    'TST-021':
+      'tests/e2e/security.spec.ts; tests/e2e/authorization-idor.spec.ts; tests/e2e/privacy.spec.ts; tests/unit/security-boundaries.test.ts; tests/unit/media-upload.test.ts; tests/unit/beply.test.ts; tests/unit/invoice-email.test.ts; server/integrations/beply.ts; server/utils/outbound-url.ts; server/utils/csv.ts; server/utils/private-cookie.ts; server/utils/security-headers.ts; server/utils/abuse-limit.ts; docs/testing/input-output-security.md; .github/workflows/ci.yml',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':
@@ -251,11 +249,11 @@ const rows = requirements.map((requirement) => {
     '2026-08-13',
     notes
   ]
-    .map(csv)
+    .map(csvCell)
     .join(',')
 })
 
-const generated = `${header.map(csv).join(',')}\n${rows.join('\n')}\n`
+const generated = `${header.map(csvCell).join(',')}\n${rows.join('\n')}\n`
 
 if (process.argv.includes('--write')) {
   await mkdir(resolve('docs/production'), { recursive: true })

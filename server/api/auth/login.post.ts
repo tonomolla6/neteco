@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { useDatabase } from '../../db/client'
 import { identityProfile, startAuthenticatedSession } from '../../utils/auth-session'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 import { hashOpaqueToken, randomOpaqueToken } from '../../utils/secrets'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
@@ -15,7 +16,7 @@ let dummyHash: Promise<string> | undefined
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const email = body.email.toLowerCase()
-  await enforceRateLimit(event, { scope: 'login', subject: email, limit: 5, windowSeconds: 900 })
+  await enforceRateLimit(event, sensitiveRateLimit('login', email))
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const sql = useDatabase()
   const [identity] = await sql<Array<{ id: string; passwordHash: string; status: string; mfaEnabled: boolean }>>`

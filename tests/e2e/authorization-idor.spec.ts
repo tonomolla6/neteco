@@ -1,4 +1,6 @@
 import type { APIRequestContext, APIResponse, Page } from '@playwright/test'
+import { readFile, unlink } from 'node:fs/promises'
+import { resolve, relative } from 'node:path'
 import * as OTPAuth from 'otpauth'
 import postgres, { type Sql } from 'postgres'
 import { decryptSecret } from '../../server/utils/secrets'
@@ -24,6 +26,25 @@ const ADDRESS = {
   phone: '600000000',
   instructions: '',
   isDefault: true
+}
+
+function pngChunk(type: string, data = Buffer.alloc(0)) {
+  const length = Buffer.alloc(4)
+  length.writeUInt32BE(data.length)
+  return Buffer.concat([length, Buffer.from(type), data, Buffer.alloc(4)])
+}
+
+function uploadPng() {
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(800, 0)
+  header.writeUInt32BE(600, 4)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', header),
+    pngChunk('tEXt', Buffer.from('private metadata')),
+    pngChunk('IDAT'),
+    pngChunk('IEND')
+  ])
 }
 
 async function databaseQuery<T>(query: (sql: Sql) => Promise<T>) {
@@ -140,6 +161,11 @@ async function createTransferOrder(page: Page, email: string) {
   await page.getByRole('button', { name: 'Confirmar pedido' }).click()
   const response = await creation
   await responseStatus(response, 201, 'pedido propietario')
+  const orderCookie = await response.headerValue('set-cookie')
+  expect(orderCookie).toContain('neteco-order-access=')
+  expect(orderCookie).toContain('HttpOnly')
+  expect(orderCookie).toContain('SameSite=Lax')
+  expect(orderCookie).toContain('Path=/')
   return ((await response.json()) as { id: string }).id
 }
 
@@ -537,6 +563,76 @@ test('enforces the anonymous, customer, company and administrator IDOR matrix', 
   })
   expect(await protectedState(ownerState)).toEqual(beforeGuessedAdminAttempts)
   expect(await correlationSideEffects(adminGuessCorrelationId)).toEqual({ audits: 0, outbox: 0 })
+
+  await test.step('the authorized upload endpoint confines and quarantines hostile files', async () => {
+    const before = await databaseQuery(async (sql) => {
+      const [row] = await sql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM media_assets
+        WHERE metadata ->> 'uploadedBy' = ${attackerIdentityId}
+      `
+      return row?.count ?? 0
+    })
+    const mismatched = await request.post('/api/admin/media', {
+      multipart: {
+        file: { name: '../../mismatch.png', mimeType: 'image/jpeg', buffer: uploadPng() },
+        ownerName: 'NETECO E2E',
+        license: 'Propia',
+        altText: 'Imagen de seguridad',
+        authorizedAt: '2026-08-13'
+      },
+      headers: requestHeaders()
+    })
+    await responseStatus(mismatched, 415, 'MIME falso')
+    const oversized = await request.post('/api/admin/media', {
+      multipart: {
+        file: { name: '../../oversized.png', mimeType: 'image/png', buffer: Buffer.alloc(1001) },
+        ownerName: 'NETECO E2E',
+        license: 'Propia',
+        altText: 'Imagen de seguridad',
+        authorizedAt: '2026-08-13'
+      },
+      headers: requestHeaders()
+    })
+    await responseStatus(oversized, 413, 'upload sobredimensionado')
+    expect(
+      await databaseQuery(async (sql) => {
+        const [row] = await sql<{ count: number }[]>`
+          SELECT count(*)::int AS count FROM media_assets
+          WHERE metadata ->> 'uploadedBy' = ${attackerIdentityId}
+        `
+        return row?.count ?? 0
+      })
+    ).toBe(before)
+
+    const accepted = await request.post('/api/admin/media', {
+      multipart: {
+        file: { name: '../../escape.png', mimeType: 'image/png', buffer: uploadPng() },
+        ownerName: 'NETECO E2E',
+        license: 'Propia',
+        altText: 'Imagen de seguridad',
+        authorizedAt: '2026-08-13'
+      },
+      headers: requestHeaders()
+    })
+    await responseStatus(accepted, 201, 'upload confinado')
+    const result = (await accepted.json()) as { id: string; quarantineStatus: string; canApprove: boolean }
+    expect(result).toMatchObject({ quarantineStatus: 'pending', canApprove: false })
+    const asset = await databaseQuery(async (sql) => {
+      const [row] = await sql<{ storageKey: string; originalName: string; rightsStatus: string }[]>`
+        SELECT storage_key AS "storageKey", original_name AS "originalName", rights_status AS "rightsStatus"
+        FROM media_assets WHERE id = ${result.id}
+      `
+      return row
+    })
+    expect(asset).toMatchObject({ originalName: '../../escape.png', rightsStatus: 'pending' })
+    expect(asset!.storageKey).toMatch(/^quarantine\/[0-9a-f-]+-escape-png\.png$/)
+    const storageRoot = resolve('.data/e2e-media')
+    const storedPath = resolve(storageRoot, asset!.storageKey)
+    expect(relative(storageRoot, storedPath)).not.toMatch(/^\.\.(?:\/|$)/)
+    expect((await readFile(storedPath)).includes(Buffer.from('private metadata'))).toBe(false)
+    await unlink(storedPath)
+    await databaseQuery((sql) => sql`DELETE FROM media_assets WHERE id = ${result.id}`)
+  })
 
   expect(ownerIdentityId).not.toBe(attackerIdentityId)
 })

@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { useDatabase } from '../../db/client'
 import { requestNewsletterSubscription } from '../../services/newsletter'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 
 const schema = z
   .object({
@@ -14,12 +15,7 @@ const schema = z
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
-  await enforceRateLimit(event, {
-    scope: 'newsletter-subscribe',
-    subject: body.email,
-    limit: 3,
-    windowSeconds: 3600
-  })
+  await enforceRateLimit(event, sensitiveRateLimit('newsletter-subscribe', body.email))
   if (body.website) {
     setResponseStatus(event, 202)
     return { ok: true, message: 'Si la dirección es elegible, recibirás un email para confirmar la suscripción.' }

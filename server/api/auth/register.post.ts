@@ -4,6 +4,7 @@ import { useDatabase } from '../../db/client'
 import { requestNewsletterSubscription } from '../../services/newsletter'
 import { identityProfile, startAuthenticatedSession } from '../../utils/auth-session'
 import { enforceRateLimit } from '../../utils/rate-limit'
+import { sensitiveRateLimit } from '../../utils/abuse-limit'
 import { encryptSecret, hashOpaqueToken, randomOpaqueToken } from '../../utils/secrets'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
@@ -28,7 +29,7 @@ const schema = z
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
-  await enforceRateLimit(event, { scope: 'register', subject: body.email, limit: 3, windowSeconds: 3600 })
+  await enforceRateLimit(event, sensitiveRateLimit('register', body.email))
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
   const sql = useDatabase()
   const normalizedEmail = body.email.toLowerCase()
