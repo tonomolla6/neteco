@@ -37,7 +37,10 @@ export default defineEventHandler(async (event) => {
         ${`email:${body.provider}`}, ${body.eventId}, ${payloadHash},
         ${transaction.json({ type: body.type, occurredAt: body.occurredAt })}, true, 'processing', ${correlationId}
       )
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (provider, provider_event_id) WHERE provider_event_id IS NOT NULL DO UPDATE SET
+        status = 'processing', attempts = webhook_inbox.attempts + 1,
+        processed_at = NULL, correlation_id = EXCLUDED.correlation_id
+      WHERE webhook_inbox.status = 'failed'
       RETURNING id
     `
     if (!inbox) return { duplicate: true }
@@ -61,7 +64,13 @@ export default defineEventHandler(async (event) => {
       ON CONFLICT (delivery_id, provider_event_id) DO NOTHING
     `
     await transaction`
-      UPDATE communication_deliveries SET status = ${deliveryStatus}, updated_at = now()
+      UPDATE communication_deliveries SET
+        status = CASE
+          WHEN status = 'complained' THEN 'complained'
+          WHEN status = 'bounced' AND ${deliveryStatus} <> 'complained' THEN 'bounced'
+          ELSE ${deliveryStatus}
+        END,
+        updated_at = now()
       WHERE id = ${delivery.id}
     `
     if (body.type !== 'delivered') {
@@ -72,7 +81,21 @@ export default defineEventHandler(async (event) => {
           ${`webhook:${body.provider}`}
         )
         ON CONFLICT (channel, destination_hash) DO UPDATE SET
-          reason = EXCLUDED.reason, source = EXCLUDED.source, created_at = now()
+          reason = CASE
+            WHEN communication_suppressions.reason IN ('manual', 'legal', 'complaint')
+              THEN communication_suppressions.reason
+            ELSE EXCLUDED.reason
+          END,
+          source = CASE
+            WHEN communication_suppressions.reason IN ('manual', 'legal', 'complaint')
+              THEN communication_suppressions.source
+            ELSE EXCLUDED.source
+          END,
+          created_at = CASE
+            WHEN communication_suppressions.reason IN ('manual', 'legal', 'complaint')
+              THEN communication_suppressions.created_at
+            ELSE now()
+          END
       `
     }
     await transaction`
