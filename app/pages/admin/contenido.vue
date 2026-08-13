@@ -11,6 +11,8 @@ interface PageSummary {
   status: 'draft' | 'published' | 'hidden'
   draftVersion: number
   publishedVersion: number | null
+  scheduledPublishAt: string | null
+  scheduledUnpublishAt: string | null
   updatedAt: string
 }
 interface Version {
@@ -43,6 +45,26 @@ const form = reactive({
   changeSummary: '',
   blocksJson: ''
 })
+const scheduleForm = reactive({ publishAtLocal: '', unpublishAtLocal: '', reason: '' })
+
+function madridLocalInput(instant: string | null) {
+  if (!instant) return ''
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    })
+      .formatToParts(new Date(instant))
+      .filter((part) => part.type !== 'literal')
+      .map((part) => [part.type, part.value])
+  )
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
+}
 
 function defaultBlocks(): ContentBlock[] {
   return [{ id: crypto.randomUUID(), type: 'paragraph', text: 'Escribe aquí el contenido.' }]
@@ -63,6 +85,9 @@ async function load(page: PageSummary) {
   selected.value = await $fetch<Detail>(`/api/admin/content/pages/${page.id}`)
   creating.value = false
   populate(selected.value.versions.find((version) => version.id === selected.value?.draftVersionId))
+  scheduleForm.publishAtLocal = madridLocalInput(selected.value.scheduledPublishAt)
+  scheduleForm.unpublishAtLocal = madridLocalInput(selected.value.scheduledUnpublishAt)
+  scheduleForm.reason = ''
 }
 
 function createNew() {
@@ -114,6 +139,29 @@ async function publish() {
   await refresh()
   await load({ ...selected.value })
   toast.add({ title: 'Versión publicada atómicamente', color: 'success' })
+}
+
+async function schedulePublication() {
+  if (!selected.value) return
+  saving.value = true
+  try {
+    await $fetch(`/api/admin/content/pages/${selected.value.id}/schedule`, {
+      method: 'POST',
+      body: {
+        publishAtLocal: scheduleForm.publishAtLocal || null,
+        unpublishAtLocal: scheduleForm.unpublishAtLocal || null,
+        repeatedHour: 'later',
+        reason: scheduleForm.reason
+      }
+    })
+    await refresh()
+    await load({ ...selected.value })
+    toast.add({ title: 'Calendario editorial actualizado', color: 'success' })
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'No se ha podido actualizar el calendario'), color: 'error' })
+  } finally {
+    saving.value = false
+  }
 }
 
 async function preview() {
@@ -191,6 +239,31 @@ async function rollback(version: Version) {
               Publicar borrador
             </UButton>
           </div>
+        </form>
+
+        <form
+          v-if="selected"
+          class="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"
+          @submit.prevent="schedulePublication"
+        >
+          <h2 class="font-bold text-slate-900">Calendario editorial</h2>
+          <p class="mt-1 text-xs text-slate-500">
+            Horario Europe/Madrid. En la hora repetida de otoño se aplica la segunda ocurrencia.
+          </p>
+          <div class="mt-3 grid gap-3 md:grid-cols-3">
+            <UFormField label="Publicar desde">
+              <UInput v-model="scheduleForm.publishAtLocal" type="datetime-local" class="w-full" />
+            </UFormField>
+            <UFormField label="Despublicar desde">
+              <UInput v-model="scheduleForm.unpublishAtLocal" type="datetime-local" class="w-full" />
+            </UFormField>
+            <UFormField label="Motivo">
+              <UInput v-model="scheduleForm.reason" required minlength="3" class="w-full" />
+            </UFormField>
+          </div>
+          <UButton type="submit" class="mt-3" icon="i-lucide-calendar-clock" :loading="saving">
+            Guardar programación
+          </UButton>
         </form>
 
         <div v-if="selected" class="mt-8 border-t border-slate-200 pt-5">

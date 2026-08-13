@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shippingCommercialPolicy } from '../../server/utils/shipping-policy'
+import { shippingCalendarPolicy, shippingCommercialPolicy } from '../../server/utils/shipping-policy'
 
 describe('shipping commercial policy', () => {
   it('uses documented demo defaults outside production', () => {
@@ -36,5 +36,22 @@ describe('shipping commercial policy', () => {
     expect(() => shippingCommercialPolicy({ OWN_DELIVERY_POSTAL_PREFIXES: 'abc' })).toThrow(
       'OWN_DELIVERY_POSTAL_PREFIXES'
     )
+  })
+
+  it('merges national, local and carrier calendars in Europe/Madrid', () => {
+    expect(
+      shippingCalendarPolicy({
+        SHIPPING_CUTOFF_LOCAL_HOUR: '14',
+        SHIPPING_NATIONAL_HOLIDAYS: '2026-01-01,2026-12-25',
+        SHIPPING_LOCAL_HOLIDAYS: '2026-11-16',
+        SHIPPING_CARRIER_HOLIDAYS: '2026-12-25,2026-12-26'
+      })
+    ).toEqual({
+      cutoffLocalHour: 14,
+      holidays: ['2026-01-01', '2026-11-16', '2026-12-25', '2026-12-26']
+    })
+    expect(() => shippingCalendarPolicy({ SHIPPING_CUTOFF_LOCAL_HOUR: '24' })).toThrow('Europe/Madrid')
+    expect(() => shippingCalendarPolicy({ SHIPPING_LOCAL_HOLIDAYS: '16/11/2026' })).toThrow('YYYY-MM-DD')
+    expect(() => shippingCalendarPolicy({ SHIPPING_LOCAL_HOLIDAYS: '2026-02-30' })).toThrow('YYYY-MM-DD')
   })
 })

@@ -16,6 +16,7 @@ try {
       staleShipments: number
       supportOverdue: number
       communicationFailures: number
+      overdueContentSchedules: number
     }>
   >`
     SELECT
@@ -40,7 +41,10 @@ try {
       (SELECT count(*)::int FROM support_tickets
        WHERE status NOT IN ('resolved', 'closed') AND sla_due_at < now()) AS "supportOverdue",
       (SELECT count(*)::int FROM communication_deliveries
-       WHERE status IN ('bounced', 'complained') AND updated_at > now() - interval '15 minutes') AS "communicationFailures"
+       WHERE status IN ('bounced', 'complained') AND updated_at > now() - interval '15 minutes') AS "communicationFailures",
+      (SELECT count(*)::int FROM content_pages
+       WHERE scheduled_publish_at < now() - interval '5 minutes'
+          OR scheduled_unpublish_at < now() - interval '5 minutes') AS "overdueContentSchedules"
   `
   if (!signals) throw new Error('Operational signal query returned no row')
   const thresholds = {
@@ -52,7 +56,8 @@ try {
     fiscalExceptions: 0,
     staleShipments: 0,
     supportOverdue: 0,
-    communicationFailures: Number(process.env.ALERT_COMMUNICATION_FAILURES ?? 0)
+    communicationFailures: Number(process.env.ALERT_COMMUNICATION_FAILURES ?? 0),
+    overdueContentSchedules: 0
   }
   const alerts = [
     signals.deadLetters > thresholds.deadLetters ? 'dead_letters' : null,
@@ -63,7 +68,8 @@ try {
     signals.fiscalExceptions > thresholds.fiscalExceptions ? 'fiscal_reconciliation' : null,
     signals.staleShipments > thresholds.staleShipments ? 'stale_shipments' : null,
     signals.supportOverdue > thresholds.supportOverdue ? 'support_sla' : null,
-    signals.communicationFailures > thresholds.communicationFailures ? 'communication_delivery' : null
+    signals.communicationFailures > thresholds.communicationFailures ? 'communication_delivery' : null,
+    signals.overdueContentSchedules > thresholds.overdueContentSchedules ? 'content_publication_missed' : null
   ].filter(Boolean)
   process.stdout.write(
     `${JSON.stringify({

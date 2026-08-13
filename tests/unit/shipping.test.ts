@@ -102,48 +102,91 @@ describe('shipping domain', () => {
 
     expect(
       estimatedDeliveryWindow({
-        now: new Date('2026-08-12T12:00:00Z'),
+        now: new Date('2026-08-12T10:00:00Z'),
         preparationBusinessDays: 0,
         transitBusinessDays: [1, 2],
-        cutoffUtcHour: 13
+        cutoffLocalHour: 13
       })
-    ).toEqual({ from: '2026-08-13T12:00:00.000Z', to: '2026-08-14T12:00:00.000Z' })
+    ).toEqual({ from: '2026-08-13T10:00:00.000Z', to: '2026-08-14T10:00:00.000Z' })
     expect(
       estimatedDeliveryWindow({
-        now: new Date('2026-08-12T13:00:00Z'),
+        now: new Date('2026-08-12T11:00:00Z'),
         preparationBusinessDays: 0,
         transitBusinessDays: [0, 0],
-        cutoffUtcHour: 13,
+        cutoffLocalHour: 13,
         holidays: ['2026-08-13']
       })
-    ).toEqual({ from: '2026-08-14T13:00:00.000Z', to: '2026-08-14T13:00:00.000Z' })
+    ).toEqual({ from: '2026-08-14T11:00:00.000Z', to: '2026-08-14T11:00:00.000Z' })
     expect(
       estimatedDeliveryWindow({
-        now: new Date('2026-08-12T00:00:00Z'),
+        now: new Date('2026-08-11T22:00:00Z'),
         preparationBusinessDays: 0,
         transitBusinessDays: [0, 0],
-        cutoffUtcHour: 0
-      })
-    ).toEqual({ from: '2026-08-13T00:00:00.000Z', to: '2026-08-13T00:00:00.000Z' })
-    expect(
-      estimatedDeliveryWindow({
-        now: new Date('2026-08-12T22:00:00Z'),
-        preparationBusinessDays: 0,
-        transitBusinessDays: [0, 0],
-        cutoffUtcHour: 23
+        cutoffLocalHour: 0
       })
     ).toEqual({ from: '2026-08-12T22:00:00.000Z', to: '2026-08-12T22:00:00.000Z' })
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-08-12T20:00:00Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffLocalHour: 23
+      })
+    ).toEqual({ from: '2026-08-12T20:00:00.000Z', to: '2026-08-12T20:00:00.000Z' })
+  })
+
+  it('keeps Madrid wall-clock ETAs stable across both DST changes', () => {
+    expect(addBusinessDays(new Date('2026-03-27T11:00:00Z'), 1).toISOString()).toBe('2026-03-30T10:00:00.000Z')
+    expect(addBusinessDays(new Date('2026-10-23T10:00:00Z'), 1).toISOString()).toBe('2026-10-26T11:00:00.000Z')
+  })
+
+  it('applies the Madrid cutoff exactly after the spring DST change', () => {
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-03-30T10:59:59Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffLocalHour: 13
+      })
+    ).toEqual({ from: '2026-03-30T10:59:59.000Z', to: '2026-03-30T10:59:59.000Z' })
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-03-30T11:00:00Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffLocalHour: 13
+      })
+    ).toEqual({ from: '2026-03-31T11:00:00.000Z', to: '2026-03-31T11:00:00.000Z' })
+  })
+
+  it('applies the Madrid cutoff exactly after the repeated autumn hour', () => {
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-10-26T11:59:59Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffLocalHour: 13
+      })
+    ).toEqual({ from: '2026-10-26T11:59:59.000Z', to: '2026-10-26T11:59:59.000Z' })
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-10-26T12:00:00Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffLocalHour: 13
+      })
+    ).toEqual({ from: '2026-10-27T12:00:00.000Z', to: '2026-10-27T12:00:00.000Z' })
   })
 
   it.each([
-    { cutoffUtcHour: -1, transitBusinessDays: [1, 2] as [number, number] },
-    { cutoffUtcHour: 24, transitBusinessDays: [1, 2] as [number, number] },
-    { cutoffUtcHour: 1.5, transitBusinessDays: [1, 2] as [number, number] },
-    { cutoffUtcHour: 13, transitBusinessDays: [-1, 2] as [number, number] },
-    { cutoffUtcHour: 13, transitBusinessDays: [1.5, 2] as [number, number] },
-    { cutoffUtcHour: 13, transitBusinessDays: [2, 1] as [number, number] },
-    { cutoffUtcHour: 13, transitBusinessDays: [1, 2.5] as [number, number] }
-  ])('rejects an invalid delivery window: $cutoffUtcHour / $transitBusinessDays', (invalid) => {
+    { cutoffLocalHour: -1, transitBusinessDays: [1, 2] as [number, number] },
+    { cutoffLocalHour: 24, transitBusinessDays: [1, 2] as [number, number] },
+    { cutoffLocalHour: 1.5, transitBusinessDays: [1, 2] as [number, number] },
+    { cutoffLocalHour: 13, transitBusinessDays: [-1, 2] as [number, number] },
+    { cutoffLocalHour: 13, transitBusinessDays: [1.5, 2] as [number, number] },
+    { cutoffLocalHour: 13, transitBusinessDays: [2, 1] as [number, number] },
+    { cutoffLocalHour: 13, transitBusinessDays: [1, 2.5] as [number, number] }
+  ])('rejects an invalid delivery window: $cutoffLocalHour / $transitBusinessDays', (invalid) => {
     expect(() =>
       estimatedDeliveryWindow({
         now: new Date('2026-08-12T10:00:00Z'),
@@ -378,5 +421,21 @@ describe('normalized carrier provider', () => {
     ).resolves.toEqual([expect.objectContaining({ provider: 'own-delivery', profile: 'own_delivery' })])
     await expect(own.rates({ originPostalCode: '46870', destination: address, parcels: [parcel] })).resolves.toEqual([])
     expect(new ManualCarrierProvider().name).toBe('manual-contingency')
+  })
+
+  it('applies the configured holiday calendar through the provider factory', async () => {
+    const provider = carrierProviderFromEnvironment({
+      APP_ENV: 'test',
+      CARRIER_PROVIDER: 'mock',
+      SHIPPING_CUTOFF_LOCAL_HOUR: '13',
+      SHIPPING_NATIONAL_HOLIDAYS: '2026-08-13',
+      SHIPPING_LOCAL_HOLIDAYS: '2026-08-14',
+      SHIPPING_CARRIER_HOLIDAYS: '2026-08-17'
+    })
+    const [rate] = await provider.rates({ originPostalCode: '46870', destination: address, parcels: [parcel] })
+    expect(rate).toMatchObject({
+      estimatedDeliveryFrom: '2026-08-19T10:00:00.000Z',
+      estimatedDeliveryTo: '2026-08-20T10:00:00.000Z'
+    })
   })
 })

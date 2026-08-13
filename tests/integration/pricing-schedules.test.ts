@@ -90,8 +90,9 @@ describe('governed price schedules', () => {
           grossCents: fixture.grossCents + 100,
           compareAtGrossCents: null,
           volumeTiers: [],
-          validFrom: new Date('2100-01-01T00:00:00Z'),
-          reason: 'Prueba de programación futura',
+          // 00:00 Europe/Madrid on the autumn DST-change date.
+          validFrom: new Date('2026-10-24T22:00:00Z'),
+          reason: 'Prueba de publicación a medianoche de Madrid',
           actorId,
           correlationId
         })
@@ -102,13 +103,14 @@ describe('governed price schedules', () => {
           correlationId,
           now: new Date('2026-08-13T12:00:00Z')
         })
-        const [cancelled] = await transaction<{ status: string }[]>`
-          SELECT status FROM variant_price_versions WHERE id = ${future.id}
+        const [cancelled] = await transaction<{ status: string; validFrom: Date }[]>`
+          SELECT status, valid_from AS "validFrom" FROM variant_price_versions WHERE id = ${future.id}
         `
         const [restored] = await transaction<{ validUntil: Date | null }[]>`
           SELECT valid_until AS "validUntil" FROM variant_price_versions WHERE id = ${immediate.id}
         `
         expect(cancelled?.status).toBe('cancelled')
+        expect(cancelled?.validFrom.toISOString()).toBe('2026-10-24T22:00:00.000Z')
         expect(restored?.validUntil).toBeNull()
         throw rollback
       })

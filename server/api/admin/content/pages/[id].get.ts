@@ -7,7 +7,9 @@ export default defineEventHandler(async (event) => {
   const sql = useDatabase()
   const [page] = await sql`
     SELECT page.id, page.slug, page.title, page.status, page.draft_version_id AS "draftVersionId",
-           page.published_version_id AS "publishedVersionId", page.updated_at AS "updatedAt"
+           page.published_version_id AS "publishedVersionId", page.updated_at AS "updatedAt",
+           page.scheduled_publish_at AS "scheduledPublishAt",
+           page.scheduled_unpublish_at AS "scheduledUnpublishAt"
     FROM content_pages page WHERE page.id = ${id}
   `
   if (!page) throw createError({ statusCode: 404, statusMessage: 'Página no encontrada' })

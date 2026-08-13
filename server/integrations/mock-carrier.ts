@@ -7,6 +7,7 @@ import {
   ownDeliveryEligible,
   standardShippingNetCents
 } from '../domain/shipping'
+import { shippingCalendarPolicy, type ShippingCalendarPolicy } from '../utils/shipping-policy'
 import type { CarrierProvider, Parcel, ShipmentResult, ShippingAddress, ShippingRate } from './carrier-provider'
 
 function stableReference(prefix: string, value: string) {
@@ -44,7 +45,10 @@ function configuredTrackingEvents(providerShipmentId: string) {
 }
 
 export class MockCarrierProvider implements CarrierProvider {
-  constructor(readonly name: string = 'mock-carrier') {}
+  constructor(
+    readonly name: string = 'mock-carrier',
+    private readonly calendar: ShippingCalendarPolicy = shippingCalendarPolicy()
+  ) {}
 
   async rates(input: { originPostalCode: string; destination: ShippingAddress; parcels: Parcel[] }) {
     assertShippingAddress(input.destination)
@@ -58,7 +62,8 @@ export class MockCarrierProvider implements CarrierProvider {
       preparationBusinessDays: 1,
       transitBusinessDays:
         profile === 'own_delivery' ? [0, 1] : profile === 'pallet' || profile === 'adr' ? [2, 4] : [1, 2],
-      cutoffUtcHour: 13
+      cutoffLocalHour: this.calendar.cutoffLocalHour,
+      holidays: this.calendar.holidays
     })
     const base = profile === 'own_delivery' ? 0 : standardShippingNetCents(profile, chargeable)
     const primary = {
@@ -76,7 +81,8 @@ export class MockCarrierProvider implements CarrierProvider {
       now: new Date('2026-08-12T10:00:00.000Z'),
       preparationBusinessDays: 1,
       transitBusinessDays: [1, 2],
-      cutoffUtcHour: 13
+      cutoffLocalHour: this.calendar.cutoffLocalHour,
+      holidays: this.calendar.holidays
     })
     return [
       primary,
@@ -152,8 +158,8 @@ export class MockCarrierProvider implements CarrierProvider {
 }
 
 export class OwnDeliveryCarrierProvider extends MockCarrierProvider {
-  constructor() {
-    super('own-delivery')
+  constructor(calendar: ShippingCalendarPolicy = shippingCalendarPolicy()) {
+    super('own-delivery', calendar)
   }
 
   override async rates(input: { originPostalCode: string; destination: ShippingAddress; parcels: Parcel[] }) {
@@ -164,7 +170,7 @@ export class OwnDeliveryCarrierProvider extends MockCarrierProvider {
 }
 
 export class ManualCarrierProvider extends MockCarrierProvider {
-  constructor() {
-    super('manual-contingency')
+  constructor(calendar: ShippingCalendarPolicy = shippingCalendarPolicy()) {
+    super('manual-contingency', calendar)
   }
 }

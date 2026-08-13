@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { FiscalCustomer, InvoiceProvider, IssueInvoiceRequest, ProviderInvoice } from './invoice-provider'
 import { assertPublicOutboundTarget, type OutboundDnsResolver } from '../utils/outbound-url'
+import { madridDateKey, madridTimeKey } from '../utils/madrid-calendar'
 
 type Fetcher = typeof globalThis.fetch
 
@@ -77,23 +78,10 @@ function countryCode(country: string) {
   return country.toUpperCase() === 'ES' ? 'ESP' : country.toUpperCase()
 }
 
-function dateParts(issuedOn: string) {
+export function beplyFiscalDateParts(issuedOn: string) {
   const value = new Date(issuedOn)
   if (Number.isNaN(value.getTime())) throw new Error('Invoice issue date is invalid')
-  const date = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Madrid',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(value)
-  const time = new Intl.DateTimeFormat('es-ES', {
-    timeZone: 'Europe/Madrid',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false
-  }).format(value)
-  return { date, time }
+  return { date: madridDateKey(value), time: madridTimeKey(value) }
 }
 
 export class BeplyInvoiceProvider implements InvoiceProvider {
@@ -252,7 +240,7 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
     options: { series: string; sourceProviderInvoiceId?: string; reason?: string }
   ) {
     const code = await this.upsertCustomer(request.customer)
-    const { date, time } = dateParts(request.issuedOn)
+    const { date, time } = beplyFiscalDateParts(request.issuedOn)
     const response = await this.request(path, {
       method: 'POST',
       form: {
@@ -311,7 +299,7 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
     paidOn: string,
     paymentMethod: NonNullable<IssueInvoiceRequest['paymentMethod']>
   ) {
-    const { date } = dateParts(paidOn)
+    const { date } = beplyFiscalDateParts(paidOn)
     await this.request(`pagarFacturaCliente/${encodeURIComponent(providerInvoiceId)}`, {
       method: 'POST',
       form: {

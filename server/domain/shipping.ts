@@ -1,4 +1,5 @@
 import type { Parcel, ShippingAddress, ShippingRate } from '../integrations/carrier-provider'
+import { addMadridCalendarDays, madridDateKey, madridDateTimeParts, madridWeekday } from '../utils/madrid-calendar'
 
 export type ShipmentProfile = ShippingRate['profile']
 
@@ -51,9 +52,10 @@ export function addBusinessDays(date: Date, days: number, holidays: readonly str
   const result = new Date(date)
   let remaining = days
   while (remaining > 0) {
-    result.setUTCDate(result.getUTCDate() + 1)
-    const iso = result.toISOString().slice(0, 10)
-    const weekday = result.getUTCDay()
+    const next = addMadridCalendarDays(result, 1)
+    result.setTime(next.getTime())
+    const iso = madridDateKey(result)
+    const weekday = madridWeekday(result)
     if (weekday !== 0 && weekday !== 6 && !holidays.includes(iso)) remaining -= 1
   }
   return result
@@ -63,14 +65,14 @@ export function estimatedDeliveryWindow(input: {
   now: Date
   preparationBusinessDays: number
   transitBusinessDays: [number, number]
-  cutoffUtcHour: number
+  cutoffLocalHour: number
   holidays?: readonly string[]
 }) {
   const [minimumTransit, maximumTransit] = input.transitBusinessDays
   if (
-    !Number.isSafeInteger(input.cutoffUtcHour) ||
-    input.cutoffUtcHour < 0 ||
-    input.cutoffUtcHour > 23 ||
+    !Number.isSafeInteger(input.cutoffLocalHour) ||
+    input.cutoffLocalHour < 0 ||
+    input.cutoffLocalHour > 23 ||
     !Number.isSafeInteger(minimumTransit) ||
     !Number.isSafeInteger(maximumTransit) ||
     minimumTransit < 0 ||
@@ -78,7 +80,7 @@ export function estimatedDeliveryWindow(input: {
   ) {
     throw new RangeError('Delivery-window configuration is invalid')
   }
-  const missedCutoff = input.now.getUTCHours() >= input.cutoffUtcHour ? 1 : 0
+  const missedCutoff = madridDateTimeParts(input.now).hour >= input.cutoffLocalHour ? 1 : 0
   const dispatch = addBusinessDays(input.now, input.preparationBusinessDays + missedCutoff, input.holidays ?? [])
   return {
     from: addBusinessDays(dispatch, minimumTransit, input.holidays ?? []).toISOString(),

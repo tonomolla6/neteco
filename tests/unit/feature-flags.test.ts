@@ -76,4 +76,12 @@ describe('feature flag targeting', () => {
       )
     ).toBe(false)
   })
+
+  it('expires at the exact instant during the repeated Madrid DST hour', () => {
+    const expiresAt = new Date('2026-10-25T01:30:00.000Z')
+    const targeting = featureTargetingSchema.parse({ environments: ['production'], percentage: 100 })
+    const flag = { key: 'dst.expiry', enabled: true, expiresAt, targeting }
+    expect(featureFlagMatches(flag, { environment: 'production' }, new Date(expiresAt.getTime() - 1))).toBe(true)
+    expect(featureFlagMatches(flag, { environment: 'production' }, expiresAt)).toBe(false)
+  })
 })

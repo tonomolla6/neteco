@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { BeplyError, BeplyInvoiceProvider } from '../../server/integrations/beply'
+import { beplyFiscalDateParts, BeplyError, BeplyInvoiceProvider } from '../../server/integrations/beply'
 import { invoiceProviderFromEnvironment } from '../../server/integrations/invoice-factory'
 import type { IssueInvoiceRequest } from '../../server/integrations/invoice-provider'
 import { MockInvoiceProvider } from '../../server/integrations/mock-invoice'
@@ -70,6 +70,15 @@ function issueFetcher(document: unknown = { idfactura: 15, codigo: 'FAC2026NE15'
 }
 
 describe('Beply invoice provider', () => {
+  it.each([
+    ['2026-03-28T23:30:00.000Z', { date: '2026-03-29', time: '00:30:00' }],
+    ['2026-03-29T01:30:00.000Z', { date: '2026-03-29', time: '03:30:00' }],
+    ['2026-10-25T00:30:00.000Z', { date: '2026-10-25', time: '02:30:00' }],
+    ['2026-10-25T01:30:00.000Z', { date: '2026-10-25', time: '02:30:00' }]
+  ])('serializes fiscal instant %s in Europe/Madrid', (instant, expected) => {
+    expect(beplyFiscalDateParts(instant)).toEqual(expected)
+  })
+
   it('upserts customer and issues a form-encoded high-level invoice from snapshots', async () => {
     const fetcher = issueFetcher()
     const provider = new BeplyInvoiceProvider(configuration, fetcher)

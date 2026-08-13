@@ -55,6 +55,7 @@
     "synthetic:check": "tsx scripts/synthetic-check.ts",
     "catalog:release": "tsx scripts/catalog-release.ts",
     "catalog:tabular": "tsx scripts/catalog-tabular.ts",
+    "content:publish": "tsx scripts/content-publication-worker.ts",
     "requirements:audit": "tsx scripts/audit-master-requirements.ts"
   },
   "dependencies": {

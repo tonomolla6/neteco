@@ -37,7 +37,8 @@ export default defineEventHandler(async (event) => {
     }
     await transaction`
       UPDATE content_pages SET status = 'published', published_version_id = ${page.draft},
-        published_at = now(), updated_at = now() WHERE id = ${id}
+        published_at = now(), scheduled_publish_at = NULL, scheduled_publish_version_id = NULL,
+        updated_at = now() WHERE id = ${id}
     `
     await transaction`
       INSERT INTO audit_log (actor_type, actor_id, action, resource_type, resource_id,
