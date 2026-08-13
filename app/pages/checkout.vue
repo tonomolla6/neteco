@@ -5,6 +5,7 @@ useSeoMeta({ title: 'Tramitar pedido' })
 
 const cart = useCartStore()
 const runtime = useRuntimeConfig()
+const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 const { loggedIn, user } = useUserSession()
 const toast = useToast()
 const { track } = useAnalytics()
@@ -650,13 +651,24 @@ async function finish(order: { id: string; token: string }) {
                 <p class="truncate text-sm text-slate-700">{{ item.name }}</p>
                 <p class="text-xs text-slate-500">{{ item.format }} × {{ item.qty }}</p>
               </div>
-              <p class="text-sm font-semibold">{{ formatPrice(item.price * item.qty) }}</p>
+              <p class="text-right text-sm font-semibold">
+                {{ formatPrice((showNetPrices ? item.netPrice : item.price) * item.qty) }}
+                <span v-if="showNetPrices" class="block text-xs font-normal text-slate-500">
+                  {{ formatPrice(item.price * item.qty) }} con IVA
+                </span>
+              </p>
             </li>
           </ul>
           <dl class="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
             <div class="flex justify-between">
-              <dt class="text-slate-500">Subtotal</dt>
-              <dd>{{ formatPrice(cart.subtotal) }}</dd>
+              <dt class="text-slate-500">{{ showNetPrices ? 'Subtotal neto' : 'Subtotal' }}</dt>
+              <dd>
+                {{
+                  formatPrice(
+                    showNetPrices ? (selectedShippingRate?.subtotalNetCents ?? cart.subtotalNet) : cart.subtotal
+                  )
+                }}
+              </dd>
             </div>
             <div class="flex justify-between gap-3">
               <dt class="min-w-0 truncate text-slate-500">

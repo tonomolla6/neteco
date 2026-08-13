@@ -54,6 +54,7 @@ const localConfiguration = {
     appEnv: 'local',
     baseUrl: 'http://localhost:3000',
     appVersion: 'test',
+    priceDisplayMode: 'gross',
     legalTermsUrl: 'https://neteco.es/legal',
     privacyUrl: 'https://neteco.es/legal',
     cookiesUrl: 'https://neteco.es/cookies',

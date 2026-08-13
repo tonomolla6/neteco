@@ -66,6 +66,7 @@ export const runtimeConfigurationSchema = z
       appEnv: environmentSchema,
       baseUrl: z.string().url(),
       appVersion: z.string().min(1),
+      priceDisplayMode: z.enum(['gross', 'net-and-gross']),
       legalTermsUrl: z.string().url(),
       privacyUrl: z.string().url(),
       cookiesUrl: z.string().url(),

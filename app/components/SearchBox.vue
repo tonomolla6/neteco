@@ -5,6 +5,8 @@ const props = defineProps<{ size?: 'sm' | 'md' | 'lg' | 'xl'; placeholder?: stri
 
 const q = ref('')
 const items = ref<SearchSuggestion[]>([])
+const runtime = useRuntimeConfig()
+const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 const open = ref(false)
 const loading = ref(false)
 const active = ref(-1)
@@ -117,7 +119,10 @@ function onFocusOut(e: FocusEvent) {
             <p class="truncate text-sm font-medium text-slate-800">{{ item.name }}</p>
             <p v-if="item.brand" class="text-xs text-slate-500">{{ item.brand }}</p>
           </div>
-          <span class="text-sm font-semibold text-neteco-700">{{ formatPrice(item.minPrice) }}</span>
+          <span class="text-right text-sm font-semibold text-neteco-700">
+            {{ formatPrice(showNetPrices ? item.minNetPrice : item.minPrice) }}
+            <small v-if="showNetPrices" class="block text-[10px] font-normal text-slate-500">sin IVA</small>
+          </span>
         </button>
         <button
           type="button"

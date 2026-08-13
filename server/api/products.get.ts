@@ -23,6 +23,7 @@ interface ProductRow {
   shortDesc: string | null
   categoryId: number
   minPrice: number
+  minNetPrice: number
   formats: number
 }
 
@@ -239,14 +240,19 @@ export default defineEventHandler(async (event) => {
            COALESCE(p.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
            p.attributes ->> 'image' AS image, p.featured, p.short_description AS "shortDesc",
-           c.legacy_id AS "categoryId", summary.min_price AS "minPrice", summary.formats
+           c.legacy_id AS "categoryId", summary.min_price AS "minPrice",
+           summary.min_net_price AS "minNetPrice", summary.formats
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
     JOIN LATERAL (
-      SELECT min(price_gross_cents)::int AS min_price, count(*)::int AS formats
-      FROM variants
-      WHERE product_id = p.id AND status = 'published'
+      SELECT min(variant.price_gross_cents)::int AS min_price,
+             min(round((variant.price_gross_cents::numeric * 10000) /
+                       (10000 + tax.rate_basis_points)))::int AS min_net_price,
+             count(*)::int AS formats
+      FROM variants variant
+      JOIN tax_classes tax ON tax.id = variant.tax_class_id
+      WHERE variant.product_id = p.id AND variant.status = 'published'
     ) summary ON summary.formats > 0`
   const rowsFor = async (excluded: string[] = []) => {
     const where = compileWhere(filters, excluded)

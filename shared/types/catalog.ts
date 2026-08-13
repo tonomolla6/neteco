@@ -15,6 +15,7 @@ export interface ProductCardData {
   image: string | null
   shortDesc?: string | null
   minPrice: number
+  minNetPrice: number
   formats: number
 }
 
@@ -31,6 +32,7 @@ export interface SearchSuggestion {
   visual: ProductVisualData
   image: string | null
   minPrice: number
+  minNetPrice: number
   sku: string | null
 }
 

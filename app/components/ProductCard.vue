@@ -4,6 +4,8 @@ import type { ProductCardData } from '~~/shared/types/catalog'
 const props = defineProps<{
   product: ProductCardData
 }>()
+const runtime = useRuntimeConfig()
+const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 
 // con títulos del ERP tipo «NETTION MC», el eyebrow de marca sería redundante
 const showBrand = computed(
@@ -46,9 +48,12 @@ const showBrand = computed(
     <div class="mt-auto flex items-end justify-between">
       <div>
         <p class="text-[11px] text-slate-600">
-          {{ product.formats > 1 ? `${product.formats} formatos · desde` : 'IVA incluido' }}
+          {{ product.formats > 1 ? `${product.formats} formatos · desde` : showNetPrices ? 'sin IVA' : 'IVA incluido' }}
         </p>
-        <p class="font-display text-lg font-bold text-slate-900">{{ formatPrice(product.minPrice) }}</p>
+        <p class="font-display text-lg font-bold text-slate-900">
+          {{ formatPrice(showNetPrices ? product.minNetPrice : product.minPrice) }}
+        </p>
+        <p v-if="showNetPrices" class="text-[11px] text-slate-500">{{ formatPrice(product.minPrice) }} con IVA</p>
       </div>
       <span
         class="rounded-full bg-neteco-50 p-2 text-neteco-600 transition group-hover:bg-neteco-500 group-hover:text-white"

@@ -11,6 +11,8 @@ interface ProductVariant {
   gtin: string | null
   mpn: string | null
   price: number
+  netPrice: number
+  taxRateBasisPoints: number
   stock: number
   units: number
   unitBase: string
@@ -69,6 +71,7 @@ if (error.value || !productData.value || !productData.value.variants.length) {
 }
 const product = computed(() => productData.value!)
 const runtime = useRuntimeConfig()
+const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
 useSeoMeta({
@@ -464,6 +467,8 @@ async function addToCart(goToCart = false) {
         format: selected.value.format,
         sku: selected.value.sku,
         price: selected.value.price,
+        netPrice: selected.value.netPrice,
+        taxRateBasisPoints: selected.value.taxRateBasisPoints,
         visual: product.value.visual,
         image: selected.value.image ?? (colorMode.value ? null : product.value.image) ?? null
       },
@@ -624,7 +629,12 @@ async function addToCart(goToCart = false) {
                 <span class="block font-mono text-xs text-slate-500">Ref. {{ v.sku }}</span>
               </span>
               <span class="text-right">
-                <span class="block font-display text-lg font-bold text-slate-900">{{ formatPrice(v.price) }}</span>
+                <span class="block font-display text-lg font-bold text-slate-900">
+                  {{ formatPrice(showNetPrices ? v.netPrice : v.price) }}
+                </span>
+                <span v-if="showNetPrices" class="block text-xs text-slate-500">
+                  sin IVA · {{ formatPrice(v.price) }} con IVA
+                </span>
                 <span v-if="perUnit(v)" class="block text-xs text-slate-500">{{ perUnit(v) }}</span>
               </span>
             </button>
@@ -672,9 +682,15 @@ async function addToCart(goToCart = false) {
             </button>
           </div>
           <div>
-            <p class="font-display text-2xl font-bold text-slate-900">{{ formatPrice(selected.price * qty) }}</p>
+            <p class="font-display text-2xl font-bold text-slate-900">
+              {{ formatPrice((showNetPrices ? selected.netPrice : selected.price) * qty) }}
+            </p>
             <p class="text-xs text-slate-500">
-              IVA incluido<template v-if="perUnit(selected)"> · {{ perUnit(selected) }}</template>
+              <template v-if="showNetPrices">
+                sin IVA · {{ formatPrice(selected.price * qty) }} con IVA ({{ selected.taxRateBasisPoints / 100 }} %)
+              </template>
+              <template v-else>IVA incluido ({{ selected.taxRateBasisPoints / 100 }} %)</template>
+              <template v-if="perUnit(selected)"> · {{ perUnit(selected) }}</template>
             </p>
           </div>
           <p
@@ -974,7 +990,9 @@ async function addToCart(goToCart = false) {
     >
       <div class="min-w-0">
         <p class="truncate text-xs text-slate-500">{{ selected.format }}</p>
-        <p class="font-display text-lg font-bold text-slate-900">{{ formatPrice(selected.price * qty) }}</p>
+        <p class="font-display text-lg font-bold text-slate-900">
+          {{ formatPrice((showNetPrices ? selected.netPrice : selected.price) * qty) }}
+        </p>
       </div>
       <UButton
         size="lg"

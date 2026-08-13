@@ -1,4 +1,5 @@
 import { useDatabase } from '../../db/client'
+import { splitGross } from '../../domain/money'
 
 interface ProductDetail {
   uuid: string
@@ -54,6 +55,7 @@ export default defineEventHandler(async (event) => {
       gtin: string | null
       mpn: string | null
       price: number
+      taxRateBasisPoints: number
       stock: number
       units: number
       unitBase: string
@@ -70,7 +72,7 @@ export default defineEventHandler(async (event) => {
     }>
   >`
     SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.ean, v.gtin, v.mpn,
-           v.price_gross_cents AS price,
+           v.price_gross_cents AS price, tax.rate_basis_points AS "taxRateBasisPoints",
            greatest(
              COALESCE(sum(ib.physical_quantity - ib.blocked_quantity), 0)
              - v.safety_stock
@@ -87,6 +89,7 @@ export default defineEventHandler(async (event) => {
            v.quantity_increment AS "quantityIncrement", v.backorder_allowed AS "backorderAllowed",
            v.lead_time_days AS "leadTimeDays", v.color, v.image
     FROM variants v
+    JOIN tax_classes tax ON tax.id = v.tax_class_id
     LEFT JOIN inventory_balances ib ON ib.variant_id = v.id
     WHERE v.product_id = ${product.uuid} AND v.status = 'published'
     GROUP BY v.id
@@ -126,16 +129,20 @@ export default defineEventHandler(async (event) => {
       visual: { type: string; color: string }
       image: string | null
       minPrice: number
+      minNetPrice: number
       formats: number
     }>
   >`
     SELECT related.legacy_id AS id, related.name, related.slug, COALESCE(b.name, 'NETECO') AS brand,
            COALESCE(related.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(related.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
-           related.attributes ->> 'image' AS image, min(v.price_gross_cents)::int AS "minPrice", count(v.id)::int AS formats
+           related.attributes ->> 'image' AS image, min(v.price_gross_cents)::int AS "minPrice",
+           min(round((v.price_gross_cents::numeric * 10000) / (10000 + tax.rate_basis_points)))::int AS "minNetPrice",
+           count(v.id)::int AS formats
     FROM products related
     LEFT JOIN brands b ON b.id = related.brand_id
     JOIN variants v ON v.product_id = related.id AND v.status = 'published'
+    JOIN tax_classes tax ON tax.id = v.tax_class_id
     WHERE related.category_id = (SELECT category_id FROM products WHERE id = ${product.uuid})
       AND related.id <> ${product.uuid} AND related.status = 'published'
     GROUP BY related.id, b.name
@@ -165,5 +172,15 @@ export default defineEventHandler(async (event) => {
              media.sort_order, asset.original_name
   `
   const { uuid: _uuid, ...publicProduct } = product
-  return { ...publicProduct, variants, siblings, breadcrumb, related, documents }
+  return {
+    ...publicProduct,
+    variants: variants.map((variant) => ({
+      ...variant,
+      netPrice: splitGross(variant.price, variant.taxRateBasisPoints).netCents
+    })),
+    siblings,
+    breadcrumb,
+    related,
+    documents
+  }
 })

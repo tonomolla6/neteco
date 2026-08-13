@@ -9,6 +9,8 @@ export interface CartItem {
   format: string
   sku: string
   price: number
+  netPrice: number
+  taxRateBasisPoints: number
   qty: number
   visual: { type: string; color: string }
   image?: string | null
@@ -25,6 +27,8 @@ interface ServerCart {
   items: CartItem[]
   count: number
   subtotal: number
+  subtotalNet: number
+  tax: number
 }
 
 let loadPromise: Promise<void> | null = null
@@ -40,7 +44,10 @@ export const useCartStore = defineStore('cart', {
   }),
   getters: {
     count: (state) => state.items.reduce((total, item) => total + item.qty, 0),
-    subtotal: (state) => state.items.reduce((total, item) => total + item.price * item.qty, 0)
+    subtotal: (state) => state.items.reduce((total, item) => total + item.price * item.qty, 0),
+    subtotalNet: (state) => state.items.reduce((total, item) => total + (item.netPrice ?? item.price) * item.qty, 0),
+    tax: (state) =>
+      state.items.reduce((total, item) => total + (item.price - (item.netPrice ?? item.price)) * item.qty, 0)
   },
   actions: {
     apply(cart: ServerCart) {

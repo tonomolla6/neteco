@@ -55,7 +55,7 @@ const mvpMissing = ids('TST-004;TST-006;CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..003;PRI-005;PRI-007;PRI-010;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017'
+    'CAT-004..006;CAT-008;PRI-002..005;PRI-007;PRI-010;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017'
   )
 )
 const currentPartialExternal = new Set(
@@ -87,6 +87,7 @@ function evidenceFor(id: string) {
     'CHK-002': 'server/services/orders.ts; app/pages/checkout.vue; tests/integration/commerce-transactions.test.ts',
     'CHK-006': 'server/services/shipping.ts; server/services/orders.ts',
     'CHK-009': 'app/pages/checkout.vue; server/domain/money.ts',
+    'PRI-004': 'server/services/cart.ts; app/components/ProductCard.vue; app/pages/checkout.vue',
     'SEO-003': 'server/routes/sitemap.xml.get.ts; server/routes/sitemaps/',
     'SEO-007': 'app/app.vue; app/pages/producto/[slug].vue',
     'SEO-015': 'server/routes/feeds/google-merchant.xml.get.ts; docs/operations/merchant-feed.md',

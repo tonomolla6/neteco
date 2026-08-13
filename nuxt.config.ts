@@ -79,6 +79,7 @@ export default defineNuxtConfig({
       appEnv: process.env.APP_ENV || 'local',
       baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
       appVersion: process.env.APP_VERSION || 'dev',
+      priceDisplayMode: process.env.PRICE_DISPLAY_MODE || 'gross',
       legalTermsUrl: process.env.LEGAL_TERMS_URL || 'https://neteco.es/legal',
       privacyUrl: process.env.PRIVACY_URL || 'https://neteco.es/legal',
       cookiesUrl: process.env.COOKIES_URL || 'https://neteco.es/cookies',

@@ -4,8 +4,10 @@ import { useCartStore } from '~/stores/cart'
 useSeoMeta({ title: 'Carrito' })
 const cart = useCartStore()
 const toast = useToast()
+const runtime = useRuntimeConfig()
+const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 
-const tax = computed(() => cart.subtotal - Math.round(cart.subtotal / 1.21))
+const tax = computed(() => cart.tax)
 
 async function updateQuantity(item: (typeof cart.items)[number], quantity: number) {
   try {
@@ -87,8 +89,11 @@ async function confirmClear() {
                   <UIcon name="i-lucide-plus" class="block size-4" />
                 </button>
               </div>
-              <p class="w-24 text-right font-semibold text-slate-800">
-                {{ formatPrice(item.price * item.qty) }}
+              <p class="w-28 text-right font-semibold text-slate-800">
+                {{ formatPrice((showNetPrices ? item.netPrice : item.price) * item.qty) }}
+                <span v-if="showNetPrices" class="block text-xs font-normal text-slate-500">
+                  {{ formatPrice(item.price * item.qty) }} con IVA
+                </span>
               </p>
               <button
                 class="rounded-lg p-2.5 text-slate-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
@@ -113,11 +118,11 @@ async function confirmClear() {
           <h2 class="text-lg font-bold text-slate-900">Resumen</h2>
           <dl class="mt-4 space-y-2 text-sm">
             <div class="flex justify-between">
-              <dt class="text-slate-500">Subtotal ({{ cart.count }} uds.)</dt>
-              <dd class="font-medium">{{ formatPrice(cart.subtotal) }}</dd>
+              <dt class="text-slate-500">{{ showNetPrices ? 'Subtotal neto' : 'Subtotal' }} ({{ cart.count }} uds.)</dt>
+              <dd class="font-medium">{{ formatPrice(showNetPrices ? cart.subtotalNet : cart.subtotal) }}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-slate-500">IVA incluido (21 %)</dt>
+              <dt class="text-slate-500">IVA según producto</dt>
               <dd class="text-slate-500">{{ formatPrice(tax) }}</dd>
             </div>
             <div class="flex justify-between">

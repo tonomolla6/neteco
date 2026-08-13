@@ -1,6 +1,6 @@
 import { createError, deleteCookie, getCookie, setCookie, type H3Event } from 'h3'
 import type { TransactionSql } from 'postgres'
-import { validateQuantity } from '../domain/money'
+import { splitGross, validateQuantity } from '../domain/money'
 import { useDatabase } from '../db/client'
 import { hashOpaqueToken, randomOpaqueToken } from '../utils/secrets'
 
@@ -23,6 +23,8 @@ export interface ServerCartItem {
   format: string
   sku: string
   price: number
+  netPrice: number
+  taxRateBasisPoints: number
   qty: number
   visual: { type: string; color: string }
   image: string | null
@@ -39,6 +41,8 @@ export interface ServerCart {
   items: ServerCartItem[]
   count: number
   subtotal: number
+  subtotalNet: number
+  tax: number
 }
 
 function cartCookieOptions() {
@@ -141,9 +145,10 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
     SELECT id, version, status, expires_at FROM carts WHERE id = ${cart.id}
   `
   if (!header) throw createError({ statusCode: 404, statusMessage: 'Carrito no encontrado' })
-  const items = await sql<ServerCartItem[]>`
+  const rawItems = await sql<Array<Omit<ServerCartItem, 'netPrice'>>>`
     SELECT p.legacy_id AS "productId", p.slug, p.name, COALESCE(b.name, '') AS brand,
            v.legacy_id AS "variantId", v.format, v.sku, v.price_gross_cents AS price,
+           tax.rate_basis_points AS "taxRateBasisPoints",
            ci.quantity AS qty,
            jsonb_build_object(
              'type', COALESCE(p.attributes->'visual'->>'type', 'bottle'),
@@ -163,11 +168,18 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
            v.quantity_increment AS "quantityIncrement"
     FROM cart_items ci
     JOIN variants v ON v.id = ci.variant_id
+    JOIN tax_classes tax ON tax.id = v.tax_class_id
     JOIN products p ON p.id = v.product_id
     LEFT JOIN brands b ON b.id = p.brand_id
     WHERE ci.cart_id = ${cart.id}
     ORDER BY ci.added_at, ci.id
   `
+  const items = rawItems.map((item) => ({
+    ...item,
+    netPrice: splitGross(item.price, item.taxRateBasisPoints).netCents
+  }))
+  const subtotal = items.reduce((total, item) => total + item.price * item.qty, 0)
+  const subtotalNet = items.reduce((total, item) => total + item.netPrice * item.qty, 0)
   return {
     id: header.id,
     version: header.version,
@@ -175,7 +187,9 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
     expiresAt: header.expires_at.toISOString(),
     items,
     count: items.reduce((total, item) => total + item.qty, 0),
-    subtotal: items.reduce((total, item) => total + item.price * item.qty, 0)
+    subtotal,
+    subtotalNet,
+    tax: subtotal - subtotalNet
   }
 }
 
