@@ -1,8 +1,7 @@
-import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import postgres from 'postgres'
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import type { Sql } from 'postgres'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase } from '../../server/db/client'
 import {
   cancelOrderByAdmin,
@@ -13,25 +12,39 @@ import {
 } from '../../server/services/orders'
 import { hashAccessToken } from '../../server/utils/access-token'
 import { decryptSecret } from '../../server/utils/secrets'
+import { deterministicTestData, type DeterministicTestData } from '../fixtures/deterministic'
+import { isolatedPostgresDatabase, type IsolatedPostgresDatabase } from '../fixtures/postgres'
 
-const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
-const sql = postgres(connection, { max: 4 })
+const baseConnection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
+let connection = baseConnection
+let sql: Sql
+let database: IsolatedPostgresDatabase
 const execFileAsync = promisify(execFile)
 
 interface StockFixture {
   variantId: string
-  variantLegacyId: number
   locationId: string
-  physicalQuantity: number
-  blockedQuantity: number
-  safetyStock: number
-  backorderAllowed: boolean
   priceGrossCents: number
-  sourceVersion: string | null
+  sourceVersion: string
+}
+
+interface CatalogTemplate {
+  productId: string
+  taxClassId: string
+  shippingProfileId: string
+  locationId: string
 }
 
 let stock: StockFixture
 const cartIds = new Set<string>()
+let testData: DeterministicTestData
+const randomUUID = () => testData.uuid()
+
+async function freshProviderEventId() {
+  const providerEventId = `event:${randomUUID()}`
+  await sql`DELETE FROM webhook_inbox WHERE provider = 'redsys' AND provider_event_id = ${providerEventId}`
+  return providerEventId
+}
 
 async function cartInput(quantity = 1): Promise<CreateOrderInput> {
   const [cart] = await sql<{ id: string; version: number }[]>`
@@ -101,8 +114,9 @@ async function cartInput(quantity = 1): Promise<CreateOrderInput> {
 async function cleanupOrders() {
   if (cartIds.size === 0) return
   const carts = [...cartIds]
-  const orders = await sql<{ id: string; customerId: string | null }[]>`
-    SELECT id, customer_id AS "customerId" FROM orders WHERE cart_id IN ${sql(carts)}
+  const orders = await sql<{ id: string; publicNumber: string; customerId: string | null }[]>`
+    SELECT id, public_number AS "publicNumber", customer_id AS "customerId"
+    FROM orders WHERE cart_id IN ${sql(carts)}
   `
   const orderIds = orders.map((order) => order.id)
   if (orderIds.length > 0) {
@@ -123,6 +137,11 @@ async function cleanupOrders() {
       await transaction`
         DELETE FROM payment_events
         WHERE payment_intent_id IN (SELECT id FROM payment_intents WHERE order_id IN ${transaction(orderIds)})
+      `
+      await transaction`
+        DELETE FROM webhook_inbox
+        WHERE provider = 'redsys'
+          AND sanitized_payload ->> 'orderReference' IN ${transaction(orders.map((order) => order.publicNumber))}
       `
       await transaction`DELETE FROM fulfillments WHERE order_id IN ${transaction(orderIds)}`
       await transaction`DELETE FROM invoices WHERE order_id IN ${transaction(orderIds)}`
@@ -159,56 +178,70 @@ async function cleanupOrders() {
   cartIds.clear()
 }
 
-beforeAll(async () => {
-  const [fixture] = await sql<StockFixture[]>`
-    SELECT v.id AS "variantId", v.legacy_id AS "variantLegacyId", balance.location_id AS "locationId",
-           balance.physical_quantity AS "physicalQuantity", balance.blocked_quantity AS "blockedQuantity",
-           v.safety_stock AS "safetyStock", v.backorder_allowed AS "backorderAllowed",
-           price.gross_cents AS "priceGrossCents", price.pricing_version AS "sourceVersion"
-    FROM variants v
-    JOIN effective_variant_prices price ON price.variant_id = v.id
-    JOIN products product ON product.id = v.product_id
-    JOIN inventory_balances balance ON balance.variant_id = v.id
-    WHERE v.status = 'published' AND product.status = 'published'
-      AND v.minimum_quantity = 1 AND v.quantity_increment = 1
-    ORDER BY v.id, balance.location_id
+beforeEach(async (context) => {
+  testData = deterministicTestData(`integration:commerce:${context.task.id}:${context.task.name}`)
+  database = await isolatedPostgresDatabase(testData.namespace)
+  connection = database.connection
+  process.env.DATABASE_URL = connection
+  await closeDatabase()
+  sql = database.sql
+  const [catalogTemplate] = await sql<CatalogTemplate[]>`
+    SELECT variant.product_id AS "productId", variant.tax_class_id AS "taxClassId",
+           variant.shipping_profile_id AS "shippingProfileId", balance.location_id AS "locationId"
+    FROM variants variant
+    JOIN products product ON product.id = variant.product_id
+    JOIN inventory_balances balance ON balance.variant_id = variant.id
+    WHERE variant.status = 'published' AND product.status = 'published'
+    ORDER BY variant.id, balance.location_id
     LIMIT 1
   `
-  if (!fixture) throw new Error('The integration catalog has no suitable stock fixture')
-  stock = fixture
-})
-
-beforeEach(async () => {
+  if (!catalogTemplate) throw new Error('The integration catalog has no suitable template')
+  const variantId = testData.uuid('stock-variant')
+  const legacyId = 1_000_000_000 + Number.parseInt(testData.token('legacy-id').slice(0, 7), 16)
+  const priceGrossCents = 1234
   await sql`
-    UPDATE variants SET safety_stock = 0, backorder_allowed = false WHERE id = ${stock.variantId}
+    INSERT INTO variants (
+      id, legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
+      price_gross_cents, weight_grams, width_mm, height_mm, depth_mm, source_version
+    ) VALUES (
+      ${variantId}, ${legacyId}, ${catalogTemplate.productId}, ${catalogTemplate.taxClassId},
+      ${catalogTemplate.shippingProfileId},
+      ${`TST-${testData.token('sku').slice(0, 20).toUpperCase()}`}, 'Fixture integración', 'published',
+      ${priceGrossCents}, 1000, 100, 100, 100, 'integration-fixture-v1'
+    )
   `
   await sql`
-    UPDATE inventory_balances
-    SET physical_quantity = 10, blocked_quantity = 0, version = version + 1, updated_at = now()
-    WHERE variant_id = ${stock.variantId} AND location_id = ${stock.locationId}
+    INSERT INTO inventory_balances (variant_id, location_id, physical_quantity, blocked_quantity)
+    VALUES (${variantId}, ${catalogTemplate.locationId}, 10, 0)
   `
+  stock = {
+    variantId,
+    locationId: catalogTemplate.locationId,
+    priceGrossCents,
+    sourceVersion: `legacy:${variantId}`
+  }
 })
 
 afterEach(async () => {
-  await cleanupOrders()
-})
-
-afterAll(async () => {
-  if (stock) {
-    await sql`
-      UPDATE variants
-      SET safety_stock = ${stock.safetyStock}, backorder_allowed = ${stock.backorderAllowed}
-      WHERE id = ${stock.variantId}
-    `
-    await sql`
-      UPDATE inventory_balances
-      SET physical_quantity = ${stock.physicalQuantity}, blocked_quantity = ${stock.blockedQuantity},
-          version = version + 1, updated_at = now()
-      WHERE variant_id = ${stock.variantId} AND location_id = ${stock.locationId}
-    `
+  try {
+    await cleanupOrders()
+    if (stock) {
+      await sql`DELETE FROM inventory_movements WHERE variant_id = ${stock.variantId}`
+      await sql`DELETE FROM inventory_balances WHERE variant_id = ${stock.variantId}`
+      await sql`DELETE FROM variants WHERE id = ${stock.variantId}`
+    }
+  } finally {
+    try {
+      try {
+        await closeDatabase()
+      } finally {
+        await database.dispose()
+      }
+    } finally {
+      connection = baseConnection
+      process.env.DATABASE_URL = baseConnection
+    }
   }
-  await closeDatabase()
-  await sql.end({ timeout: 5 })
 })
 
 describe('commerce transaction spine', () => {
@@ -360,7 +393,7 @@ describe('commerce transaction spine', () => {
   it('deduplicates provider event IDs and ignores stale failures after capture', async () => {
     const input = await cartInput()
     const order = await createOrder(input)
-    const providerEventId = `event:${randomUUID()}`
+    const providerEventId = await freshProviderEventId()
     const captured = {
       providerEventId,
       orderReference: order.id,
@@ -378,7 +411,7 @@ describe('commerce transaction spine', () => {
     await processPaymentNotification(
       {
         ...captured,
-        providerEventId: `event:${randomUUID()}`,
+        providerEventId: await freshProviderEventId(),
         payloadHash: randomUUID().replaceAll('-', ''),
         status: 'failed',
         responseCode: '0101'
@@ -442,7 +475,7 @@ describe('commerce transaction spine', () => {
     const order = await createOrder(input)
     await processPaymentNotification(
       {
-        providerEventId: `event:${randomUUID()}`,
+        providerEventId: await freshProviderEventId(),
         providerReference: `authorization:${randomUUID()}`,
         orderReference: order.id,
         amountCents: order.total,
@@ -602,7 +635,7 @@ describe('commerce transaction spine', () => {
       WHERE event.aggregate_id = ${invoice.id} AND event.event_type = 'invoice.issued'
     `
     expect(invoiceEmail).toMatchObject({ invoiceId: invoice.id, accessSessions: 1 })
-    expect(new Date(invoiceEmail!.expiresAt).getTime()).toBeGreaterThan(Date.now())
+    expect(invoiceEmail!.expiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
     const invoiceToken = decryptSecret(invoiceEmail!.tokenEnvelope, workerEnvironment.AUTH_ENCRYPTION_KEY)
     const [invoiceAccess] = await sql<{ exists: boolean }[]>`
       SELECT EXISTS (

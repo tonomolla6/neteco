@@ -1,12 +1,26 @@
-import postgres from 'postgres'
 import { readdir } from 'node:fs/promises'
-import { afterAll, describe, expect, it } from 'vitest'
+import type { Sql } from 'postgres'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { deterministicTestData } from '../fixtures/deterministic'
+import { isolatedPostgresDatabase, type IsolatedPostgresDatabase } from '../fixtures/postgres'
 
-const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
-const sql = postgres(connection, { max: 2 })
+const baseConnection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
+let sql: Sql
+let database: IsolatedPostgresDatabase
 
-afterAll(async () => {
-  await sql.end({ timeout: 5 })
+beforeEach(async (context) => {
+  const testData = deterministicTestData(`integration:postgres:${context.task.id}:${context.task.name}`)
+  database = await isolatedPostgresDatabase(testData.namespace)
+  process.env.DATABASE_URL = database.connection
+  sql = database.sql
+})
+
+afterEach(async () => {
+  try {
+    await database.dispose()
+  } finally {
+    process.env.DATABASE_URL = baseConnection
+  }
 })
 
 describe('PostgreSQL foundation', () => {

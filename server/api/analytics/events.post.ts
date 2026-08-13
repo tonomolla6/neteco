@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { useDatabase } from '../../db/client'
+import { applicationNow } from '../../utils/application-clock'
 
 const base = {
   eventId: z.string().uuid(),
@@ -162,7 +163,7 @@ export default defineEventHandler(async (event) => {
     })
   }
   const occurredAt = new Date(body.occurredAt)
-  if (Math.abs(Date.now() - occurredAt.getTime()) > 24 * 60 * 60 * 1000) {
+  if (Math.abs(applicationNow().getTime() - occurredAt.getTime()) > 24 * 60 * 60 * 1000) {
     throw createError({ statusCode: 400, statusMessage: 'Analytics timestamp is outside the accepted window' })
   }
   const sql = useDatabase()

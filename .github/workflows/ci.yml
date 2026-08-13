@@ -55,6 +55,7 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run requirements:audit
+      - run: npm run test:determinism
       - run: npm run coverage
       - run: npm run test:nuxt
       - run: npm run db:migrate

@@ -47,6 +47,7 @@ export default defineConfig({
           DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco',
           REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:56379/0',
           NUXT_SESSION_PASSWORD: process.env.NUXT_SESSION_PASSWORD ?? 'test-only-session-password-32-characters',
+          NETECO_TEST_NOW: '2026-08-13T12:00:00.000Z',
           EMAIL_WEBHOOK_SECRET: 'test-email-webhook-secret-at-least-24-characters',
           PAYMENT_PROVIDER: 'mock',
           INVOICE_PROVIDER: 'mock',

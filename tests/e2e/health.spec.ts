@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { expect, test } from '../fixtures/playwright'
 
 test('publishes a live health check with security headers', async ({ request }) => {
   const response = await request.get('/api/health/live')

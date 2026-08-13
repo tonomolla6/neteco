@@ -1,22 +1,37 @@
-import { randomUUID } from 'node:crypto'
-import postgres from 'postgres'
-import { afterAll, describe, expect, it } from 'vitest'
+import type { Sql } from 'postgres'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   confirmNewsletterSubscription,
   requestNewsletterSubscription,
   unsubscribeNewsletter
 } from '../../server/services/newsletter'
 import { decryptSecret } from '../../server/utils/secrets'
+import { deterministicTestData, type DeterministicTestData } from '../fixtures/deterministic'
+import { isolatedPostgresDatabase, type IsolatedPostgresDatabase } from '../fixtures/postgres'
 
-const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
-const sql = postgres(connection, { max: 2 })
+const baseConnection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
+let sql: Sql
+let database: IsolatedPostgresDatabase
 const secrets = {
   tokenPepper: 'integration-newsletter-token-pepper',
   encryptionKey: Buffer.alloc(32, 9).toString('base64')
 }
+let testData: DeterministicTestData
+const randomUUID = () => testData.uuid()
 
-afterAll(async () => {
-  await sql.end({ timeout: 5 })
+beforeEach(async (context) => {
+  testData = deterministicTestData(`integration:newsletter:${context.task.id}:${context.task.name}`)
+  database = await isolatedPostgresDatabase(testData.namespace)
+  process.env.DATABASE_URL = database.connection
+  sql = database.sql
+})
+
+afterEach(async () => {
+  try {
+    await database.dispose()
+  } finally {
+    process.env.DATABASE_URL = baseConnection
+  }
 })
 
 describe('newsletter double opt-in lifecycle', () => {
@@ -24,7 +39,7 @@ describe('newsletter double opt-in lifecycle', () => {
     const rollback = new Error('ROLLBACK_NEWSLETTER_TEST')
     await expect(
       sql.begin(async (transaction) => {
-        const email = `newsletter-${randomUUID()}@integration.invalid`
+        const email = testData.email('subscriber')
         const correlationId = randomUUID()
         const [customer] = await transaction<{ id: string }[]>`
           INSERT INTO customers (email, name) VALUES (${email}, 'Newsletter Integration') RETURNING id

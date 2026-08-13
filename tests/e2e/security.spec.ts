@@ -1,4 +1,8 @@
-import { expect, test } from '@playwright/test'
+import Redis from 'ioredis'
+import { privacyHash } from '../../server/utils/rate-limit'
+import { expect, test } from '../fixtures/playwright'
+
+const redisConnection = process.env.REDIS_URL ?? 'redis://localhost:56379/0'
 
 test('blocks cross-site mutations and allows the configured storefront origin', async ({ request, baseURL }) => {
   const missingOrigin = await request.post('/api/auth/logout')
@@ -35,16 +39,24 @@ test('serves explicit credentialed CORS preflight only to the configured origin'
   expect(rejected.status()).toBe(403)
 })
 
-test('returns 429 and Retry-After when the public search budget is exhausted', async ({ request }) => {
+test('returns 429 and Retry-After when the public search budget is exhausted', async ({ request, deterministic }) => {
   const headers = {
-    'user-agent': `neteco-rate-test-${crypto.randomUUID()}`,
-    'x-forwarded-for': `198.51.100.${Math.floor(Math.random() * 200) + 1}`
+    'user-agent': `neteco-rate-test-${deterministic.token('user-agent').slice(0, 16)}`,
+    'x-forwarded-for': '198.51.100.101'
   }
-  for (let index = 0; index < 60; index += 1) {
-    const response = await request.get('/api/search?q=sin-resultados-rate-limit', { headers })
-    expect(response.status()).toBe(200)
+  const key = `neteco:rate:search:${privacyHash(`${headers['x-forwarded-for']}:${headers['user-agent']}`)}`
+  const redis = new Redis(redisConnection, { maxRetriesPerRequest: 1 })
+  try {
+    await redis.del(key)
+    for (let index = 0; index < 60; index += 1) {
+      const response = await request.get('/api/search?q=sin-resultados-rate-limit', { headers })
+      expect(response.status()).toBe(200)
+    }
+    const limited = await request.get('/api/search?q=sin-resultados-rate-limit', { headers })
+    expect(limited.status()).toBe(429)
+    expect(limited.headers()['retry-after']).toMatch(/^\d+$/)
+  } finally {
+    await redis.del(key)
+    await redis.quit()
   }
-  const limited = await request.get('/api/search?q=sin-resultados-rate-limit', { headers })
-  expect(limited.status()).toBe(429)
-  expect(limited.headers()['retry-after']).toMatch(/^\d+$/)
 })

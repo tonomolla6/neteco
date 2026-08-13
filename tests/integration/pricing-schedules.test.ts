@@ -1,13 +1,28 @@
-import { randomUUID } from 'node:crypto'
-import postgres from 'postgres'
-import { afterAll, describe, expect, it } from 'vitest'
+import type { Sql } from 'postgres'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cancelScheduledVariantPrice, scheduleVariantPrice } from '../../server/services/pricing'
+import { deterministicTestData, type DeterministicTestData } from '../fixtures/deterministic'
+import { isolatedPostgresDatabase, type IsolatedPostgresDatabase } from '../fixtures/postgres'
 
-const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
-const sql = postgres(connection, { max: 2 })
+const baseConnection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
+let sql: Sql
+let database: IsolatedPostgresDatabase
+let testData: DeterministicTestData
+const randomUUID = () => testData.uuid()
 
-afterAll(async () => {
-  await sql.end({ timeout: 5 })
+beforeEach(async (context) => {
+  testData = deterministicTestData(`integration:pricing:${context.task.id}:${context.task.name}`)
+  database = await isolatedPostgresDatabase(testData.namespace)
+  process.env.DATABASE_URL = database.connection
+  sql = database.sql
+})
+
+afterEach(async () => {
+  try {
+    await database.dispose()
+  } finally {
+    process.env.DATABASE_URL = baseConnection
+  }
 })
 
 describe('governed price schedules', () => {
@@ -15,33 +30,45 @@ describe('governed price schedules', () => {
     const rollback = new Error('ROLLBACK_PRICING_TEST')
     await expect(
       sql.begin(async (transaction) => {
+        const actorId = testData.uuid('actor')
+        await transaction`
+          INSERT INTO identities (id, email, password_hash, email_verified_at, status)
+          VALUES (${actorId}, ${testData.email('actor')}, 'integration-password-hash',
+                  '2026-08-12T00:00:00Z', 'active')
+        `
         const [fixture] = await transaction<
           {
             variantId: string
-            actorId: string
             grossCents: number
             minimumQuantity: number
             quantityIncrement: number
           }[]
         >`
-          SELECT variant.id AS "variantId", identity.id AS "actorId", price.gross_cents AS "grossCents",
+          SELECT variant.id AS "variantId", price.gross_cents AS "grossCents",
                  variant.minimum_quantity AS "minimumQuantity", variant.quantity_increment AS "quantityIncrement"
           FROM variants variant
           JOIN effective_variant_prices price ON price.variant_id = variant.id
-          CROSS JOIN LATERAL (SELECT id FROM identities ORDER BY created_at LIMIT 1) identity
           WHERE variant.status = 'published' AND variant.minimum_quantity = 1 AND variant.quantity_increment = 1
           ORDER BY variant.id LIMIT 1
         `
         if (!fixture) throw new Error('Pricing integration fixture unavailable')
+        await transaction`
+          INSERT INTO variant_price_versions (
+            variant_id, gross_cents, volume_tiers, valid_from, reason, created_by
+          ) VALUES (
+            ${fixture.variantId}, ${fixture.grossCents}, '[]'::jsonb, '2026-08-12T00:00:00Z',
+            'Precio base de la prueba aislada', ${actorId}
+          )
+        `
         const correlationId = randomUUID()
         const immediate = await scheduleVariantPrice(transaction, {
           variantId: fixture.variantId,
           grossCents: fixture.grossCents - 1,
           compareAtGrossCents: fixture.grossCents,
           volumeTiers: [{ minimumQuantity: 10, unitGrossCents: fixture.grossCents - 2 }],
-          validFrom: new Date(Date.now() - 1000),
+          validFrom: new Date('2026-08-13T00:00:00Z'),
           reason: 'Prueba de vigencia inmediata',
-          actorId: fixture.actorId,
+          actorId,
           correlationId
         })
         const [effective] = await transaction<
@@ -63,16 +90,17 @@ describe('governed price schedules', () => {
           grossCents: fixture.grossCents + 100,
           compareAtGrossCents: null,
           volumeTiers: [],
-          validFrom: new Date(Date.now() + 24 * 60 * 60_000),
+          validFrom: new Date('2100-01-01T00:00:00Z'),
           reason: 'Prueba de programación futura',
-          actorId: fixture.actorId,
+          actorId,
           correlationId
         })
         await cancelScheduledVariantPrice(transaction, {
           id: future.id,
-          actorId: fixture.actorId,
+          actorId,
           reason: 'Prueba de cancelación segura',
-          correlationId
+          correlationId,
+          now: new Date('2026-08-13T12:00:00Z')
         })
         const [cancelled] = await transaction<{ status: string }[]>`
           SELECT status FROM variant_price_versions WHERE id = ${future.id}

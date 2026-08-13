@@ -19,4 +19,11 @@ caducada, incompleta o duplicada bloquea el gate.
 
 ## Datos y determinismo
 
-Factories usan UUID/reloj inyectables. Cada integración y E2E parte de base aislada y seed sintético. Preview/demo interceptan email y no resuelven endpoints productivos. Cualquier fixture con PII real está prohibida.
+Cada test crea un contexto de [`fixtures/deterministic.ts`](../../tests/fixtures/deterministic.ts) con namespace
+propio: IDs, tokens, emails y reloj se repiten sin depender del orden de ejecución. El setup de integración construye
+una plantilla PostgreSQL vacía→migrada→seed sintético; cada caso clona su propia base y la elimina al terminar. Los E2E
+usan namespaces por proyecto y limpian solo sus registros PostgreSQL/Redis antes y después. `NETECO_TEST_NOW` congela
+el reloj de aplicación exclusivamente bajo `APP_ENV=test`. Las suites Vitest bloquean `fetch` externo y el fixture de
+Playwright aborta navegación de navegador fuera del origen bajo prueba. El audit automático rechaza UUID/PRNG/reloj
+de pared/clientes de red nativos, URLs externas en `APIRequestContext` y cualquier spec E2E que omita el fixture.
+Cualquier fixture con PII real está prohibida.

@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { contentDocumentSchema } from '../../server/utils/content-schema'
+import { deterministicTestData, type DeterministicTestData } from '../fixtures/deterministic'
+
+let testData: DeterministicTestData
+
+beforeEach((context) => {
+  testData = deterministicTestData(`unit:content-schema:${context.task.id}:${context.task.name}`)
+})
 
 const base = {
   title: 'Página de prueba',
@@ -11,18 +18,18 @@ const base = {
 describe('typed content schema', () => {
   it('accepts every supported block without an arbitrary HTML primitive', () => {
     const blocks = [
-      { id: crypto.randomUUID(), type: 'heading', level: 'h2', text: 'Encabezado' },
-      { id: crypto.randomUUID(), type: 'paragraph', text: '<script>se muestra como texto, nunca como HTML</script>' },
-      { id: crypto.randomUUID(), type: 'list', items: ['Uno', 'Dos'] },
-      { id: crypto.randomUUID(), type: 'image', assetId: crypto.randomUUID(), alt: 'Descripción', caption: '' },
+      { id: testData.uuid(), type: 'heading', level: 'h2', text: 'Encabezado' },
+      { id: testData.uuid(), type: 'paragraph', text: '<script>se muestra como texto, nunca como HTML</script>' },
+      { id: testData.uuid(), type: 'list', items: ['Uno', 'Dos'] },
+      { id: testData.uuid(), type: 'image', assetId: testData.uuid(), alt: 'Descripción', caption: '' },
       {
-        id: crypto.randomUUID(),
+        id: testData.uuid(),
         type: 'callout',
         tone: 'warning',
         title: 'Aviso',
         text: 'Contenido del aviso'
       },
-      { id: crypto.randomUUID(), type: 'cta', label: 'Continuar', href: '/catalogo' }
+      { id: testData.uuid(), type: 'cta', label: 'Continuar', href: '/catalogo' }
     ]
     expect(contentDocumentSchema.parse({ ...base, blocks }).blocks).toHaveLength(6)
   })
@@ -31,20 +38,20 @@ describe('typed content schema', () => {
     expect(() =>
       contentDocumentSchema.parse({
         ...base,
-        blocks: [{ id: crypto.randomUUID(), type: 'cta', label: 'Malicioso', href: 'javascript:alert(1)' }]
+        blocks: [{ id: testData.uuid(), type: 'cta', label: 'Malicioso', href: 'javascript:alert(1)' }]
       })
     ).toThrow()
     expect(() =>
       contentDocumentSchema.parse({
         ...base,
-        blocks: [{ id: crypto.randomUUID(), type: 'paragraph', text: 'Texto válido', html: '<b>no</b>' }]
+        blocks: [{ id: testData.uuid(), type: 'paragraph', text: 'Texto válido', html: '<b>no</b>' }]
       })
     ).toThrow()
     expect(() =>
       contentDocumentSchema.parse({
         ...base,
         blocks: Array.from({ length: 81 }, () => ({
-          id: crypto.randomUUID(),
+          id: testData.uuid(),
           type: 'paragraph',
           text: 'Texto válido'
         }))

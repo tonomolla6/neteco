@@ -97,8 +97,8 @@ describe('shipping domain', () => {
     expect(addBusinessDays(new Date('2026-08-14T10:00:00Z'), 1, ['2026-08-17']).toISOString()).toBe(
       '2026-08-18T10:00:00.000Z'
     )
-    expect(() => addBusinessDays(new Date(), -1)).toThrow('non-negative')
-    expect(() => addBusinessDays(new Date(), 1.5)).toThrow('non-negative')
+    expect(() => addBusinessDays(new Date('2026-08-13T12:00:00Z'), -1)).toThrow('non-negative')
+    expect(() => addBusinessDays(new Date('2026-08-13T12:00:00Z'), 1.5)).toThrow('non-negative')
 
     expect(
       estimatedDeliveryWindow({

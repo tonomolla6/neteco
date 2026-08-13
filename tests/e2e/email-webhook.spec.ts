@@ -1,6 +1,7 @@
-import { createHmac, randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { createHmac } from 'node:crypto'
+import type { APIRequestContext } from '@playwright/test'
 import postgres from 'postgres'
+import { expect, test } from '../fixtures/playwright'
 
 const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
 const webhookSecret = 'test-email-webhook-secret-at-least-24-characters'
@@ -17,19 +18,33 @@ function signedWebhook(request: APIRequestContext, payload: Record<string, strin
   })
 }
 
-test('email webhooks are retryable, idempotent and never downgrade permanent failure state', async ({ request }) => {
+test('email webhooks are retryable, idempotent and never downgrade permanent failure state', async ({
+  request,
+  deterministic
+}) => {
   const sql = postgres(connection, { max: 1 })
+  const randomUUID = () => deterministic.uuid()
   const provider = `e2e-${randomUUID().slice(0, 8)}`
   const providerMessageId = `message-${randomUUID()}`
   const recipientHash = randomUUID().replaceAll('-', '')
   const outboxId = randomUUID()
+  const cleanup = async () => {
+    await sql`DELETE FROM communication_suppressions WHERE channel = 'email' AND destination_hash = ${recipientHash}`
+    await sql`DELETE FROM communication_delivery_events WHERE delivery_id IN (
+      SELECT id FROM communication_deliveries WHERE outbox_event_id = ${outboxId}
+    )`
+    await sql`DELETE FROM communication_deliveries WHERE outbox_event_id = ${outboxId}`
+    await sql`DELETE FROM outbox_events WHERE id = ${outboxId}`
+    await sql`DELETE FROM webhook_inbox WHERE provider = ${`email:${provider}`}`
+  }
   try {
+    await cleanup()
     const earlyPayload = {
       provider,
       eventId: `early-${randomUUID()}`,
       providerMessageId,
       type: 'hard_bounce',
-      occurredAt: new Date().toISOString()
+      occurredAt: deterministic.date().toISOString()
     }
     const early = await signedWebhook(request, earlyPayload)
     expect(early.status()).toBe(404)
@@ -58,7 +73,7 @@ test('email webhooks are retryable, idempotent and never downgrade permanent fai
       ...earlyPayload,
       eventId: `delivered-${randomUUID()}`,
       type: 'delivered',
-      occurredAt: new Date(Date.now() + 1000).toISOString()
+      occurredAt: deterministic.date(1000).toISOString()
     })
     expect(delivered.status()).toBe(202)
     const [state] = await sql<{ status: string; suppression: string; events: number }[]>`
@@ -79,7 +94,7 @@ test('email webhooks are retryable, idempotent and never downgrade permanent fai
       ...earlyPayload,
       eventId: `complaint-${randomUUID()}`,
       type: 'complaint',
-      occurredAt: new Date(Date.now() + 2000).toISOString()
+      occurredAt: deterministic.date(2000).toISOString()
     })
     expect(complaint.status()).toBe(202)
     const [preserved] = await sql<{ status: string; reason: string; source: string }[]>`
@@ -91,13 +106,7 @@ test('email webhooks are retryable, idempotent and never downgrade permanent fai
     `
     expect(preserved).toEqual({ status: 'complained', reason: 'manual', source: 'e2e_manual' })
   } finally {
-    await sql`DELETE FROM communication_suppressions WHERE channel = 'email' AND destination_hash = ${recipientHash}`
-    await sql`DELETE FROM communication_delivery_events WHERE delivery_id IN (
-      SELECT id FROM communication_deliveries WHERE outbox_event_id = ${outboxId}
-    )`
-    await sql`DELETE FROM communication_deliveries WHERE outbox_event_id = ${outboxId}`
-    await sql`DELETE FROM outbox_events WHERE id = ${outboxId}`
-    await sql`DELETE FROM webhook_inbox WHERE provider = ${`email:${provider}`}`
+    await cleanup()
     await sql.end({ timeout: 5 })
   }
 })

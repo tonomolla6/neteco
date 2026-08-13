@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { deterministicUuid } from '../fixtures/deterministic'
 import {
   decodeMerchantParameters,
   deriveOperationKey,
@@ -95,7 +96,7 @@ describe('Redsys HMAC_SHA512_V2', () => {
 describe('Redsys payment provider', () => {
   it('creates card and Bizum hosted redirects without payment credentials', async () => {
     const base = {
-      intentId: crypto.randomUUID(),
+      intentId: deterministicUuid('unit:redsys:intent'),
       orderReference: '1234567890',
       amountCents: 999,
       currency: 'EUR' as const,

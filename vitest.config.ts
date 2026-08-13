@@ -9,6 +9,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
+          setupFiles: ['tests/support/no-external-network.ts'],
           environment: 'node',
           testTimeout: 10_000
         }
@@ -17,6 +18,7 @@ export default defineConfig({
         test: {
           name: 'nuxt',
           include: ['tests/nuxt/**/*.test.ts'],
+          setupFiles: ['tests/support/no-external-network.ts'],
           environment: 'nuxt',
           testTimeout: 20_000
         }
@@ -25,6 +27,8 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['tests/integration/**/*.test.ts'],
+          setupFiles: ['tests/support/no-external-network.ts'],
+          globalSetup: ['tests/support/integration-global-setup.ts'],
           environment: 'node',
           hookTimeout: 30_000,
           testTimeout: 30_000,
