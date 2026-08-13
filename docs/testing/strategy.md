@@ -49,6 +49,20 @@ producción y nunca imprime la clave. El smoke envía un redirect firmado de 1,4
 completar después los casos oficiales de autorización, denegación y cancelación, conservar callback/portal como
 evidencia y rotar o retirar las credenciales temporales. Hasta entonces TST-017 permanece `PARTIAL_EXTERNAL`.
 
+## Contrato Beply
+
+TST-018 verifica el adapter API v3 con transporte `application/x-www-form-urlencoded`, token, zona horaria de Madrid,
+cliente y contacto fiscal, factura, formas de pago, PDF y rectificativa enlazada. La matriz clasifica explícitamente
+`400`, `401`, `403`, `404`, `409`, `422` y `500`; un `409` ambiguo durante emisión se prueba además contra un servidor
+HTTP local y debe cerrar el job como `fiscal_pending`, emitir una única solicitud de conciliación y aparecer en el
+reporte de `scripts/reconcile.ts`, sin reemitir a ciegas.
+
+La documentación detallada del tenant Beply no es pública y debe adjuntarse/versionarse tras la validación del
+proveedor. El gate `npm run test:contract:beply:sandbox` exige confirmación explícita, tenant HTTPS y credenciales
+inyectadas; crea solo datos sintéticos, factura, pago, PDF y rectificativa en el tenant de pruebas, y no imprime el
+token. La ejecución externa y una consulta remota contractual para conciliar estados siguen pendientes, por lo que
+TST-018 permanece `PARTIAL_EXTERNAL`.
+
 ## Cuenta y compra autenticada E2E
 
 El recorrido autenticado crea dos cuentas sintéticas mediante la UI y recupera los tokens de verificación y reset

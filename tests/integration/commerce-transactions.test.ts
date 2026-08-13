@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { promisify } from 'node:util'
 import type { Sql } from 'postgres'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -681,5 +681,127 @@ describe('commerce transaction spine', () => {
       GROUP BY refund.id
     `
     expect(refund).toEqual({ status: 'succeeded', lines: 1, gross: order.total })
+  })
+
+  it('routes an ambiguous Beply duplicate to fiscal reconciliation without blind reissue', async () => {
+    const input = await cartInput()
+    const order = await createOrder(input)
+    await confirmMockPayment({
+      publicNumber: order.id,
+      guestToken: input.guestToken,
+      method: 'tarjeta',
+      correlationId: randomUUID()
+    })
+    const [internal] = await sql<{ id: string }[]>`SELECT id FROM orders WHERE public_number = ${order.id}`
+    const server = spawn('node_modules/.bin/tsx', ['scripts/test-beply-contract-server.ts'], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    const port = await new Promise<number>((resolve, reject) => {
+      let output = ''
+      server.once('error', reject)
+      server.stderr.once('data', (chunk) => reject(new Error(String(chunk))))
+      server.stdout.on('data', (chunk) => {
+        output += String(chunk)
+        const newline = output.indexOf('\n')
+        if (newline < 0) return
+        resolve((JSON.parse(output.slice(0, newline)) as { port: number }).port)
+      })
+    })
+    try {
+      const workerEnvironment = {
+        ...process.env,
+        DATABASE_URL: connection,
+        APP_ENV: 'test',
+        INVOICE_PROVIDER: 'beply',
+        AUTH_ENCRYPTION_KEY: Buffer.alloc(32, 12).toString('base64'),
+        BEPLY_BASE_URL: `http://127.0.0.1:${port}/api/3`,
+        BEPLY_API_TOKEN: 'integration-beply-token',
+        BEPLY_INVOICE_SERIES: 'NE',
+        BEPLY_CORRECTIVE_SERIES: 'NR',
+        BEPLY_TAX_CODE_0: 'IVA0',
+        BEPLY_TAX_CODE_10: 'IVA10',
+        BEPLY_TAX_CODE_21: 'IVA21',
+        BEPLY_PAYMENT_CODE_REDSYS: 'REDSYS',
+        BEPLY_PAYMENT_CODE_BANK_TRANSFER: 'TRANSFER',
+        BEPLY_COMPANY_ID: '1'
+      }
+      await execFileAsync(
+        'node_modules/.bin/tsx',
+        ['scripts/invoice-worker.ts', '--once', `--aggregate-id=${internal!.id}`],
+        { cwd: process.cwd(), env: workerEnvironment }
+      )
+
+      const [state] = await sql<
+        Array<{
+          orderStatus: string
+          invoiceStatus: string
+          reconciliationRequired: boolean
+          errorCode: string
+          issueJobs: number
+          reconciliationJobs: number
+        }>
+      >`
+        SELECT orders.invoice_status AS "orderStatus", invoice.status AS "invoiceStatus",
+               invoice.reconciliation_required AS "reconciliationRequired",
+               invoice.last_error_code AS "errorCode",
+          (SELECT count(*) FROM outbox_events event WHERE event.aggregate_id = orders.id
+            AND event.event_type = 'invoice.issue.requested' AND event.status = 'completed')::int AS "issueJobs",
+          (SELECT count(*) FROM outbox_events event WHERE event.aggregate_id = invoice.id
+            AND event.event_type = 'invoice.reconciliation.requested')::int AS "reconciliationJobs"
+        FROM orders JOIN invoices invoice ON invoice.order_id = orders.id AND invoice.kind = 'invoice'
+        WHERE orders.id = ${internal!.id}
+      `
+      expect(state).toEqual({
+        orderStatus: 'fiscal_pending',
+        invoiceStatus: 'fiscal_pending',
+        reconciliationRequired: true,
+        errorCode: 'beply_duplicate',
+        issueJobs: 1,
+        reconciliationJobs: 1
+      })
+      const expectedCustomerCode = `NE${internal!.id
+        .replace(/[^A-Za-z0-9]/g, '')
+        .toUpperCase()
+        .slice(-18)}`
+      const requests = (await fetch(`http://127.0.0.1:${port}/__requests`).then((response) =>
+        response.json()
+      )) as Array<{
+        method: string
+        path: string
+        token: string
+      }>
+      expect(requests).toEqual([
+        { method: 'POST', path: '/api/3/clientes', token: 'integration-beply-token' },
+        {
+          method: 'GET',
+          path: `/api/3/contactos?filter[codcliente]=${expectedCustomerCode}&limit=1`,
+          token: 'integration-beply-token'
+        },
+        { method: 'POST', path: '/api/3/contactos', token: 'integration-beply-token' },
+        { method: 'POST', path: '/api/3/crearFacturaCliente', token: 'integration-beply-token' }
+      ])
+
+      const reconciliation = await execFileAsync('node_modules/.bin/tsx', ['scripts/reconcile.ts'], {
+        cwd: process.cwd(),
+        env: workerEnvironment
+      }).then(
+        ({ stdout }) => ({ exitCode: 0, stdout }),
+        (error: unknown) => {
+          const failure = error as { code?: number; stdout?: string }
+          return { exitCode: failure.code, stdout: failure.stdout ?? '' }
+        }
+      )
+      expect(reconciliation.exitCode).toBe(2)
+      const report = JSON.parse(reconciliation.stdout) as {
+        fiscalPending: Array<{ invoiceId: string; orderNumber: string; code: string }>
+      }
+      expect(report.fiscalPending).toContainEqual(
+        expect.objectContaining({ orderNumber: order.id, code: 'beply_duplicate' })
+      )
+    } finally {
+      server.kill('SIGTERM')
+      await new Promise<void>((resolve) => server.once('exit', () => resolve()))
+    }
   })
 })

@@ -135,4 +135,13 @@ describe('runtime configuration', () => {
       })
     ).toThrow('Production Redsys credentials are required')
   })
+
+  it('never sends the Beply production token over plain HTTP', () => {
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...productionConfiguration,
+        beply: { ...productionConfiguration.beply, baseUrl: 'http://tenant.beply.invalid/api/3' }
+      })
+    ).toThrow('Production Beply requires HTTPS')
+  })
 })

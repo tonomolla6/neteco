@@ -155,6 +155,9 @@ export const runtimeConfigurationSchema = z
     ) {
       context.addIssue({ code: 'custom', path: ['beply'], message: 'Production requires configured Beply invoicing' })
     }
+    if (!config.beply.baseUrl.startsWith('https://')) {
+      context.addIssue({ code: 'custom', path: ['beply', 'baseUrl'], message: 'Production Beply requires HTTPS' })
+    }
     if (config.carrierProvider === 'mock') {
       context.addIssue({ code: 'custom', path: ['carrierProvider'], message: 'Production cannot use the mock carrier' })
     }
