@@ -21,6 +21,7 @@ interface OutboxEvent {
     expiresAt?: string
     occurredAt?: string
     orderNumber?: string
+    returnNumber?: string
     totalCents?: number
     ticketNumber?: string
     replyBody?: string
@@ -48,6 +49,8 @@ const sql = postgres(connection, { max: 2, connect_timeout: 10 })
 const transactionalProvider = emailProviderFromEnvironment()
 const marketingProvider = marketingEmailProviderFromEnvironment()
 const workerId = `email-${process.pid}`
+const aggregateFilter =
+  process.argv.find((argument) => argument.startsWith('--aggregate-id='))?.split('=', 2)[1] ?? null
 
 function escapeHtml(value: string) {
   return value
@@ -72,6 +75,7 @@ async function claim(): Promise<OutboxEvent | undefined> {
           'support.ticket.reply'
           , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
           'order.shipped', 'order.delivered', 'refund.succeeded.email',
+          'return.requested', 'return.status.updated',
           'invoice.issued',
           'newsletter.confirmation.requested', 'newsletter.welcome'
         )
@@ -98,13 +102,16 @@ async function claim(): Promise<OutboxEvent | undefined> {
              event.attempts
       FROM outbox_events event
       LEFT JOIN refunds ON event.aggregate_type = 'refund' AND refunds.id = event.aggregate_id
+      LEFT JOIN returns return_record ON event.aggregate_type = 'return' AND return_record.id = event.aggregate_id
       LEFT JOIN invoices invoice_record ON event.aggregate_type = 'invoice' AND invoice_record.id = event.aggregate_id
       LEFT JOIN orders ON
         (event.aggregate_type = 'order' AND orders.id = event.aggregate_id)
         OR (event.aggregate_type = 'refund' AND orders.id = refunds.order_id)
+        OR (event.aggregate_type = 'return' AND orders.id = return_record.order_id)
         OR (event.aggregate_type = 'invoice' AND orders.id = invoice_record.order_id)
       WHERE event.status IN ('pending', 'retry')
         AND event.available_at <= now()
+        AND (${aggregateFilter}::uuid IS NULL OR event.aggregate_id = ${aggregateFilter}::uuid)
         AND event.event_type IN (
           'identity.verification.requested', 'identity.password_reset.requested',
           'identity.email_change.requested', 'identity.security.password_changed',
@@ -112,6 +119,7 @@ async function claim(): Promise<OutboxEvent | undefined> {
           'support.ticket.reply'
           , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
           'order.shipped', 'order.delivered', 'refund.succeeded.email',
+          'return.requested', 'return.status.updated',
           'invoice.issued',
           'newsletter.confirmation.requested', 'newsletter.welcome'
         )
@@ -246,6 +254,24 @@ function render(event: OutboxEvent) {
       subject: `Reembolso confirmado · pedido ${event.payload.orderNumber}`,
       text: `${displayName}: se ha confirmado un reembolso de ${total} para el pedido ${event.payload.orderNumber}. La fecha de abono final depende del banco.`,
       html: `<p>${safeName}:</p><p>Se ha confirmado un reembolso de <strong>${safeTotal}</strong> para el pedido <strong>${safeOrderNumber}</strong>.</p><p>La fecha de abono final depende del banco.</p>`
+    }
+  }
+  if (event.eventType === 'return.requested' || event.eventType === 'return.status.updated') {
+    if (!event.payload.orderNumber || !event.payload.returnNumber) {
+      throw new Error('Return email payload is incomplete')
+    }
+    const requested = event.eventType === 'return.requested'
+    const status = requested ? 'solicitada' : event.payload.statusLabel
+    if (!status) throw new Error('Return status email payload is incomplete')
+    const safeOrderNumber = escapeHtml(event.payload.orderNumber)
+    const safeReturnNumber = escapeHtml(event.payload.returnNumber)
+    const safeStatus = escapeHtml(status)
+    return {
+      messageId: event.id,
+      to: event.payload.recipient,
+      subject: `Devolución ${status} · ${event.payload.returnNumber}`,
+      text: `${displayName}: la devolución ${event.payload.returnNumber} del pedido ${event.payload.orderNumber} está ${status}.`,
+      html: `<p>${safeName}:</p><p>La devolución <strong>${safeReturnNumber}</strong> del pedido <strong>${safeOrderNumber}</strong> está <strong>${safeStatus}</strong>.</p>`
     }
   }
   if (event.eventType === 'support.ticket.received') {

@@ -63,3 +63,18 @@ expedición de transportista. El fake solo se habilita fuera de producción y su
 Esta evidencia de repositorio no sustituye la prueba del carrier real. `DEC-014` continúa siendo el gate externo:
 Logística debe cerrar tender, contrato, API, SLA y sandbox, y después ejecutar el mismo contrato y UAT antes de aceptar
 TST-014/SHP-004 para Alpha.
+
+## Cancelaciones, devoluciones y reembolsos E2E
+
+El journey financiero-logístico crea por UI un pedido sin captura, otro capturado antes de expedición y un tercero
+capturado y expedido. Verifica cancelación e idempotencia antes y después de captura, bloqueo de cancelación y de
+devolución mientras el envío no está entregado, solicitud parcial desde autoservicio y resolución desde el panel.
+La conciliación final comprueba reserva y stock físico, rechazo de importes excesivos, reembolso total y parcial,
+eventos de pago sin duplicados, factura origen y rectificativa PDF enlazada, además de las entregas de email de
+cancelación, devolución y reembolso.
+
+La captura atraviesa el endpoint Redsys real con una notificación firmada y el TPV alojado interceptado localmente.
+Los jobs de reembolso, factura/rectificativa y correo usan adapters deterministas de test y se reejecutan para probar
+idempotencia sin red externa. Esta evidencia cubre la orquestación TST-015 en el repositorio, pero no atribuye
+evidencia a los proveedores Redsys o Beply reales; su aceptación con credenciales, contrato y sandbox continúa
+gobernada por los requisitos PAY y BEP correspondientes.

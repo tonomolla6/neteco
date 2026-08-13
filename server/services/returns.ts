@@ -9,6 +9,16 @@ function publicReturnNumber() {
   return `RMA${randomBytes(7).toString('hex').slice(0, 10).toUpperCase()}`
 }
 
+const returnStatusLabels: Record<ReturnState, string> = {
+  requested: 'solicitada',
+  approved: 'aprobada',
+  rejected: 'rechazada',
+  in_transit: 'en tránsito',
+  received: 'recibida',
+  inspected: 'inspeccionada',
+  resolved: 'resuelta'
+}
+
 async function accessContext(event: H3Event, publicNumber: string) {
   const cookie = getCookie(event, 'neteco-order-access')
   const token = cookie?.startsWith(`${publicNumber}.`) ? cookie.slice(publicNumber.length + 1) : ''
@@ -208,9 +218,31 @@ export async function transitionReturn(input: {
         `
       }
       if (restockLines.length > 0) {
-        await transaction`
-          UPDATE orders SET inventory_status = 'returned', updated_at = now() WHERE id = ${record.order_id}
+        const [returnCoverage] = await transaction<{ fullyReturned: boolean }[]>`
+          SELECT NOT EXISTS (
+            SELECT 1
+            FROM order_lines ordered
+            WHERE ordered.order_id = ${record.order_id}
+              AND ordered.quantity > (
+                SELECT COALESCE(sum(returned.quantity), 0)
+                FROM return_lines returned
+                JOIN returns return_record ON return_record.id = returned.return_id
+                WHERE returned.order_line_id = ordered.id
+                  AND (return_record.status = 'resolved' OR return_record.id = ${record.id})
+              )
+          ) AS "fullyReturned"
         `
+        if (returnCoverage?.fullyReturned) {
+          await transaction`
+            UPDATE orders
+            SET inventory_status = 'returned', fulfillment_status = 'returned', updated_at = now()
+            WHERE id = ${record.order_id}
+          `
+          await transaction`
+            UPDATE fulfillments SET status = 'returned', updated_at = now()
+            WHERE order_id = ${record.order_id}
+          `
+        }
       }
     }
     if (input.refundAmountCents) {
@@ -327,6 +359,19 @@ export async function transitionReturn(input: {
         ${transaction.json({ resolution: input.resolution?.trim() || null, refundId })},
         ${input.correlationId}, ${`return:${record.id}:${input.status}`}
       ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
+    `
+    await transaction`
+      INSERT INTO outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+      ) VALUES (
+        'return', ${record.id}, 'return.status.updated',
+        ${transaction.json({
+          returnNumber: input.publicNumber,
+          statusLabel: returnStatusLabels[input.status],
+          refundAmountCents: input.refundAmountCents ?? null
+        })},
+        ${input.correlationId}, ${`return:${record.id}:notification:${input.status}`}
+      ) ON CONFLICT (idempotency_key) DO NOTHING
     `
     await transaction`
       INSERT INTO audit_log (

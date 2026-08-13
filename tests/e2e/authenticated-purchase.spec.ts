@@ -150,7 +150,7 @@ async function authenticatedPurchase(page: Page) {
   const created = await orderCreation
   expect(created.status(), await created.text()).toBe(201)
   const payment = await paymentCreation
-  expect(payment.status(), await payment.text()).toBe(200)
+  expect(payment.status()).toBe(200)
   await expect(page.getByRole('heading', { name: 'Redsys cuenta simulada' })).toBeVisible()
 
   const hostedFields = new URLSearchParams(sandboxPosts[0])

@@ -287,12 +287,8 @@ export async function createOrder(input: CreateOrderInput) {
 
     const orderId = randomUUID()
     const publicNumber = publicOrderNumber()
-    const expiresAt = new Date(
-      Date.now() +
-        (input.paymentMethod === 'transferencia'
-          ? TRANSFER_RESERVATION_HOURS * 60 * 60_000
-          : CHECKOUT_RESERVATION_MINUTES * 60_000)
-    )
+    const reservationMinutes =
+      input.paymentMethod === 'transferencia' ? TRANSFER_RESERVATION_HOURS * 60 : CHECKOUT_RESERVATION_MINUTES
 
     for (const variant of variants) {
       const [balance] = await transaction<InventoryRecord[]>`
@@ -399,7 +395,7 @@ export async function createOrder(input: CreateOrderInput) {
         ${quote.taxCents}, ${quote.totalGrossCents}, ${input.shippingMethod}, ${input.paymentMethod},
         ${transaction.json(billingSnapshot)}, ${transaction.json(shippingSnapshot)},
         ${transaction.json(customerSnapshot)}, ${transaction.json(termsSnapshot)}, ${quote.pricingVersion},
-        ${input.correlationId}, ${input.idempotencyKey}, ${expiresAt}
+        ${input.correlationId}, ${input.idempotencyKey}, now() + (${reservationMinutes} * interval '1 minute')
       )
       RETURNING id, public_number, guest_access_hash, payment_method, payment_status,
                 total_gross_cents, expires_at
@@ -446,7 +442,7 @@ export async function createOrder(input: CreateOrderInput) {
         INSERT INTO inventory_reservations (
           variant_id, location_id, order_id, quantity, status, expires_at, idempotency_key
         ) VALUES (
-          ${variant.id}, ${balance.location_id}, ${orderId}, ${quantity}, 'active', ${expiresAt},
+          ${variant.id}, ${balance.location_id}, ${orderId}, ${quantity}, 'active', ${order.expires_at},
           ${`${input.idempotencyKey}:reserve:${variant.id}`}
         )
       `
@@ -469,7 +465,7 @@ export async function createOrder(input: CreateOrderInput) {
       ) VALUES (
         ${orderId}, ${paymentProvider}, ${input.paymentMethod},
         ${input.paymentMethod === 'transferencia' ? 'pending' : 'initiated'},
-        ${quote.totalGrossCents}, 'EUR', ${`${input.idempotencyKey}:payment`}, ${expiresAt}
+        ${quote.totalGrossCents}, 'EUR', ${`${input.idempotencyKey}:payment`}, ${order.expires_at}
       )
     `
     await transaction`

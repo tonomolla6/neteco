@@ -215,14 +215,11 @@ interface CartMutation {
   quantity?: number
 }
 
-async function lockedCart(transaction: TransactionSql, cartId: string, expectedVersion: number) {
+async function lockedCart(transaction: TransactionSql, cartId: string) {
   const [cart] = await transaction<CartReference[]>`
     SELECT id, version, customer_id, status FROM carts WHERE id = ${cartId} FOR UPDATE
   `
   if (!cart || cart.status !== 'active') throw createError({ statusCode: 409, statusMessage: 'Carrito no activo' })
-  if (cart.version !== expectedVersion) {
-    throw createError({ statusCode: 409, statusMessage: 'El carrito ha cambiado; se ha actualizado su contenido' })
-  }
   return cart
 }
 
@@ -247,13 +244,16 @@ export async function mutateServerCart(event: H3Event, input: CartMutation) {
   const reference = await cartReference(event, true)
   if (!reference) throw new Error('Cart reference is unavailable')
   const sql = useDatabase()
-  await sql.begin('isolation level serializable', async (transaction) => {
+  await sql.begin(async (transaction) => {
+    const cart = await lockedCart(transaction, reference.id)
     const [prior] = await transaction<{ resulting_version: number }[]>`
       SELECT resulting_version FROM cart_operations
       WHERE cart_id = ${reference.id} AND idempotency_key = ${input.idempotencyKey}
     `
     if (prior) return
-    const cart = await lockedCart(transaction, reference.id, input.expectedVersion)
+    if (cart.version !== input.expectedVersion) {
+      throw createError({ statusCode: 409, statusMessage: 'El carrito ha cambiado; se ha actualizado su contenido' })
+    }
 
     if (input.operation === 'clear') {
       await transaction`DELETE FROM cart_items WHERE cart_id = ${cart.id}`

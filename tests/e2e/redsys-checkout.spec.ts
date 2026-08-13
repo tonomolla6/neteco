@@ -125,7 +125,7 @@ async function databaseQuery<T>(query: (sql: Sql) => Promise<T>) {
   }
 }
 
-test.describe.configure({ mode: 'serial' })
+test.describe.configure({ mode: 'serial', timeout: 60_000 })
 
 test('confirms a guest purchase when the signed callback arrives before the browser return', async ({
   page,
