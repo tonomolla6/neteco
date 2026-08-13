@@ -72,6 +72,10 @@ export default defineEventHandler(async (event) => {
       WHERE id = ${order.id}
     `
     await transaction`
+      UPDATE fulfillments SET status = ${fulfillmentStatus}, updated_at = now()
+      WHERE order_id = ${order.id}
+    `
+    await transaction`
       INSERT INTO order_events (
         order_id, event_type, actor_type, actor_id, origin, reason, from_state, to_state,
         public_data, private_data, correlation_id, idempotency_key

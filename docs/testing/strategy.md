@@ -51,3 +51,15 @@ La suite importa un extracto sintético por el mismo job que usa Operaciones, co
 concurrente del movimiento sin repetir captura, asignación ni evento. Una referencia incompleta pasa a revisión y se
 concilia desde el panel con permiso financiero y MFA; un importe divergente permanece bloqueado. Un tercer pedido
 caduca mediante dos workers simultáneos y demuestra una única transición, liberación y notificación.
+
+## Fulfillment y transporte E2E
+
+El journey logístico compra por la UI con reparto propio, agencia y recogida, y conserva en el pedido la elegibilidad,
+tarifa y ETA cotizadas. Con el `CarrierProvider` fake prueba creación concurrente idempotente, incompatibilidad entre
+método y servicio, etiqueta PDF, tracking `exception → delivered`, cancelación con replay y cierre de recogida sin
+expedición de transportista. El fake solo se habilita fuera de producción y su secuencia se fija con
+`MOCK_CARRIER_TRACKING_SEQUENCE`; el navegador no alcanza redes externas.
+
+Esta evidencia de repositorio no sustituye la prueba del carrier real. `DEC-014` continúa siendo el gate externo:
+Logística debe cerrar tender, contrato, API, SLA y sandbox, y después ejecutar el mismo contrato y UAT antes de aceptar
+TST-014/SHP-004 para Alpha.

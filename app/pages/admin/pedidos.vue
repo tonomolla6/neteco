@@ -58,6 +58,21 @@ async function syncTracking(order: AdminOrderSummary) {
     toast.add({ title: apiErrorMessage(error, 'No se ha podido sincronizar'), color: 'error' })
   }
 }
+
+async function cancelShipment(order: AdminOrderSummary) {
+  const reason = window.prompt(`Motivo para cancelar la expedición de ${order.id}:`)?.trim()
+  if (!reason || reason.length < 3) {
+    toast.add({ title: 'La cancelación necesita un motivo de al menos 3 caracteres', color: 'warning' })
+    return
+  }
+  try {
+    await $fetch(`/api/admin/shipments/${order.shipmentId}/cancel`, { method: 'POST', body: { reason } })
+    toast.add({ title: `Expedición de ${order.id} cancelada`, color: 'success' })
+    await refresh()
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'No se ha podido cancelar la expedición'), color: 'error' })
+  }
+}
 </script>
 
 <template>
@@ -112,12 +127,25 @@ async function syncTracking(order: AdminOrderSummary) {
                   {{ o.trackingNumber ?? 'Etiqueta' }}
                 </UButton>
                 <UButton
+                  v-if="!['cancelled', 'delivered'].includes(o.shipmentStatus ?? '')"
                   size="xs"
                   variant="ghost"
                   icon="i-lucide-refresh-cw"
                   aria-label="Sincronizar tracking"
                   @click="syncTracking(o)"
                 />
+                <UButton
+                  v-if="!['cancelled', 'delivered'].includes(o.shipmentStatus ?? '')"
+                  size="xs"
+                  color="error"
+                  variant="ghost"
+                  icon="i-lucide-x"
+                  :aria-label="`Cancelar expedición ${o.id}`"
+                  @click="cancelShipment(o)"
+                />
+                <UBadge v-if="o.shipmentStatus === 'cancelled'" size="xs" color="error" variant="soft">
+                  Cancelada
+                </UBadge>
               </div>
               <UButton
                 v-else-if="['pagado', 'preparando'].includes(o.status) && o.shippingMethod !== 'recogida'"

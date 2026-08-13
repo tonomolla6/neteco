@@ -17,6 +17,26 @@ function label(reference: string) {
   return new TextEncoder().encode(`%PDF-1.4\n% NETECO carrier label ${reference}\n%%EOF`)
 }
 
+const trackingCalls = new Map<string, number>()
+
+function configuredTrackingEvents(providerShipmentId: string) {
+  const sequence = process.env.MOCK_CARRIER_TRACKING_SEQUENCE?.split(',')
+    .map((step) => step.trim())
+    .filter(Boolean)
+  if (!sequence?.length) return null
+  const call = trackingCalls.get(providerShipmentId) ?? 0
+  trackingCalls.set(providerShipmentId, call + 1)
+  return sequence[Math.min(call, sequence.length - 1)]!.split('+')
+    .map((status) => status.trim())
+    .filter(Boolean)
+    .map((status, index) => ({
+      status,
+      occurredAt: new Date(
+        Date.parse('2026-08-13T08:00:00.000Z') + call * 60 * 60 * 1_000 + index * 60 * 1_000
+      ).toISOString()
+    }))
+}
+
 export class MockCarrierProvider implements CarrierProvider {
   constructor(readonly name: string = 'mock-carrier') {}
 
@@ -93,10 +113,12 @@ export class MockCarrierProvider implements CarrierProvider {
 
   async tracking(providerShipmentId: string) {
     if (!providerShipmentId.trim()) throw new Error('Provider shipment id is required')
-    return [
+    const baseline = [
       { status: 'created', occurredAt: '2026-08-12T10:00:00.000Z' },
       { status: 'in_transit', occurredAt: '2026-08-13T07:00:00.000Z' }
     ]
+    const configured = configuredTrackingEvents(providerShipmentId)
+    return configured ? [...baseline, ...configured] : baseline
   }
 
   async createReturn(providerShipmentId: string, idempotencyKey: string) {

@@ -73,7 +73,8 @@ export default defineConfig({
           BANK_TRANSFER_BENEFICIARY: 'NETECO E2E',
           NUXT_BANK_TRANSFER_BENEFICIARY: 'NETECO E2E',
           INVOICE_PROVIDER: 'mock',
-          CARRIER_PROVIDER: 'mock'
+          CARRIER_PROVIDER: 'mock',
+          MOCK_CARRIER_TRACKING_SEQUENCE: 'exception,delivered+exception'
         }
       }
 })

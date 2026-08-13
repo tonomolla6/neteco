@@ -59,7 +59,7 @@ const currentRepoEvidence = new Set(
   )
 )
 const currentPartialExternal = new Set(
-  ids('SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023')
+  ids('SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014')
 )
 
 function csv(value: string | number) {
@@ -121,6 +121,8 @@ function evidenceFor(id: string) {
       'tests/e2e/authenticated-purchase.spec.ts; scripts/run-e2e.ts; server/api/orders/index.post.ts; server/api/auth/logout.post.ts; app/pages/pedido/[id].vue',
     'TST-013':
       'tests/e2e/bank-transfer.spec.ts; scripts/bank-transfer-reconcile.ts; server/services/orders.ts; server/api/admin/operations/bank-transfers/[id]/reconcile.post.ts; scripts/reservation-worker.ts',
+    'TST-014':
+      'tests/e2e/shipping-fulfillment.spec.ts; server/services/shipping.ts; server/integrations/mock-carrier.ts; app/pages/admin/pedidos.vue; playwright.config.ts',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':

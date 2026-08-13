@@ -290,7 +290,7 @@ export async function createOrderShipment(input: {
     FROM shipments WHERE fulfillment_id = ${order.fulfillmentId}
     ORDER BY created_at DESC LIMIT 1
   `
-  if (existing && existing.status !== 'cancelled') return { ...existing, duplicate: true }
+  if (existing) return { ...existing, duplicate: true }
   if (
     !['confirmed', 'completed'].includes(order.orderStatus) ||
     !['captured', 'partially_refunded'].includes(order.paymentStatus)
@@ -307,24 +307,32 @@ export async function createOrderShipment(input: {
   const rates = await provider.rates({ originPostalCode: '46870', destination, parcels })
   const rate = rates.find((candidate) => candidate.serviceCode === input.serviceCode)
   if (!rate) throw createError({ statusCode: 422, statusMessage: 'El servicio no es elegible para esta expedición' })
+  const compatibleProfile =
+    order.shippingMethod === 'reparto'
+      ? rate.profile === 'own_delivery'
+      : order.shippingMethod === 'envio' && !['own_delivery', 'pickup'].includes(rate.profile)
+  if (!compatibleProfile) {
+    throw createError({ statusCode: 422, statusMessage: 'El servicio no corresponde al método elegido en el pedido' })
+  }
   const idempotencyKey = `shipment:${order.fulfillmentId}:v1`
-  const shipment = await provider.createShipment({
-    orderNumber: order.publicNumber,
-    destination,
-    parcels,
-    serviceCode: input.serviceCode,
-    idempotencyKey
-  })
-  const shipmentId = randomUUID()
-  const checksum = createHash('sha256').update(shipment.label).digest('hex')
-  return sql.begin('isolation level serializable', async (transaction) => {
+  return sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${idempotencyKey}, 0))`
     const [concurrent] = await transaction<
       { id: string; tracking_number: string | null; status: string; provider_shipment_id: string | null }[]
     >`
       SELECT id, tracking_number, status, provider_shipment_id FROM shipments
-      WHERE idempotency_key = ${idempotencyKey} FOR UPDATE
+      WHERE idempotency_key = ${idempotencyKey}
     `
     if (concurrent) return { ...concurrent, duplicate: true }
+    const shipment = await provider.createShipment({
+      orderNumber: order.publicNumber,
+      destination,
+      parcels,
+      serviceCode: input.serviceCode,
+      idempotencyKey
+    })
+    const shipmentId = randomUUID()
+    const checksum = createHash('sha256').update(shipment.label).digest('hex')
     await transaction`
       INSERT INTO shipments (
         id, fulfillment_id, provider, provider_shipment_id, service_code, tracking_number, status,
@@ -403,6 +411,11 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
   const provider = carrierProviderFromEnvironment()
   const events = await provider.tracking(shipment.provider_shipment_id)
   await sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${`shipment:${shipment.id}`}, 0))`
+    const [locked] = await transaction<{ status: string }[]>`
+      SELECT status FROM shipments WHERE id = ${shipment.id} FOR UPDATE
+    `
+    if (!locked) throw createError({ statusCode: 404, statusMessage: 'Expedición no encontrada' })
     for (const item of events) {
       const payloadHash = createHash('sha256')
         .update(`${shipment.provider_shipment_id}:${item.status}:${item.occurredAt}`)
@@ -415,8 +428,17 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
         ) ON CONFLICT (shipment_id, provider_event_id) DO NOTHING
       `
     }
-    const latestEvent = events.at(-1)
-    if (latestEvent) {
+    if (!['cancelled', 'delivered', 'returned'].includes(locked.status)) {
+      const [latestEvent] = await transaction<{ status: string; occurredAt: Date }[]>`
+        SELECT status, occurred_at AS "occurredAt"
+        FROM shipment_events
+        WHERE shipment_id = ${shipment.id}
+          AND provider_event_id NOT LIKE 'created:%'
+          AND status IN ('in_transit', 'exception', 'delivered')
+        ORDER BY CASE WHEN status = 'delivered' THEN 0 ELSE 1 END, occurred_at DESC, id DESC
+        LIMIT 1
+      `
+      if (!latestEvent) return
       const latest = latestEvent.status
       const fulfillmentStatus =
         latest === 'delivered' ? 'delivered' : latest === 'in_transit' ? 'in_transit' : 'exception'
@@ -427,8 +449,12 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
       await transaction`
         UPDATE orders
         SET fulfillment_status = ${fulfillmentStatus},
+            order_status = CASE
+              WHEN ${fulfillmentStatus} = 'delivered' AND order_status = 'confirmed' THEN 'completed'
+              ELSE order_status
+            END,
             delivered_at = CASE
-              WHEN ${fulfillmentStatus} = 'delivered' THEN COALESCE(delivered_at, ${latestEvent.occurredAt}::timestamptz)
+              WHEN ${fulfillmentStatus} = 'delivered' THEN COALESCE(delivered_at, ${latestEvent.occurredAt})
               ELSE delivered_at
             END,
             updated_at = now()
@@ -441,7 +467,7 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
         ) VALUES (
           ${shipment.order_id}, 'shipment.tracking.updated', 'provider', ${provider.name},
           ${transaction.json({ fulfillment: fulfillmentStatus })}, ${transaction.json({ status: latest })},
-          ${transaction.json({ shipmentId })}, ${correlationId}, ${`tracking:${shipmentId}:${latest}:${latestEvent.occurredAt}`}
+          ${transaction.json({ shipmentId })}, ${correlationId}, ${`tracking:${shipmentId}:${latest}:${latestEvent.occurredAt.toISOString()}`}
         ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
       `
       if (latest === 'delivered') {
@@ -464,18 +490,23 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
 
 export async function cancelOrderShipment(shipmentId: string, actorId: string, correlationId: string, reason: string) {
   const sql = useDatabase()
-  const [shipment] = await sql<
-    { provider_shipment_id: string | null; fulfillment_id: string; order_id: string; status: string }[]
-  >`
-    SELECT shipment.provider_shipment_id, shipment.fulfillment_id, fulfillment.order_id, shipment.status
-    FROM shipments shipment JOIN fulfillments fulfillment ON fulfillment.id = shipment.fulfillment_id
-    WHERE shipment.id = ${shipmentId}
-  `
-  if (!shipment?.provider_shipment_id) throw createError({ statusCode: 404, statusMessage: 'Expedición no encontrada' })
-  if (shipment.status === 'cancelled') return { id: shipmentId, status: 'cancelled', duplicate: true }
   const provider = carrierProviderFromEnvironment()
-  await provider.cancelShipment(shipment.provider_shipment_id)
-  await sql.begin(async (transaction) => {
+  return sql.begin(async (transaction) => {
+    await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${`shipment:${shipmentId}`}, 0))`
+    const [shipment] = await transaction<
+      { provider_shipment_id: string | null; fulfillment_id: string; order_id: string; status: string }[]
+    >`
+      SELECT shipment.provider_shipment_id, shipment.fulfillment_id, fulfillment.order_id, shipment.status
+      FROM shipments shipment JOIN fulfillments fulfillment ON fulfillment.id = shipment.fulfillment_id
+      WHERE shipment.id = ${shipmentId} FOR UPDATE OF shipment
+    `
+    if (!shipment?.provider_shipment_id)
+      throw createError({ statusCode: 404, statusMessage: 'Expedición no encontrada' })
+    if (shipment.status === 'cancelled') return { id: shipmentId, status: 'cancelled', duplicate: true }
+    if (['delivered', 'returned'].includes(shipment.status)) {
+      throw createError({ statusCode: 409, statusMessage: 'Una expedición finalizada no se puede cancelar' })
+    }
+    await provider.cancelShipment(shipment.provider_shipment_id)
     await transaction`UPDATE shipments SET status = 'cancelled', updated_at = now() WHERE id = ${shipmentId}`
     await transaction`
       UPDATE fulfillments SET status = 'exception', updated_at = now() WHERE id = ${shipment.fulfillment_id}
@@ -493,6 +524,6 @@ export async function cancelOrderShipment(shipmentId: string, actorId: string, c
         ${transaction.json({ shipmentId })}, ${correlationId}, ${`shipment:${shipmentId}:cancelled`}
       ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
     `
+    return { id: shipmentId, status: 'cancelled', duplicate: false }
   })
-  return { id: shipmentId, status: 'cancelled', duplicate: false }
 }

@@ -38,6 +38,19 @@ try {
       }
       if (previousChecksum) continue
 
+      if (file === '0002_identity_security.sql') {
+        await transaction`
+          INSERT INTO roles (code, name, description) VALUES
+            ('customer', 'Cliente', 'Acceso a recursos propios'),
+            ('support', 'Soporte', 'Atención a clientes e incidencias'),
+            ('warehouse', 'Almacén', 'Inventario y fulfillment'),
+            ('catalog_editor', 'Editor de catálogo', 'Catálogo y contenido en borrador'),
+            ('publisher', 'Publicador', 'Aprobación y publicación'),
+            ('finance', 'Finanzas', 'Pagos, reembolsos y facturación'),
+            ('admin', 'Administrador', 'Administración sin acceso implícito a secretos')
+          ON CONFLICT (code) DO NOTHING
+        `
+      }
       await transaction.unsafe(source)
       await transaction`
         INSERT INTO _neteco_migrations (version, checksum_sha256)

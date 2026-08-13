@@ -255,6 +255,31 @@ describe('normalized carrier provider', () => {
     ).resolves.toEqual({ status: 'scheduled', providerPickupId: 'PUP-1A16A0BA5063DC' })
   })
 
+  it('drives deterministic tracking scenarios only when explicitly configured', async () => {
+    const previous = process.env.MOCK_CARRIER_TRACKING_SEQUENCE
+    try {
+      process.env.MOCK_CARRIER_TRACKING_SEQUENCE = ' , '
+      await expect(provider.tracking('SHP-EMPTY-SEQUENCE')).resolves.toHaveLength(2)
+
+      process.env.MOCK_CARRIER_TRACKING_SEQUENCE = ' exception, delivered + exception, ,'
+      const first = await provider.tracking('SHP-CONFIGURED-SEQUENCE')
+      const second = await provider.tracking('SHP-CONFIGURED-SEQUENCE')
+      const exhausted = await provider.tracking('SHP-CONFIGURED-SEQUENCE')
+      expect(first.at(-1)).toEqual({ status: 'exception', occurredAt: '2026-08-13T08:00:00.000Z' })
+      expect(second.slice(-2)).toEqual([
+        { status: 'delivered', occurredAt: '2026-08-13T09:00:00.000Z' },
+        { status: 'exception', occurredAt: '2026-08-13T09:01:00.000Z' }
+      ])
+      expect(exhausted.slice(-2)).toEqual([
+        { status: 'delivered', occurredAt: '2026-08-13T10:00:00.000Z' },
+        { status: 'exception', occurredAt: '2026-08-13T10:01:00.000Z' }
+      ])
+    } finally {
+      if (previous === undefined) delete process.env.MOCK_CARRIER_TRACKING_SEQUENCE
+      else process.env.MOCK_CARRIER_TRACKING_SEQUENCE = previous
+    }
+  })
+
   it('rejects incomplete operational requests', async () => {
     const input = {
       orderNumber: 'NE12345',
