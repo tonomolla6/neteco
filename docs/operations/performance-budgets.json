@@ -1,13 +1,20 @@
 {
-  "version": 1,
+  "version": 2,
   "owner": "platform",
-  "templates": ["home", "category", "product", "search", "cart", "checkout"],
+  "templates": {
+    "home": "/",
+    "category": "/catalogo",
+    "product": "/producto/{productSlug}",
+    "search": "/buscar?q=limpieza",
+    "cart": "/carrito",
+    "checkout": "/checkout"
+  },
   "mobile": {
     "lcpMs": 2500,
     "inpMs": 200,
     "cls": 0.1,
     "ttfbMs": 800,
-    "initialJavaScriptGzipKb": 170,
+    "initialJavaScriptGzipKb": 210,
     "initialCssGzipKb": 50,
     "lcpImageKb": 200,
     "thirdPartiesBeforeConsent": 0
@@ -17,9 +24,37 @@
     "inpMs": 150,
     "cls": 0.1,
     "ttfbMs": 600,
-    "initialJavaScriptGzipKb": 190,
+    "initialJavaScriptGzipKb": 220,
     "initialCssGzipKb": 50,
     "lcpImageKb": 300,
     "thirdPartiesBeforeConsent": 0
+  },
+  "api": {
+    "search": {
+      "sustained": { "requests": 60, "concurrency": 6, "p95Ms": 300, "maxErrorRate": 0 },
+      "spike": {
+        "requests": 96,
+        "concurrency": 24,
+        "p95Ms": 800,
+        "maxErrorRate": 0,
+        "successesBeforeBackpressure": 60
+      }
+    },
+    "callback": {
+      "spike": { "requests": 48, "concurrency": 16, "p95Ms": 500, "maxErrorRate": 0 }
+    }
+  },
+  "database": {
+    "poolSize": 4,
+    "requests": 12,
+    "holdMs": 60,
+    "maxElapsedMs": 1500
+  },
+  "worker": {
+    "events": 40,
+    "processes": 4,
+    "maxDatabaseConnections": 8,
+    "maxDrainMs": 5000,
+    "minThroughputPerSecond": 8
   }
 }

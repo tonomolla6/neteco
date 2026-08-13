@@ -12,6 +12,7 @@ export function useRedis() {
   if (!redis) {
     redis = new Redis(redisUrl(), {
       lazyConnect: true,
+      keyPrefix: process.env.REDIS_KEY_PREFIX?.trim() || undefined,
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       connectTimeout: 3_000,

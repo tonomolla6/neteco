@@ -10,6 +10,10 @@
 6. Seguridad/accesibilidad/SEO/rendimiento: IDOR, CSRF/XSS/SSRF/upload, axe, schema/canonical/sitemap, budgets y carga.
 7. UAT/manual: almacén, administración, soporte, lector de pantalla, zoom/reflow, móvil real, sandbox y restore.
 
+El gate `npm run test:performance` usa exclusivamente build, navegador, PostgreSQL y Redis locales aislados. Por plantilla y perfil móvil/escritorio valida JS/CSS comprimido, TTFB, LCP, INP, CLS, imagen LCP y ausencia de terceros antes de consentimiento contra `docs/operations/performance-budgets.json`. Además mide búsqueda sostenida y en pico con backpressure exacto, una ráfaga idempotente del callback Redsys sobre un pedido válido y sus efectos, saturación del pool real de la aplicación y drenado paralelo del outbox. El comando aplica timeout a cada operación, falla al cruzar cualquier umbral y publica `test-results/performance.json`. Este perfil detecta regresiones reproducibles de CI; no sustituye RUM de campo ni una prueba de capacidad del entorno de staging.
+
+La versión 2 del presupuesto de transferencia se calibró sobre el máximo medido del build de las seis plantillas (197,5 KB gzip): 210 KB móvil y 220 KB escritorio dejan margen de regresión acotado. El objetivo inicial de optimización de 170 KB continúa documentado en el informe maestro y no se interpreta como ya alcanzado.
+
 No se admiten tests skipped, cuarentena silenciosa ni retries para convertir rojo en verde. Un test inestable bloquea hasta repararse o necesita issue, owner y fecha. Coverage complementa mutation testing (mínimo 90 % inicial), property tests y fault injection.
 
 El alcance, los umbrales y cada exclusión de cobertura se gobiernan en

@@ -56,7 +56,7 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024'
   )
 )
 const currentPartialExternal = new Set(
@@ -137,6 +137,8 @@ function evidenceFor(id: string) {
       'tests/e2e/security.spec.ts; tests/e2e/authorization-idor.spec.ts; tests/e2e/privacy.spec.ts; tests/unit/security-boundaries.test.ts; tests/unit/media-upload.test.ts; tests/unit/beply.test.ts; tests/unit/invoice-email.test.ts; server/integrations/beply.ts; server/utils/outbound-url.ts; server/utils/csv.ts; server/utils/private-cookie.ts; server/utils/security-headers.ts; server/utils/abuse-limit.ts; docs/testing/input-output-security.md; .github/workflows/ci.yml',
     'TST-022':
       'tests/e2e/accessibility.spec.ts; docs/testing/automated-accessibility.md; package.json; playwright.config.ts; .github/workflows/ci.yml',
+    'TST-024':
+      'scripts/run-performance.ts; scripts/lib/performance.ts; server/api/__test__/pool.get.ts; server/db/redis.ts; docs/operations/performance-budgets.json; tests/unit/performance-harness.test.ts; .github/workflows/ci.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':
