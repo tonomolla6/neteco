@@ -44,7 +44,7 @@ const form = reactive({
   badges: [...(product?.badges ?? [])] as string[],
   visual: { type: product?.visual.type ?? 'caja', color: product?.visual.color ?? '#009ac9' },
   featured: !!product?.featured,
-  active: product?.active ?? false,
+  active: product?.status === 'published',
   series: product?.series ?? '',
   image: product?.image ?? '',
   imageAlt: product?.imageAlt ?? '',
@@ -273,9 +273,12 @@ async function removeProduct() {
             <label class="flex items-center gap-2 text-sm text-slate-700">
               <input v-model="form.featured" type="checkbox" class="size-4 accent-neteco-600" /> Destacado en portada
             </label>
-            <label class="flex items-center gap-2 text-sm text-slate-700">
-              <input v-model="form.active" type="checkbox" class="size-4 accent-neteco-600" /> Visible en la tienda
-            </label>
+            <p class="text-sm text-slate-700">
+              Estado editorial:
+              <strong>{{ product?.status ?? 'draft' }}</strong
+              >. Las transiciones y la publicación se realizan desde el listado para conservar auditoría y aplicar el
+              gate completo.
+            </p>
           </div>
         </div>
 

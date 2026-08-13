@@ -16,6 +16,7 @@ export interface AdminProductSummary {
   brand: string
   featured: boolean
   active: boolean
+  status: 'draft' | 'review' | 'published' | 'hidden' | 'discontinued'
   series: string | null
   visual: ProductVisualData
   categoryId: number
@@ -37,6 +38,7 @@ export interface AdminProductDetail {
   visual: ProductVisualData
   featured: boolean
   active: boolean
+  status: 'draft' | 'review' | 'published' | 'hidden' | 'discontinued'
   series: string | null
   image: string | null
   imageAlt: string | null

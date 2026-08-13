@@ -90,6 +90,7 @@ export default defineNuxtConfig({
     '/catalogo': { swr: 120 },
     '/categoria/**': { swr: 120 },
     '/producto/**': { swr: 120 },
+    '/contenido/**': { swr: 300 },
     '/buscar': { swr: 30 },
     '/robots.txt': { swr: 3600 },
     '/sitemap.xml': { swr: 3600 },

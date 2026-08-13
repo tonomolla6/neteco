@@ -4,7 +4,8 @@ import { useDatabase } from '../../db/client'
 const querySchema = z.object({
   q: z.string().trim().max(160).optional(),
   category: z.coerce.number().int().positive().optional(),
-  active: z.enum(['0', '1']).optional()
+  active: z.enum(['0', '1']).optional(),
+  status: z.enum(['draft', 'review', 'published', 'hidden', 'discontinued']).optional()
 })
 
 export default defineEventHandler(async (event) => {
@@ -19,6 +20,7 @@ export default defineEventHandler(async (event) => {
       brand: string
       featured: boolean
       active: boolean
+      status: 'draft' | 'review' | 'published' | 'hidden' | 'discontinued'
       series: string | null
       visual: { type: string; color: string }
       categoryId: number
@@ -28,7 +30,7 @@ export default defineEventHandler(async (event) => {
     }>
   >`
     SELECT p.legacy_id AS id, p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
-           p.featured, p.status = 'published' AS active, p.series,
+           p.featured, p.status = 'published' AS active, p.status, p.series,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
            c.legacy_id AS "categoryId", c.name AS "categoryName",
            min(v.price_gross_cents)::int AS "minPrice", count(v.id)::int AS formats
@@ -43,6 +45,7 @@ export default defineEventHandler(async (event) => {
       AND (${query.active ?? null}::text IS NULL
            OR (${query.active ?? null} = '1' AND p.status = 'published')
            OR (${query.active ?? null} = '0' AND p.status <> 'published'))
+      AND (${query.status ?? null}::text IS NULL OR p.status = ${query.status ?? null})
     GROUP BY p.id, b.name, c.legacy_id, c.name
     ORDER BY lower(p.name)
     LIMIT 500

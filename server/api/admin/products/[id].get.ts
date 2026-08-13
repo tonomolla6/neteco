@@ -19,6 +19,7 @@ export default defineEventHandler(async (event) => {
       visual: { type: string; color: string }
       featured: boolean
       active: boolean
+      status: 'draft' | 'review' | 'published' | 'hidden' | 'discontinued'
       series: string | null
       image: string | null
       imageAlt: string | null
@@ -32,7 +33,7 @@ export default defineEventHandler(async (event) => {
            c.legacy_id AS "categoryId", p.short_description AS "shortDesc", p.description,
            p.usage, COALESCE(p.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(p.attributes -> 'visual', '{"type":"caja","color":"#009ac9"}'::jsonb) AS visual,
-           p.featured, p.status = 'published' AS active, p.series,
+           p.featured, p.status = 'published' AS active, p.status, p.series,
            p.attributes ->> 'image' AS image, p.attributes ->> 'imageAlt' AS "imageAlt",
            p.attributes #>> '{imageRights,owner}' AS "imageRightsOwner",
            p.attributes #>> '{imageRights,license}' AS "imageRightsLicense",

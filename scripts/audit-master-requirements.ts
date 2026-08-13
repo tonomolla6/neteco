@@ -55,7 +55,7 @@ const mvpMissing = ids('TST-004;TST-006;CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004;CAT-008;PRI-002..003;PRI-005;PRI-007;PRI-010;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017'
+    'CAT-004..006;CAT-008;PRI-002..003;PRI-005;PRI-007;PRI-010;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017'
   )
 )
 const currentPartialExternal = new Set(
@@ -90,6 +90,10 @@ function evidenceFor(id: string) {
     'SEO-003': 'server/routes/sitemap.xml.get.ts; server/routes/sitemaps/',
     'SEO-007': 'app/app.vue; app/pages/producto/[slug].vue',
     'SEO-015': 'server/routes/feeds/google-merchant.xml.get.ts; docs/operations/merchant-feed.md',
+    'ADM-009': 'server/utils/content-schema.ts; app/pages/admin/contenido.vue',
+    'ADM-010':
+      'server/api/admin/content/pages/[id]/preview.post.ts; server/api/admin/content/pages/[id]/publish.post.ts',
+    'ADM-011': 'db/migrations/0022_typed_content_cms.sql; server/api/admin/content/pages/[id]/rollback.post.ts',
     'PER-003': 'app/plugins/rum.client.ts; server/api/analytics/events.post.ts',
     'PER-013': 'app/plugins/rum.client.ts; server/api/analytics/events.post.ts; db/migrations/0019_rum_measurement.sql'
   }

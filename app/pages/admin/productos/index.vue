@@ -13,18 +13,36 @@ const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { 
 const catOptions = computed(() => flattenCategoryTree(catData.value?.roots ?? []))
 
 const { data, refresh } = await useFetch<{ items: AdminProductSummary[] }>('/api/admin/products', {
-  query: { q, category, active: estado }
+  query: { q, category, status: estado }
 })
 const items = computed(() => data.value?.items ?? [])
 
 const toast = useToast()
 
-async function toggleActive(product: AdminProductSummary) {
+const STATUS_LABELS: Record<AdminProductSummary['status'], string> = {
+  draft: 'Borrador',
+  review: 'En revisión',
+  published: 'Publicado',
+  hidden: 'Oculto',
+  discontinued: 'Descatalogado'
+}
+const STATUS_TRANSITIONS: Record<AdminProductSummary['status'], AdminProductSummary['status'][]> = {
+  draft: ['review', 'hidden', 'discontinued'],
+  review: ['draft', 'published', 'hidden'],
+  published: ['hidden', 'discontinued'],
+  hidden: ['draft', 'review', 'published', 'discontinued'],
+  discontinued: ['draft']
+}
+
+async function changeStatus(product: AdminProductSummary, status: AdminProductSummary['status']) {
   try {
-    await $fetch(`/api/admin/products/${product.id}/active`, { method: 'PUT', body: { active: !product.active } })
+    await $fetch(`/api/admin/products/${product.id}/active`, {
+      method: 'PUT',
+      body: { status, reason: `Transición editorial ${product.status} → ${status}` }
+    })
     toast.add({
-      title: product.active ? `«${product.name}» oculto de la tienda` : `«${product.name}» publicado en la tienda`,
-      icon: product.active ? 'i-lucide-eye-off' : 'i-lucide-eye',
+      title: `«${product.name}»: ${STATUS_LABELS[status]}`,
+      icon: status === 'published' ? 'i-lucide-eye' : 'i-lucide-workflow',
       color: 'success'
     })
     refresh()
@@ -78,9 +96,8 @@ async function removeProduct(product: AdminProductSummary) {
         aria-label="Filtrar por estado"
         class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 focus:border-neteco-500 focus:outline-none"
       >
-        <option value="">Publicados y ocultos</option>
-        <option value="1">Solo publicados</option>
-        <option value="0">Solo ocultos</option>
+        <option value="">Todos los estados</option>
+        <option v-for="(label, value) in STATUS_LABELS" :key="value" :value="value">{{ label }}</option>
       </select>
       <span class="self-center text-sm text-slate-500">{{ items.length }} productos</span>
     </div>
@@ -115,7 +132,9 @@ async function removeProduct(product: AdminProductSummary) {
                     >
                       {{ p.name }}
                     </NuxtLink>
-                    <UBadge v-if="!p.active" color="neutral" variant="subtle" size="sm">Oculto</UBadge>
+                    <UBadge :color="p.active ? 'success' : 'neutral'" variant="subtle" size="sm">
+                      {{ STATUS_LABELS[p.status] }}
+                    </UBadge>
                   </div>
                   <p class="text-xs text-slate-500">
                     {{ p.brand }}<template v-if="p.series"> · gama {{ p.series }}</template>
@@ -131,14 +150,17 @@ async function removeProduct(product: AdminProductSummary) {
             </td>
             <td class="px-4 py-2.5">
               <div class="flex justify-end gap-1">
-                <UButton
-                  size="xs"
-                  :variant="p.active ? 'ghost' : 'soft'"
-                  :color="p.active ? 'neutral' : 'success'"
-                  :icon="p.active ? 'i-lucide-eye-off' : 'i-lucide-eye'"
-                  :aria-label="p.active ? 'Ocultar de la tienda' : 'Publicar en la tienda'"
-                  @click="toggleActive(p)"
-                />
+                <select
+                  :value="p.status"
+                  :aria-label="`Cambiar estado de ${p.name}`"
+                  class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs"
+                  @change="changeStatus(p, ($event.target as HTMLSelectElement).value as AdminProductSummary['status'])"
+                >
+                  <option :value="p.status">{{ STATUS_LABELS[p.status] }}</option>
+                  <option v-for="status in STATUS_TRANSITIONS[p.status]" :key="status" :value="status">
+                    → {{ STATUS_LABELS[status] }}
+                  </option>
+                </select>
                 <UButton
                   v-if="p.active"
                   :to="`/producto/${p.slug}`"

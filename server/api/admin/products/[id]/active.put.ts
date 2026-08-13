@@ -2,10 +2,21 @@ import { z } from 'zod'
 import { useDatabase } from '../../../../db/client'
 import { catalogPublicationIssues, type PublicationVariant } from '../../../../domain/catalog-publication'
 
-const schema = z.object({
-  active: z.boolean(),
-  reason: z.string().trim().min(3).max(500).default('Publication status update')
-})
+const schema = z
+  .object({
+    active: z.boolean().optional(),
+    status: z.enum(['draft', 'review', 'published', 'hidden', 'discontinued']).optional(),
+    reason: z.string().trim().min(3).max(500).default('Publication status update')
+  })
+  .refine((body) => body.active !== undefined || body.status !== undefined, 'Indica el estado editorial')
+
+const transitions: Record<string, string[]> = {
+  draft: ['review', 'hidden', 'discontinued'],
+  review: ['draft', 'published', 'hidden'],
+  published: ['hidden', 'discontinued'],
+  hidden: ['draft', 'review', 'published', 'discontinued'],
+  discontinued: ['draft']
+}
 
 export default defineEventHandler(async (event) => {
   const administrator = await requireAdmin(event)
@@ -13,6 +24,7 @@ export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const sql = useDatabase()
   const correlationId = event.context.correlationId ?? crypto.randomUUID()
+  const targetStatus = body.status ?? (body.active ? 'published' : 'hidden')
   const product = await sql.begin(async (transaction) => {
     const [current] = await transaction<
       Array<{
@@ -45,7 +57,13 @@ export default defineEventHandler(async (event) => {
       WHERE product.legacy_id = ${id} FOR UPDATE OF product
     `
     if (!current) return null
-    if (body.active) {
+    if (current.status !== targetStatus && !transitions[current.status]?.includes(targetStatus)) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: `Transición editorial no permitida: ${current.status} → ${targetStatus}`
+      })
+    }
+    if (targetStatus === 'published') {
       const variants = await transaction<PublicationVariant[]>`
         SELECT sku, ean, gtin, mpn, identifier_exception_reason AS "identifierExceptionReason",
                price_gross_cents AS "priceCents", unit_base AS "unitBase", unit_label AS "unitLabel",
@@ -100,13 +118,13 @@ export default defineEventHandler(async (event) => {
       }
     }
     await transaction`
-      UPDATE products SET status = ${body.active ? 'published' : 'hidden'},
-        published_at = CASE WHEN ${body.active} THEN COALESCE(published_at, now()) ELSE published_at END,
+      UPDATE products SET status = ${targetStatus},
+        published_at = CASE WHEN ${targetStatus} = 'published' THEN COALESCE(published_at, now()) ELSE published_at END,
         updated_at = now()
       WHERE id = ${current.uuid}
     `
     await transaction`
-      UPDATE variants SET status = ${body.active ? 'published' : 'hidden'}, updated_at = now()
+      UPDATE variants SET status = ${targetStatus}, updated_at = now()
       WHERE product_id = ${current.uuid} AND status <> 'discontinued'
     `
     await transaction`
@@ -116,11 +134,11 @@ export default defineEventHandler(async (event) => {
       ) VALUES (
         'staff', ${administrator.id}, 'product.publication.update', 'product', ${String(id)},
         ${transaction.json({ status: current.status })},
-        ${transaction.json({ active: body.active })}, ${body.reason}, ${correlationId}
+        ${transaction.json({ status: targetStatus })}, ${body.reason}, ${correlationId}
       )
     `
     return current
   })
   if (!product) throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado' })
-  return { id, active: body.active }
+  return { id, status: targetStatus, active: targetStatus === 'published' }
 })

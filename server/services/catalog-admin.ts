@@ -14,6 +14,7 @@ interface ProductIdentity {
   name: string
   slug: string
   categoryId: string
+  status: string
 }
 
 async function nextProductLegacyId(transaction: TransactionSql) {
@@ -229,11 +230,11 @@ export async function updateCatalogProduct(
   const sql = useDatabase()
   return sql.begin(async (transaction) => {
     const [current] = await transaction<ProductIdentity[]>`
-      SELECT id, legacy_id AS "legacyId", name, slug, category_id AS "categoryId"
+      SELECT id, legacy_id AS "legacyId", name, slug, category_id AS "categoryId", status
       FROM products WHERE legacy_id = ${legacyId} FOR UPDATE
     `
     if (!current) return null
-    if (input.active) await assertApprovedPrimaryMedia(transaction, input.image)
+    if (input.active || current.status === 'published') await assertApprovedPrimaryMedia(transaction, input.image)
     const references = await requiredReferences(transaction, input.categoryId, input.brand)
     const slug =
       input.name === current.name
@@ -260,7 +261,7 @@ export async function updateCatalogProduct(
         category_id = ${references.categoryId}, brand_id = ${references.brandId}, name = ${input.name},
         slug = ${slug}, short_description = ${input.shortDesc}, description = ${input.description},
         usage = ${input.usage || null}, series = ${input.series || null},
-        status = ${input.active ? 'published' : 'draft'}, featured = ${input.featured},
+        status = ${input.active ? 'published' : current.status}, featured = ${input.featured},
         attributes = attributes || ${transaction.json({
           badges: input.badges,
           visual: input.visual,
@@ -293,7 +294,7 @@ export async function updateCatalogProduct(
             tax_class_id = ${references.taxId}, shipping_profile_id = ${references.shippingId},
             sku = ${sku}, ean = ${variant.ean || null}, gtin = ${variant.gtin || null}, mpn = ${variant.mpn || null},
             identifier_exception_reason = ${variant.identifierExceptionReason || null},
-            format = ${variant.format}, status = ${input.active ? 'published' : 'draft'},
+            format = ${variant.format}, status = ${input.active ? 'published' : current.status},
             unit_base = ${variant.unitBase}, unit_label = ${variant.unitLabel || unit?.[1] || 'unidad'},
             content_quantity = ${variant.contentQuantity || unit?.[0] || 1},
             units_per_case = ${variant.unitsPerCase}, cases_per_pallet = ${variant.casesPerPallet ?? null},
@@ -318,7 +319,7 @@ export async function updateCatalogProduct(
           ) VALUES (
             ${variantLegacyId}, ${current.id}, ${references.taxId}, ${references.shippingId},
             ${sku}, ${variant.ean || null}, ${variant.gtin || null}, ${variant.mpn || null},
-            ${variant.identifierExceptionReason || null}, ${variant.format}, ${input.active ? 'published' : 'draft'},
+            ${variant.identifierExceptionReason || null}, ${variant.format}, ${input.active ? 'published' : current.status},
             ${variant.unitBase}, ${variant.unitLabel || unit?.[1] || 'unidad'},
             ${variant.contentQuantity || unit?.[0] || 1}, ${variant.unitsPerCase},
             ${variant.casesPerPallet ?? null}, ${variant.minimumQuantity}, ${variant.quantityIncrement},
