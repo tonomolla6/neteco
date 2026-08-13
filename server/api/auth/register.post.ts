@@ -13,15 +13,17 @@ const passwordSchema = z
   .regex(/[a-záéíóúñ]/i, 'La contraseña debe contener una letra')
   .regex(/\d/, 'La contraseña debe contener un número')
 
-const schema = z.object({
-  name: z.string().trim().min(2).max(160),
-  email: z.string().trim().email().max(254),
-  password: passwordSchema,
-  phone: z.string().trim().max(32).optional(),
-  company: z.string().trim().max(160).optional(),
-  termsAccepted: z.literal(true),
-  newsletter: z.boolean().default(false)
-})
+const schema = z
+  .object({
+    name: z.string().trim().min(2).max(160),
+    email: z.string().trim().email().max(254),
+    password: passwordSchema,
+    phone: z.string().trim().max(32).optional(),
+    company: z.string().trim().max(160).optional(),
+    termsAccepted: z.literal(true),
+    newsletter: z.boolean().default(false)
+  })
+  .strict()
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
@@ -74,12 +76,12 @@ export default defineEventHandler(async (event) => {
         VALUES (${customer.id}, 'transactional', 'email', true),
                (${customer.id}, 'newsletter', 'email', ${body.newsletter})
       `
-      const accountTextHash = createHash('sha256').update('account-terms-and-privacy-2026-08-12').digest('hex')
+      const accountTextHash = createHash('sha256').update('account-terms-2026-08-12').digest('hex')
       const newsletterTextHash = createHash('sha256').update('newsletter-2026-08-12').digest('hex')
       await transaction`
         INSERT INTO consent_events (customer_id, purpose, channel, action, policy_version, text_hash, source)
         VALUES
-          (${customer.id}, 'account_terms_and_privacy', 'web', 'granted', 'privacy-2026-08-12',
+          (${customer.id}, 'account_terms', 'web', 'granted', 'account-terms-2026-08-12',
            ${accountTextHash}, 'registration'),
           (${customer.id}, 'newsletter', 'email', ${body.newsletter ? 'granted' : 'withdrawn'},
            'communications-2026-08-12', ${newsletterTextHash}, 'registration')

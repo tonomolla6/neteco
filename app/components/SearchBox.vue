@@ -9,6 +9,8 @@ const open = ref(false)
 const loading = ref(false)
 const active = ref(-1)
 const rootEl = ref<HTMLElement | null>(null)
+const listboxId = `search-listbox-${useId()}`
+const optionId = (index: number) => `${listboxId}-option-${index}`
 let timer: ReturnType<typeof setTimeout> | undefined
 
 watch(q, (val) => {
@@ -49,7 +51,7 @@ function goToResults() {
 function select(item: SearchSuggestion) {
   open.value = false
   q.value = ''
-  router.push(`/producto/${item.slug}`)
+  router.push({ path: `/producto/${item.slug}`, query: item.sku ? { sku: item.sku } : {} })
 }
 
 function onEnter() {
@@ -82,7 +84,8 @@ function onFocusOut(e: FocusEvent) {
       role="combobox"
       aria-label="Buscar productos"
       :aria-expanded="open"
-      aria-controls="search-listbox"
+      :aria-controls="listboxId"
+      :aria-activedescendant="active >= 0 ? optionId(active) : undefined"
       aria-autocomplete="list"
       @keydown.enter="onEnter"
       @keydown.down.prevent="move(1)"
@@ -92,13 +95,14 @@ function onFocusOut(e: FocusEvent) {
 
     <div
       v-if="open"
-      id="search-listbox"
+      :id="listboxId"
       role="listbox"
       class="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
     >
       <template v-if="items.length">
         <button
           v-for="(item, i) in items"
+          :id="optionId(i)"
           :key="item.slug"
           type="button"
           role="option"

@@ -4,10 +4,13 @@ const { clear } = useUserSession()
 const links = [
   { to: '/admin', label: 'Panel', icon: 'i-lucide-layout-dashboard' },
   { to: '/admin/productos', label: 'Productos', icon: 'i-lucide-package' },
+  { to: '/admin/medios', label: 'Medios', icon: 'i-lucide-images' },
   { to: '/admin/categorias', label: 'Familias', icon: 'i-lucide-folder-tree' },
   { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text' },
   { to: '/admin/clientes', label: 'Clientes', icon: 'i-lucide-building-2' },
-  { to: '/admin/devoluciones', label: 'Devoluciones', icon: 'i-lucide-rotate-ccw' }
+  { to: '/admin/devoluciones', label: 'Devoluciones', icon: 'i-lucide-rotate-ccw' },
+  { to: '/admin/soporte', label: 'Soporte', icon: 'i-lucide-life-buoy' },
+  { to: '/admin/operaciones', label: 'Operaciones', icon: 'i-lucide-activity' }
 ]
 
 async function logout() {

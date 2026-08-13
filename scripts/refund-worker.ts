@@ -216,6 +216,27 @@ async function processJob(job: Job) {
       ON CONFLICT (idempotency_key) DO NOTHING
     `
     await transaction`
+      INSERT INTO analytics_events (
+        event_id, event_name, source, order_id, dedupe_key, properties, occurred_at
+      ) VALUES (
+        gen_random_uuid(), 'refund_confirmed', 'server', ${refund.orderId}, ${`refund:${refund.id}:confirmed`},
+        ${transaction.json({ orderNumber: refund.orderNumber, refundId: refund.id, amountCents: refund.amountCents })},
+        now()
+      ) ON CONFLICT (dedupe_key) DO NOTHING
+    `
+    await transaction`
+      INSERT INTO outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+      ) VALUES (
+        'refund', ${refund.id}, 'refund.succeeded.email',
+        ${transaction.json({
+          refundId: refund.id,
+          orderNumber: refund.orderNumber,
+          refundCents: refund.amountCents
+        })}, ${job.correlationId}, ${`refund:${refund.id}:email`}
+      ) ON CONFLICT (idempotency_key) DO NOTHING
+    `
+    await transaction`
       UPDATE outbox_events SET status = 'completed', completed_at = now(), locked_at = NULL, locked_by = NULL,
         last_error_code = NULL, last_error_message = NULL
       WHERE id = ${job.id} AND locked_by = ${workerId}

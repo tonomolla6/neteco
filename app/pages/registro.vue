@@ -1,5 +1,6 @@
 <script setup lang="ts">
 useSeoMeta({ title: 'Crear cuenta' })
+const runtime = useRuntimeConfig()
 
 const route = useRoute()
 const { fetch: refreshSession } = useUserSession()
@@ -32,7 +33,7 @@ async function submit() {
     return
   }
   if (!form.termsAccepted) {
-    errorMsg.value = 'Debes aceptar las condiciones de la cuenta y la política de privacidad.'
+    errorMsg.value = 'Debes aceptar las condiciones de la cuenta.'
     return
   }
   loading.value = true
@@ -100,11 +101,15 @@ async function submit() {
           />
         </UFormField>
 
-        <UCheckbox
-          v-model="form.termsAccepted"
-          required
-          label="Acepto las condiciones de la cuenta y la política de privacidad"
-        />
+        <UCheckbox v-model="form.termsAccepted" required label="Acepto las condiciones de la cuenta" />
+        <p class="text-xs leading-relaxed text-slate-500">
+          Consulta las
+          <a :href="runtime.public.legalTermsUrl" target="_blank" rel="noopener" class="underline">condiciones</a> y la
+          <a :href="runtime.public.privacyUrl" target="_blank" rel="noopener" class="underline"
+            >información de privacidad</a
+          >
+          sobre el tratamiento necesario para crear y mantener tu cuenta.
+        </p>
         <UCheckbox v-model="form.newsletter" label="Quiero recibir novedades por email (opcional)" />
 
         <UAlert v-if="errorMsg" color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />

@@ -87,6 +87,15 @@ export default defineEventHandler(async (event) => {
         ${body.reason}, ${correlationId}
       )
     `
+    await transaction`
+      INSERT INTO outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+      ) VALUES (
+        'order', ${order.id}, 'order.status.updated',
+        ${transaction.json({ orderId: order.id, orderNumber: id, statusLabel: body.status })},
+        ${correlationId}, ${`order:${order.id}:status:${fulfillmentStatus}`}
+      ) ON CONFLICT (idempotency_key) DO NOTHING
+    `
     return { id, status: body.status, orderStatus, fulfillmentStatus }
   })
   if (!updated) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })

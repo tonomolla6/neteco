@@ -114,6 +114,11 @@ export const useCartStore = defineStore('cart', {
           }
         })
         this.apply(cart)
+        void useAnalytics().track('cart_item_added', {
+          variantId: item.variantId,
+          quantity: qty,
+          cartVersion: cart.version
+        })
       } catch (error) {
         await this.load()
         throw error
@@ -122,12 +127,21 @@ export const useCartStore = defineStore('cart', {
     async setQty(variantId: number, qty: number) {
       if (qty <= 0) return this.remove(variantId)
       await this.ensureLoaded()
+      const previous = this.items.find((item) => item.variantId === variantId)?.qty ?? 0
       try {
         const cart = await $fetch<ServerCart>(`/api/cart/items/${variantId}`, {
           method: 'PUT',
           body: { quantity: qty, expectedVersion: this.version, idempotencyKey: crypto.randomUUID() }
         })
         this.apply(cart)
+        const difference = qty - previous
+        if (difference !== 0) {
+          void useAnalytics().track(difference > 0 ? 'cart_item_added' : 'cart_item_removed', {
+            variantId,
+            quantity: Math.abs(difference),
+            cartVersion: cart.version
+          })
+        }
       } catch (error) {
         await this.load()
         throw error
@@ -135,12 +149,20 @@ export const useCartStore = defineStore('cart', {
     },
     async remove(variantId: number) {
       await this.ensureLoaded()
+      const previous = this.items.find((item) => item.variantId === variantId)?.qty ?? 0
       try {
         const cart = await $fetch<ServerCart>(`/api/cart/items/${variantId}`, {
           method: 'DELETE',
           query: { expectedVersion: this.version, idempotencyKey: crypto.randomUUID() }
         })
         this.apply(cart)
+        if (previous > 0) {
+          void useAnalytics().track('cart_item_removed', {
+            variantId,
+            quantity: previous,
+            cartVersion: cart.version
+          })
+        }
       } catch (error) {
         await this.load()
         throw error

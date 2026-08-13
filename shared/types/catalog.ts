@@ -31,6 +31,7 @@ export interface SearchSuggestion {
   visual: ProductVisualData
   image: string | null
   minPrice: number
+  sku: string | null
 }
 
 export interface CategoryFlat {

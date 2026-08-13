@@ -1,8 +1,12 @@
 <script setup lang="ts">
 const route = useRoute()
+const router = useRouter()
 const q = computed(() => String(route.query.q ?? '').trim())
+const runtime = useRuntimeConfig()
+const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
-useSeoMeta({ title: () => (q.value ? `Resultados para «${q.value}»` : 'Buscar') })
+useSeoMeta({ title: () => (q.value ? `Resultados para «${q.value}»` : 'Buscar'), robots: 'noindex, follow' })
+useHead({ link: [{ rel: 'canonical', href: `${canonicalOrigin}/buscar` }] })
 
 const sort = ref('featured')
 const selectedCategory = ref('')
@@ -19,6 +23,38 @@ const filters = reactive({
   priceMax: null as number | null
 })
 
+function multiFromQuery(value: unknown, separator = ',') {
+  return value ? String(value).split(separator).filter(Boolean) : []
+}
+
+function numberFromQuery(value: unknown) {
+  const parsed = Number.parseFloat(String(value ?? ''))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function replaceValues(target: string[], values: string[]) {
+  target.splice(0, target.length, ...values)
+}
+
+let applyingRoute = false
+function applyRouteFilters() {
+  applyingRoute = true
+  sort.value = String(route.query.sort ?? 'featured')
+  selectedCategory.value = String(route.query.familia ?? '')
+  replaceValues(filters.brands, multiFromQuery(route.query.brand))
+  replaceValues(filters.badges, multiFromQuery(route.query.badge))
+  replaceValues(filters.envases, multiFromQuery(route.query.envase))
+  replaceValues(filters.tallas, multiFromQuery(route.query.talla))
+  replaceValues(filters.capacidades, multiFromQuery(route.query.cap))
+  replaceValues(filters.colors, multiFromQuery(route.query.color))
+  replaceValues(filters.medidas, multiFromQuery(route.query.medida, '|'))
+  replaceValues(filters.acabados, multiFromQuery(route.query.acabado))
+  filters.priceMin = numberFromQuery(route.query.min)
+  filters.priceMax = numberFromQuery(route.query.max)
+  nextTick(() => (applyingRoute = false))
+}
+applyRouteFilters()
+
 function resetFilters() {
   filters.brands = []
   filters.badges = []
@@ -32,7 +68,31 @@ function resetFilters() {
   filters.priceMax = null
   selectedCategory.value = ''
 }
-watch(q, resetFilters)
+
+watch(
+  [filters, sort, selectedCategory],
+  () => {
+    if (applyingRoute) return
+    const query: Record<string, string> = {}
+    if (q.value) query.q = q.value
+    if (selectedCategory.value) query.familia = selectedCategory.value
+    if (filters.brands.length) query.brand = filters.brands.join(',')
+    if (filters.badges.length) query.badge = filters.badges.join(',')
+    if (filters.envases.length) query.envase = filters.envases.join(',')
+    if (filters.tallas.length) query.talla = filters.tallas.join(',')
+    if (filters.capacidades.length) query.cap = filters.capacidades.join(',')
+    if (filters.colors.length) query.color = filters.colors.join(',')
+    if (filters.medidas.length) query.medida = filters.medidas.join('|')
+    if (filters.acabados.length) query.acabado = filters.acabados.join(',')
+    if (filters.priceMin != null) query.min = String(filters.priceMin)
+    if (filters.priceMax != null) query.max = String(filters.priceMax)
+    if (sort.value !== 'featured') query.sort = sort.value
+    router.replace({ query })
+  },
+  { deep: true }
+)
+
+watch(() => route.fullPath, applyRouteFilters)
 
 const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
   computed(() => ({
@@ -71,6 +131,17 @@ const selectedCategoryName = computed(
   () => categoryFacet.value.find((category) => category.slug === selectedCategory.value)?.name ?? selectedCategory.value
 )
 
+const { track } = useAnalytics()
+watch(
+  [q, total, status],
+  ([query, resultCount, requestStatus]) => {
+    if (requestStatus === 'success' && query) {
+      void track('search_completed', { query: query.toLocaleLowerCase('es-ES').slice(0, 80), resultCount })
+    }
+  },
+  { immediate: true }
+)
+
 const drawerOpen = ref(false)
 watch(
   () => route.fullPath,
@@ -85,7 +156,7 @@ watch(
       <template v-else>Buscar</template>
     </h1>
     <div class="mt-1 flex flex-wrap items-center justify-between gap-3">
-      <p v-if="q" class="text-sm text-slate-500">
+      <p v-if="q" aria-live="polite" class="text-sm text-slate-500">
         {{ total }} producto{{ total === 1 ? '' : 's' }} encontrado{{ total === 1 ? '' : 's' }}
       </p>
       <div v-if="q" class="flex items-center gap-2">
@@ -162,18 +233,22 @@ watch(
       </aside>
 
       <!-- resultados -->
-      <div>
+      <div :aria-busy="status === 'pending'">
         <ProductGrid v-if="items.length" :items="items" :pending="status === 'pending'" />
 
         <div v-if="items.length" ref="sentinel" class="h-px" aria-hidden="true" />
-        <div v-if="loadingMore" class="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+        <div
+          v-if="loadingMore"
+          role="status"
+          class="flex items-center justify-center gap-2 py-8 text-sm text-slate-500"
+        >
           <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Cargando más productos…
         </div>
         <div v-else-if="canLoadMore" class="py-6 text-center">
           <UButton variant="soft" @click="loadMore">Cargar más</UButton>
         </div>
 
-        <div v-if="!items.length" class="py-20 text-center">
+        <div v-if="status !== 'pending' && !items.length" role="status" class="py-20 text-center">
           <UIcon name="i-lucide-search-x" class="mx-auto size-12 text-slate-300" />
           <p class="mt-3 font-medium text-slate-600">No hemos encontrado nada con «{{ q }}»</p>
           <p class="mt-1 text-sm text-slate-500">

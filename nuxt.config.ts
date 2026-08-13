@@ -24,6 +24,17 @@ export default defineNuxtConfig({
     invoiceProvider: process.env.INVOICE_PROVIDER || 'mock',
     carrierProvider: process.env.CARRIER_PROVIDER || 'mock',
     emailProvider: process.env.EMAIL_PROVIDER || 'log',
+    legal: {
+      termsVersion: process.env.LEGAL_TERMS_VERSION || 'purchase-2026-08-12',
+      privacyVersion: process.env.LEGAL_PRIVACY_VERSION || 'privacy-2026-08-12',
+      reviewedAt: process.env.LEGAL_REVIEWED_AT || ''
+    },
+    media: {
+      storageDirectory: process.env.MEDIA_STORAGE_DIRECTORY || '.data/media',
+      clamavHost: process.env.CLAMAV_HOST || '',
+      clamavPort: Number(process.env.CLAMAV_PORT || 3310),
+      maxBytes: Number(process.env.MEDIA_MAX_BYTES || 15_000_000)
+    },
     session: {
       name: 'neteco-session',
       password: process.env.NUXT_SESSION_PASSWORD || 'local-only-session-password-change-me-now',
@@ -62,7 +73,10 @@ export default defineNuxtConfig({
     public: {
       appEnv: process.env.APP_ENV || 'local',
       baseUrl: process.env.APP_BASE_URL || 'http://localhost:3000',
-      appVersion: process.env.APP_VERSION || 'dev'
+      appVersion: process.env.APP_VERSION || 'dev',
+      legalTermsUrl: process.env.LEGAL_TERMS_URL || 'https://neteco.es/legal',
+      privacyUrl: process.env.PRIVACY_URL || 'https://neteco.es/legal',
+      cookiesUrl: process.env.COOKIES_URL || 'https://neteco.es/cookies'
     }
   },
   routeRules: {
@@ -71,10 +85,24 @@ export default defineNuxtConfig({
     '/categoria/**': { swr: 120 },
     '/producto/**': { swr: 120 },
     '/buscar': { swr: 30 },
-    '/carrito': { ssr: true, headers: { 'cache-control': 'private, no-store' } },
-    '/checkout': { ssr: true, headers: { 'cache-control': 'private, no-store' } },
-    '/cuenta/**': { ssr: true, headers: { 'cache-control': 'private, no-store' } },
-    '/pedido/**': { ssr: true, headers: { 'cache-control': 'private, no-store' } },
+    '/robots.txt': { swr: 3600 },
+    '/sitemap.xml': { swr: 3600 },
+    '/carrito': {
+      ssr: true,
+      headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }
+    },
+    '/checkout': {
+      ssr: true,
+      headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }
+    },
+    '/cuenta/**': {
+      ssr: true,
+      headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }
+    },
+    '/pedido/**': {
+      ssr: true,
+      headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }
+    },
     '/admin/**': {
       ssr: true,
       headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }

@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import type { CategoryResponse } from '~~/shared/types/catalog'
 
+const route = useRoute()
+const router = useRouter()
+const runtime = useRuntimeConfig()
+
 useSeoMeta({
   title: 'Todo el catálogo',
   description:
-    'Catálogo completo de NETECO: químicos de limpieza profesional, higiene, guantes y menaje. Filtra por familia, marca, precio y formato.'
+    'Catálogo completo de NETECO: químicos de limpieza profesional, higiene, guantes y menaje. Filtra por familia, marca, precio y formato.',
+  robots: () => (Object.keys(route.query).length ? 'noindex, follow' : 'index, follow')
 })
 
-const route = useRoute()
-const router = useRouter()
+useHead({
+  link: [{ rel: 'canonical', href: `${String(runtime.public.baseUrl).replace(/\/$/, '')}/catalogo` }]
+})
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 
@@ -47,6 +53,29 @@ const filters = reactive({
   priceMax: numFromQuery(route.query.max)
 })
 
+function replaceValues(target: string[], values: string[]) {
+  target.splice(0, target.length, ...values)
+}
+
+let applyingRoute = false
+function applyRouteFilters() {
+  applyingRoute = true
+  selectedCategory.value = knownSlugs.value.has(String(route.query.familia ?? '')) ? String(route.query.familia) : ''
+  sort.value = String(route.query.sort ?? 'featured')
+  replaceValues(filters.brands, multiFromQuery(route.query.brand))
+  replaceValues(filters.badges, multiFromQuery(route.query.badge))
+  replaceValues(filters.envases, multiFromQuery(route.query.envase))
+  replaceValues(filters.tallas, multiFromQuery(route.query.talla))
+  replaceValues(filters.capacidades, multiFromQuery(route.query.cap))
+  replaceValues(filters.colors, multiFromQuery(route.query.color))
+  replaceValues(filters.medidas, multiFromQuery(route.query.medida, '|'))
+  replaceValues(filters.acabados, multiFromQuery(route.query.acabado))
+  filters.priceMin = numFromQuery(route.query.min)
+  filters.priceMax = numFromQuery(route.query.max)
+  selectedGroup.value = groupOfSelected.value
+  nextTick(() => (applyingRoute = false))
+}
+
 function resetFilters() {
   filters.brands = []
   filters.badges = []
@@ -66,6 +95,7 @@ function resetFilters() {
 watch(
   [filters, sort, selectedCategory],
   () => {
+    if (applyingRoute) return
     const query: Record<string, string> = {}
     if (selectedCategory.value) query.familia = selectedCategory.value
     if (filters.brands.length) query.brand = filters.brands.join(',')
@@ -106,6 +136,17 @@ const selectedCategoryName = computed(() => {
   const flat = catData.value?.flat ?? []
   return flat.find((category) => category.slug === selectedCategory.value)?.name ?? selectedCategory.value
 })
+
+const { track } = useAnalytics()
+watch(
+  [selectedCategory, total, status],
+  ([category, resultCount, requestStatus]) => {
+    if (requestStatus === 'success') {
+      void track('catalog_viewed', { category: category || null, page: 1, resultCount })
+    }
+  },
+  { immediate: true }
+)
 
 const activeCount = computed(
   () =>
@@ -196,6 +237,8 @@ function pickAllCategories() {
   selectedGroup.value = ''
   selectedCategory.value = ''
 }
+
+watch(() => route.fullPath, applyRouteFilters)
 </script>
 
 <template>
@@ -209,7 +252,7 @@ function pickAllCategories() {
         <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">
           {{ selectedCategory ? selectedCategoryName : 'Todo el catálogo' }}
         </h1>
-        <p class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
+        <p aria-live="polite" class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -230,6 +273,7 @@ function pickAllCategories() {
           <span class="hidden sm:inline">Ordenar por</span>
           <select
             v-model="sort"
+            aria-label="Ordenar productos"
             class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           >
             <option value="featured">Relevancia</option>
@@ -337,10 +381,10 @@ function pickAllCategories() {
       </aside>
 
       <!-- resultados -->
-      <div>
+      <div :aria-busy="status === 'pending'">
         <ProductGrid :items="items" :pending="status === 'pending'" />
 
-        <div v-if="!items.length" class="py-16 text-center">
+        <div v-if="status !== 'pending' && !items.length" role="status" class="py-16 text-center">
           <UIcon name="i-lucide-package-search" class="mx-auto size-12 text-slate-300" />
           <p class="mt-3 font-medium text-slate-600">No hay productos con esos filtros</p>
           <UButton variant="soft" class="mt-4" @click="resetFilters">Quitar filtros</UButton>
@@ -348,7 +392,11 @@ function pickAllCategories() {
 
         <!-- scroll infinito -->
         <div ref="sentinel" class="h-px" aria-hidden="true" />
-        <div v-if="loadingMore" class="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+        <div
+          v-if="loadingMore"
+          role="status"
+          class="flex items-center justify-center gap-2 py-8 text-sm text-slate-500"
+        >
           <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Cargando más productos…
         </div>
         <div v-else-if="canLoadMore" class="py-6 text-center">

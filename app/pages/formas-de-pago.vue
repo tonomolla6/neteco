@@ -4,22 +4,24 @@ useSeoMeta({
   description:
     'Paga tus pedidos NETECO con tarjeta, Bizum o transferencia bancaria. Factura con NIF en todos los pedidos.'
 })
+const runtime = useRuntimeConfig()
+const isProduction = runtime.public.appEnv === 'production'
 
 const methods = [
   {
     icon: 'i-lucide-credit-card',
     title: 'Tarjeta de crédito o débito',
-    desc: 'Pago seguro a través de TPV virtual. El cargo se realiza al confirmar el pedido y empezamos a prepararlo al momento.'
+    desc: 'Redirección al TPV alojado: NETECO no recibe PAN ni CVC. Solo la notificación bancaria validada confirma el pago.'
   },
   {
     icon: 'i-lucide-smartphone',
     title: 'Bizum',
-    desc: 'Paga desde tu móvil con el teléfono asociado a tu cuenta Bizum. Confirmación inmediata.'
+    desc: 'Autorización en el flujo alojado de Redsys. Volver al navegador no basta: el pedido espera la confirmación bancaria.'
   },
   {
     icon: 'i-lucide-landmark',
     title: 'Transferencia bancaria',
-    desc: 'Al confirmar el pedido te damos el IBAN y el concepto. Preparamos el pedido en cuanto recibimos el ingreso (1-2 días laborables según banco).'
+    desc: 'El pedido queda pendiente con una referencia trazable y la reserva tiene caducidad. La preparación comienza tras conciliar el ingreso.'
   }
 ]
 </script>
@@ -28,7 +30,8 @@ const methods = [
   <div class="mx-auto max-w-4xl px-4 py-10">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Formas de pago</h1>
     <p class="mt-2 text-slate-600">
-      Todas las opciones incluyen factura con tu NIF/CIF, la necesites para tu negocio o no.
+      Los documentos fiscales se emiten con los datos validados del pedido cuando el estado de pago y la regla fiscal lo
+      permiten.
     </p>
 
     <div class="mt-8 grid gap-4 sm:grid-cols-3">
@@ -41,7 +44,7 @@ const methods = [
       </div>
     </div>
 
-    <p class="mt-6 rounded-xl bg-slate-100 p-4 text-sm text-slate-600">
+    <p v-if="!isProduction" class="mt-6 rounded-xl bg-slate-100 p-4 text-sm text-slate-600">
       <UIcon name="i-lucide-info" class="inline size-4 text-neteco-600" />
       En esta demo la pasarela de pago es simulada: no se realiza ningún cargo real.
     </p>

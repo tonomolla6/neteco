@@ -29,13 +29,17 @@
     "db:seed": "tsx scripts/db-seed.ts",
     "db:reset": "tsx scripts/db-reset.ts",
     "db:backup": "tsx scripts/db-backup.ts",
+    "db:restore": "tsx scripts/db-restore.ts",
     "outbox:email": "tsx scripts/outbox-worker.ts",
     "outbox:invoice": "tsx scripts/invoice-worker.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "expire:reservations": "tsx scripts/reservation-worker.ts",
     "admin:provision": "tsx scripts/provision-admin.ts",
     "outbox:refund": "tsx scripts/refund-worker.ts",
-    "outbox:credit": "tsx scripts/credit-note-worker.ts"
+    "outbox:credit": "tsx scripts/credit-note-worker.ts",
+    "alerts:check": "tsx scripts/operational-alerts.ts",
+    "synthetic:check": "tsx scripts/synthetic-check.ts",
+    "catalog:release": "tsx scripts/catalog-release.ts"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "5.3.0",

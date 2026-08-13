@@ -8,9 +8,10 @@ import type { Parcel } from '../integrations/carrier-provider'
 import type { PaymentNotification } from '../integrations/payment-provider'
 import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
+import { shippingCommercialPolicy } from '../utils/shipping-policy'
 
-export const TERMS_VERSION = 'purchase-2026-08-12'
-export const PRIVACY_VERSION = 'privacy-2026-08-12'
+export const TERMS_VERSION = process.env.LEGAL_TERMS_VERSION || 'purchase-2026-08-12'
+export const PRIVACY_VERSION = process.env.LEGAL_PRIVACY_VERSION || 'privacy-2026-08-12'
 export const CHECKOUT_RESERVATION_MINUTES = 30
 export const TRANSFER_RESERVATION_HOURS = 72
 
@@ -20,22 +21,35 @@ export interface CheckoutCustomer {
   nif: string
   email: string
   phone: string
-  address: string
-  zip: string
+}
+
+export interface CheckoutAddress {
+  recipientName: string
+  companyName: string
+  taxId: string
+  line1: string
+  line2: string
+  postalCode: string
   city: string
-  province: string
-  notes: string
+  region: string
+  countryCode: 'ES'
+  phone: string
+  instructions: string
 }
 
 export interface CreateOrderInput {
   customer: CheckoutCustomer
+  shippingAddress: CheckoutAddress
+  billingAddress: CheckoutAddress
   shippingMethod: 'reparto' | 'envio' | 'recogida'
   paymentMethod: 'tarjeta' | 'bizum' | 'transferencia'
   cartId: string
   cartVersion: number
   idempotencyKey: string
   guestToken: string
+  guestTokenEnvelope?: string
   termsAccepted: true
+  marketingConsent: boolean
   correlationId: string
 }
 
@@ -188,9 +202,16 @@ export async function createOrder(input: CreateOrderInput) {
     const chargeableGrams = parcels.reduce((total, parcel) => total + chargeableWeightGrams(parcel), 0)
     const standardShippingNet = standardShippingNetCents(shippingProfile, chargeableGrams)
     const standardShippingGross = standardShippingNet + Math.round((standardShippingNet * 2100) / 10_000)
-    const freeParcelShipping = goodsGross >= 15_000 && ['parcel', 'multi_parcel'].includes(shippingProfile)
+    const commercialPolicy = shippingCommercialPolicy()
+    const freeParcelShipping =
+      commercialPolicy.freeShippingThresholdCents !== null &&
+      goodsGross >= commercialPolicy.freeShippingThresholdCents &&
+      ['parcel', 'multi_parcel'].includes(shippingProfile)
     const shippingGross = input.shippingMethod === 'envio' && !freeParcelShipping ? standardShippingGross : 0
-    if (input.shippingMethod === 'reparto' && !input.customer.zip.startsWith('468')) {
+    if (
+      input.shippingMethod === 'reparto' &&
+      !commercialPolicy.ownDeliveryPostalPrefixes.some((prefix) => input.shippingAddress.postalCode.startsWith(prefix))
+    ) {
       throw createError({ statusCode: 422, statusMessage: 'El código postal está fuera del reparto propio' })
     }
     if (input.shippingMethod === 'reparto' && !['parcel', 'multi_parcel'].includes(shippingProfile)) {
@@ -263,17 +284,21 @@ export async function createOrder(input: CreateOrderInput) {
     `
     if (!customer) throw new Error('Customer upsert returned no row')
 
-    const addressSnapshot = {
-      recipientName: input.customer.name.trim(),
-      companyName: input.customer.company.trim() || null,
-      taxId: input.customer.nif.trim() || null,
-      line1: input.customer.address.trim(),
-      postalCode: input.customer.zip.trim(),
-      city: input.customer.city.trim(),
-      region: input.customer.province.trim(),
-      countryCode: 'ES',
-      phone: input.customer.phone.trim(),
-      instructions: input.customer.notes.trim() || null,
+    const addressSnapshot = (address: CheckoutAddress) => ({
+      recipientName: address.recipientName.trim(),
+      companyName: address.companyName.trim() || null,
+      taxId: address.taxId.trim() || null,
+      line1: address.line1.trim(),
+      line2: address.line2.trim() || null,
+      postalCode: address.postalCode.trim(),
+      city: address.city.trim(),
+      region: address.region.trim(),
+      countryCode: address.countryCode,
+      phone: address.phone.trim(),
+      instructions: address.instructions.trim() || null
+    })
+    const shippingSnapshot = {
+      ...addressSnapshot(input.shippingAddress),
       shippingProfile,
       serviceCode:
         input.shippingMethod === 'recogida'
@@ -282,6 +307,7 @@ export async function createOrder(input: CreateOrderInput) {
             ? 'OWN-DAY'
             : `STANDARD-${shippingProfile.toUpperCase()}`
     }
+    const billingSnapshot = addressSnapshot(input.billingAddress)
     const customerSnapshot = {
       name: input.customer.name.trim(),
       company: input.customer.company.trim() || null,
@@ -297,17 +323,18 @@ export async function createOrder(input: CreateOrderInput) {
     }
     const [order] = await transaction<ExistingOrder[]>`
       INSERT INTO orders (
-        id, public_number, guest_access_hash, cart_id, customer_id, order_status, payment_status,
+        id, public_number, guest_access_hash, guest_access_expires_at, cart_id, customer_id, order_status, payment_status,
         inventory_status, fulfillment_status, invoice_status, currency, subtotal_net_cents,
         discount_net_cents, shipping_net_cents, tax_cents, total_gross_cents, shipping_method,
         payment_method, billing_snapshot, shipping_snapshot, customer_snapshot, terms_snapshot,
         pricing_version, correlation_id, idempotency_key, expires_at
       ) VALUES (
-        ${orderId}, ${publicNumber}, ${guestAccessHash}, ${cart.id}, ${customer.id}, 'awaiting_payment',
+        ${orderId}, ${publicNumber}, ${guestAccessHash}, ${new Date(Date.now() + 30 * 24 * 60 * 60_000)},
+        ${cart.id}, ${customer.id}, 'awaiting_payment',
         ${input.paymentMethod === 'transferencia' ? 'pending' : 'initiated'}, 'reserved', 'pending',
         'not_requested', 'EUR', ${quote.subtotalNetCents}, 0, ${quote.shipping.netCents},
         ${quote.taxCents}, ${quote.totalGrossCents}, ${input.shippingMethod}, ${input.paymentMethod},
-        ${transaction.json(addressSnapshot)}, ${transaction.json(addressSnapshot)},
+        ${transaction.json(billingSnapshot)}, ${transaction.json(shippingSnapshot)},
         ${transaction.json(customerSnapshot)}, ${transaction.json(termsSnapshot)}, ${quote.pricingVersion},
         ${input.correlationId}, ${input.idempotencyKey}, ${expiresAt}
       )
@@ -391,16 +418,31 @@ export async function createOrder(input: CreateOrderInput) {
     await transaction`
       INSERT INTO consent_events (customer_id, purpose, channel, action, policy_version, text_hash, source)
       VALUES (
-        ${customer.id}, 'purchase_terms_and_privacy', 'web', 'granted',
-        ${`${TERMS_VERSION}+${PRIVACY_VERSION}`},
-        encode(digest(${`${TERMS_VERSION}:${PRIVACY_VERSION}`}, 'sha256'), 'hex'), 'checkout'
+        ${customer.id}, 'purchase_terms', 'web', 'granted', ${TERMS_VERSION},
+        encode(digest(${TERMS_VERSION}, 'sha256'), 'hex'), 'checkout'
       )
     `
+    if (input.marketingConsent) {
+      await transaction`
+        INSERT INTO consent_events (customer_id, purpose, channel, action, policy_version, text_hash, source)
+        VALUES (
+          ${customer.id}, 'newsletter', 'email', 'granted', ${PRIVACY_VERSION},
+          encode(digest(${`newsletter:${PRIVACY_VERSION}`}, 'sha256'), 'hex'), 'checkout'
+        )
+      `
+      await transaction`
+        INSERT INTO customer_preferences (customer_id, purpose, channel, enabled, frequency)
+        VALUES (${customer.id}, 'newsletter', 'email', true, 'weekly')
+        ON CONFLICT (customer_id, purpose, channel) DO UPDATE
+        SET enabled = true, updated_at = now()
+      `
+    }
     await transaction`
       INSERT INTO outbox_events (
         aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
       ) VALUES (
-        'order', ${orderId}, 'order.created', ${transaction.json({ orderId, publicNumber })},
+        'order', ${orderId}, 'order.created',
+        ${transaction.json({ orderId, publicNumber, tokenEnvelope: input.guestTokenEnvelope })},
         ${input.correlationId}, ${`${input.idempotencyKey}:outbox:created`}
       )
     `
@@ -647,6 +689,19 @@ async function allocateOrder(
       ${transaction.json({ orderId: order.id, orderNumber: order.public_number })},
       ${correlationId}, ${`order:${order.id}:confirmed`}
     ) ON CONFLICT (idempotency_key) DO NOTHING
+  `
+  await transaction`
+    INSERT INTO analytics_events (
+      event_id, event_name, source, order_id, dedupe_key, properties, occurred_at
+    ) VALUES (
+      gen_random_uuid(), 'order_confirmed', 'server', ${order.id}, ${`order:${order.id}:confirmed`},
+      ${transaction.json({
+        orderNumber: order.public_number,
+        totalCents: order.total_gross_cents,
+        currency: order.order_currency,
+        paymentMethod: order.payment_method
+      })}, now()
+    ) ON CONFLICT (dedupe_key) DO NOTHING
   `
 }
 
@@ -1222,6 +1277,18 @@ export async function cancelOrderByAdmin(input: {
         ${transaction.json({ order: orderStatus, payment: paymentStatus, inventory: 'released', refundId })},
         ${input.reason}, ${input.correlationId}
       )
+    `
+    await transaction`
+      INSERT INTO outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+      ) VALUES (
+        'order', ${order.id}, ${orderStatus === 'cancelled' ? 'order.cancelled' : 'order.cancellation.requested'},
+        ${transaction.json({
+          orderId: order.id,
+          orderNumber: order.public_number,
+          statusLabel: orderStatus === 'cancelled' ? 'cancelado' : 'con cancelación en proceso'
+        })}, ${input.correlationId}, ${`order:${order.id}:cancellation-notice`}
+      ) ON CONFLICT (idempotency_key) DO NOTHING
     `
     return { id: input.publicNumber, orderStatus, refundId, duplicate: false }
   })

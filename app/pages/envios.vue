@@ -9,24 +9,24 @@ const methods = [
   {
     icon: 'i-lucide-truck',
     title: 'Reparto propio NETECO',
-    zone: "Ontinyent y la Vall d'Albaida (CP 468xx)",
-    time: '24-48 h laborables',
-    cost: 'Gratis, sin pedido mínimo',
-    note: 'Repartimos nosotros mismos, con nuestro equipo de siempre. Si necesitas una franja horaria o entrega en muelle, indícalo en las notas del pedido.'
+    zone: 'Códigos postales y rutas configurados',
+    time: 'Fecha calculada en checkout',
+    cost: 'Según destino y mercancía',
+    note: 'El checkout valida si existe ruta propia para el código postal y calcula una fecha real. Las instrucciones de muelle o acceso se revisan antes de confirmar la expedición.'
   },
   {
     icon: 'i-lucide-package',
     title: 'Envío por agencia',
-    zone: 'Resto de la península',
-    time: '48-72 h laborables',
-    cost: '5,90 € · gratis a partir de 150 €',
-    note: 'Los productos químicos viajan con el embalaje y etiquetado que exige la normativa de transporte.'
+    zone: 'Destinos aceptados por el servicio contratado',
+    time: 'Ventana calculada por carrier',
+    cost: 'Tarifa server-side antes del pago',
+    note: 'Peso, volumen, bultos y restricciones determinan los servicios elegibles. Mercancía ADR o palé solo se ofrece cuando existe una modalidad autorizada.'
   },
   {
     icon: 'i-lucide-store',
     title: 'Recogida en almacén',
     zone: 'Ontinyent',
-    time: 'Listo en 2 h laborables',
+    time: 'Te avisamos cuando esté listo',
     cost: 'Gratis',
     note: 'Te avisamos por teléfono o email cuando tu pedido esté preparado.'
   }
@@ -74,7 +74,7 @@ const methods = [
       </h2>
       <p class="mt-2 text-sm text-neteco-800">
         Llámanos al <a href="tel:600861334" class="font-semibold underline">600 861 334</a> (lunes a viernes,
-        8:00-18:00) o escribe a
+        09:00-18:00) o escribe a
         <a href="mailto:administracion@neteco.es" class="font-semibold underline">administracion@neteco.es</a>. Hablas
         con personas que conocen tu pedido.
       </p>

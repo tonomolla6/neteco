@@ -125,12 +125,12 @@ const THUMB =
           >
             <input
               type="checkbox"
-              class="sr-only"
+              class="peer sr-only"
               :checked="filters.brands.includes(b.value)"
               @change="toggle('brands', b.value)"
             />
             <span
-              class="grid size-5 shrink-0 place-items-center rounded-md border-2 transition"
+              class="grid size-5 shrink-0 place-items-center rounded-md border-2 transition peer-focus-visible:ring-2 peer-focus-visible:ring-neteco-500 peer-focus-visible:ring-offset-2"
               :class="
                 filters.brands.includes(b.value)
                   ? 'border-neteco-600 bg-neteco-600 text-white'

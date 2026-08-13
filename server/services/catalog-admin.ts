@@ -74,6 +74,24 @@ async function uniqueProductSlug(transaction: TransactionSql, name: string, lega
   return collision?.exists ? `${base}-${legacyId}` : base
 }
 
+async function assertApprovedPrimaryMedia(transaction: TransactionSql, image: string | null | undefined) {
+  if (!image?.startsWith('/media/')) {
+    throw createError({
+      statusCode: 409,
+      statusMessage: 'La publicación exige una imagen subida, escaneada y aprobada en la biblioteca de medios'
+    })
+  }
+  const [approved] = await transaction<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM media_assets
+      WHERE source_url = ${image} AND rights_status = 'approved' AND quarantine_status = 'clean'
+    ) AS exists
+  `
+  if (!approved?.exists) {
+    throw createError({ statusCode: 409, statusMessage: 'La imagen principal no está aprobada para publicación' })
+  }
+}
+
 async function upsertInventory(
   transaction: TransactionSql,
   input: { variantId: string; locationId: string; stock: number; auditKey: string; actorId: string }
@@ -128,6 +146,7 @@ async function upsertInventory(
 export async function createCatalogProduct(input: ProductInput, actor: CatalogActor, correlationId: string) {
   const sql = useDatabase()
   return sql.begin(async (transaction) => {
+    if (input.active) await assertApprovedPrimaryMedia(transaction, input.image)
     const references = await requiredReferences(transaction, input.categoryId, input.brand)
     const productLegacyId = await nextProductLegacyId(transaction)
     const slug = await uniqueProductSlug(transaction, input.name, productLegacyId)
@@ -139,7 +158,18 @@ export async function createCatalogProduct(input: ProductInput, actor: CatalogAc
         ${productLegacyId}, ${references.categoryId}, ${references.brandId}, ${input.name}, ${slug},
         ${input.shortDesc}, ${input.description}, ${input.usage || null}, ${input.series || null},
         ${input.active ? 'published' : 'draft'}, ${input.featured},
-        ${transaction.json({ badges: input.badges, visual: input.visual, attrs: input.attrs })}, 'admin-v1',
+        ${transaction.json({
+          badges: input.badges,
+          visual: input.visual,
+          attrs: input.attrs,
+          image: input.image || null,
+          imageAlt: input.imageAlt || null,
+          imageRights: {
+            owner: input.imageRightsOwner || null,
+            license: input.imageRightsLicense || null,
+            authorizedAt: input.imageAuthorizedAt || null
+          }
+        })}, 'admin-v1',
         ${input.active ? new Date() : null}
       ) RETURNING id
     `
@@ -150,13 +180,22 @@ export async function createCatalogProduct(input: ProductInput, actor: CatalogAc
       const sku = variant.sku?.trim() || `NE-${productLegacyId}-${index + 1}`
       const [created] = await transaction<{ id: string }[]>`
         INSERT INTO variants (
-          legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
-          unit_label, content_quantity, price_gross_cents, color, image, source_version
+          legacy_id, product_id, tax_class_id, shipping_profile_id, sku, ean, gtin, mpn,
+          identifier_exception_reason, format, status, unit_base, unit_label, content_quantity,
+          units_per_case, cases_per_pallet, minimum_quantity, quantity_increment, maximum_quantity,
+          price_gross_cents, weight_grams, width_mm, height_mm, depth_mm, safety_stock,
+          backorder_allowed, lead_time_days, color, image, source_version
         ) VALUES (
           ${variantLegacyId}, ${product.id}, ${references.taxId}, ${references.shippingId},
-          ${sku}, ${variant.format}, ${input.active ? 'published' : 'draft'},
-          ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${Math.round(variant.price * 100)},
-          ${variant.color || null}, ${variant.image || null}, 'admin-v1'
+          ${sku}, ${variant.ean || null}, ${variant.gtin || null}, ${variant.mpn || null},
+          ${variant.identifierExceptionReason || null}, ${variant.format}, ${input.active ? 'published' : 'draft'},
+          ${variant.unitBase}, ${variant.unitLabel || unit?.[1] || 'unidad'},
+          ${variant.contentQuantity || unit?.[0] || 1}, ${variant.unitsPerCase},
+          ${variant.casesPerPallet ?? null}, ${variant.minimumQuantity}, ${variant.quantityIncrement},
+          ${variant.maximumQuantity ?? null}, ${Math.round(variant.price * 100)}, ${variant.weightGrams},
+          ${variant.widthMm}, ${variant.heightMm}, ${variant.depthMm}, ${variant.safetyStock},
+          ${variant.backorderAllowed}, ${variant.leadTimeDays ?? null}, ${variant.color || null},
+          ${variant.image || null}, 'admin-v1'
         ) RETURNING id
       `
       if (!created) throw new Error('Variant insert returned no row')
@@ -194,18 +233,46 @@ export async function updateCatalogProduct(
       FROM products WHERE legacy_id = ${legacyId} FOR UPDATE
     `
     if (!current) return null
+    if (input.active) await assertApprovedPrimaryMedia(transaction, input.image)
     const references = await requiredReferences(transaction, input.categoryId, input.brand)
     const slug =
       input.name === current.name
         ? current.slug
         : await uniqueProductSlug(transaction, input.name, legacyId, current.id)
+    if (slug !== current.slug) {
+      await transaction`
+        INSERT INTO canonical_redirects (
+          source_path, destination_path, resource_type, resource_id, created_by, reason
+        ) VALUES (
+          ${`/producto/${current.slug}`}, ${`/producto/${slug}`}, 'product', ${current.id}, ${actor.id},
+          'Product name changed in catalog administration'
+        ) ON CONFLICT (source_path) DO UPDATE
+        SET destination_path = EXCLUDED.destination_path, created_by = EXCLUDED.created_by,
+            reason = EXCLUDED.reason, created_at = now()
+      `
+      await transaction`
+        UPDATE canonical_redirects SET destination_path = ${`/producto/${slug}`}
+        WHERE destination_path = ${`/producto/${current.slug}`}
+      `
+    }
     await transaction`
       UPDATE products SET
         category_id = ${references.categoryId}, brand_id = ${references.brandId}, name = ${input.name},
         slug = ${slug}, short_description = ${input.shortDesc}, description = ${input.description},
         usage = ${input.usage || null}, series = ${input.series || null},
         status = ${input.active ? 'published' : 'draft'}, featured = ${input.featured},
-        attributes = attributes || ${transaction.json({ badges: input.badges, visual: input.visual, attrs: input.attrs })},
+        attributes = attributes || ${transaction.json({
+          badges: input.badges,
+          visual: input.visual,
+          attrs: input.attrs,
+          image: input.image || null,
+          imageAlt: input.imageAlt || null,
+          imageRights: {
+            owner: input.imageRightsOwner || null,
+            license: input.imageRightsLicense || null,
+            authorizedAt: input.imageAuthorizedAt || null
+          }
+        })},
         source_version = 'admin-v1', published_at = CASE WHEN ${input.active} THEN COALESCE(published_at, now()) ELSE published_at END,
         updated_at = now()
       WHERE id = ${current.id}
@@ -224,10 +291,18 @@ export async function updateCatalogProduct(
         await transaction`
           UPDATE variants SET
             tax_class_id = ${references.taxId}, shipping_profile_id = ${references.shippingId},
-            sku = ${sku}, format = ${variant.format}, status = ${input.active ? 'published' : 'draft'},
-            unit_label = ${unit?.[1] ?? 'unidad'}, content_quantity = ${unit?.[0] ?? 1},
-            price_gross_cents = ${Math.round(variant.price * 100)}, color = ${variant.color || null},
-            image = ${variant.image || null}, source_version = 'admin-v1', updated_at = now()
+            sku = ${sku}, ean = ${variant.ean || null}, gtin = ${variant.gtin || null}, mpn = ${variant.mpn || null},
+            identifier_exception_reason = ${variant.identifierExceptionReason || null},
+            format = ${variant.format}, status = ${input.active ? 'published' : 'draft'},
+            unit_base = ${variant.unitBase}, unit_label = ${variant.unitLabel || unit?.[1] || 'unidad'},
+            content_quantity = ${variant.contentQuantity || unit?.[0] || 1},
+            units_per_case = ${variant.unitsPerCase}, cases_per_pallet = ${variant.casesPerPallet ?? null},
+            minimum_quantity = ${variant.minimumQuantity}, quantity_increment = ${variant.quantityIncrement},
+            maximum_quantity = ${variant.maximumQuantity ?? null}, price_gross_cents = ${Math.round(variant.price * 100)},
+            weight_grams = ${variant.weightGrams}, width_mm = ${variant.widthMm}, height_mm = ${variant.heightMm},
+            depth_mm = ${variant.depthMm}, safety_stock = ${variant.safetyStock},
+            backorder_allowed = ${variant.backorderAllowed}, lead_time_days = ${variant.leadTimeDays ?? null},
+            color = ${variant.color || null}, image = ${variant.image || null}, source_version = 'admin-v1', updated_at = now()
           WHERE id = ${existingUuid}
         `
         variantUuid = existingUuid
@@ -235,13 +310,22 @@ export async function updateCatalogProduct(
         const variantLegacyId = await nextVariantLegacyId(transaction)
         const [created] = await transaction<{ id: string }[]>`
           INSERT INTO variants (
-            legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
-            unit_label, content_quantity, price_gross_cents, color, image, source_version
+            legacy_id, product_id, tax_class_id, shipping_profile_id, sku, ean, gtin, mpn,
+            identifier_exception_reason, format, status, unit_base, unit_label, content_quantity,
+            units_per_case, cases_per_pallet, minimum_quantity, quantity_increment, maximum_quantity,
+            price_gross_cents, weight_grams, width_mm, height_mm, depth_mm, safety_stock,
+            backorder_allowed, lead_time_days, color, image, source_version
           ) VALUES (
             ${variantLegacyId}, ${current.id}, ${references.taxId}, ${references.shippingId},
-            ${sku}, ${variant.format}, ${input.active ? 'published' : 'draft'},
-            ${unit?.[1] ?? 'unidad'}, ${unit?.[0] ?? 1}, ${Math.round(variant.price * 100)},
-            ${variant.color || null}, ${variant.image || null}, 'admin-v1'
+            ${sku}, ${variant.ean || null}, ${variant.gtin || null}, ${variant.mpn || null},
+            ${variant.identifierExceptionReason || null}, ${variant.format}, ${input.active ? 'published' : 'draft'},
+            ${variant.unitBase}, ${variant.unitLabel || unit?.[1] || 'unidad'},
+            ${variant.contentQuantity || unit?.[0] || 1}, ${variant.unitsPerCase},
+            ${variant.casesPerPallet ?? null}, ${variant.minimumQuantity}, ${variant.quantityIncrement},
+            ${variant.maximumQuantity ?? null}, ${Math.round(variant.price * 100)}, ${variant.weightGrams},
+            ${variant.widthMm}, ${variant.heightMm}, ${variant.depthMm}, ${variant.safetyStock},
+            ${variant.backorderAllowed}, ${variant.leadTimeDays ?? null}, ${variant.color || null},
+            ${variant.image || null}, 'admin-v1'
           ) RETURNING id
         `
         variantUuid = created!.id

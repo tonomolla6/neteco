@@ -29,3 +29,5 @@ Las promesas son defaults técnicos pendientes de ratificación con disponibilid
 ## Runbooks obligatorios
 
 Pago ambiguo, sobreventa, Beply caído, carrier caído, worker/Redis, base de datos, despliegue, DNS/TLS, fuga de secreto y brecha. Cada runbook incluye detección, contención, owner, evidencia, reconciliación, comunicación, recuperación y postmortem.
+
+La implementación concreta vive en `incident-runbooks.md`. `npm run alerts:check` produce señales técnicas y de negocio con salida distinta de cero; debe programarse y conectarse al on-call en el entorno gestionado. `SYNTHETIC_BASE_URL=https://… npm run synthetic:check` comprueba DNS/TLS implícito, home, catálogo, health, robots y sitemap sin realizar cobros.

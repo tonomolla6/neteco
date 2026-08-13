@@ -27,7 +27,8 @@ export default defineEventHandler(async (event) => {
   if (!id) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
   const cookie = getCookie(event, 'neteco-order-access')
   const cookieToken = cookie?.startsWith(`${id}.`) ? cookie.slice(id.length + 1) : undefined
-  const token = String(getQuery(event).token ?? cookieToken ?? '')
+  const claimToken = String(getQuery(event).token ?? '')
+  const accessToken = cookieToken ?? ''
   const session = await getUserSession(event)
 
   const sql = useDatabase()
@@ -39,7 +40,16 @@ export default defineEventHandler(async (event) => {
     FROM orders
     WHERE public_number = ${id}
       AND (
-        (${token} <> '' AND guest_access_hash = ${hashAccessToken(token)})
+        (
+          ${claimToken} <> '' AND guest_access_hash = ${hashAccessToken(claimToken)}
+          AND guest_access_consumed_at IS NULL AND guest_access_expires_at > now()
+        )
+        OR EXISTS (
+          SELECT 1 FROM order_access_sessions guest_session
+          WHERE guest_session.order_id = orders.id
+            AND guest_session.token_hash = ${hashAccessToken(accessToken)}
+            AND guest_session.revoked_at IS NULL AND guest_session.expires_at > now()
+        )
         OR EXISTS (
           SELECT 1
           FROM identities identity
@@ -65,6 +75,28 @@ export default defineEventHandler(async (event) => {
       )
   `
   if (!order) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
+  if (claimToken) {
+    const [consumed] = await sql<{ id: string }[]>`
+      UPDATE orders SET guest_access_consumed_at = now(), updated_at = now()
+      WHERE id = ${order.id} AND guest_access_hash = ${hashAccessToken(claimToken)}
+        AND guest_access_consumed_at IS NULL AND guest_access_expires_at > now()
+      RETURNING id
+    `
+    if (!consumed) throw createError({ statusCode: 404, statusMessage: 'Pedido no encontrado' })
+    await sql`
+      INSERT INTO order_access_sessions (order_id, token_hash, expires_at)
+      VALUES (${order.id}, ${hashAccessToken(claimToken)}, now() + interval '24 hours')
+      ON CONFLICT (order_id, token_hash) DO UPDATE
+      SET expires_at = EXCLUDED.expires_at, revoked_at = NULL
+    `
+    setCookie(event, 'neteco-order-access', `${id}.${claimToken}`, {
+      httpOnly: true,
+      secure: process.env.APP_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 60 * 60 * 24
+    })
+  }
   const items = await sql<Array<{ id: string; name: string; format: string; sku: string; price: number; qty: number }>>`
     SELECT id, name, variant_name AS format, sku,
            COALESCE((logistics_snapshot ->> 'unitGrossCents')::int, total_gross_cents / quantity) AS price,

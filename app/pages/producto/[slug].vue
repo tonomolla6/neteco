@@ -44,6 +44,8 @@ if (error.value || !productData.value || !productData.value.variants.length) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
 const product = computed(() => productData.value!)
+const runtime = useRuntimeConfig()
+const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
 useSeoMeta({
   title: product.value.name,
@@ -58,7 +60,11 @@ const selectedId = ref(initialVariant?.id ?? firstVariant.id)
 const selected = computed(
   () => product.value.variants.find((variant) => variant.id === selectedId.value) ?? firstVariant
 )
-const qty = ref(firstVariant.minimumQuantity)
+const { track } = useAnalytics()
+onMounted(() => {
+  void track('product_viewed', { productId: product.value.id, variantId: selected.value.id })
+})
+const qty = ref((initialVariant ?? firstVariant).minimumQuantity)
 const maximumQuantity = computed(() => Math.min(selected.value.maximumQuantity ?? Infinity, selected.value.stock))
 const outOfStock = computed(() => selected.value.stock < selected.value.minimumQuantity)
 const canIncrease = computed(() => qty.value + selected.value.quantityIncrement <= maximumQuantity.value)
@@ -76,8 +82,8 @@ watch(selected, (v) => {
 })
 
 // canónica sin query: las 36 variantes son la misma página para los buscadores
-const reqUrl = useRequestURL()
-useHead({ link: [{ rel: 'canonical', href: `${reqUrl.origin}/producto/${product.value.slug}` }] })
+const canonicalUrl = `${canonicalOrigin}/producto/${product.value.slug}`
+useHead({ link: [{ rel: 'canonical', href: canonicalUrl }] })
 
 // si todas las variantes tienen color propio (p. ej. mantelería), el selector son círculos de color.
 // El formato admite ejes previos separados por « · », p. ej. «1,20 × 50 m · Precortado · Color Azul (AZ)»:
@@ -178,6 +184,50 @@ watch(shownImage, () => (fichaImgLoaded.value = false))
 // (antes se comprobaba la original y luego se descargaba el derivado: doble descarga)
 const imgApi = useImage()
 const fichaUrl = (src: string) => imgApi(src, { format: 'webp', quality: 80, width: 1120 })
+useHead(() => ({
+  script: [
+    {
+      key: 'product-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'Product',
+        '@id': `${canonicalUrl}#product`,
+        name: product.value.name,
+        description: product.value.shortDesc ?? product.value.description ?? undefined,
+        image: shownImage.value ? [`${canonicalOrigin}${fichaUrl(shownImage.value)}`] : undefined,
+        sku: selected.value.sku,
+        brand: product.value.brand ? { '@type': 'Brand', name: product.value.brand } : undefined,
+        offers: {
+          '@type': 'Offer',
+          url: `${canonicalUrl}?sku=${encodeURIComponent(selected.value.sku)}`,
+          priceCurrency: 'EUR',
+          price: (selected.value.price / 100).toFixed(2),
+          availability: outOfStock.value ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
+          itemCondition: 'https://schema.org/NewCondition'
+        }
+      }).replace(/</g, '\\u003c')
+    },
+    {
+      key: 'product-breadcrumb-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: 'Inicio', item: canonicalOrigin },
+          ...product.value.breadcrumb.map((item, index) => ({
+            '@type': 'ListItem',
+            position: index + 2,
+            name: item.name,
+            item: `${canonicalOrigin}/categoria/${item.slug}`
+          })),
+          { '@type': 'ListItem', position: product.value.breadcrumb.length + 2, name: product.value.name }
+        ]
+      }).replace(/</g, '\\u003c')
+    }
+  ]
+}))
 watch(
   mainImage,
   (src) => {
@@ -276,6 +326,7 @@ onBeforeUnmount(() => {
 
 const cart = useCartStore()
 const toast = useToast()
+const adding = ref(false)
 
 async function addFavorite() {
   if (!loggedIn.value) {
@@ -294,6 +345,8 @@ async function addFavorite() {
 }
 
 async function addToCart(goToCart = false) {
+  if (adding.value) return
+  adding.value = true
   try {
     await cart.add(
       {
@@ -327,6 +380,8 @@ async function addToCart(goToCart = false) {
       icon: 'i-lucide-triangle-alert',
       color: 'error'
     })
+  } finally {
+    adding.value = false
   }
 }
 </script>
@@ -334,7 +389,7 @@ async function addToCart(goToCart = false) {
 <template>
   <div class="mx-auto max-w-[1600px] px-4 py-8 pb-24 lg:pb-8">
     <!-- migas -->
-    <nav class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+    <nav aria-label="Migas de pan" class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
       <NuxtLink to="/" class="hover:text-neteco-600">Inicio</NuxtLink>
       <template v-for="c in product.breadcrumb" :key="c.slug">
         <UIcon name="i-lucide-chevron-right" class="size-3.5" />
@@ -527,7 +582,8 @@ async function addToCart(goToCart = false) {
             size="xl"
             icon="i-lucide-shopping-cart"
             class="justify-center sm:flex-1"
-            :disabled="outOfStock"
+            :disabled="outOfStock || adding"
+            :loading="adding"
             @click="addToCart(false)"
           >
             Añadir al carrito
@@ -537,7 +593,7 @@ async function addToCart(goToCart = false) {
             variant="soft"
             icon="i-lucide-zap"
             class="justify-center"
-            :disabled="outOfStock"
+            :disabled="outOfStock || adding"
             @click="addToCart(true)"
           >
             Comprar ahora
@@ -560,14 +616,15 @@ async function addToCart(goToCart = false) {
             d'Albaida
           </p>
           <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Envío península 48-72 h
+            <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Fecha y método calculados con tu
+            código postal en checkout
           </p>
           <p class="flex items-center gap-2">
             <UIcon name="i-lucide-phone" class="size-4 text-neteco-600" /> Asesoramiento: 600 861 334
           </p>
           <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Envío por agencia gratis a partir de 150
-            €
+            <UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Tarifa y posibles bonificaciones
+            calculadas con el destino y la mercancía
           </p>
         </div>
       </div>
@@ -700,7 +757,14 @@ async function addToCart(goToCart = false) {
         <p class="truncate text-xs text-slate-500">{{ selected.format }}</p>
         <p class="font-display text-lg font-bold text-slate-900">{{ formatPrice(selected.price * qty) }}</p>
       </div>
-      <UButton size="lg" icon="i-lucide-shopping-cart" class="flex-1 justify-center" @click="addToCart(false)">
+      <UButton
+        size="lg"
+        icon="i-lucide-shopping-cart"
+        class="flex-1 justify-center"
+        :disabled="outOfStock || adding"
+        :loading="adding"
+        @click="addToCart(false)"
+      >
         Añadir al carrito
       </UButton>
     </div>

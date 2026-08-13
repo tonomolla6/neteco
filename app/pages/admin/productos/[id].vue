@@ -44,34 +44,104 @@ const form = reactive({
   badges: [...(product?.badges ?? [])] as string[],
   visual: { type: product?.visual.type ?? 'caja', color: product?.visual.color ?? '#009ac9' },
   featured: !!product?.featured,
-  active: product?.active ?? true,
+  active: product?.active ?? false,
   series: product?.series ?? '',
+  image: product?.image ?? '',
+  imageAlt: product?.imageAlt ?? '',
+  imageRightsOwner: product?.imageRightsOwner ?? '',
+  imageRightsLicense: product?.imageRightsLicense ?? '',
+  imageAuthorizedAt: product?.imageAuthorizedAt ?? '',
   attrs: (product?.attrs ?? []).map((attribute) => ({ k: attribute.k, v: attribute.v })),
   variants: (product?.variants ?? []).map((variant) => ({
     id: variant.id,
     format: variant.format,
     sku: variant.sku,
+    ean: variant.ean ?? '',
+    gtin: variant.gtin ?? '',
+    mpn: variant.mpn ?? '',
+    identifierExceptionReason: variant.identifierExceptionReason ?? '',
     price: variant.price / 100,
     stock: variant.stock,
     color: variant.color ?? '',
-    image: variant.image ?? ''
+    image: variant.image ?? '',
+    unitBase: variant.unitBase,
+    unitLabel: variant.unitLabel,
+    contentQuantity: variant.units,
+    unitsPerCase: variant.unitsPerCase,
+    casesPerPallet: variant.casesPerPallet,
+    minimumQuantity: variant.minimumQuantity,
+    quantityIncrement: variant.quantityIncrement,
+    maximumQuantity: variant.maximumQuantity,
+    weightGrams: variant.weightGrams,
+    widthMm: variant.widthMm,
+    heightMm: variant.heightMm,
+    depthMm: variant.depthMm,
+    safetyStock: variant.safetyStock,
+    backorderAllowed: variant.backorderAllowed,
+    leadTimeDays: variant.leadTimeDays
   })) as Array<{
     id?: number
     format: string
     sku: string
+    ean: string
+    gtin: string
+    mpn: string
+    identifierExceptionReason: string
     price: number | null
     stock: number
     color: string
     image: string
+    unitBase: string
+    unitLabel: string
+    contentQuantity: number
+    unitsPerCase: number
+    casesPerPallet: number | null
+    minimumQuantity: number
+    quantityIncrement: number
+    maximumQuantity: number | null
+    weightGrams: number
+    widthMm: number
+    heightMm: number
+    depthMm: number
+    safetyStock: number
+    backorderAllowed: boolean
+    leadTimeDays: number | null
   }>
 })
-if (!form.variants.length) form.variants.push({ format: '', sku: '', price: null, stock: 100, color: '', image: '' })
+const emptyVariant = () => ({
+  format: '',
+  sku: '',
+  ean: '',
+  gtin: '',
+  mpn: '',
+  identifierExceptionReason: '',
+  price: null,
+  stock: 100,
+  color: '',
+  image: '',
+  unitBase: 'unit',
+  unitLabel: 'unidad',
+  contentQuantity: 1,
+  unitsPerCase: 1,
+  casesPerPallet: null,
+  minimumQuantity: 1,
+  quantityIncrement: 1,
+  maximumQuantity: null,
+  weightGrams: 0,
+  widthMm: 0,
+  heightMm: 0,
+  depthMm: 0,
+  safetyStock: 0,
+  backorderAllowed: false,
+  leadTimeDays: null
+})
+if (!form.variants.length) form.variants.push(emptyVariant())
 
 function toggleBadge(b: string) {
   form.badges = form.badges.includes(b) ? form.badges.filter((x) => x !== b) : [...form.badges, b]
 }
 function addVariant() {
-  form.variants.push({ format: '', sku: '', price: null, stock: 100, color: '', image: '' })
+  form.variants.push(emptyVariant())
 }
 function removeVariant(i: number) {
   form.variants.splice(i, 1)
@@ -106,16 +176,40 @@ async function save() {
       visual: form.visual,
       featured: form.featured,
       active: form.active,
+      image: form.image || null,
+      imageAlt: form.imageAlt || null,
+      imageRightsOwner: form.imageRightsOwner || null,
+      imageRightsLicense: form.imageRightsLicense || null,
+      imageAuthorizedAt: form.imageAuthorizedAt || null,
       series: form.series || null,
       attrs: form.attrs.filter((a) => a.k.trim() && a.v.trim()),
       variants: form.variants.map((v) => ({
         ...(v.id != null ? { id: v.id } : {}),
         format: v.format,
         sku: v.sku || null,
+        ean: v.ean || null,
+        gtin: v.gtin || null,
+        mpn: v.mpn || null,
+        identifierExceptionReason: v.identifierExceptionReason || null,
         price: Number(v.price),
         stock: Number(v.stock),
         color: v.color || null,
-        image: v.image || null
+        image: v.image || null,
+        unitBase: v.unitBase,
+        unitLabel: v.unitLabel,
+        contentQuantity: Number(v.contentQuantity),
+        unitsPerCase: Number(v.unitsPerCase),
+        casesPerPallet: v.casesPerPallet == null ? null : Number(v.casesPerPallet),
+        minimumQuantity: Number(v.minimumQuantity),
+        quantityIncrement: Number(v.quantityIncrement),
+        maximumQuantity: v.maximumQuantity == null ? null : Number(v.maximumQuantity),
+        weightGrams: Number(v.weightGrams),
+        widthMm: Number(v.widthMm),
+        heightMm: Number(v.heightMm),
+        depthMm: Number(v.depthMm),
+        safetyStock: Number(v.safetyStock),
+        backorderAllowed: v.backorderAllowed,
+        leadTimeDays: v.leadTimeDays == null ? null : Number(v.leadTimeDays)
       }))
     }
     if (isNew) await $fetch('/api/admin/products', { method: 'POST', body: payload })
@@ -215,6 +309,34 @@ async function removeProduct() {
         </div>
       </section>
 
+      <section class="rounded-2xl border border-slate-200 bg-white p-6">
+        <h2 class="font-bold text-slate-900">Imagen principal y derechos</h2>
+        <p class="mt-1 text-sm text-slate-500">
+          La publicación exige correspondencia exacta, texto alternativo y evidencia de licencia o autorización.
+        </p>
+        <div class="mt-4 grid gap-4 sm:grid-cols-2">
+          <UFormField label="Ruta de la imagen" class="sm:col-span-2">
+            <UInput v-model="form.image" class="w-full" placeholder="/media/uuid-del-asset-aprobado" />
+          </UFormField>
+          <UFormField label="Texto alternativo" class="sm:col-span-2">
+            <UInput v-model="form.imageAlt" class="w-full" placeholder="Envase exacto y formato mostrado" />
+          </UFormField>
+          <UFormField label="Propietario / licenciante">
+            <UInput v-model="form.imageRightsOwner" class="w-full" />
+          </UFormField>
+          <UFormField label="Licencia o autorización">
+            <UInput v-model="form.imageRightsLicense" class="w-full" placeholder="Autorización proveedor, propia…" />
+          </UFormField>
+          <UFormField label="Fecha de autorización">
+            <input
+              v-model="form.imageAuthorizedAt"
+              type="date"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </UFormField>
+        </div>
+      </section>
+
       <!-- características técnicas -->
       <section class="rounded-2xl border border-slate-200 bg-white p-6">
         <div class="flex items-center justify-between">
@@ -298,67 +420,93 @@ async function removeProduct() {
           <strong>IVA incluido</strong>; el €/ud–€/L se calcula solo a partir del formato.
         </p>
         <div class="mt-4 space-y-2">
-          <div
-            v-for="(v, i) in form.variants"
-            :key="i"
-            class="grid grid-cols-2 items-end gap-2 rounded-xl border border-slate-200 p-3 sm:grid-cols-[1fr_6.5rem_6.5rem_9rem_6rem_4.5rem_auto]"
-          >
-            <UFormField label="Formato" :ui="{ label: 'text-xs' }">
-              <UInput v-model="v.format" placeholder="Talla M · Garrafa 5 L…" class="w-full" />
-            </UFormField>
-            <UFormField label="Referencia ERP" :ui="{ label: 'text-xs' }">
-              <UInput v-model="v.sku" placeholder="1133" class="w-full" />
-            </UFormField>
+          <div v-for="(v, i) in form.variants" :key="i" class="rounded-xl border border-slate-200 p-4">
+            <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-6">
+              <UFormField label="Formato"
+                ><UInput v-model="v.format" placeholder="Talla M · Garrafa 5 L…"
+              /></UFormField>
+              <UFormField label="Referencia ERP"><UInput v-model="v.sku" placeholder="1133" /></UFormField>
+              <UFormField label="EAN"><UInput v-model="v.ean" inputmode="numeric" /></UFormField>
+              <UFormField label="GTIN"><UInput v-model="v.gtin" inputmode="numeric" /></UFormField>
+              <UFormField label="MPN fabricante"><UInput v-model="v.mpn" /></UFormField>
+              <UButton
+                size="sm"
+                color="error"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                :disabled="form.variants.length <= 1"
+                @click="removeVariant(i)"
+                >Quitar</UButton
+              >
+            </div>
             <UFormField
-              label="Color (hex)"
-              :ui="{ label: 'text-xs' }"
-              class="order-last col-span-2 sm:order-none sm:col-span-1"
+              label="Excepción de identificador"
+              hint="Obligatoria y motivada si no hay EAN, GTIN ni MPN"
+              class="mt-3"
             >
-              <div class="flex items-center gap-1.5">
-                <span
-                  class="size-5 shrink-0 rounded-full border border-black/15"
-                  :style="{ backgroundColor: v.color || '#ffffff' }"
-                />
-                <input
-                  v-model="v.color"
-                  placeholder="#f7c600"
-                  class="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs focus:border-neteco-500 focus:outline-none"
-                />
-              </div>
+              <UInput v-model="v.identifierExceptionReason" class="w-full" />
             </UFormField>
-            <UFormField
-              label="Imagen (ruta)"
-              :ui="{ label: 'text-xs' }"
-              class="order-last col-span-2 sm:order-none sm:col-span-1"
+            <div class="mt-3 grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <UFormField label="Precio € IVA inc."
+                ><input v-model.number="v.price" type="number" step="0.01" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Stock"
+                ><input v-model.number="v.stock" type="number" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Stock seguridad"
+                ><input v-model.number="v.safetyStock" type="number" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Unidad base"><UInput v-model="v.unitBase" placeholder="unit, l, kg" /></UFormField>
+              <UFormField label="Etiqueta unidad"><UInput v-model="v.unitLabel" placeholder="unidad" /></UFormField>
+              <UFormField label="Contenido"
+                ><input
+                  v-model.number="v.contentQuantity"
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  class="admin-number"
+              /></UFormField>
+            </div>
+            <div class="mt-3 grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <UFormField label="MOQ"
+                ><input v-model.number="v.minimumQuantity" type="number" min="1" class="admin-number"
+              /></UFormField>
+              <UFormField label="Incremento"
+                ><input v-model.number="v.quantityIncrement" type="number" min="1" class="admin-number"
+              /></UFormField>
+              <UFormField label="Máximo"
+                ><input v-model.number="v.maximumQuantity" type="number" min="1" class="admin-number"
+              /></UFormField>
+              <UFormField label="Uds./caja"
+                ><input v-model.number="v.unitsPerCase" type="number" min="1" class="admin-number"
+              /></UFormField>
+              <UFormField label="Cajas/palé"
+                ><input v-model.number="v.casesPerPallet" type="number" min="1" class="admin-number"
+              /></UFormField>
+              <UFormField label="Imagen variante"><UInput v-model="v.image" /></UFormField>
+            </div>
+            <div class="mt-3 grid items-end gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <UFormField label="Peso g"
+                ><input v-model.number="v.weightGrams" type="number" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Ancho mm"
+                ><input v-model.number="v.widthMm" type="number" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Alto mm"
+                ><input v-model.number="v.heightMm" type="number" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Fondo mm"
+                ><input v-model.number="v.depthMm" type="number" min="0" class="admin-number"
+              /></UFormField>
+              <UFormField label="Color"><UInput v-model="v.color" placeholder="#f7c600" /></UFormField>
+              <UFormField label="Lead time días"
+                ><input v-model.number="v.leadTimeDays" type="number" min="0" class="admin-number"
+              /></UFormField>
+            </div>
+            <label class="mt-3 flex items-center gap-2 text-sm text-slate-700"
+              ><input v-model="v.backorderAllowed" type="checkbox" class="size-4" /> Permitir bajo pedido (requiere lead
+              time)</label
             >
-              <UInput v-model="v.image" placeholder="/img/products/<producto>/<acabado>/<COD>.jpg" class="w-full" />
-            </UFormField>
-            <UFormField label="Precio € (IVA inc.)" :ui="{ label: 'text-xs' }">
-              <input
-                v-model.number="v.price"
-                type="number"
-                step="0.01"
-                min="0"
-                class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-neteco-500 focus:outline-none"
-              />
-            </UFormField>
-            <UFormField label="Stock" :ui="{ label: 'text-xs' }">
-              <input
-                v-model.number="v.stock"
-                type="number"
-                min="0"
-                class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-neteco-500 focus:outline-none"
-              />
-            </UFormField>
-            <UButton
-              size="sm"
-              color="error"
-              variant="ghost"
-              icon="i-lucide-trash-2"
-              aria-label="Quitar variante"
-              :disabled="form.variants.length <= 1"
-              @click="removeVariant(i)"
-            />
           </div>
         </div>
       </section>
@@ -378,3 +526,19 @@ async function removeProduct() {
     </form>
   </div>
 </template>
+
+<style scoped>
+.admin-number {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0.375rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.admin-number:focus {
+  border-color: #169f62;
+  outline: none;
+}
+</style>

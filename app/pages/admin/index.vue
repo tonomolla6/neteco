@@ -69,16 +69,17 @@ const cards = computed(() => [
       </h2>
       <ul class="mt-2 list-disc space-y-1 pl-5">
         <li>
-          Los datos viven en <code class="rounded bg-slate-100 px-1">.data/neteco.db</code> (SQLite) y
-          <strong>ya no hace falta borrarla</strong>: los cambios de esquema se aplican solos al arrancar.
+          Los datos operativos viven en PostgreSQL. Las migraciones versionadas se aplican con
+          <code class="rounded bg-slate-100 px-1">npm run db:migrate</code> antes de arrancar una nueva versión.
         </li>
         <li>
-          Todo lo que des de alta aquí se guarda ahí directamente; el seed de demostración solo se ejecuta si la base
-          está vacía.
+          Todo cambio realizado aquí se guarda directamente y las acciones sensibles conservan actor, motivo y
+          correlación en el registro de auditoría.
         </li>
         <li>
-          Copia de seguridad: <code class="rounded bg-slate-100 px-1">npm run db:backup</code> crea un archivo fechado
-          en <code class="rounded bg-slate-100 px-1">.data/backups/</code>.
+          <code class="rounded bg-slate-100 px-1">npm run db:backup</code> genera un dump PostgreSQL verificable en el
+          destino seguro configurado por Operaciones. La retención y las pruebas de restauración se gestionan fuera del
+          panel.
         </li>
         <li>
           En productos, la <strong>referencia de cada variante es el código de artículo del ERP</strong>: es el vínculo

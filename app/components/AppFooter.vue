@@ -1,5 +1,11 @@
 <script setup lang="ts">
 const year = new Date().getFullYear()
+const runtime = useRuntimeConfig()
+const isProduction = runtime.public.appEnv === 'production'
+
+function configureCookies() {
+  window.dispatchEvent(new Event('neteco-open-consent'))
+}
 </script>
 
 <template>
@@ -57,16 +63,17 @@ const year = new Date().getFullYear()
           <li><NuxtLink to="/envios" class="hover:text-white">Envíos y reparto</NuxtLink></li>
           <li><NuxtLink to="/formas-de-pago" class="hover:text-white">Formas de pago</NuxtLink></li>
           <li><NuxtLink to="/devoluciones" class="hover:text-white">Devoluciones</NuxtLink></li>
+          <li><NuxtLink to="/contacto" class="hover:text-white">Contacto y soporte</NuxtLink></li>
+          <li><NuxtLink to="/ayuda" class="hover:text-white">Centro de ayuda</NuxtLink></li>
+          <li><NuxtLink to="/accesibilidad" class="hover:text-white">Accesibilidad</NuxtLink></li>
           <li><a href="https://neteco.es" target="_blank" rel="noopener" class="hover:text-white">Quiénes somos</a></li>
           <li>
-            <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="hover:text-white"
+            <a :href="runtime.public.legalTermsUrl" target="_blank" rel="noopener" class="hover:text-white"
               >Aviso legal y condiciones</a
             >
           </li>
           <li>
-            <a href="https://neteco.es/cookies" target="_blank" rel="noopener" class="hover:text-white"
-              >Política de cookies</a
-            >
+            <button class="hover:text-white" @click="configureCookies">Configurar cookies</button>
           </li>
         </ul>
         <p class="mt-4 flex items-center gap-2 text-xs text-slate-400">
@@ -80,7 +87,9 @@ const year = new Date().getFullYear()
         class="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-2 px-4 py-4 text-xs text-slate-400 sm:flex-row"
       >
         <p>© {{ year }} Maria Carmen González Nacher · Todos los derechos reservados.</p>
-        <p class="rounded-full bg-white/5 px-3 py-1">Demo interna · los productos y precios no son reales</p>
+        <p v-if="!isProduction" class="rounded-full bg-white/5 px-3 py-1">
+          Demo interna · los productos y precios no son reales
+        </p>
       </div>
     </div>
   </footer>

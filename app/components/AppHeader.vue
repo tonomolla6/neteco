@@ -56,7 +56,7 @@ async function logout() {
           </NuxtLink>
           <NuxtLink to="/envios" class="flex items-center gap-1.5 hover:text-neteco-200">
             <UIcon name="i-lucide-badge-euro" class="size-3.5" />
-            Agencia gratis desde 150 €
+            Coste y fecha calculados por destino
           </NuxtLink>
         </div>
       </div>

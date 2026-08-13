@@ -13,11 +13,19 @@ export default defineEventHandler(async (event) => {
       visual: { type: string; color: string }
       image: string | null
       minPrice: number
+      sku: string | null
     }>
   >`
     SELECT p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
-           p.attributes ->> 'image' AS image, min(v.price_gross_cents)::int AS "minPrice"
+           p.attributes ->> 'image' AS image, min(v.price_gross_cents)::int AS "minPrice",
+           (
+             SELECT exact_variant.sku FROM variants exact_variant
+             WHERE exact_variant.product_id = p.id AND exact_variant.status = 'published'
+               AND exact_variant.sku ILIKE ${`%${term}%`}
+             ORDER BY CASE WHEN exact_variant.sku = ${term} THEN 0 ELSE 1 END, exact_variant.sku
+             LIMIT 1
+           ) AS sku
     FROM products p
     LEFT JOIN brands b ON b.id = p.brand_id
     JOIN variants v ON v.product_id = p.id AND v.status = 'published'

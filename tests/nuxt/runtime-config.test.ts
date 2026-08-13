@@ -9,6 +9,17 @@ const localConfiguration = {
   invoiceProvider: 'mock',
   carrierProvider: 'mock',
   emailProvider: 'log',
+  legal: {
+    termsVersion: 'purchase-test',
+    privacyVersion: 'privacy-test',
+    reviewedAt: ''
+  },
+  media: {
+    storageDirectory: '.data/media',
+    clamavHost: '',
+    clamavPort: 3310,
+    maxBytes: 15_000_000
+  },
   auth: {
     tokenPepper: 'local-only-token-pepper-change-me',
     encryptionKey: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
@@ -34,7 +45,14 @@ const localConfiguration = {
     paymentCodeBankTransfer: '',
     companyId: ''
   },
-  public: { appEnv: 'local', baseUrl: 'http://localhost:3000', appVersion: 'test' }
+  public: {
+    appEnv: 'local',
+    baseUrl: 'http://localhost:3000',
+    appVersion: 'test',
+    legalTermsUrl: 'https://neteco.es/legal',
+    privacyUrl: 'https://neteco.es/legal',
+    cookiesUrl: 'https://neteco.es/cookies'
+  }
 } as const
 
 describe('runtime configuration', () => {
@@ -48,6 +66,18 @@ describe('runtime configuration', () => {
         ...localConfiguration,
         appEnv: 'production',
         public: { ...localConfiguration.public, appEnv: 'production', baseUrl: 'https://neteco.es' }
+      })
+    ).toThrow()
+  })
+
+  it('requires encrypted production database, Redis and public transports', () => {
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...localConfiguration,
+        appEnv: 'production',
+        databaseUrl: 'postgres://neteco:secret@database.invalid/neteco',
+        redisUrl: 'redis://cache.invalid/0',
+        public: { ...localConfiguration.public, appEnv: 'production', baseUrl: 'http://neteco.invalid' }
       })
     ).toThrow()
   })

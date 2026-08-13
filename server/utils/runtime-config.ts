@@ -20,6 +20,17 @@ export const runtimeConfigurationSchema = z
     invoiceProvider: invoiceProviderSchema,
     carrierProvider: carrierProviderSchema,
     emailProvider: z.enum(['log', 'smtp', 'api']),
+    legal: z.object({
+      termsVersion: z.string().min(1),
+      privacyVersion: z.string().min(1),
+      reviewedAt: z.string()
+    }),
+    media: z.object({
+      storageDirectory: z.string(),
+      clamavHost: z.string(),
+      clamavPort: z.number().int().min(1).max(65535),
+      maxBytes: z.number().int().min(1_000).max(25_000_000)
+    }),
     auth: z.object({
       tokenPepper: z.string().min(24),
       encryptionKey: z.string().refine((value) => Buffer.from(value, 'base64').byteLength === 32),
@@ -48,7 +59,10 @@ export const runtimeConfigurationSchema = z
     public: z.object({
       appEnv: environmentSchema,
       baseUrl: z.string().url(),
-      appVersion: z.string().min(1)
+      appVersion: z.string().min(1),
+      legalTermsUrl: z.string().url(),
+      privacyUrl: z.string().url(),
+      cookiesUrl: z.string().url()
     })
   })
   .superRefine((config, context) => {
@@ -60,6 +74,43 @@ export const runtimeConfigurationSchema = z
       })
     }
     if (config.appEnv !== 'production') return
+    const database = new URL(config.databaseUrl)
+    if (!['require', 'verify-ca', 'verify-full'].includes(database.searchParams.get('sslmode') ?? '')) {
+      context.addIssue({
+        code: 'custom',
+        path: ['databaseUrl'],
+        message: 'Production PostgreSQL requires TLS through sslmode=require, verify-ca or verify-full'
+      })
+    }
+    if (!config.redisUrl.startsWith('rediss://')) {
+      context.addIssue({ code: 'custom', path: ['redisUrl'], message: 'Production Redis requires TLS (rediss)' })
+    }
+    if (!config.public.baseUrl.startsWith('https://')) {
+      context.addIssue({ code: 'custom', path: ['public', 'baseUrl'], message: 'Production base URL requires HTTPS' })
+    }
+    if (
+      !config.public.legalTermsUrl.startsWith('https://') ||
+      !config.public.privacyUrl.startsWith('https://') ||
+      !config.public.cookiesUrl.startsWith('https://') ||
+      !config.legal.reviewedAt ||
+      Number.isNaN(Date.parse(config.legal.reviewedAt))
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['legal'],
+        message: 'Production requires reviewed, HTTPS legal documents and a review date'
+      })
+    }
+    if (!config.media.storageDirectory.startsWith('/') || !config.media.clamavHost) {
+      context.addIssue({
+        code: 'custom',
+        path: ['media'],
+        message: 'Production requires durable media storage and a ClamAV scanner'
+      })
+    }
+    if (config.emailProvider === 'log') {
+      context.addIssue({ code: 'custom', path: ['emailProvider'], message: 'Production cannot log emails' })
+    }
     if (config.paymentProvider !== 'redsys' || config.redsys.environment !== 'production') {
       context.addIssue({
         code: 'custom',

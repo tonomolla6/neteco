@@ -51,6 +51,22 @@ export default defineEventHandler(async (event) => {
       WHERE id = ${current.uuid}
       RETURNING slug
     `
+    if (updated && updated.slug !== current.slug) {
+      await transaction`
+        INSERT INTO canonical_redirects (
+          source_path, destination_path, resource_type, resource_id, created_by, reason
+        ) VALUES (
+          ${`/categoria/${current.slug}`}, ${`/categoria/${updated.slug}`}, 'category', ${current.uuid},
+          ${administrator.id}, ${body.reason}
+        ) ON CONFLICT (source_path) DO UPDATE
+        SET destination_path = EXCLUDED.destination_path, created_by = EXCLUDED.created_by,
+            reason = EXCLUDED.reason, created_at = now()
+      `
+      await transaction`
+        UPDATE canonical_redirects SET destination_path = ${`/categoria/${updated.slug}`}
+        WHERE destination_path = ${`/categoria/${current.slug}`}
+      `
+    }
     await transaction`
       INSERT INTO audit_log (
         actor_type, actor_id, action, resource_type, resource_id, before_redacted,

@@ -9,6 +9,21 @@ test('publishes a live health check with security headers', async ({ request }) 
   expect(response.headers()['x-correlation-id']).toBeTruthy()
 })
 
+test('publishes crawl policy and a catalog sitemap without private routes', async ({ request }) => {
+  const robots = await request.get('/robots.txt')
+  expect(robots.ok()).toBe(true)
+  expect(robots.headers()['content-type']).toContain('text/plain')
+  expect(await robots.text()).toContain('Disallow: /checkout')
+
+  const sitemap = await request.get('/sitemap.xml')
+  expect(sitemap.ok()).toBe(true)
+  expect(sitemap.headers()['content-type']).toContain('application/xml')
+  const body = await sitemap.text()
+  expect(body).toContain('<urlset')
+  expect(body).toContain('/producto/')
+  expect(body).not.toContain('/pedido/')
+})
+
 test('storefront purchase path is keyboard-accessible and keeps a server cart', async ({ page, request }) => {
   const catalogResponse = await request.get('/api/products?limit=1')
   expect(catalogResponse.ok()).toBe(true)

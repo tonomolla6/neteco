@@ -132,19 +132,9 @@ async function confirmClear() {
           <UButton to="/checkout" size="xl" block class="mt-5" trailing-icon="i-lucide-arrow-right">
             Tramitar pedido
           </UButton>
-          <div v-if="cart.subtotal < 15000" class="mt-4">
-            <p class="text-xs text-slate-500">
-              Te faltan <b>{{ formatPrice(15000 - cart.subtotal) }}</b> para el envío por agencia gratis
-            </p>
-            <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
-              <div
-                class="h-full rounded-full bg-neteco-500 transition-all"
-                :style="{ width: `${Math.min((cart.subtotal / 15000) * 100, 100)}%` }"
-              />
-            </div>
-          </div>
-          <p v-else class="mt-3 flex items-center justify-center gap-1.5 text-xs font-medium text-emerald-700">
-            <UIcon name="i-lucide-badge-check" class="size-3.5" /> Tienes envío por agencia gratis
+          <p class="mt-3 text-center text-xs text-slate-500">
+            Los métodos elegibles, el coste y la fecha se calculan con el código postal y el perfil real de la
+            mercancía.
           </p>
         </div>
       </div>

@@ -1,12 +1,12 @@
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const SIGNED_WEBHOOK_PATHS = new Set(['/api/payments/redsys/notification'])
 
-function configuredOrigins(baseUrl: string, requestUrl: URL) {
+function configuredOrigins(baseUrl: string) {
   const configured = (process.env.CORS_ALLOWED_ORIGINS ?? '')
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean)
-  return new Set([requestUrl.origin, new URL(baseUrl).origin, ...configured.map((origin) => new URL(origin).origin)])
+  return new Set([new URL(baseUrl).origin, ...configured.map((origin) => new URL(origin).origin)])
 }
 
 function normalizedOrigin(value: string | undefined) {
@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
   const requestUrl = getRequestURL(event)
   const path = requestUrl.pathname
   const runtime = useRuntimeConfig(event)
-  const origins = configuredOrigins(String(runtime.public.baseUrl), requestUrl)
+  const origins = configuredOrigins(String(runtime.public.baseUrl))
   const origin = getHeader(event, 'origin')
   const allowedOrigin = !!origin && origins.has(normalizedOrigin(origin) ?? '')
 

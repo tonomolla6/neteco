@@ -111,9 +111,8 @@ async function submitReturn() {
           <UIcon name="i-lucide-calendar-days" class="size-5 text-neteco-600" /> Plazo
         </h2>
         <p class="mt-2 text-sm text-slate-600">
-          Como consumidor tienes <b>14 días naturales</b> desde la entrega para ejercer el desistimiento, con las
-          excepciones legales aplicables. Las compras profesionales y los productos restringidos se revisan según sus
-          condiciones contractuales.
+          La elegibilidad, el plazo y las excepciones se determinan con la condición B2B/B2C, el producto, su estado y
+          la versión de condiciones aceptada al comprar. El formulario conserva la fecha y referencia de la solicitud.
         </p>
       </div>
 
@@ -124,7 +123,7 @@ async function submitReturn() {
         <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
           <li>El producto debe estar sin abrir y en su embalaje original.</li>
           <li>Por seguridad, los productos químicos abiertos o desprecintados no admiten devolución.</li>
-          <li>Si el error es nuestro (producto equivocado o dañado), corremos con todos los gastos, siempre.</li>
+          <li>Los costes y la resolución se asignan tras revisar responsabilidad, estado y condiciones aplicables.</li>
         </ul>
       </div>
 
@@ -138,11 +137,12 @@ async function submitReturn() {
           <a href="mailto:administracion@neteco.es" class="font-semibold text-neteco-600 underline"
             >administracion@neteco.es</a
           >
-          con el número de pedido. En la zona de reparto propio <b>pasamos a recogerlo nosotros</b> en la siguiente
-          ruta; para envíos por agencia te mandamos una etiqueta de devolución.
+          con el número de pedido. Tras autorizar la solicitud te indicaremos si corresponde recogida, etiqueta de
+          retorno u otra instrucción compatible con la mercancía.
         </p>
         <p class="mt-2 text-sm text-slate-600">
-          El abono se hace por el mismo método de pago en un máximo de 14 días desde que recibimos el producto.
+          El abono aprobado se tramita por el flujo conciliado del método de pago y genera la documentación fiscal que
+          corresponda. El ticket muestra su estado sin presentar una solicitud como reembolso confirmado.
         </p>
       </div>
     </div>

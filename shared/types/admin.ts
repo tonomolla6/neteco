@@ -38,15 +38,37 @@ export interface AdminProductDetail {
   featured: boolean
   active: boolean
   series: string | null
+  image: string | null
+  imageAlt: string | null
+  imageRightsOwner: string | null
+  imageRightsLicense: string | null
+  imageAuthorizedAt: string | null
   attrs: Array<{ k: string; v: string }>
   variants: Array<{
     id: number
     format: string
     sku: string
+    ean: string | null
+    gtin: string | null
+    mpn: string | null
+    identifierExceptionReason: string | null
     price: number
     stock: number
     units: number
     unitLabel: string
+    unitBase: string
+    unitsPerCase: number
+    casesPerPallet: number | null
+    minimumQuantity: number
+    quantityIncrement: number
+    maximumQuantity: number | null
+    weightGrams: number
+    widthMm: number
+    heightMm: number
+    depthMm: number
+    safetyStock: number
+    backorderAllowed: boolean
+    leadTimeDays: number | null
     color: string | null
     image: string | null
   }>
@@ -87,4 +109,35 @@ export interface AdminReturnSummary {
   quantity: number
   refundAmountCents: number | null
   refundStatus: string | null
+}
+
+export interface AdminSupportTicket {
+  id: string
+  category: string
+  priority: 'low' | 'normal' | 'high' | 'urgent'
+  status: 'open' | 'waiting_customer' | 'waiting_provider' | 'resolved' | 'closed'
+  subject: string
+  requesterName: string
+  requesterEmail: string
+  orderNumber: string | null
+  productSlug: string | null
+  ownerName: string | null
+  slaDueAt: string
+  nextActionAt: string | null
+  createdAt: string
+  updatedAt: string
+  messages: number
+}
+
+export interface AdminSupportTicketDetail extends AdminSupportTicket {
+  requesterPhone: string | null
+  orderId: string | null
+  timeline: Array<{
+    id: string
+    authorType: 'customer' | 'staff' | 'system'
+    authorName: string | null
+    body: string
+    private: boolean
+    createdAt: string
+  }>
 }

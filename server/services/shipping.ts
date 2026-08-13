@@ -3,6 +3,7 @@ import { createError } from 'h3'
 import { useDatabase } from '../db/client'
 import { carrierProviderFromEnvironment } from '../integrations/carrier-factory'
 import type { Parcel, ShippingAddress } from '../integrations/carrier-provider'
+import { shippingCommercialPolicy } from '../utils/shipping-policy'
 
 interface ShipmentOrder {
   id: string
@@ -95,9 +96,11 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
       heightMm: number
       depthMm: number
       profile: string
+      priceGrossCents: number
     }>
   >`
-    SELECT variant.sku, item.quantity, variant.weight_grams AS "weightGrams",
+    SELECT variant.sku, item.quantity, variant.price_gross_cents AS "priceGrossCents",
+           variant.weight_grams AS "weightGrams",
            variant.width_mm AS "widthMm", variant.height_mm AS "heightMm", variant.depth_mm AS "depthMm",
            profile.kind AS profile
     FROM cart_items item
@@ -116,7 +119,18 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
     handling: line.profile === 'adr' ? 'adr' : line.profile === 'pallet' ? 'pallet' : 'parcel'
   }))
   const provider = carrierProviderFromEnvironment()
-  const rates = await provider.rates({ originPostalCode: '46870', destination, parcels })
+  const quotedRates = await provider.rates({ originPostalCode: '46870', destination, parcels })
+  const goodsGross = lines.reduce((total, line) => total + line.priceGrossCents * line.quantity, 0)
+  const policy = shippingCommercialPolicy()
+  const rates = quotedRates.map((rate) => ({
+    ...rate,
+    netCents:
+      policy.freeShippingThresholdCents !== null &&
+      goodsGross >= policy.freeShippingThresholdCents &&
+      ['parcel', 'multi_parcel'].includes(rate.profile)
+        ? 0
+        : rate.netCents
+  }))
   const now = new Date()
   return [
     ...rates,
@@ -224,6 +238,19 @@ export async function createOrderShipment(input: {
         ${input.correlationId}, ${`shipment:${shipmentId}:created`}
       )
     `
+    await transaction`
+      INSERT INTO outbox_events (
+        aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+      ) VALUES (
+        'order', ${order.id}, 'order.shipped',
+        ${transaction.json({
+          orderId: order.id,
+          orderNumber: order.publicNumber,
+          statusLabel: 'enviado',
+          trackingNumber: shipment.trackingNumber
+        })}, ${input.correlationId}, ${`order:${order.id}:shipment:${shipmentId}:email`}
+      ) ON CONFLICT (idempotency_key) DO NOTHING
+    `
     return {
       id: shipmentId,
       trackingNumber: shipment.trackingNumber,
@@ -282,6 +309,19 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
           ${transaction.json({ shipmentId })}, ${correlationId}, ${`tracking:${shipmentId}:${latest}:${events.at(-1)?.occurredAt}`}
         ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
       `
+      if (latest === 'delivered') {
+        await transaction`
+          INSERT INTO outbox_events (
+            aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
+          )
+          SELECT 'order', orders.id, 'order.delivered',
+                 ${transaction.json({ orderId: shipment.order_id, statusLabel: 'entregado' })}
+                   || jsonb_build_object('orderNumber', orders.public_number),
+                 ${correlationId}, ${`order:${shipment.order_id}:delivered:email`}
+          FROM orders WHERE id = ${shipment.order_id}
+          ON CONFLICT (idempotency_key) DO NOTHING
+        `
+      }
     }
   })
   return { id: shipment.id, events }

@@ -4,21 +4,50 @@ import { useCartStore } from '~/stores/cart'
 useSeoMeta({ title: 'Tramitar pedido' })
 
 const cart = useCartStore()
+const runtime = useRuntimeConfig()
 const { loggedIn, user } = useUserSession()
 const toast = useToast()
+const { track } = useAnalytics()
+
+onMounted(async () => {
+  await cart.load()
+  void track('checkout_started', { itemCount: cart.count, totalCents: cart.subtotal })
+})
 
 const form = reactive({
   name: '',
   company: '',
   nif: '',
   email: '',
-  phone: '',
-  address: '',
-  zip: '',
-  city: '',
-  province: 'Valencia',
-  notes: ''
+  phone: ''
 })
+const shippingAddress = reactive({
+  recipientName: '',
+  companyName: '',
+  taxId: '',
+  line1: '',
+  line2: '',
+  postalCode: '',
+  city: '',
+  region: 'Valencia',
+  countryCode: 'ES' as const,
+  phone: '',
+  instructions: ''
+})
+const billingAddress = reactive({
+  recipientName: '',
+  companyName: '',
+  taxId: '',
+  line1: '',
+  line2: '',
+  postalCode: '',
+  city: '',
+  region: 'Valencia',
+  countryCode: 'ES' as const,
+  phone: '',
+  instructions: ''
+})
+const billingSameAsShipping = ref(true)
 
 watch(
   user,
@@ -28,13 +57,43 @@ watch(
     form.email ||= u.email ?? ''
     form.phone ||= u.phone ?? ''
     form.company ||= u.company ?? ''
+    shippingAddress.recipientName ||= u.name ?? ''
+    shippingAddress.companyName ||= u.company ?? ''
+    shippingAddress.phone ||= u.phone ?? ''
   },
   { immediate: true }
+)
+
+watch(
+  () => form.name,
+  (value, previous) => {
+    if (!shippingAddress.recipientName || shippingAddress.recipientName === previous)
+      shippingAddress.recipientName = value
+  }
+)
+watch(
+  () => form.company,
+  (value, previous) => {
+    if (!shippingAddress.companyName || shippingAddress.companyName === previous) shippingAddress.companyName = value
+  }
+)
+watch(
+  () => form.nif,
+  (value, previous) => {
+    if (!shippingAddress.taxId || shippingAddress.taxId === previous) shippingAddress.taxId = value
+  }
+)
+watch(
+  () => form.phone,
+  (value, previous) => {
+    if (!shippingAddress.phone || shippingAddress.phone === previous) shippingAddress.phone = value
+  }
 )
 
 const shippingMethod = ref<'reparto' | 'envio' | 'recogida'>('reparto')
 const paymentMethod = ref<'tarjeta' | 'bizum' | 'transferencia'>('tarjeta')
 const acceptTerms = ref(false)
+const marketingConsent = ref(false)
 
 interface ShippingRate {
   serviceCode: string
@@ -66,12 +125,10 @@ const eligibleShippingMethods = computed(() =>
 const selectedShippingRate = computed(() => methodRate(shippingMethod.value))
 const quotedShippingGross = computed(() => {
   const rate = selectedShippingRate.value
-  if (!rate) return shippingMethod.value === 'envio' ? 590 : 0
+  if (!rate) return 0
   return rate.netCents + Math.round((rate.netCents * rate.taxRateBasisPoints) / 10_000)
 })
-const shippingCost = computed(() =>
-  shippingMethod.value === 'envio' && cart.subtotal >= 15000 ? 0 : quotedShippingGross.value
-)
+const shippingCost = computed(() => quotedShippingGross.value)
 const total = computed(() => cart.subtotal + shippingCost.value)
 const tax = computed(() => total.value - Math.round(total.value / 1.21))
 
@@ -83,7 +140,13 @@ const pendingOrder = ref<{ id: string; token: string } | null>(null)
 const checkoutAttempt = reactive({ idempotencyKey: crypto.randomUUID(), guestToken: crypto.randomUUID() })
 
 async function refreshShippingRates() {
-  if (!/^\d{5}$/.test(form.zip.trim()) || !form.name.trim() || !form.address.trim() || !form.city.trim()) return false
+  if (
+    !/^\d{5}$/.test(shippingAddress.postalCode.trim()) ||
+    !shippingAddress.recipientName.trim() ||
+    !shippingAddress.line1.trim() ||
+    !shippingAddress.city.trim()
+  )
+    return false
   await cart.ensureLoaded()
   shippingRateLoading.value = true
   shippingRateError.value = ''
@@ -91,12 +154,12 @@ async function refreshShippingRates() {
     const quote = await $fetch<{ cartVersion: number; rates: ShippingRate[] }>('/api/shipping/rates', {
       method: 'POST',
       body: {
-        name: form.name,
-        line1: form.address,
-        postalCode: form.zip,
-        city: form.city,
-        region: form.province,
-        phone: form.phone
+        name: shippingAddress.recipientName,
+        line1: shippingAddress.line1,
+        postalCode: shippingAddress.postalCode,
+        city: shippingAddress.city,
+        region: shippingAddress.region,
+        phone: shippingAddress.phone
       }
     })
     shippingRates.value = quote.rates
@@ -114,7 +177,15 @@ async function refreshShippingRates() {
 
 let rateTimer: ReturnType<typeof setTimeout> | undefined
 watch(
-  () => [form.name, form.address, form.zip, form.city, form.province, form.phone, cart.version],
+  () => [
+    shippingAddress.recipientName,
+    shippingAddress.line1,
+    shippingAddress.postalCode,
+    shippingAddress.city,
+    shippingAddress.region,
+    shippingAddress.phone,
+    cart.version
+  ],
   () => {
     clearTimeout(rateTimer)
     rateTimer = setTimeout(() => void refreshShippingRates(), 350)
@@ -124,7 +195,7 @@ watch(
 // cambiar el método de pago, el envío o los datos invalida el pedido pendiente:
 // el siguiente intento crea un pedido nuevo con la información correcta
 watch(
-  [paymentMethod, shippingMethod, form],
+  [paymentMethod, shippingMethod, form, shippingAddress, billingAddress, billingSameAsShipping, marketingConsent],
   () => {
     pendingOrder.value = null
     checkoutAttempt.idempotencyKey = crypto.randomUUID()
@@ -133,30 +204,60 @@ watch(
   { deep: true }
 )
 
-const zipOutOfZone = computed(
-  () => shippingMethod.value === 'reparto' && !!form.zip.trim() && !form.zip.trim().startsWith(REPARTO_ZIP_PREFIX)
-)
-
 function validate() {
   Object.assign(errors, {
     name: '',
     email: '',
     phone: '',
-    address: '',
-    zip: '',
-    city: '',
+    shippingRecipientName: '',
+    shippingPhone: '',
+    shippingLine1: '',
+    shippingPostalCode: '',
+    shippingCity: '',
+    billingRecipientName: '',
+    billingLine1: '',
+    billingPostalCode: '',
+    billingCity: '',
+    billingTaxId: '',
+    nif: '',
     terms: ''
   })
   if (!form.name.trim()) errors.name = 'Indica el nombre completo'
   if (!form.email.trim()) errors.email = 'Indica el email'
   else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errors.email = 'El email no parece válido'
   if (!form.phone.trim()) errors.phone = 'Indica un teléfono de contacto'
-  if (!form.address.trim()) errors.address = 'Indica la dirección'
-  if (!form.zip.trim()) errors.zip = 'Indica el código postal'
-  else if (zipOutOfZone.value) errors.zip = 'CP fuera de la zona de reparto propio: elige «Envío por agencia»'
-  if (!form.city.trim()) errors.city = 'Indica la población'
+  if (form.nif.trim() && !isValidTaxId(form.nif)) errors.nif = 'Revisa el NIF, NIE o CIF'
+  if (!shippingAddress.recipientName.trim()) errors.shippingRecipientName = 'Indica el destinatario'
+  if (!shippingAddress.phone.trim()) errors.shippingPhone = 'Indica el teléfono de entrega'
+  if (!shippingAddress.line1.trim()) errors.shippingLine1 = 'Indica la dirección'
+  if (!shippingAddress.postalCode.trim()) errors.shippingPostalCode = 'Indica el código postal'
+  else if (!/^\d{5}$/.test(shippingAddress.postalCode.trim()))
+    errors.shippingPostalCode = 'El código postal debe tener 5 cifras'
+  if (!shippingAddress.city.trim()) errors.shippingCity = 'Indica la población'
+  if (!billingSameAsShipping.value) {
+    if (!billingAddress.recipientName.trim()) errors.billingRecipientName = 'Indica el titular de facturación'
+    if (!billingAddress.line1.trim()) errors.billingLine1 = 'Indica la dirección fiscal'
+    if (!billingAddress.postalCode.trim()) errors.billingPostalCode = 'Indica el código postal fiscal'
+    else if (!/^\d{5}$/.test(billingAddress.postalCode.trim()))
+      errors.billingPostalCode = 'El código postal debe tener 5 cifras'
+    if (!billingAddress.city.trim()) errors.billingCity = 'Indica la población fiscal'
+    if (billingAddress.taxId.trim() && !isValidTaxId(billingAddress.taxId))
+      errors.billingTaxId = 'Revisa el NIF, NIE o CIF'
+  }
   if (!acceptTerms.value) errors.terms = 'Debes aceptar las condiciones para continuar'
   return !Object.values(errors).some(Boolean)
+}
+
+function isValidTaxId(value: string) {
+  const normalized = value.toUpperCase().replace(/[\s-]/g, '')
+  if (/^\d{8}[A-Z]$/.test(normalized)) {
+    return 'TRWAGMYFPDXBNJZSQVHLCKE'[Number(normalized.slice(0, 8)) % 23] === normalized[8]
+  }
+  return /^[A-Z][0-9A-Z]{8}$/.test(normalized)
+}
+
+function effectiveBillingAddress() {
+  return billingSameAsShipping.value ? { ...shippingAddress, instructions: '' } : { ...billingAddress }
 }
 
 function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
@@ -164,7 +265,7 @@ function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
 }
 
 function scrollToFirstError() {
-  if (['name', 'email', 'phone', 'address', 'zip', 'city'].some((k) => errors[k])) scrollTo('sec-datos')
+  if (Object.entries(errors).some(([key, value]) => key !== 'terms' && value)) scrollTo('sec-datos')
   else scrollTo('checkout-alert', 'center')
 }
 
@@ -207,13 +308,16 @@ async function submit() {
         method: 'POST',
         body: {
           customer: { ...form },
+          shippingAddress: { ...shippingAddress },
+          billingAddress: effectiveBillingAddress(),
           shippingMethod: shippingMethod.value,
           paymentMethod: paymentMethod.value,
           cartId: cart.id,
           cartVersion: cart.version,
           idempotencyKey: checkoutAttempt.idempotencyKey,
           guestToken: checkoutAttempt.guestToken,
-          termsAccepted: true
+          termsAccepted: true,
+          marketingConsent: marketingConsent.value
         }
       })
     }
@@ -264,7 +368,7 @@ async function finish(order: { id: string; token: string }) {
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Tramitar pedido</h1>
 
     <ClientOnly>
-      <div v-if="cart.items.length" class="mt-6 grid items-start gap-8 lg:grid-cols-3">
+      <form v-if="cart.items.length" class="mt-6 grid items-start gap-8 lg:grid-cols-3" @submit.prevent="submit">
         <div class="space-y-6 lg:col-span-2">
           <!-- identificación -->
           <section v-if="!loggedIn" class="rounded-2xl border border-neteco-200 bg-neteco-50 p-5">
@@ -292,8 +396,9 @@ async function finish(order: { id: string; token: string }) {
                 class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
                 >1</span
               >
-              Datos de facturación y entrega
+              Contacto, entrega y facturación
             </h2>
+            <h3 class="mt-5 text-sm font-bold uppercase tracking-wide text-slate-500">Datos de contacto</h3>
             <div class="mt-5 grid gap-4 sm:grid-cols-2">
               <UFormField label="Nombre y apellidos" required :error="errors.name">
                 <UInput v-model="form.name" class="w-full" autocomplete="name" />
@@ -301,7 +406,7 @@ async function finish(order: { id: string; token: string }) {
               <UFormField label="Empresa" hint="opcional">
                 <UInput v-model="form.company" class="w-full" autocomplete="organization" />
               </UFormField>
-              <UFormField label="NIF / CIF" hint="opcional">
+              <UFormField label="NIF / NIE / CIF" hint="opcional" :error="errors.nif">
                 <UInput v-model="form.nif" class="w-full" />
               </UFormField>
               <UFormField label="Teléfono" required :error="errors.phone">
@@ -310,21 +415,90 @@ async function finish(order: { id: string; token: string }) {
               <UFormField label="Email" required class="sm:col-span-2" :error="errors.email">
                 <UInput v-model="form.email" type="email" class="w-full" autocomplete="email" />
               </UFormField>
-              <UFormField label="Dirección" required class="sm:col-span-2" :error="errors.address">
-                <UInput v-model="form.address" class="w-full" autocomplete="street-address" />
+            </div>
+
+            <h3 class="mt-8 text-sm font-bold uppercase tracking-wide text-slate-500">Dirección de entrega</h3>
+            <div class="mt-4 grid gap-4 sm:grid-cols-2">
+              <UFormField label="Destinatario" required :error="errors.shippingRecipientName">
+                <UInput v-model="shippingAddress.recipientName" class="w-full" autocomplete="shipping name" />
               </UFormField>
-              <UFormField label="Código postal" required :error="errors.zip">
-                <UInput v-model="form.zip" inputmode="numeric" class="w-full" autocomplete="postal-code" />
+              <UFormField label="Empresa" hint="opcional">
+                <UInput v-model="shippingAddress.companyName" class="w-full" autocomplete="shipping organization" />
               </UFormField>
-              <UFormField label="Población" required :error="errors.city">
-                <UInput v-model="form.city" class="w-full" autocomplete="address-level2" />
+              <UFormField label="Teléfono de entrega" required :error="errors.shippingPhone">
+                <UInput
+                  v-model="shippingAddress.phone"
+                  type="tel"
+                  inputmode="tel"
+                  class="w-full"
+                  autocomplete="shipping tel"
+                />
+              </UFormField>
+              <UFormField label="Dirección" required :error="errors.shippingLine1">
+                <UInput v-model="shippingAddress.line1" class="w-full" autocomplete="shipping address-line1" />
+              </UFormField>
+              <UFormField label="Piso, puerta, nave…" hint="opcional" class="sm:col-span-2">
+                <UInput v-model="shippingAddress.line2" class="w-full" autocomplete="shipping address-line2" />
+              </UFormField>
+              <UFormField label="Código postal" required :error="errors.shippingPostalCode">
+                <UInput
+                  v-model="shippingAddress.postalCode"
+                  inputmode="numeric"
+                  class="w-full"
+                  autocomplete="shipping postal-code"
+                />
+              </UFormField>
+              <UFormField label="Población" required :error="errors.shippingCity">
+                <UInput v-model="shippingAddress.city" class="w-full" autocomplete="shipping address-level2" />
               </UFormField>
               <UFormField label="Provincia">
-                <UInput v-model="form.province" class="w-full" autocomplete="address-level1" />
+                <UInput v-model="shippingAddress.region" class="w-full" autocomplete="shipping address-level1" />
               </UFormField>
               <UFormField label="Notas para el reparto" hint="opcional">
-                <UInput v-model="form.notes" placeholder="Horario, muelle de carga…" class="w-full" />
+                <UInput v-model="shippingAddress.instructions" placeholder="Horario, muelle de carga…" class="w-full" />
               </UFormField>
+            </div>
+
+            <label class="mt-7 flex items-center gap-2 text-sm font-medium text-slate-700">
+              <input v-model="billingSameAsShipping" type="checkbox" class="accent-neteco-600" />
+              Usar esta dirección también para facturación
+            </label>
+            <div v-if="!billingSameAsShipping" class="mt-5 border-t border-slate-100 pt-5">
+              <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Dirección de facturación</h3>
+              <div class="mt-4 grid gap-4 sm:grid-cols-2">
+                <UFormField label="Titular / razón social" required :error="errors.billingRecipientName">
+                  <UInput v-model="billingAddress.recipientName" class="w-full" autocomplete="billing name" />
+                </UFormField>
+                <UFormField label="Empresa" hint="opcional">
+                  <UInput v-model="billingAddress.companyName" class="w-full" autocomplete="billing organization" />
+                </UFormField>
+                <UFormField label="NIF / NIE / CIF" hint="opcional" :error="errors.billingTaxId">
+                  <UInput v-model="billingAddress.taxId" class="w-full" />
+                </UFormField>
+                <UFormField label="Dirección fiscal" required :error="errors.billingLine1">
+                  <UInput v-model="billingAddress.line1" class="w-full" autocomplete="billing address-line1" />
+                </UFormField>
+                <UFormField label="Dirección adicional" hint="opcional" class="sm:col-span-2">
+                  <UInput v-model="billingAddress.line2" class="w-full" autocomplete="billing address-line2" />
+                </UFormField>
+                <UFormField label="Código postal" required :error="errors.billingPostalCode">
+                  <UInput
+                    v-model="billingAddress.postalCode"
+                    inputmode="numeric"
+                    class="w-full"
+                    autocomplete="billing postal-code"
+                  />
+                </UFormField>
+                <UFormField label="Población" required :error="errors.billingCity">
+                  <UInput v-model="billingAddress.city" class="w-full" autocomplete="billing address-level2" />
+                </UFormField>
+                <UFormField label="Provincia">
+                  <UInput v-model="billingAddress.region" class="w-full" autocomplete="billing address-level1" />
+                </UFormField>
+                <UFormField label="Teléfono" hint="opcional">
+                  <UInput v-model="billingAddress.phone" type="tel" class="w-full" autocomplete="billing tel" />
+                </UFormField>
+              </div>
             </div>
           </section>
 
@@ -337,7 +511,8 @@ async function finish(order: { id: string; token: string }) {
               >
               Método de entrega
             </h2>
-            <div class="mt-5 space-y-2">
+            <fieldset class="mt-5 space-y-2">
+              <legend class="sr-only">Selecciona el método de entrega</legend>
               <label
                 v-for="m in eligibleShippingMethods"
                 :key="m.value"
@@ -361,33 +536,26 @@ async function finish(order: { id: string; token: string }) {
                   </span>
                 </span>
                 <span class="font-semibold text-slate-800">
-                  {{
-                    m.value === 'envio'
-                      ? cart.subtotal >= 15000
-                        ? 'Gratis'
-                        : formatPrice(
-                            (methodRate(m.value)?.netCents ?? 488) +
+                  <template v-if="methodRate(m.value)">
+                    {{
+                      methodRate(m.value)!.netCents
+                        ? formatPrice(
+                            methodRate(m.value)!.netCents +
                               Math.round(
-                                ((methodRate(m.value)?.netCents ?? 488) *
-                                  (methodRate(m.value)?.taxRateBasisPoints ?? 2100)) /
-                                  10_000
+                                (methodRate(m.value)!.netCents * methodRate(m.value)!.taxRateBasisPoints) / 10_000
                               )
                           )
-                      : 'Gratis'
-                  }}
+                        : 'Gratis'
+                    }}
+                  </template>
+                  <template v-else>Por calcular</template>
                 </span>
               </label>
-            </div>
-            <p v-if="shippingRateLoading" class="mt-3 text-sm text-slate-500">Calculando disponibilidad y fecha…</p>
-            <p v-if="shippingRateError" class="mt-3 text-sm text-red-700">{{ shippingRateError }}</p>
-            <p
-              v-if="zipOutOfZone"
-              class="mt-3 flex items-start gap-1.5 rounded-lg bg-amber-50 p-3 text-sm text-amber-800"
-            >
-              <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0" />
-              Tu código postal está fuera de nuestra zona de reparto propio (Ontinyent y la Vall d'Albaida). Elige
-              «Envío por agencia».
+            </fieldset>
+            <p v-if="shippingRateLoading" role="status" aria-live="polite" class="mt-3 text-sm text-slate-500">
+              Calculando disponibilidad y fecha…
             </p>
+            <p v-if="shippingRateError" role="alert" class="mt-3 text-sm text-red-700">{{ shippingRateError }}</p>
           </section>
 
           <!-- pago -->
@@ -399,7 +567,8 @@ async function finish(order: { id: string; token: string }) {
               >
               Pago
             </h2>
-            <div class="mt-5 space-y-2">
+            <fieldset class="mt-5 space-y-2">
+              <legend class="sr-only">Selecciona el método de pago</legend>
               <label
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
                 :class="
@@ -449,7 +618,7 @@ async function finish(order: { id: string; token: string }) {
                   <span class="block text-xs text-slate-500">El pedido se prepara al recibir el ingreso</span>
                 </span>
               </label>
-            </div>
+            </fieldset>
           </section>
         </div>
 
@@ -478,7 +647,9 @@ async function finish(order: { id: string; token: string }) {
               <dt class="min-w-0 truncate text-slate-500">
                 Envío · {{ SHIPPING_METHODS.find((m) => m.value === shippingMethod)?.label }}
               </dt>
-              <dd class="shrink-0">{{ shippingCost ? formatPrice(shippingCost) : 'Gratis' }}</dd>
+              <dd class="shrink-0">
+                {{ selectedShippingRate ? (shippingCost ? formatPrice(shippingCost) : 'Gratis') : 'Por calcular' }}
+              </dd>
             </div>
             <div class="flex justify-between text-xs text-slate-500">
               <dt>IVA incluido (21 %)</dt>
@@ -490,34 +661,46 @@ async function finish(order: { id: string; token: string }) {
             </div>
           </dl>
 
-          <label class="mt-4 flex items-start gap-2 text-xs text-slate-500">
+          <label class="mt-4 flex items-start gap-2 text-xs text-slate-600">
             <input v-model="acceptTerms" type="checkbox" class="mt-0.5 accent-neteco-600" />
             <span>
               Acepto las
-              <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
+              <a
+                :href="runtime.public.legalTermsUrl"
+                target="_blank"
+                rel="noopener"
+                class="underline hover:text-neteco-600"
                 >condiciones de compra</a
+              >. La
+              <a
+                :href="runtime.public.privacyUrl"
+                target="_blank"
+                rel="noopener"
+                class="underline hover:text-neteco-600"
+                >información de privacidad</a
               >
-              y la
-              <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
-                >política de privacidad</a
-              >
-              de NETECO.
+              explica cómo tratamos los datos necesarios para tramitar el pedido.
             </span>
           </label>
           <p v-if="errors.terms" class="mt-1.5 text-xs font-medium text-red-600">{{ errors.terms }}</p>
+
+          <label class="mt-3 flex items-start gap-2 text-xs text-slate-500">
+            <input v-model="marketingConsent" type="checkbox" class="mt-0.5 accent-neteco-600" />
+            <span>Quiero recibir por email novedades y consejos de NETECO. Es opcional y puedo darme de baja.</span>
+          </label>
 
           <div v-if="errorMsg" id="checkout-alert" role="alert" class="mt-4 scroll-mt-40">
             <UAlert color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />
           </div>
 
-          <UButton size="xl" block class="mt-4" :loading="submitting" icon="i-lucide-lock" @click="submit">
+          <UButton type="submit" size="xl" block class="mt-4" :loading="submitting" icon="i-lucide-lock">
             {{ paymentMethod === 'transferencia' ? 'Confirmar pedido' : `Pagar ${formatPrice(total)}` }}
           </UButton>
           <p class="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
             <UIcon name="i-lucide-shield-check" class="size-3.5" /> Pago protegido mediante redirección bancaria
           </p>
         </aside>
-      </div>
+      </form>
 
       <div v-else class="py-20 text-center">
         <UIcon name="i-lucide-shopping-cart" class="mx-auto size-14 text-slate-300" />

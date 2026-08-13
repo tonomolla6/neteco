@@ -23,5 +23,5 @@ COPY --from=build --chown=neteco:neteco /app/.output ./.output
 USER 10001:10001
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl --fail --silent http://127.0.0.1:3000/api/health/live || exit 1
+  CMD curl --fail --silent http://127.0.0.1:3000/api/health/ready || exit 1
 CMD ["node", ".output/server/index.mjs"]

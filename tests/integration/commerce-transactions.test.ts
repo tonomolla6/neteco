@@ -47,12 +47,33 @@ async function cartInput(quantity = 1): Promise<CreateOrderInput> {
       company: '',
       nif: '',
       email: `${marker}@integration.invalid`,
-      phone: '600000000',
-      address: 'Calle de pruebas 1',
-      zip: '46800',
+      phone: '600000000'
+    },
+    shippingAddress: {
+      recipientName: 'Comprador integración',
+      companyName: '',
+      taxId: '',
+      line1: 'Calle de pruebas 1',
+      line2: '',
+      postalCode: '46800',
       city: 'Xàtiva',
-      province: 'Valencia',
-      notes: ''
+      region: 'Valencia',
+      countryCode: 'ES',
+      phone: '600000000',
+      instructions: ''
+    },
+    billingAddress: {
+      recipientName: 'Comprador integración',
+      companyName: '',
+      taxId: '',
+      line1: 'Calle fiscal 2',
+      line2: '',
+      postalCode: '46800',
+      city: 'Xàtiva',
+      region: 'Valencia',
+      countryCode: 'ES',
+      phone: '600000000',
+      instructions: ''
     },
     shippingMethod: 'recogida',
     paymentMethod: 'tarjeta',
@@ -61,6 +82,7 @@ async function cartInput(quantity = 1): Promise<CreateOrderInput> {
     idempotencyKey: randomUUID(),
     guestToken: randomUUID(),
     termsAccepted: true,
+    marketingConsent: false,
     correlationId: randomUUID()
   }
 }
@@ -74,6 +96,7 @@ async function cleanupOrders() {
   const orderIds = orders.map((order) => order.id)
   if (orderIds.length > 0) {
     await sql.begin(async (transaction) => {
+      await transaction`DELETE FROM analytics_events WHERE order_id IN ${transaction(orderIds)}`
       const refunds = await transaction<{ id: string }[]>`
         SELECT id FROM refunds WHERE order_id IN ${transaction(orderIds)}
       `
@@ -171,6 +194,54 @@ describe('commerce transaction spine', () => {
       SELECT count(*)::int AS count FROM orders WHERE idempotency_key = ${input.idempotencyKey}
     `
     expect(count!.count).toBe(1)
+  })
+
+  it('keeps billing and delivery snapshots separate and records optional marketing consent separately', async () => {
+    const input = await cartInput()
+    input.marketingConsent = true
+    input.billingAddress = {
+      ...input.billingAddress,
+      recipientName: 'NETECO Cliente SL',
+      companyName: 'NETECO Cliente SL',
+      taxId: 'A58818501',
+      line1: 'Avenida fiscal 99'
+    }
+    const order = await createOrder(input)
+
+    const [state] = await sql<
+      {
+        shippingLine: string
+        billingLine: string
+        billingTaxId: string
+        termsConsent: number
+        combinedConsent: number
+        marketingConsent: number
+        marketingEnabled: boolean
+      }[]
+    >`
+      SELECT orders.shipping_snapshot ->> 'line1' AS "shippingLine",
+             orders.billing_snapshot ->> 'line1' AS "billingLine",
+             orders.billing_snapshot ->> 'taxId' AS "billingTaxId",
+        (SELECT count(*) FROM consent_events
+         WHERE customer_id = orders.customer_id AND purpose = 'purchase_terms')::int AS "termsConsent",
+        (SELECT count(*) FROM consent_events
+         WHERE customer_id = orders.customer_id AND purpose = 'purchase_terms_and_privacy')::int AS "combinedConsent",
+        (SELECT count(*) FROM consent_events
+         WHERE customer_id = orders.customer_id AND purpose = 'newsletter')::int AS "marketingConsent",
+        COALESCE((SELECT enabled FROM customer_preferences
+         WHERE customer_id = orders.customer_id AND purpose = 'newsletter' AND channel = 'email'), false)
+          AS "marketingEnabled"
+      FROM orders WHERE public_number = ${order.id}
+    `
+    expect(state).toEqual({
+      shippingLine: 'Calle de pruebas 1',
+      billingLine: 'Avenida fiscal 99',
+      billingTaxId: 'A58818501',
+      termsConsent: 1,
+      combinedConsent: 0,
+      marketingConsent: 1,
+      marketingEnabled: true
+    })
   })
 
   it('serializes the last unit, decrements physical stock once and rejects overselling', async () => {

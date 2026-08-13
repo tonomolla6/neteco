@@ -3,6 +3,7 @@ import type { CategoryNode, CategoryResponse } from '~~/shared/types/catalog'
 
 const route = useRoute()
 const router = useRouter()
+const runtime = useRuntimeConfig()
 const slug = computed(() => route.params.slug as string)
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
@@ -48,6 +49,27 @@ const filters = reactive({
   priceMax: numFromQuery(route.query.max)
 })
 
+function replaceValues(target: string[], values: string[]) {
+  target.splice(0, target.length, ...values)
+}
+
+let applyingRoute = false
+function applyRouteFilters() {
+  applyingRoute = true
+  sort.value = String(route.query.sort ?? 'featured')
+  replaceValues(filters.brands, multiFromQuery(route.query.brand))
+  replaceValues(filters.badges, multiFromQuery(route.query.badge))
+  replaceValues(filters.envases, multiFromQuery(route.query.envase))
+  replaceValues(filters.tallas, multiFromQuery(route.query.talla))
+  replaceValues(filters.capacidades, multiFromQuery(route.query.cap))
+  replaceValues(filters.colors, multiFromQuery(route.query.color))
+  replaceValues(filters.medidas, multiFromQuery(route.query.medida, '|'))
+  replaceValues(filters.acabados, multiFromQuery(route.query.acabado))
+  filters.priceMin = numFromQuery(route.query.min)
+  filters.priceMax = numFromQuery(route.query.max)
+  nextTick(() => (applyingRoute = false))
+}
+
 function multiFromQuery(v: unknown, sep = ','): string[] {
   return v ? String(v).split(sep).filter(Boolean) : []
 }
@@ -75,6 +97,7 @@ watch(slug, resetFilters)
 watch(
   [filters, sort],
   () => {
+    if (applyingRoute) return
     const query: Record<string, string> = {}
     if (filters.brands.length) query.brand = filters.brands.join(',')
     if (filters.badges.length) query.badge = filters.badges.join(',')
@@ -91,6 +114,7 @@ watch(
   },
   { deep: true }
 )
+watch(() => route.fullPath, applyRouteFilters)
 
 const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
   computed(() => ({
@@ -109,10 +133,30 @@ const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentin
   }))
 )
 
+const { track } = useAnalytics()
+watch(
+  [slug, total, status],
+  ([categorySlug, resultCount, requestStatus]) => {
+    if (requestStatus === 'success') {
+      void track('catalog_viewed', { category: categorySlug, page: 1, resultCount })
+    }
+  },
+  { immediate: true }
+)
+
 useSeoMeta({
   title: () => category.value?.name ?? 'Categoría',
-  description: () => `Compra ${category.value?.name ?? 'productos'} de uso profesional en la tienda online de NETECO.`
+  description: () => `Compra ${category.value?.name ?? 'productos'} de uso profesional en la tienda online de NETECO.`,
+  robots: () => (Object.keys(route.query).length ? 'noindex, follow' : 'index, follow')
 })
+useHead(() => ({
+  link: [
+    {
+      rel: 'canonical',
+      href: `${String(runtime.public.baseUrl).replace(/\/$/, '')}/categoria/${encodeURIComponent(slug.value)}`
+    }
+  ]
+}))
 
 const activeCount = computed(
   () =>
@@ -184,7 +228,7 @@ watch(
 <template>
   <div v-if="category" class="mx-auto max-w-[1600px] px-4 py-8">
     <!-- migas -->
-    <nav class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+    <nav aria-label="Migas de pan" class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
       <NuxtLink to="/" class="hover:text-neteco-600">Inicio</NuxtLink>
       <template v-for="(c, i) in breadcrumb" :key="c.id">
         <UIcon name="i-lucide-chevron-right" class="size-3.5" />
@@ -204,7 +248,7 @@ watch(
           <span class="size-3 shrink-0 rounded" :style="{ background: familyColor(slug) }" aria-hidden="true" />
           {{ category.name }}
         </h1>
-        <p class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
+        <p aria-live="polite" class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
       </div>
       <div class="flex items-center gap-2">
         <button
@@ -225,6 +269,7 @@ watch(
           <span class="hidden sm:inline">Ordenar por</span>
           <select
             v-model="sort"
+            aria-label="Ordenar productos"
             class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           >
             <option value="featured">Relevancia</option>
@@ -294,10 +339,10 @@ watch(
       </aside>
 
       <!-- resultados -->
-      <div>
+      <div :aria-busy="status === 'pending'">
         <ProductGrid :items="items" :pending="status === 'pending'" />
 
-        <div v-if="!items.length" class="py-16 text-center">
+        <div v-if="status !== 'pending' && !items.length" role="status" class="py-16 text-center">
           <UIcon name="i-lucide-package-search" class="mx-auto size-12 text-slate-300" />
           <template v-if="activeCount">
             <p class="mt-3 font-medium text-slate-600">No hay productos con esos filtros</p>

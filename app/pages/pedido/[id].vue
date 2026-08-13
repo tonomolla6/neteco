@@ -15,6 +15,9 @@ if (error.value || !orderData.value) {
   })
 }
 const order = computed(() => orderData.value!)
+if (route.query.token) {
+  await navigateTo({ path: route.path, query: {} }, { replace: true })
+}
 
 useSeoMeta({ title: `Pedido ${order.value.id}` })
 
@@ -74,7 +77,8 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
     >
       <p class="text-sm text-slate-600">
         <UIcon name="i-lucide-bookmark" class="inline size-4 text-neteco-600" />
-        Guarda el enlace de esta página para consultar tu pedido. ¿Prefieres tenerlo todo en un sitio?
+        Este navegador conserva acceso temporal al pedido. Crea una cuenta para consultarlo de forma duradera y desde
+        otros dispositivos.
       </p>
       <UButton :to="`/registro?email=${encodeURIComponent(order.email)}`" variant="soft" icon="i-lucide-user-plus">
         Crear cuenta
