@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import type { CategoryNode, CategoryResponse } from '~~/shared/types/catalog'
+
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Familias · Admin' })
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 
 interface Row {
   id: number
@@ -13,13 +15,13 @@ interface Row {
 }
 const rows = computed<Row[]>(() => {
   const out: Row[] = []
-  const walk = (nodes: any[], depth: number) => {
-    for (const n of nodes ?? []) {
-      out.push({ id: n.id, name: n.name, count: n.count, depth, hasChildren: !!n.children?.length })
-      walk(n.children, depth + 1)
+  const walk = (nodes: CategoryNode[], depth: number) => {
+    for (const node of nodes) {
+      out.push({ id: node.id, name: node.name, count: node.count, depth, hasChildren: !!node.children.length })
+      walk(node.children, depth + 1)
     }
   }
-  walk((catData.value as any)?.roots ?? [], 0)
+  walk(catData.value?.roots ?? [], 0)
   return out
 })
 
@@ -29,7 +31,7 @@ watch(rows, (rs) => rs.forEach((r) => (names[r.id] = names[r.id] ?? r.name)), { 
 
 const newName = ref('')
 const newParent = ref<number | null>(null)
-const parentOptions = computed(() => flattenCategoryTree((catData.value as any)?.roots ?? []))
+const parentOptions = computed(() => flattenCategoryTree(catData.value?.roots ?? []))
 
 const toast = useToast()
 
@@ -43,9 +45,9 @@ async function createCategory() {
     toast.add({ title: 'Familia creada', icon: 'i-lucide-check', color: 'success' })
     newName.value = ''
     await refreshNuxtData('categories')
-  } catch (e: any) {
+  } catch (error) {
     toast.add({
-      title: e?.data?.statusMessage ?? 'No se ha podido crear',
+      title: apiErrorMessage(error, 'No se ha podido crear'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })
@@ -59,9 +61,9 @@ async function rename(row: Row) {
     await $fetch(`/api/admin/categories/${row.id}`, { method: 'PUT', body: { name } })
     toast.add({ title: 'Familia renombrada', icon: 'i-lucide-check', color: 'success' })
     await refreshNuxtData('categories')
-  } catch (e: any) {
+  } catch (error) {
     toast.add({
-      title: e?.data?.statusMessage ?? 'No se ha podido renombrar',
+      title: apiErrorMessage(error, 'No se ha podido renombrar'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })
@@ -74,9 +76,9 @@ async function removeCategory(row: Row) {
     await $fetch(`/api/admin/categories/${row.id}`, { method: 'DELETE' })
     toast.add({ title: 'Familia eliminada', icon: 'i-lucide-trash-2', color: 'success' })
     await refreshNuxtData('categories')
-  } catch (e: any) {
+  } catch (error) {
     toast.add({
-      title: e?.data?.statusMessage ?? 'No se ha podido eliminar',
+      title: apiErrorMessage(error, 'No se ha podido eliminar'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })

@@ -1,37 +1,39 @@
 <script setup lang="ts">
+import type { AdminStats } from '~~/shared/types/admin'
+
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Panel de administración' })
 
-const { data: stats } = await useFetch('/api/admin/stats')
+const { data: stats } = await useFetch<AdminStats>('/api/admin/stats')
 
 const cards = computed(() => [
   {
     label: 'Productos',
-    value: (stats.value as any)?.products ?? '—',
+    value: stats.value?.products ?? '—',
     icon: 'i-lucide-package',
     to: '/admin/productos'
   },
   {
     label: 'Variantes / referencias',
-    value: (stats.value as any)?.variants ?? '—',
+    value: stats.value?.variants ?? '—',
     icon: 'i-lucide-list',
     to: '/admin/productos'
   },
   {
     label: 'Familias',
-    value: (stats.value as any)?.categories ?? '—',
+    value: stats.value?.categories ?? '—',
     icon: 'i-lucide-folder-tree',
     to: '/admin/categorias'
   },
   {
     label: 'Pedidos (abiertos)',
-    value: `${(stats.value as any)?.orders ?? '—'} (${(stats.value as any)?.openOrders ?? '—'})`,
+    value: `${stats.value?.orders ?? '—'} (${stats.value?.openOrders ?? '—'})`,
     icon: 'i-lucide-receipt-text',
     to: '/admin/pedidos'
   },
   {
     label: 'Clientes registrados',
-    value: (stats.value as any)?.users ?? '—',
+    value: stats.value?.users ?? '—',
     icon: 'i-lucide-users',
     to: '/admin/clientes'
   }

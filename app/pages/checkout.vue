@@ -22,7 +22,7 @@ const form = reactive({
 
 watch(
   user,
-  (u: any) => {
+  (u) => {
     if (!u) return
     form.name ||= u.name ?? ''
     form.email ||= u.email ?? ''
@@ -104,8 +104,8 @@ async function refreshShippingRates() {
       shippingMethod.value = methodForRate(quote.rates[0]!)
     }
     return true
-  } catch (error: any) {
-    shippingRateError.value = error?.data?.statusMessage ?? 'No se han podido calcular los métodos de entrega.'
+  } catch (error) {
+    shippingRateError.value = apiErrorMessage(error, 'No se han podido calcular los métodos de entrega.')
     return false
   } finally {
     shippingRateLoading.value = false
@@ -138,7 +138,15 @@ const zipOutOfZone = computed(
 )
 
 function validate() {
-  Object.keys(errors).forEach((k) => delete errors[k])
+  Object.assign(errors, {
+    name: '',
+    email: '',
+    phone: '',
+    address: '',
+    zip: '',
+    city: '',
+    terms: ''
+  })
   if (!form.name.trim()) errors.name = 'Indica el nombre completo'
   if (!form.email.trim()) errors.email = 'Indica el email'
   else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errors.email = 'El email no parece válido'
@@ -148,7 +156,7 @@ function validate() {
   else if (zipOutOfZone.value) errors.zip = 'CP fuera de la zona de reparto propio: elige «Envío por agencia»'
   if (!form.city.trim()) errors.city = 'Indica la población'
   if (!acceptTerms.value) errors.terms = 'Debes aceptar las condiciones para continuar'
-  return Object.keys(errors).length === 0
+  return !Object.values(errors).some(Boolean)
 }
 
 function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
@@ -233,11 +241,11 @@ async function submit() {
     } else {
       await finish(order)
     }
-  } catch (e: any) {
-    errorMsg.value =
-      e?.data?.statusMessage ??
-      e?.data?.message ??
+  } catch (error) {
+    errorMsg.value = apiErrorMessage(
+      error,
       'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.'
+    )
     scrollTo('checkout-alert', 'center')
   } finally {
     submitting.value = false
@@ -273,7 +281,7 @@ async function finish(order: { id: string; token: string }) {
           <section v-else class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
             <p class="flex items-center gap-2 text-sm font-medium text-emerald-800">
               <UIcon name="i-lucide-check-circle-2" class="size-5" />
-              Comprando con tu cuenta: {{ (user as any)?.email }}
+              Comprando con tu cuenta: {{ user?.email }}
             </p>
           </section>
 

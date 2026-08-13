@@ -12,8 +12,8 @@ async function submit() {
   try {
     await $fetch('/api/auth/forgot-password', { method: 'POST', body: { email: email.value } })
     sent.value = true
-  } catch (error: any) {
-    errorMsg.value = error?.data?.statusMessage ?? 'No se ha podido procesar la solicitud.'
+  } catch (error) {
+    errorMsg.value = apiErrorMessage(error, 'No se ha podido procesar la solicitud.')
   } finally {
     loading.value = false
   }

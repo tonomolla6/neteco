@@ -23,6 +23,7 @@ describe('professional company lifecycle', () => {
   it('redacts identifiers in audit evidence', () => {
     expect(redactTaxId(null)).toBeNull()
     expect(redactTaxId('123')).toBe('***')
+    expect(redactTaxId('1234')).toBe('****')
     expect(redactTaxId('B12345678')).toBe('*****5678')
   })
 })

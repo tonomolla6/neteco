@@ -1,22 +1,24 @@
 <script setup lang="ts">
+import type { CategoryResponse, ProductListResponse } from '~~/shared/types/catalog'
+
 useSeoMeta({
   title: 'Suministros profesionales de limpieza e higiene',
   description:
     'Tienda online de NETECO: químicos de limpieza, higiene y menaje profesional para hostelería, comercio, industria y colectividades. Reparto propio en Ontinyent y comarca.'
 })
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
-const { data: featured } = await useFetch('/api/products', {
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
+const { data: featured } = await useFetch<ProductListResponse>('/api/products', {
   key: 'featured',
   params: { featured: 1, limit: 4 }
 })
 
 const families = computed(() => {
-  const roots = (catData.value as any)?.roots ?? []
-  const all = roots.flatMap((r: any) => r.children ?? [])
+  const roots = catData.value?.roots ?? []
+  const all = roots.flatMap((root) => root.children)
   return all
-    .filter((c: any) => c.count > 0)
-    .sort((a: any, b: any) => b.count - a.count)
+    .filter((category) => category.count > 0)
+    .sort((left, right) => right.count - left.count)
     .slice(0, 8)
 })
 
@@ -24,13 +26,18 @@ const families = computed(() => {
 const { data: familyRows } = await useAsyncData('home-family-rows', async () => {
   const fams = families.value.slice(0, 3)
   const results = await Promise.all(
-    fams.map((f: any) =>
-      $fetch<{ items: any[] }>('/api/products', { params: { category: f.slug, limit: 4 } }).catch(() => null)
+    fams.map((family) =>
+      $fetch<ProductListResponse>('/api/products', { params: { category: family.slug, limit: 4 } }).catch(() => null)
     )
   )
   return fams
-    .map((f: any, i: number) => ({ name: f.name, slug: f.slug, count: f.count, items: results[i]?.items ?? [] }))
-    .filter((r: any) => r.items.length)
+    .map((family, index) => ({
+      name: family.name,
+      slug: family.slug,
+      count: family.count,
+      items: results[index]?.items ?? []
+    }))
+    .filter((row) => row.items.length)
 })
 
 // enlazan solo a familias con producto; se remapearán según crezca el catálogo
@@ -157,7 +164,7 @@ const sectors = [
     <section class="mx-auto max-w-[1600px] px-4 py-4">
       <div class="mb-5 flex items-end justify-between">
         <div>
-          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
             <span class="size-2 rounded-full bg-neteco-500" /> Catálogo
           </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Compra por familia</h2>
@@ -187,15 +194,15 @@ const sectors = [
     </section>
 
     <!-- destacados -->
-    <section v-if="((featured as any)?.items ?? []).length" class="mx-auto max-w-[1600px] px-4 py-12">
+    <section v-if="featured?.items.length" class="mx-auto max-w-[1600px] px-4 py-12">
       <div class="mb-5">
-        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
           <span class="size-2 rounded-full bg-amber-400" /> Los más pedidos
         </p>
         <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Productos destacados</h2>
       </div>
       <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <ProductCard v-for="p in (featured as any)?.items ?? []" :key="p.id" :product="p" />
+        <ProductCard v-for="p in featured?.items ?? []" :key="p.id" :product="p" />
       </div>
     </section>
 
@@ -203,7 +210,7 @@ const sectors = [
     <section v-for="row in familyRows ?? []" :key="row.slug" class="mx-auto max-w-[1600px] px-4 pb-12">
       <div class="mb-5 flex items-end justify-between gap-3">
         <div>
-          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
             <span class="size-2 rounded-full" :style="{ background: familyColor(row.slug) }" /> Familia
           </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">{{ row.name }}</h2>
@@ -244,7 +251,7 @@ const sectors = [
     <!-- confianza -->
     <section class="border-t border-slate-200 bg-white">
       <div class="mx-auto max-w-[1600px] px-4 pt-12">
-        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
           <span class="size-2 rounded-full bg-neteco-500" /> Por qué NETECO
         </p>
         <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Un proveedor, cero complicaciones</h2>

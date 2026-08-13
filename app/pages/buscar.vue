@@ -68,7 +68,7 @@ const activeCount = computed(
 
 const categoryFacet = computed(() => (facets.value?.categories ?? []).slice(0, 10))
 const selectedCategoryName = computed(
-  () => categoryFacet.value.find((c: any) => c.slug === selectedCategory.value)?.name ?? selectedCategory.value
+  () => categoryFacet.value.find((category) => category.slug === selectedCategory.value)?.name ?? selectedCategory.value
 )
 
 const drawerOpen = ref(false)
@@ -158,7 +158,7 @@ watch(
             </li>
           </ul>
         </div>
-        <ProductFilters :facets="facets" :filters="filters" />
+        <ProductFilters :facets="facets" :filters="filters" @update:filters="Object.assign(filters, $event)" />
       </aside>
 
       <!-- resultados -->
@@ -230,7 +230,7 @@ watch(
                 </li>
               </ul>
             </div>
-            <ProductFilters :facets="facets" :filters="filters" />
+            <ProductFilters :facets="facets" :filters="filters" @update:filters="Object.assign(filters, $event)" />
           </div>
           <div class="border-t border-slate-100 p-4">
             <UButton block size="lg" @click="drawerOpen = false">

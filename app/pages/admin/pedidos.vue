@@ -1,30 +1,34 @@
 <script setup lang="ts">
+import type { AdminOrderSummary } from '~~/shared/types/admin'
+
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Pedidos · Admin' })
 
-const { data, refresh } = await useFetch('/api/admin/orders')
-const items = computed(() => (data.value as any)?.items ?? [])
+const { data, refresh } = await useFetch<{ items: AdminOrderSummary[] }>('/api/admin/orders')
+const items = computed(() => data.value?.items ?? [])
 
 const toast = useToast()
-async function setStatus(o: any, ev: Event) {
-  const status = (ev.target as HTMLSelectElement).value
-  const reason = window.prompt(`Motivo obligatorio para cambiar ${o.id} a ${ORDER_STATUS[status]?.label ?? status}:`)
+async function setStatus(order: AdminOrderSummary, event: Event) {
+  const status = (event.target as HTMLSelectElement).value
+  const reason = window.prompt(
+    `Motivo obligatorio para cambiar ${order.id} a ${ORDER_STATUS[status]?.label ?? status}:`
+  )
   if (!reason?.trim() || reason.trim().length < 3) {
     toast.add({ title: 'El cambio necesita un motivo de al menos 3 caracteres', color: 'warning' })
     refresh()
     return
   }
   try {
-    await $fetch(`/api/admin/orders/${o.id}`, { method: 'PUT', body: { status, reason: reason.trim() } })
+    await $fetch(`/api/admin/orders/${order.id}`, { method: 'PUT', body: { status, reason: reason.trim() } })
     toast.add({
-      title: `Pedido ${o.id} → ${ORDER_STATUS[status]?.label ?? status}`,
+      title: `Pedido ${order.id} → ${ORDER_STATUS[status]?.label ?? status}`,
       icon: 'i-lucide-check',
       color: 'success'
     })
     refresh()
-  } catch (e: any) {
+  } catch (error) {
     toast.add({
-      title: e?.data?.statusMessage ?? 'No se ha podido cambiar el estado',
+      title: apiErrorMessage(error, 'No se ha podido cambiar el estado'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })
@@ -32,26 +36,26 @@ async function setStatus(o: any, ev: Event) {
   }
 }
 
-async function createShipment(o: any) {
-  const suggested = o.shippingMethod === 'reparto' ? 'OWN-DAY' : 'STANDARD-PARCEL'
+async function createShipment(order: AdminOrderSummary) {
+  const suggested = order.shippingMethod === 'reparto' ? 'OWN-DAY' : 'STANDARD-PARCEL'
   const serviceCode = window.prompt('Código de servicio cotizado:', suggested)?.trim()
   if (!serviceCode) return
   try {
-    await $fetch(`/api/admin/orders/${o.id}/shipment`, { method: 'POST', body: { serviceCode } })
-    toast.add({ title: `Expedición creada para ${o.id}`, color: 'success', icon: 'i-lucide-truck' })
+    await $fetch(`/api/admin/orders/${order.id}/shipment`, { method: 'POST', body: { serviceCode } })
+    toast.add({ title: `Expedición creada para ${order.id}`, color: 'success', icon: 'i-lucide-truck' })
     await refresh()
-  } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido crear la expedición', color: 'error' })
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'No se ha podido crear la expedición'), color: 'error' })
   }
 }
 
-async function syncTracking(o: any) {
+async function syncTracking(order: AdminOrderSummary) {
   try {
-    await $fetch(`/api/admin/shipments/${o.shipmentId}/tracking`, { method: 'POST' })
+    await $fetch(`/api/admin/shipments/${order.shipmentId}/tracking`, { method: 'POST' })
     toast.add({ title: 'Tracking sincronizado', color: 'success' })
     await refresh()
-  } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage ?? 'No se ha podido sincronizar', color: 'error' })
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'No se ha podido sincronizar'), color: 'error' })
   }
 }
 </script>

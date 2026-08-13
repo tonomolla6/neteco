@@ -47,7 +47,7 @@ const NAV_GROUPS: Array<{ title: string; slugs: string[] }> = [
   }
 ]
 
-export function groupFamilies(children: Array<{ slug: string; [k: string]: any }>) {
+export function groupFamilies<T extends { slug: string }>(children: T[]) {
   const bySlug = new Map(children.map((c) => [c.slug, c]))
   const used = new Set<string>()
   const groups = NAV_GROUPS.map((g) => ({
@@ -57,7 +57,7 @@ export function groupFamilies(children: Array<{ slug: string; [k: string]: any }
         used.add(s)
         return bySlug.get(s)
       })
-      .filter(Boolean) as any[]
+      .filter((item): item is T => item !== undefined)
   })).filter((g) => g.items.length)
   const rest = children.filter((c) => !used.has(c.slug))
   if (rest.length) groups.push({ title: 'Más familias', items: rest })

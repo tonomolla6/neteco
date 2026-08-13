@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{ items: any[]; pending?: boolean }>()
+import type { ProductCardData } from '~~/shared/types/catalog'
+
+defineProps<{ items: ProductCardData[]; pending?: boolean }>()
 const view = useCatalogView()
 </script>
 

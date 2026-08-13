@@ -1,33 +1,15 @@
 <script setup lang="ts">
-// Panel de filtros por capas. Muta directamente el objeto reactivo `filters`
-// que le pasa la página (catálogo, categoría o búsqueda) — una sola fuente de verdad.
+import type { CatalogFilters, ProductFacets } from '~~/shared/types/catalog'
+
+// Panel de filtros por capas. Emite snapshots nuevos para que la página mantenga
+// una sola fuente de verdad sin mutar propiedades de Vue.
 const props = defineProps<{
-  facets: {
-    brands?: Array<{ value: string; n: number }>
-    badges?: Array<{ value: string; n: number }>
-    envases?: Array<{ value: string; n: number }>
-    tallas?: Array<{ value: string; n: number }>
-    capacidades?: Array<{ value: string; n: number }>
-    colores?: Array<{ value: string; n: number; hex: string | null }>
-    medidas?: Array<{ value: string; n: number }>
-    acabados?: Array<{ value: string; n: number }>
-    price?: { min: number; max: number } | null
-  } | null
-  filters: {
-    brands: string[]
-    badges: string[]
-    envases: string[]
-    tallas: string[]
-    capacidades: string[]
-    colors?: string[]
-    medidas?: string[]
-    acabados?: string[]
-    priceMin: number | null
-    priceMax: number | null
-  }
+  facets: ProductFacets | null
+  filters: CatalogFilters
   // secciones a ocultar en una vista concreta (p. ej. 'gama' en el catálogo completo)
   hide?: string[]
 }>()
+const emit = defineEmits<{ 'update:filters': [filters: CatalogFilters] }>()
 
 const open = reactive<Record<string, boolean>>({
   marca: true,
@@ -41,10 +23,18 @@ const open = reactive<Record<string, boolean>>({
   color: true
 })
 
-function toggle(list: string[], value: string) {
+function toggle(
+  key: keyof Pick<
+    CatalogFilters,
+    'brands' | 'badges' | 'envases' | 'tallas' | 'capacidades' | 'colors' | 'medidas' | 'acabados'
+  >,
+  value: string
+) {
+  const list = [...props.filters[key]]
   const i = list.indexOf(value)
   if (i >= 0) list.splice(i, 1)
   else list.push(value)
+  emit('update:filters', { ...props.filters, [key]: list })
 }
 
 // ——— marcas: lista con "ver más" cuando crece ———
@@ -81,8 +71,11 @@ function onHi(e: Event) {
   hi.value = Math.max(Number((e.target as HTMLInputElement).value), lo.value)
 }
 function commitPrice() {
-  props.filters.priceMin = lo.value > bounds.value.min ? lo.value : null
-  props.filters.priceMax = hi.value < bounds.value.max ? hi.value : null
+  emit('update:filters', {
+    ...props.filters,
+    priceMin: lo.value > bounds.value.min ? lo.value : null,
+    priceMax: hi.value < bounds.value.max ? hi.value : null
+  })
 }
 const segStyle = computed(() => {
   const span = Math.max(bounds.value.max - bounds.value.min, 1)
@@ -134,7 +127,7 @@ const THUMB =
               type="checkbox"
               class="sr-only"
               :checked="filters.brands.includes(b.value)"
-              @change="toggle(filters.brands, b.value)"
+              @change="toggle('brands', b.value)"
             />
             <span
               class="grid size-5 shrink-0 place-items-center rounded-md border-2 transition"
@@ -284,7 +277,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-600 text-white'
               : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
           "
-          @click="toggle(filters.badges, b.value)"
+          @click="toggle('badges', b.value)"
         >
           <UIcon v-if="BADGES[b.value]" :name="BADGES[b.value]!.icon" class="size-3.5" />
           {{ BADGES[b.value]?.label ?? b.value }}
@@ -326,7 +319,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-50'
               : 'border-slate-200 bg-white hover:border-neteco-300'
           "
-          @click="toggle(filters.envases, e.value)"
+          @click="toggle('envases', e.value)"
         >
           <span class="w-9">
             <ProductVisual
@@ -374,7 +367,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-600 text-white'
               : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
           "
-          @click="toggle(filters.capacidades, c.value)"
+          @click="toggle('capacidades', c.value)"
         >
           {{ formatCapacity(c.value) }}
           <span :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-400'">{{ c.n }}</span>
@@ -415,7 +408,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-600 text-white'
               : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
           "
-          @click="toggle(filters.tallas, t.value)"
+          @click="toggle('tallas', t.value)"
         >
           {{ t.value }}
         </button>
@@ -455,7 +448,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-600 text-white'
               : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
           "
-          @click="toggle(filters.medidas, m.value)"
+          @click="toggle('medidas', m.value)"
         >
           {{ m.value }}
           <span :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-400'">{{ m.n }}</span>
@@ -496,7 +489,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-600 text-white'
               : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
           "
-          @click="toggle(filters.acabados, a.value)"
+          @click="toggle('acabados', a.value)"
         >
           {{ a.value }}
           <span :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-400'">{{ a.n }}</span>
@@ -538,7 +531,7 @@ const THUMB =
               ? 'border-neteco-600 bg-neteco-600 text-white'
               : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
           "
-          @click="toggle(filters.colors, c.value)"
+          @click="toggle('colors', c.value)"
         >
           <span
             class="size-3.5 shrink-0 rounded-full border border-black/15"

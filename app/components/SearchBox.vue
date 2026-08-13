@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import type { SearchSuggestion } from '~~/shared/types/catalog'
+
 const props = defineProps<{ size?: 'sm' | 'md' | 'lg' | 'xl'; placeholder?: string }>()
 
 const q = ref('')
-const items = ref<any[]>([])
+const items = ref<SearchSuggestion[]>([])
 const open = ref(false)
 const loading = ref(false)
 const active = ref(-1)
@@ -20,7 +22,7 @@ watch(q, (val) => {
   timer = setTimeout(async () => {
     loading.value = true
     try {
-      const res = await $fetch<{ items: any[] }>('/api/search', { params: { q: val.trim() } })
+      const res = await $fetch<{ items: SearchSuggestion[] }>('/api/search', { params: { q: val.trim() } })
       items.value = res.items
       open.value = true
     } catch {
@@ -44,14 +46,15 @@ function goToResults() {
   router.push({ path: '/buscar', query: { q: q.value.trim() } })
 }
 
-function select(item: any) {
+function select(item: SearchSuggestion) {
   open.value = false
   q.value = ''
   router.push(`/producto/${item.slug}`)
 }
 
 function onEnter() {
-  if (open.value && active.value >= 0 && items.value[active.value]) select(items.value[active.value])
+  const item = items.value[active.value]
+  if (open.value && active.value >= 0 && item) select(item)
   else goToResults()
 }
 

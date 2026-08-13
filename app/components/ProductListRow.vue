@@ -1,16 +1,8 @@
 <script setup lang="ts">
+import type { ProductCardData } from '~~/shared/types/catalog'
+
 const props = defineProps<{
-  product: {
-    slug: string
-    name: string
-    brand: string
-    badges: string[]
-    visual: { type: string; color: string }
-    image?: string | null
-    shortDesc?: string | null
-    minPrice: number
-    formats: number
-  }
+  product: ProductCardData
 }>()
 
 const showBrand = computed(

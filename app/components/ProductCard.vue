@@ -1,16 +1,8 @@
 <script setup lang="ts">
+import type { ProductCardData } from '~~/shared/types/catalog'
+
 const props = defineProps<{
-  product: {
-    slug: string
-    name: string
-    brand: string
-    badges: string[]
-    visual: { type: string; color: string }
-    image?: string | null
-    shortDesc?: string | null
-    minPrice: number
-    formats: number
-  }
+  product: ProductCardData
 }>()
 
 // con títulos del ERP tipo «NETTION MC», el eyebrow de marca sería redundante
@@ -56,7 +48,7 @@ const showBrand = computed(
 
     <div class="mt-auto flex items-end justify-between">
       <div>
-        <p class="text-[11px] text-slate-400">
+        <p class="text-[11px] text-slate-600">
           {{ product.formats > 1 ? `${product.formats} formatos · desde` : 'IVA incluido' }}
         </p>
         <p class="font-display text-lg font-bold text-slate-900">{{ formatPrice(product.minPrice) }}</p>

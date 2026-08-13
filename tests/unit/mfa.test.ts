@@ -17,6 +17,7 @@ describe('MFA domain', () => {
   it('creates interoperable enrollments and strong one-time recovery codes', () => {
     const enrollment = createTotpEnrollment('owner@example.test')
     expect(enrollment.secret).toMatch(/^[A-Z2-7]+$/)
+    expect(enrollment.secret).toHaveLength(32)
     expect(enrollment.uri).toContain('otpauth://totp/NETECO:owner%40example.test')
     expect(enrollment.uri).toContain('issuer=NETECO')
 
@@ -25,9 +26,11 @@ describe('MFA domain', () => {
     expect(new Set(codes)).toHaveLength(8)
     expect(codes.every((code) => /^[A-F0-9]{4}(?:-[A-F0-9]{4}){3}$/.test(code))).toBe(true)
     expect(generateRecoveryCodes(4)).toHaveLength(4)
+    expect(generateRecoveryCodes(20)).toHaveLength(20)
     for (const invalid of [3, 21, 4.5, Number.MAX_SAFE_INTEGER + 1]) {
       expect(() => generateRecoveryCodes(invalid)).toThrow(RangeError)
     }
+    expect(() => generateRecoveryCodes(3)).toThrow('Recovery code count is invalid')
   })
 
   it('validates a current TOTP and rejects malformed, stale and replayed tokens', () => {
@@ -39,10 +42,19 @@ describe('MFA domain', () => {
     const step = validateTotp({ secret, token, timestamp })
     expect(step).toBe(OTPAuth.TOTP.counter({ period: TOTP_PERIOD_SECONDS, timestamp }))
     expect(validateTotp({ secret, token: 'abc', timestamp })).toBeNull()
+    expect(validateTotp({ secret, token: `x${token}`, timestamp })).toBeNull()
+    expect(validateTotp({ secret, token: `${token}x`, timestamp })).toBeNull()
     expect(validateTotp({ secret, token, timestamp: timestamp + 120_000 })).toBeNull()
     expect(validateTotp({ secret, token, timestamp, lastUsedStep: step })).toBeNull()
     expect(validateTotp({ secret, token, timestamp, lastUsedStep: undefined })).toBe(step)
     expect(validateTotp({ secret, token, timestamp, lastUsedStep: null })).toBe(step)
+    expect(validateTotp({ secret, token, timestamp, lastUsedStep: step! - 1 })).toBe(step)
+    const nextToken = OTPAuth.TOTP.generate({
+      secret: OTPAuth.Secret.fromBase32(secret),
+      period: TOTP_PERIOD_SECONDS,
+      timestamp: timestamp + TOTP_PERIOD_SECONDS * 1_000
+    })
+    expect(validateTotp({ secret, token: nextToken, timestamp })).toBe(step! + 1)
     vi.useFakeTimers()
     vi.setSystemTime(timestamp)
     expect(validateTotp({ secret, token })).toBe(step)

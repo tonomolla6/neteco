@@ -1,21 +1,54 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
+import type { ProductCardData, ProductVisualData } from '~~/shared/types/catalog'
+
+interface ProductVariant {
+  uuid: string
+  id: number
+  format: string
+  sku: string
+  price: number
+  stock: number
+  units: number
+  unitLabel: string
+  color: string | null
+  image: string | null
+}
+
+interface ProductDetail {
+  id: number
+  name: string
+  slug: string
+  brand: string
+  shortDesc: string | null
+  description: string | null
+  usage: string | null
+  badges: string[]
+  visual: ProductVisualData
+  image: string | null
+  datasheet: string | null
+  variants: ProductVariant[]
+  siblings: Array<{ name: string; slug: string; visual: ProductVisualData; image: string | null }>
+  breadcrumb: Array<{ name: string; slug: string }>
+  related: ProductCardData[]
+}
 
 const route = useRoute()
 const { loggedIn } = useUserSession()
-const { data: product, error } = await useFetch<any>(`/api/products/${route.params.slug}`)
-if (error.value || !product.value) {
+const { data: productData, error } = await useFetch<ProductDetail>(`/api/products/${route.params.slug}`)
+if (error.value || !productData.value || !productData.value.variants.length) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
+const product = computed(() => productData.value!)
 
 useSeoMeta({
   title: product.value.name,
   description: product.value.shortDesc
 })
 
-const selectedId = ref<number>(product.value.variants[0]?.id)
+const selectedId = ref(product.value.variants[0]!.id)
 const selected = computed(
-  () => product.value.variants.find((v: any) => v.id === selectedId.value) ?? product.value.variants[0]
+  () => product.value.variants.find((variant) => variant.id === selectedId.value) ?? product.value.variants[0]!
 )
 const qty = ref(1)
 
@@ -24,27 +57,28 @@ const qty = ref(1)
 // cada eje se pinta como fila de píldoras en cascada (Medida → Acabado → colores), y cada rama
 // puede ofrecer un surtido distinto. Etiqueta del eje: «Medida» si sus valores llevan números.
 const parsedVariants = computed(() =>
-  product.value.variants.map((v: any) => {
-    const parts = String(v.format).split(' · ')
+  product.value.variants.map((variant) => {
+    const parts = variant.format.split(' · ')
     const colorM = parts.at(-1)?.match(/^Color (.+)$/)
-    return { v, axes: colorM ? parts.slice(0, -1) : [], colorName: colorM?.[1] ?? null }
+    return { v: variant, axes: colorM ? parts.slice(0, -1) : [], colorName: colorM?.[1] ?? null }
   })
 )
 const colorMode = computed(
   () =>
     product.value.variants.length > 1 &&
-    parsedVariants.value.every((p: any) => p.colorName && p.v.color) &&
-    new Set(parsedVariants.value.map((p: any) => p.axes.length)).size === 1
+    parsedVariants.value.every((parsed) => parsed.colorName && parsed.v.color) &&
+    new Set(parsedVariants.value.map((parsed) => parsed.axes.length)).size === 1
 )
-const axisCount = computed(() => (colorMode.value ? parsedVariants.value[0].axes.length : 0))
-const selectedParsed = computed(() => parsedVariants.value.find((p: any) => p.v.id === selectedId.value))
+const axisCount = computed(() => (colorMode.value ? (parsedVariants.value[0]?.axes.length ?? 0) : 0))
+const selectedParsed = computed(() => parsedVariants.value.find((parsed) => parsed.v.id === selectedId.value))
 
 function axisOptions(level: number): string[] {
   const cur = selectedParsed.value?.axes ?? []
   const opts: string[] = []
   for (const p of parsedVariants.value) {
-    if (p.axes.slice(0, level).every((a: string, i: number) => a === cur[i]) && !opts.includes(p.axes[level])) {
-      opts.push(p.axes[level])
+    const option = p.axes[level]
+    if (option && p.axes.slice(0, level).every((axis, index) => axis === cur[index]) && !opts.includes(option)) {
+      opts.push(option)
     }
   }
   return opts
@@ -56,30 +90,32 @@ function pickAxis(level: number, value: string) {
   const cur = selectedParsed.value
   if (!cur) return
   const prefix = [...cur.axes.slice(0, level), value]
-  const cands = parsedVariants.value.filter((p: any) => prefix.every((a, i) => p.axes[i] === a))
+  const cands = parsedVariants.value.filter((parsed) => prefix.every((axis, index) => parsed.axes[index] === axis))
   if (!cands.length) return
   const target =
     cands.find(
-      (p: any) =>
-        p.colorName === cur.colorName && p.axes.join('|') === [...prefix, ...cur.axes.slice(level + 1)].join('|')
+      (parsed) =>
+        parsed.colorName === cur.colorName &&
+        parsed.axes.join('|') === [...prefix, ...cur.axes.slice(level + 1)].join('|')
     ) ??
-    cands.find((p: any) => p.colorName === cur.colorName) ??
+    cands.find((parsed) => parsed.colorName === cur.colorName) ??
     cands[0]
+  if (!target) return
   selectedId.value = target.v.id
 }
 const colorOptions = computed(() => {
   const cur = selectedParsed.value
   if (!axisCount.value || !cur) return parsedVariants.value
-  return parsedVariants.value.filter((p: any) => p.axes.join('|') === cur.axes.join('|'))
+  return parsedVariants.value.filter((parsed) => parsed.axes.join('|') === cur.axes.join('|'))
 })
 const mainImage = computed(() => selected.value?.image ?? product.value.image ?? null)
 
 // precio informativo por unidad/litro/kilo del envase (estilo mayorista)
-function perUnit(v: any): string | null {
-  if (!v?.units || !v.unitLabel) return null
-  const per = v.price / 100 / v.units
+function perUnit(variant: ProductVariant): string | null {
+  if (!variant.units || !variant.unitLabel) return null
+  const per = variant.price / 100 / variant.units
   const digits = per < 0.1 ? 3 : 2
-  return `${per.toLocaleString('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits })} €/${v.unitLabel}`
+  return `${per.toLocaleString('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits })} €/${variant.unitLabel}`
 }
 
 const cart = useCartStore()
@@ -220,7 +256,7 @@ async function addToCart(goToCart = false) {
                 :title="p.colorName ?? p.v.format"
                 class="size-9 rounded-full border border-black/15 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
                 :class="selectedId === p.v.id ? 'ring-2 ring-neteco-500 ring-offset-2' : 'hover:scale-110'"
-                :style="{ backgroundColor: p.v.color }"
+                :style="{ backgroundColor: p.v.color ?? '#94a3b8' }"
                 @click="selectedId = p.v.id"
               />
             </div>

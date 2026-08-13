@@ -1,14 +1,16 @@
+import type { UiColor } from '~~/shared/types/catalog'
+
 export function formatPrice(cents: number) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(cents / 100)
 }
 
-export const BADGES: Record<string, { label: string; color: any; icon: string }> = {
+export const BADGES: Record<string, { label: string; color: UiColor; icon: string }> = {
   eco: { label: 'Ecológico', color: 'success', icon: 'i-lucide-leaf' },
   alimentaria: { label: 'Uso alimentario', color: 'warning', icon: 'i-lucide-utensils' },
   concentrado: { label: 'Concentrado', color: 'info', icon: 'i-lucide-flask-conical' }
 }
 
-export const ORDER_STATUS: Record<string, { label: string; color: any; icon: string }> = {
+export const ORDER_STATUS: Record<string, { label: string; color: UiColor; icon: string }> = {
   pendiente_pago: { label: 'Pago pendiente', color: 'warning', icon: 'i-lucide-clock' },
   pendiente_transferencia: { label: 'Esperando transferencia', color: 'info', icon: 'i-lucide-landmark' },
   pagado: { label: 'Pagado', color: 'success', icon: 'i-lucide-circle-check' },

@@ -44,7 +44,7 @@ function signedNotification(response = '0000', overrides: Record<string, string>
   return {
     Ds_SignatureVersion: 'HMAC_SHA512_V2',
     Ds_MerchantParameters: merchantParameters,
-    Ds_Signature: signMerchantParameters(merchantParameters, SECRET)
+    Ds_Signature: signMerchantParameters(merchantParameters, SECRET, '1234567890')
   }
 }
 
@@ -68,6 +68,9 @@ describe('Redsys HMAC_SHA512_V2', () => {
     expect(() => signMerchantParameters(encodeMerchantParameters({ VALUE: 'missing-order' }), SECRET)).toThrow(
       'order is missing'
     )
+    for (const invalidOrder of ['x123456789012', '123456789012x']) {
+      expect(() => deriveOperationKey(SECRET, invalidOrder)).toThrow()
+    }
   })
 })
 
@@ -82,11 +85,30 @@ describe('Redsys payment provider', () => {
       notificationUrl: 'https://shop.example/api/payments/redsys/notification',
       idempotencyKey: 'test'
     }
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-12T10:00:00.000Z'))
     const card = await provider().createRedirect({ ...base, method: 'card' })
     const bizum = await provider().createRedirect({ ...base, method: 'bizum' })
-    expect(card.actionUrl).toContain('sis-t.redsys.es')
+    vi.useRealTimers()
+    expect(card).toMatchObject({
+      provider: 'redsys',
+      actionUrl: 'https://sis-t.redsys.es:25443/sis/realizarPago',
+      method: 'POST',
+      expiresAt: '2026-08-12T10:30:00.000Z'
+    })
     expect(card.fields.Ds_SignatureVersion).toBe('HMAC_SHA512_V2')
-    expect(decodeMerchantParameters(card.fields.Ds_MerchantParameters!)).not.toHaveProperty('DS_MERCHANT_PAYMETHODS')
+    expect(decodeMerchantParameters(card.fields.Ds_MerchantParameters!)).toEqual({
+      DS_MERCHANT_ORDER: '1234567890',
+      DS_MERCHANT_MERCHANTCODE: '999008881',
+      DS_MERCHANT_TERMINAL: '001',
+      DS_MERCHANT_CURRENCY: '978',
+      DS_MERCHANT_TRANSACTIONTYPE: '0',
+      DS_MERCHANT_AMOUNT: '999',
+      DS_MERCHANT_MERCHANTURL: 'https://shop.example/api/payments/redsys/notification',
+      DS_MERCHANT_URLOK: 'https://shop.example/pedido/NE-1?payment=returned',
+      DS_MERCHANT_URLKO: 'https://shop.example/pedido/NE-1?payment=failed',
+      DS_MERCHANT_MERCHANTNAME: 'NETECO'
+    })
     expect(decodeMerchantParameters(bizum.fields.Ds_MerchantParameters!)).toMatchObject({
       DS_MERCHANT_AMOUNT: '999',
       DS_MERCHANT_PAYMETHODS: 'z'
@@ -110,6 +132,15 @@ describe('Redsys payment provider', () => {
       method: 'card'
     })
     expect(production.actionUrl).toBe('https://sis.redsys.es/sis/realizarPago')
+    for (const orderReference of ['x123456789012', '123456789012x']) {
+      await expect(provider().createRedirect({ ...base, orderReference, method: 'card' })).rejects.toThrow()
+    }
+    for (const merchantCode of ['x999008881', '999008881x']) {
+      expect(() => provider(undefined, { merchantCode })).toThrow()
+    }
+    for (const terminal of ['x1', '1x', '1234']) {
+      expect(() => provider(undefined, { terminal })).toThrow()
+    }
   })
 
   it.each([
@@ -119,12 +150,16 @@ describe('Redsys payment provider', () => {
     ['9998', 'pending'],
     ['0101', 'failed']
   ])('maps response %s to %s', async (response, status) => {
-    await expect(provider().verifyNotification(signedNotification(response))).resolves.toMatchObject({
+    const result = await provider().verifyNotification(signedNotification(response))
+    expect(result).toMatchObject({
       orderReference: '1234567890',
       amountCents: 999,
+      currency: 'EUR',
       status,
       responseCode: response
     })
+    expect(result.providerEventId).toBe(`1234567890:${response}:${result.payloadHash.slice(0, 16)}`)
+    expect(result.payloadHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
   it('rejects tampering and terminal mismatches', async () => {
@@ -143,6 +178,18 @@ describe('Redsys payment provider', () => {
     await expect(
       provider().verifyNotification(signedNotification('0000', { Ds_TransactionType: '1' }))
     ).rejects.toThrow('configured terminal')
+    for (const overrides of [
+      { Ds_Order: 'x123456789012' },
+      { Ds_Order: '123456789012x' },
+      { Ds_Amount: 'x999' },
+      { Ds_Amount: '999x' },
+      { Ds_Currency: 'x978' },
+      { Ds_Currency: '978x' },
+      { Ds_Response: 'x0000' },
+      { Ds_Response: '0000x' }
+    ]) {
+      await expect(provider().verifyNotification(signedNotification('0000', overrides))).rejects.toThrow()
+    }
   })
 
   it('accepts the all-uppercase notification envelope used by some Redsys clients', async () => {
@@ -182,7 +229,21 @@ describe('Redsys payment provider', () => {
       })
     ).resolves.toEqual({ providerReference: 'ABC123', status: 'succeeded' })
     expect(fetcher).toHaveBeenCalledOnce()
-    expect(await fetcher.mock.calls[0]![1]?.body).toContain('HMAC_SHA512_V2')
+    expect(fetcher.mock.calls[0]![0]).toBe('https://sis-t.redsys.es:25443/sis/rest/trataPeticionREST')
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' }
+    })
+    const requestEnvelope = JSON.parse(String(fetcher.mock.calls[0]![1]?.body)) as Record<string, string>
+    expect(requestEnvelope.Ds_SignatureVersion).toBe('HMAC_SHA512_V2')
+    expect(decodeMerchantParameters(requestEnvelope.Ds_MerchantParameters!)).toEqual({
+      DS_MERCHANT_ORDER: '1234567890',
+      DS_MERCHANT_MERCHANTCODE: '999008881',
+      DS_MERCHANT_TERMINAL: '001',
+      DS_MERCHANT_CURRENCY: '978',
+      DS_MERCHANT_TRANSACTIONTYPE: '3',
+      DS_MERCHANT_AMOUNT: '500'
+    })
   })
 
   it('uses the payment reference when Redsys omits an authorization code', async () => {

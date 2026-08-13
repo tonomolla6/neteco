@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import type { AdminProductSummary } from '~~/shared/types/admin'
+import type { CategoryResponse } from '~~/shared/types/catalog'
+
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Productos · Admin' })
 
@@ -6,43 +9,46 @@ const q = ref('')
 const category = ref('')
 const estado = ref('')
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
-const catOptions = computed(() => flattenCategoryTree((catData.value as any)?.roots ?? []))
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
+const catOptions = computed(() => flattenCategoryTree(catData.value?.roots ?? []))
 
-const { data, refresh } = await useFetch('/api/admin/products', { query: { q, category, active: estado } })
-const items = computed(() => (data.value as any)?.items ?? [])
+const { data, refresh } = await useFetch<{ items: AdminProductSummary[] }>('/api/admin/products', {
+  query: { q, category, active: estado }
+})
+const items = computed(() => data.value?.items ?? [])
 
 const toast = useToast()
 
-async function toggleActive(p: any) {
+async function toggleActive(product: AdminProductSummary) {
   try {
-    await $fetch(`/api/admin/products/${p.id}/active`, { method: 'PUT', body: { active: !p.active } })
+    await $fetch(`/api/admin/products/${product.id}/active`, { method: 'PUT', body: { active: !product.active } })
     toast.add({
-      title: p.active ? `«${p.name}» oculto de la tienda` : `«${p.name}» publicado en la tienda`,
-      icon: p.active ? 'i-lucide-eye-off' : 'i-lucide-eye',
+      title: product.active ? `«${product.name}» oculto de la tienda` : `«${product.name}» publicado en la tienda`,
+      icon: product.active ? 'i-lucide-eye-off' : 'i-lucide-eye',
       color: 'success'
     })
     refresh()
     refreshNuxtData('categories')
-  } catch (e: any) {
+  } catch (error) {
     toast.add({
-      title: e?.data?.statusMessage ?? 'No se ha podido cambiar el estado',
+      title: apiErrorMessage(error, 'No se ha podido cambiar el estado'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })
   }
 }
 
-async function removeProduct(p: any) {
-  if (!confirm(`¿Eliminar «${p.name}» y sus ${p.formats} variante(s)? Esta acción no se puede deshacer.`)) return
+async function removeProduct(product: AdminProductSummary) {
+  if (!confirm(`¿Eliminar «${product.name}» y sus ${product.formats} variante(s)? Esta acción no se puede deshacer.`))
+    return
   try {
-    await $fetch(`/api/admin/products/${p.id}`, { method: 'DELETE' })
+    await $fetch(`/api/admin/products/${product.id}`, { method: 'DELETE' })
     toast.add({ title: 'Producto eliminado', icon: 'i-lucide-trash-2', color: 'success' })
     refresh()
     refreshNuxtData('categories')
-  } catch (e: any) {
+  } catch (error) {
     toast.add({
-      title: e?.data?.statusMessage ?? 'No se ha podido eliminar',
+      title: apiErrorMessage(error, 'No se ha podido eliminar'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })

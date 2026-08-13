@@ -40,6 +40,8 @@ describe('shipping domain', () => {
     expect(() => assertShippingAddress(address)).not.toThrow()
     expect(() => assertShippingAddress({ ...address, countryCode: 'FR' })).toThrow('Spanish')
     expect(() => assertShippingAddress({ ...address, postalCode: '2800' })).toThrow('postal')
+    expect(() => assertShippingAddress({ ...address, postalCode: 'x28001' })).toThrow('postal')
+    expect(() => assertShippingAddress({ ...address, postalCode: '28001x' })).toThrow('postal')
     for (const field of ['name', 'line1', 'city', 'region'] as const) {
       expect(() => assertShippingAddress({ ...address, [field]: '  ' })).toThrow('incomplete')
     }
@@ -60,6 +62,9 @@ describe('shipping domain', () => {
     expect(classifyShipment([parcel], true)).toBe('own_delivery')
     expect(classifyShipment([parcel, parcel])).toBe('multi_parcel')
     expect(classifyShipment([{ ...parcel, handling: 'pallet' }], true)).toBe('pallet')
+    expect(classifyShipment([parcel, { ...parcel, handling: 'pallet' }], true)).toBe('pallet')
+    expect(classifyShipment([parcel, { ...parcel, handling: 'adr' }], true)).toBe('adr')
+    expect(classifyShipment([{ ...parcel, weightGrams: 40_000 }], true)).toBe('own_delivery')
     expect(classifyShipment([{ ...parcel, weightGrams: 40_001 }], true)).toBe('pallet')
     expect(classifyShipment([{ ...parcel, handling: 'adr' }], true)).toBe('adr')
   })
@@ -68,11 +73,15 @@ describe('shipping domain', () => {
     expect(ownDeliveryEligible('46870')).toBe(true)
     expect(ownDeliveryEligible('46001')).toBe(false)
     expect(ownDeliveryEligible('28001', ['28'])).toBe(true)
+    expect(ownDeliveryEligible('28001', ['46', '28'])).toBe(true)
+    expect(ownDeliveryEligible('x28001', ['28'])).toBe(false)
+    expect(ownDeliveryEligible('28001x', ['28'])).toBe(false)
     expect(ownDeliveryEligible('bad')).toBe(false)
   })
 
   it('calculates normalized net tariffs by logistics profile', () => {
     expect(standardShippingNetCents('parcel', 1_000)).toBe(488)
+    expect(standardShippingNetCents('parcel', 1)).toBe(488)
     expect(standardShippingNetCents('multi_parcel', 10_001)).toBe(694)
     expect(standardShippingNetCents('pallet', 1_000)).toBe(4_500)
     expect(standardShippingNetCents('adr', 1_000)).toBe(6_900)
@@ -108,6 +117,22 @@ describe('shipping domain', () => {
         holidays: ['2026-08-13']
       })
     ).toEqual({ from: '2026-08-14T13:00:00.000Z', to: '2026-08-14T13:00:00.000Z' })
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-08-12T00:00:00Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffUtcHour: 0
+      })
+    ).toEqual({ from: '2026-08-13T00:00:00.000Z', to: '2026-08-13T00:00:00.000Z' })
+    expect(
+      estimatedDeliveryWindow({
+        now: new Date('2026-08-12T22:00:00Z'),
+        preparationBusinessDays: 0,
+        transitBusinessDays: [0, 0],
+        cutoffUtcHour: 23
+      })
+    ).toEqual({ from: '2026-08-12T22:00:00.000Z', to: '2026-08-12T22:00:00.000Z' })
   })
 
   it.each([
@@ -138,8 +163,28 @@ describe('normalized carrier provider', () => {
       destination: { ...address, postalCode: '46870' },
       parcels: [parcel]
     })
-    expect(own[0]).toMatchObject({ profile: 'own_delivery', netCents: 0, taxRateBasisPoints: 2100 })
-    expect(own[1]).toMatchObject({ profile: 'parcel', serviceCode: 'STANDARD-PARCEL', netCents: 488 })
+    expect(own).toEqual([
+      {
+        provider: 'mock-carrier',
+        serviceCode: 'OWN-DAY',
+        label: 'Reparto propio NETECO',
+        netCents: 0,
+        taxRateBasisPoints: 2100,
+        estimatedDeliveryFrom: '2026-08-13T10:00:00.000Z',
+        estimatedDeliveryTo: '2026-08-14T10:00:00.000Z',
+        profile: 'own_delivery'
+      },
+      {
+        provider: 'mock-carrier',
+        serviceCode: 'STANDARD-PARCEL',
+        label: 'Transporte estándar',
+        netCents: 488,
+        taxRateBasisPoints: 2100,
+        estimatedDeliveryFrom: '2026-08-14T10:00:00.000Z',
+        estimatedDeliveryTo: '2026-08-17T10:00:00.000Z',
+        profile: 'parcel'
+      }
+    ])
 
     const standard = await provider.rates({ originPostalCode: '46870', destination: address, parcels: [parcel] })
     expect(standard[0]).toMatchObject({ profile: 'parcel', netCents: 488 })
@@ -187,17 +232,27 @@ describe('normalized carrier provider', () => {
     const first = await provider.createShipment(input)
     const replay = await provider.createShipment(input)
     expect(replay).toEqual(first)
-    expect(new TextDecoder().decode(first.label)).toContain('%PDF-1.4')
-    expect(first).toMatchObject({ status: 'ready', providerShipmentId: expect.stringMatching(/^SHP-/) })
-    await expect(provider.tracking(first.providerShipmentId)).resolves.toHaveLength(2)
+    expect({ ...first, label: new TextDecoder().decode(first.label) }).toEqual({
+      providerShipmentId: 'SHP-8C08D069F8A3D7',
+      trackingNumber: 'TRK-C4C5CB4F5B9036',
+      label: '%PDF-1.4\n% NETECO carrier label SHP-8C08D069F8A3D7\n%%EOF',
+      status: 'ready'
+    })
+    await expect(provider.tracking(first.providerShipmentId)).resolves.toEqual([
+      { status: 'created', occurredAt: '2026-08-12T10:00:00.000Z' },
+      { status: 'in_transit', occurredAt: '2026-08-13T07:00:00.000Z' }
+    ])
     await expect(provider.cancelShipment(first.providerShipmentId)).resolves.toBeUndefined()
-    await expect(provider.createReturn(first.providerShipmentId, 'return:v1')).resolves.toMatchObject({
-      status: 'created',
-      providerShipmentId: expect.stringMatching(/^RET-/)
+    const returned = await provider.createReturn(first.providerShipmentId, 'return:v1')
+    expect({ ...returned, label: new TextDecoder().decode(returned.label) }).toEqual({
+      providerShipmentId: 'RET-A121E782392AF1',
+      trackingNumber: 'RTR-2C28D93D9F2244',
+      label: '%PDF-1.4\n% NETECO carrier label RET-A121E782392AF1\n%%EOF',
+      status: 'created'
     })
     await expect(
       provider.schedulePickup({ date: '2026-08-14', parcelCount: 2, idempotencyKey: 'pickup:v1' })
-    ).resolves.toMatchObject({ status: 'scheduled', providerPickupId: expect.stringMatching(/^PUP-/) })
+    ).resolves.toEqual({ status: 'scheduled', providerPickupId: 'PUP-1A16A0BA5063DC' })
   })
 
   it('rejects incomplete operational requests', async () => {
@@ -209,14 +264,26 @@ describe('normalized carrier provider', () => {
       idempotencyKey: 'shipment:v1'
     }
     await expect(provider.createShipment({ ...input, serviceCode: '' })).rejects.toThrow('service')
+    await expect(provider.createShipment({ ...input, serviceCode: '   ' })).rejects.toThrow('service')
     await expect(provider.createShipment({ ...input, idempotencyKey: '' })).rejects.toThrow('idempotency')
+    await expect(provider.createShipment({ ...input, idempotencyKey: '   ' })).rejects.toThrow('idempotency')
     await expect(provider.cancelShipment('')).rejects.toThrow('required')
+    await expect(provider.cancelShipment('   ')).rejects.toThrow('required')
     await expect(provider.tracking('')).rejects.toThrow('required')
+    await expect(provider.tracking('   ')).rejects.toThrow('required')
     await expect(provider.createReturn('', 'key')).rejects.toThrow('identifiers')
     await expect(provider.createReturn('shipment', '')).rejects.toThrow('identifiers')
+    await expect(provider.createReturn('   ', 'key')).rejects.toThrow('identifiers')
+    await expect(provider.createReturn('shipment', '   ')).rejects.toThrow('identifiers')
     await expect(provider.schedulePickup({ date: 'bad', parcelCount: 1, idempotencyKey: 'key' })).rejects.toThrow(
       'date'
     )
+    await expect(
+      provider.schedulePickup({ date: 'x2026-08-14', parcelCount: 1, idempotencyKey: 'key' })
+    ).rejects.toThrow('date')
+    await expect(
+      provider.schedulePickup({ date: '2026-08-14x', parcelCount: 1, idempotencyKey: 'key' })
+    ).rejects.toThrow('date')
     await expect(
       provider.schedulePickup({ date: '2026-08-14', parcelCount: 0, idempotencyKey: 'key' })
     ).rejects.toThrow('count')
@@ -226,6 +293,9 @@ describe('normalized carrier provider', () => {
     await expect(provider.schedulePickup({ date: '2026-08-14', parcelCount: 1, idempotencyKey: '' })).rejects.toThrow(
       'idempotency'
     )
+    await expect(
+      provider.schedulePickup({ date: '2026-08-14', parcelCount: 1, idempotencyKey: '   ' })
+    ).rejects.toThrow('idempotency')
   })
 
   it('fails closed unless a non-production mock is explicitly safe', () => {

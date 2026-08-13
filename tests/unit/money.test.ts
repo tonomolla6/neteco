@@ -6,12 +6,19 @@ describe('money', () => {
     expect(roundRatio(1n, 3n)).toBe(0)
     expect(roundRatio(1n, 2n)).toBe(1)
     expect(roundRatio(-1n, 2n)).toBe(-1)
+    expect(roundRatio(-2n, 3n)).toBe(-1)
     expect(() => roundRatio(1n, 0n)).toThrow('denominator must be positive')
   })
 
   it('splits a tax-inclusive amount without losing cents', () => {
     expect(splitGross(121, 2100)).toEqual({ netCents: 100, taxCents: 21, grossCents: 121, taxRateBasisPoints: 2100 })
     expect(splitGross(100, 0)).toEqual({ netCents: 100, taxCents: 0, grossCents: 100, taxRateBasisPoints: 0 })
+    expect(splitGross(20_000, 10_000)).toEqual({
+      netCents: 10_000,
+      taxCents: 10_000,
+      grossCents: 20_000,
+      taxRateBasisPoints: 10_000
+    })
     expect(() => splitGross(-1, 2100)).toThrow('grossCents cannot be negative')
     expect(() => splitGross(1.1, 2100)).toThrow('grossCents must be a safe integer')
     expect(() => splitGross(100, 10_001)).toThrow('taxRateBasisPoints must be between 0 and 10000')
@@ -22,6 +29,8 @@ describe('money', () => {
   it('enforces minimum, maximum and increments', () => {
     expect(validateQuantity(1, {})).toBeUndefined()
     expect(validateQuantity(5, { minimumQuantity: 3, maximumQuantity: 9, quantityIncrement: 2 })).toBeUndefined()
+    expect(validateQuantity(9, { maximumQuantity: 9 })).toBeUndefined()
+    expect(validateQuantity(5, { minimumQuantity: 2, quantityIncrement: 3 })).toBeUndefined()
     expect(() => validateQuantity(2, { minimumQuantity: 3 })).toThrow('quantity must be at least 3')
     expect(() => validateQuantity(10, { maximumQuantity: 9 })).toThrow('quantity must not exceed 9')
     expect(() => validateQuantity(4, { minimumQuantity: 3, quantityIncrement: 2 })).toThrow(

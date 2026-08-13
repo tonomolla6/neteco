@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
+import type { CategoryResponse } from '~~/shared/types/catalog'
 
 const cart = useCartStore()
 const { loggedIn, user, clear } = useUserSession()
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
-const roots = computed(() => (catData.value as any)?.roots ?? [])
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
+const roots = computed(() => catData.value?.roots ?? [])
 
 const mobileOpen = ref(false)
 const accountOpen = ref(false)
@@ -93,7 +94,7 @@ async function logout() {
           >
             <UIcon name="i-lucide-circle-user-round" class="block size-6" />
             <span class="hidden text-sm font-medium xl:block">
-              {{ loggedIn ? (user as any)?.name?.split(' ')[0] : 'Mi cuenta' }}
+              {{ loggedIn ? user?.name?.split(' ')[0] : 'Mi cuenta' }}
             </span>
             <UIcon name="i-lucide-chevron-down" class="hidden size-4 xl:block" />
           </button>
@@ -105,10 +106,10 @@ async function logout() {
           >
             <template v-if="loggedIn">
               <p class="border-b border-slate-100 px-4 py-2 text-xs text-slate-400">
-                {{ (user as any)?.email }}
+                {{ user?.email }}
               </p>
               <NuxtLink
-                v-if="(user as any)?.role === 'admin'"
+                v-if="user?.role === 'admin'"
                 to="/admin"
                 class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-neteco-700 hover:bg-neteco-50"
               >
@@ -186,14 +187,14 @@ async function logout() {
           </NuxtLink>
           <div
             class="invisible absolute left-0 top-full z-50 max-w-[92vw] rounded-b-xl border border-t-0 border-slate-200 bg-white p-5 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
-            :class="root.children.filter((c: any) => c.count > 0).length > 8 ? 'w-[860px]' : 'w-[320px]'"
+            :class="root.children.filter((category) => category.count > 0).length > 8 ? 'w-[860px]' : 'w-[320px]'"
           >
             <!-- muchas familias: columnas temáticas; pocas: lista simple -->
             <div
-              v-if="root.children.filter((c: any) => c.count > 0).length > 8"
+              v-if="root.children.filter((category) => category.count > 0).length > 8"
               class="grid grid-cols-3 gap-x-8 gap-y-5"
             >
-              <div v-for="g in groupFamilies(root.children.filter((c: any) => c.count > 0))" :key="g.title">
+              <div v-for="g in groupFamilies(root.children.filter((category) => category.count > 0))" :key="g.title">
                 <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   {{ g.title }}
                 </p>
@@ -210,7 +211,7 @@ async function logout() {
             </div>
             <div v-else>
               <NuxtLink
-                v-for="child in root.children.filter((c: any) => c.count > 0)"
+                v-for="child in root.children.filter((category) => category.count > 0)"
                 :key="child.id"
                 :to="`/categoria/${child.slug}`"
                 class="-mx-2 flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-neteco-50 hover:text-neteco-700"
@@ -278,7 +279,7 @@ async function logout() {
                   Ver todo ({{ root.count }})
                 </NuxtLink>
                 <NuxtLink
-                  v-for="child in root.children.filter((c: any) => c.count > 0)"
+                  v-for="child in root.children.filter((category) => category.count > 0)"
                   :key="child.id"
                   :to="`/categoria/${child.slug}`"
                   class="block rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-neteco-50"

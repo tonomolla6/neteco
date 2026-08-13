@@ -1,12 +1,14 @@
 <script setup lang="ts">
+import type { AdminReturnSummary } from '~~/shared/types/admin'
+
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Devoluciones · Admin' })
 
-const { data, refresh } = await useFetch<any>('/api/admin/returns')
+const { data, refresh } = await useFetch<{ items: AdminReturnSummary[] }>('/api/admin/returns')
 const items = computed(() => data.value?.items ?? [])
 const toast = useToast()
 
-async function transition(item: any) {
+async function transition(item: AdminReturnSummary) {
   const status = window.prompt(
     `Nuevo estado para ${item.id}: requested, approved, rejected, in_transit, received, inspected o resolved`,
     item.status
@@ -24,9 +26,9 @@ async function transition(item: any) {
     })
     toast.add({ title: `${item.id} actualizado`, color: 'success', icon: 'i-lucide-check' })
     await refresh()
-  } catch (error: any) {
+  } catch (error) {
     toast.add({
-      title: error?.data?.statusMessage ?? 'No se ha podido cambiar la devolución',
+      title: apiErrorMessage(error, 'No se ha podido cambiar la devolución'),
       color: 'error',
       icon: 'i-lucide-triangle-alert'
     })

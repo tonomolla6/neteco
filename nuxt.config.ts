@@ -89,11 +89,10 @@ export default defineNuxtConfig({
       ]
     }
   },
+  // Las fuentes viajan en dependencias npm fijadas: el build no depende de CDNs externos.
   fonts: {
-    families: [
-      { name: 'Inter', provider: 'google', weights: [400, 500, 600, 700], global: true },
-      { name: 'Archivo', provider: 'google', weights: [500, 600, 700, 800], global: true }
-    ]
+    provider: 'local',
+    processCSSVariables: false
   },
   icon: {
     // el escaneo solo mira los .vue: los iconos referenciados desde utils/shop.ts

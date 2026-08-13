@@ -24,8 +24,8 @@ async function submit() {
       body: { token: String(route.query.token ?? ''), password: form.password }
     })
     done.value = true
-  } catch (error: any) {
-    errorMsg.value = error?.data?.statusMessage ?? 'El enlace no es válido o ha caducado.'
+  } catch (error) {
+    errorMsg.value = apiErrorMessage(error, 'El enlace no es válido o ha caducado.')
   } finally {
     loading.value = false
   }

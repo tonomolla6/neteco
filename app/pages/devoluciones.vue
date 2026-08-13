@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { OrderDetailView } from '~~/shared/types/orders'
+
 useSeoMeta({
   title: 'Devoluciones',
   description:
@@ -7,7 +9,7 @@ useSeoMeta({
 
 const route = useRoute()
 const orderNumber = computed(() => String(route.query.pedido ?? ''))
-const { data: order, error: orderError } = await useFetch<any>(
+const { data: order, error: orderError } = await useFetch<OrderDetailView>(
   () => (orderNumber.value ? `/api/orders/${orderNumber.value}` : '/api/health/live'),
   { key: `return-order-${orderNumber.value}` }
 )
@@ -21,7 +23,7 @@ let idempotencyKey = crypto.randomUUID()
 async function submitReturn() {
   formError.value = ''
   const lines = (order.value?.items ?? [])
-    .map((item: any) => ({ orderLineId: item.id, quantity: Number(quantities[item.id] ?? 0) }))
+    .map((item) => ({ orderLineId: item.id, quantity: Number(quantities[item.id] ?? 0) }))
     .filter((line: { quantity: number }) => line.quantity > 0)
   if (!lines.length) {
     formError.value = 'Selecciona al menos una unidad para devolver.'
@@ -38,8 +40,8 @@ async function submitReturn() {
       body: { reason: reason.value.trim(), lines, idempotencyKey }
     })
     idempotencyKey = crypto.randomUUID()
-  } catch (error: any) {
-    formError.value = error?.data?.statusMessage ?? 'No se ha podido registrar la devolución.'
+  } catch (error) {
+    formError.value = apiErrorMessage(error, 'No se ha podido registrar la devolución.')
   } finally {
     submitting.value = false
   }

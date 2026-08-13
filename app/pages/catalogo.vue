@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { CategoryResponse } from '~~/shared/types/catalog'
+
 useSeoMeta({
   title: 'Todo el catálogo',
   description:
@@ -8,18 +10,18 @@ useSeoMeta({
 const route = useRoute()
 const router = useRouter()
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 
 // árbol para la barra lateral: raíces como grupos, familias con producto como opciones
 const familyTree = computed(() =>
-  (((catData.value as any)?.roots ?? []) as any[])
+  (catData.value?.roots ?? [])
     .map((root) => ({
       ...root,
-      children: (root.children ?? []).filter((c: any) => c.count > 0)
+      children: root.children.filter((category) => category.count > 0)
     }))
     .filter((root) => root.children.length || root.count > 0)
 )
-const knownSlugs = computed(() => new Set((((catData.value as any)?.flat ?? []) as any[]).map((c) => c.slug)))
+const knownSlugs = computed(() => new Set((catData.value?.flat ?? []).map((category) => category.slug)))
 
 // ——— estado (inicializado desde la URL para poder compartir enlaces) ———
 function multiFromQuery(v: unknown, sep = ','): string[] {
@@ -100,8 +102,8 @@ const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentin
 
 const selectedCategoryName = computed(() => {
   if (!selectedCategory.value) return ''
-  const flat = (catData.value as any)?.flat ?? []
-  return flat.find((c: any) => c.slug === selectedCategory.value)?.name ?? selectedCategory.value
+  const flat = catData.value?.flat ?? []
+  return flat.find((category) => category.slug === selectedCategory.value)?.name ?? selectedCategory.value
 })
 
 const activeCount = computed(
@@ -122,7 +124,7 @@ interface Pill {
   label: string
   remove: () => void
 }
-const allFamilies = computed(() => familyTree.value.flatMap((r: any) => r.children))
+const allFamilies = computed(() => familyTree.value.flatMap((root) => root.children))
 
 const pills = computed<Pill[]>(() => [
   ...filters.brands.map((v) => ({ label: v, remove: () => filters.brands.splice(filters.brands.indexOf(v), 1) })),
@@ -279,7 +281,12 @@ function pickCategory(slug: string) {
       <aside
         class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
       >
-        <ProductFilters :facets="facets" :filters="filters" :hide="['gama']" />
+        <ProductFilters
+          :facets="facets"
+          :filters="filters"
+          :hide="['gama']"
+          @update:filters="Object.assign(filters, $event)"
+        />
         <button
           v-if="activeCount"
           class="mt-2 w-full rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-600 transition hover:border-neteco-300 hover:text-neteco-700"
@@ -330,7 +337,12 @@ function pickCategory(slug: string) {
             </button>
           </div>
           <div class="flex-1 overflow-y-auto p-5">
-            <ProductFilters :facets="facets" :filters="filters" :hide="['gama']" />
+            <ProductFilters
+              :facets="facets"
+              :filters="filters"
+              :hide="['gama']"
+              @update:filters="Object.assign(filters, $event)"
+            />
           </div>
           <div class="border-t border-slate-100 p-4">
             <UButton block size="lg" @click="drawerOpen = false">

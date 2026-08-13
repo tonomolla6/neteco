@@ -15,7 +15,10 @@ ENV NODE_ENV=production \
 WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata curl \
   && addgroup -S -g 10001 neteco \
-  && adduser -S -D -H -u 10001 -G neteco neteco
+  && adduser -S -D -H -u 10001 -G neteco neteco \
+  && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+    /usr/local/bin/pnpm /usr/local/bin/pnpx /usr/local/bin/yarn /usr/local/bin/yarnpkg
 COPY --from=build --chown=neteco:neteco /app/.output ./.output
 USER 10001:10001
 EXPOSE 3000

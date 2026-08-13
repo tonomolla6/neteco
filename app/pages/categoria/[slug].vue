@@ -1,32 +1,34 @@
 <script setup lang="ts">
+import type { CategoryNode, CategoryResponse } from '~~/shared/types/catalog'
+
 const route = useRoute()
 const router = useRouter()
 const slug = computed(() => route.params.slug as string)
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 
-function findNode(nodes: any[], target: string): any {
-  for (const n of nodes) {
-    if (n.slug === target) return n
-    const found = findNode(n.children ?? [], target)
+function findNode(nodes: CategoryNode[], target: string): CategoryNode | null {
+  for (const node of nodes) {
+    if (node.slug === target) return node
+    const found = findNode(node.children, target)
     if (found) return found
   }
   return null
 }
 
-const category = computed(() => findNode((catData.value as any)?.roots ?? [], slug.value))
+const category = computed(() => findNode(catData.value?.roots ?? [], slug.value))
 if (!category.value) {
   throw createError({ statusCode: 404, statusMessage: 'Categoría no encontrada', fatal: true })
 }
 
 const breadcrumb = computed(() => {
-  const flat = (catData.value as any)?.flat ?? []
-  const byId = new Map(flat.map((c: any) => [c.id, c]))
-  const chain: any[] = []
-  let node: any = category.value ? byId.get(category.value.id) : null
+  const flat = catData.value?.flat ?? []
+  const byId = new Map(flat.map((item) => [item.id, item]))
+  const chain: typeof flat = []
+  let node = category.value ? byId.get(category.value.id) : undefined
   while (node) {
     chain.unshift(node)
-    node = node.parentId != null ? byId.get(node.parentId) : null
+    node = node.parentId != null ? byId.get(node.parentId) : undefined
   }
   return chain
 })
@@ -237,7 +239,7 @@ watch(
     <!-- subcategorías (carril móvil; en escritorio van en la barra lateral) -->
     <div v-if="category.children?.length" class="-mx-4 mt-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
       <NuxtLink
-        v-for="child in category.children.filter((c: any) => c.count > 0)"
+        v-for="child in category.children.filter((item) => item.count > 0)"
         :key="child.id"
         :to="`/categoria/${child.slug}`"
         class="shrink-0 whitespace-nowrap rounded-full border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-600 transition hover:border-neteco-300 hover:text-neteco-700"
@@ -270,7 +272,7 @@ watch(
         <div v-if="category.children?.length" class="border-b border-slate-100 pb-4">
           <p class="text-sm font-semibold text-slate-800">Subcategorías</p>
           <ul class="mt-3 space-y-1">
-            <li v-for="child in category.children.filter((c: any) => c.count > 0)" :key="child.id">
+            <li v-for="child in category.children.filter((item) => item.count > 0)" :key="child.id">
               <NuxtLink
                 :to="`/categoria/${child.slug}`"
                 class="flex items-center justify-between rounded-lg px-2 py-1.5 text-sm text-slate-600 transition hover:bg-neteco-50 hover:text-neteco-700"
@@ -281,7 +283,7 @@ watch(
             </li>
           </ul>
         </div>
-        <ProductFilters :facets="facets" :filters="filters" />
+        <ProductFilters :facets="facets" :filters="filters" @update:filters="Object.assign(filters, $event)" />
         <button
           v-if="activeCount"
           class="mt-2 w-full rounded-lg border border-slate-200 py-2 text-sm font-medium text-slate-600 transition hover:border-neteco-300 hover:text-neteco-700"
@@ -341,7 +343,7 @@ watch(
             </button>
           </div>
           <div class="flex-1 overflow-y-auto p-5">
-            <ProductFilters :facets="facets" :filters="filters" />
+            <ProductFilters :facets="facets" :filters="filters" @update:filters="Object.assign(filters, $event)" />
           </div>
           <div class="border-t border-slate-100 p-4">
             <UButton block size="lg" @click="drawerOpen = false">

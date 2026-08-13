@@ -6,14 +6,16 @@
 // Importante: los hooks de ciclo de vida se registran ANTES de ningún await
 // (tras un await dentro de un composable se pierde la instancia del componente
 // y onMounted no se ejecutaría en cliente).
-export async function useInfiniteProducts(baseParams: ComputedRef<Record<string, any>>, pageSize = 24) {
-  const extra = ref<any[]>([]) // páginas 2+ (solo cliente)
+import type { CatalogQueryParameters, ProductListResponse, ProductSummary } from '~~/shared/types/catalog'
+
+export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryParameters>, pageSize = 24) {
+  const extra = ref<ProductSummary[]>([]) // páginas 2+ (solo cliente)
   const page = ref(1)
   const loadingMore = ref(false)
   let generation = 0
 
   // sin await: arranca la petición pero deja el contexto síncrono intacto
-  const asyncData = useFetch<any>('/api/products', {
+  const asyncData = useFetch<ProductListResponse>('/api/products', {
     params: computed(() => ({ ...baseParams.value, page: 1, limit: pageSize, facets: 1 }))
   })
   const { data, status } = asyncData
@@ -36,7 +38,7 @@ export async function useInfiniteProducts(baseParams: ComputedRef<Record<string,
     const gen = generation
     try {
       // sin facets: las peticiones de scroll son más ligeras
-      const next = await $fetch<any>('/api/products', {
+      const next = await $fetch<ProductListResponse>('/api/products', {
         params: { ...baseParams.value, page: page.value + 1, limit: pageSize }
       })
       if (gen !== generation) return // los filtros cambiaron mientras cargaba: descartar

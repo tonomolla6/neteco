@@ -33,13 +33,17 @@ export default defineConfig({
   webServer: process.env.PLAYWRIGHT_BASE_URL
     ? undefined
     : {
-        command: `npm run dev -- --port ${port}`,
+        command: `npm run preview -- --port ${port}`,
         url: `${baseURL}/api/health/live`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
         env: {
+          HOST: '127.0.0.1',
           APP_ENV: 'test',
           APP_BASE_URL: baseURL,
+          DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco',
+          REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:56379/0',
+          NUXT_SESSION_PASSWORD: process.env.NUXT_SESSION_PASSWORD ?? 'test-only-session-password-32-characters',
           PAYMENT_PROVIDER: 'mock',
           INVOICE_PROVIDER: 'mock',
           CARRIER_PROVIDER: 'mock'

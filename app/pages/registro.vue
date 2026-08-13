@@ -51,8 +51,8 @@ async function submit() {
     })
     await refreshSession()
     navigateTo(String(route.query.redirect ?? '/cuenta'))
-  } catch (e: any) {
-    errorMsg.value = e?.data?.statusMessage ?? 'No se ha podido crear la cuenta.'
+  } catch (error) {
+    errorMsg.value = apiErrorMessage(error, 'No se ha podido crear la cuenta.')
   } finally {
     loading.value = false
   }

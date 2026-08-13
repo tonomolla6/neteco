@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import type { AdminProductDetail } from '~~/shared/types/admin'
+import type { CategoryResponse } from '~~/shared/types/catalog'
+
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 
 const route = useRoute()
@@ -6,11 +9,11 @@ const id = String(route.params.id)
 const isNew = id === 'nuevo'
 useSeoMeta({ title: isNew ? 'Nuevo producto · Admin' : 'Editar producto · Admin' })
 
-const { data: catData } = await useFetch('/api/categories', { key: 'categories' })
-const catOptions = computed(() => flattenCategoryTree((catData.value as any)?.roots ?? []))
+const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
+const catOptions = computed(() => flattenCategoryTree(catData.value?.roots ?? []))
 
 const { data: existing } = await useAsyncData(`admin-product-${id}`, () =>
-  isNew ? Promise.resolve(null) : $fetch(`/api/admin/products/${id}`)
+  isNew ? Promise.resolve(null) : $fetch<AdminProductDetail>(`/api/admin/products/${id}`)
 )
 if (!isNew && !existing.value) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
@@ -30,27 +33,27 @@ const VISUAL_TYPES = [
   'guante'
 ]
 
-const e = existing.value as any
+const product = existing.value
 const form = reactive({
-  name: e?.name ?? '',
-  brand: e?.brand ?? '',
-  categoryId: e?.categoryId ?? null,
-  shortDesc: e?.shortDesc ?? '',
-  description: e?.description ?? '',
-  usage: e?.usage ?? '',
-  badges: [...(e?.badges ?? [])] as string[],
-  visual: { type: e?.visual?.type ?? 'caja', color: e?.visual?.color ?? '#009ac9' },
-  featured: !!e?.featured,
-  active: e?.active ?? true,
-  series: e?.series ?? '',
-  variants: (e?.variants ?? []).map((v: any) => ({
-    id: v.id,
-    format: v.format,
-    sku: v.sku,
-    price: v.price / 100,
-    stock: v.stock,
-    color: v.color ?? '',
-    image: v.image ?? ''
+  name: product?.name ?? '',
+  brand: product?.brand ?? '',
+  categoryId: product?.categoryId ?? null,
+  shortDesc: product?.shortDesc ?? '',
+  description: product?.description ?? '',
+  usage: product?.usage ?? '',
+  badges: [...(product?.badges ?? [])] as string[],
+  visual: { type: product?.visual.type ?? 'caja', color: product?.visual.color ?? '#009ac9' },
+  featured: !!product?.featured,
+  active: product?.active ?? true,
+  series: product?.series ?? '',
+  variants: (product?.variants ?? []).map((variant) => ({
+    id: variant.id,
+    format: variant.format,
+    sku: variant.sku,
+    price: variant.price / 100,
+    stock: variant.stock,
+    color: variant.color ?? '',
+    image: variant.image ?? ''
   })) as Array<{
     id?: number
     format: string
@@ -106,9 +109,9 @@ async function save() {
     toast.add({ title: isNew ? 'Producto creado' : 'Cambios guardados', icon: 'i-lucide-check', color: 'success' })
     refreshNuxtData('categories')
     navigateTo('/admin/productos')
-  } catch (err: any) {
+  } catch (error) {
     toast.add({
-      title: err?.data?.statusMessage ?? err?.data?.message ?? 'No se ha podido guardar',
+      title: apiErrorMessage(error, 'No se ha podido guardar'),
       color: 'error',
       icon: 'i-lucide-alert-circle'
     })

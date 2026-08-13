@@ -7,5 +7,9 @@ dist
 coverage
 playwright-report
 test-results
+reports/mutation
+reports/stryker-incremental.json
+.stryker-tmp
+stryker-setup-*.js
 backups
 *.log

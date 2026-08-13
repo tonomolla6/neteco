@@ -78,12 +78,68 @@ describe('Beply invoice provider', () => {
     })
     expect(fetcher).toHaveBeenCalledTimes(4)
     expect(fetcher.mock.calls[0]![0]).toBe('https://tenant.beply.es/api/3/clientes')
-    expect(fetcher.mock.calls[0]![1]?.headers).toMatchObject({ Token: 'test-token' })
+    expect(fetcher.mock.calls[0]![1]).toMatchObject({
+      method: 'POST',
+      headers: {
+        Token: 'test-token',
+        Accept: 'application/json',
+        'content-type': 'application/x-www-form-urlencoded'
+      }
+    })
+    expect(Object.fromEntries(fetcher.mock.calls[0]![1]?.body as URLSearchParams)).toEqual({
+      codcliente: 'NETOMERUUID123456789',
+      nombre: 'Cliente de Prueba SL',
+      razonsocial: 'Cliente de Prueba SL',
+      cifnif: 'B12345674',
+      email: 'billing@example.test',
+      telefono1: '600000000',
+      codpago: 'REDSYS',
+      codserie: 'NE',
+      observaciones: 'NETECO customer-uuid-123456789'
+    })
+    expect(fetcher.mock.calls[1]![0]).toBe(
+      'https://tenant.beply.es/api/3/contactos?filter[codcliente]=NETOMERUUID123456789&limit=1'
+    )
+    expect(fetcher.mock.calls[1]![1]).toMatchObject({
+      method: 'GET',
+      headers: { Token: 'test-token', Accept: 'application/json' },
+      body: undefined
+    })
+    expect(fetcher.mock.calls[2]![0]).toBe('https://tenant.beply.es/api/3/contactos')
+    expect(Object.fromEntries(fetcher.mock.calls[2]![1]?.body as URLSearchParams)).toEqual({
+      codcliente: 'NETOMERUUID123456789',
+      nombre: 'Cliente de Prueba SL',
+      empresa: 'Cliente de Prueba SL',
+      cifnif: 'B12345674',
+      direccion: 'Calle Fiscal 1',
+      ciudad: 'Ontinyent',
+      provincia: 'Valencia',
+      codpostal: '46870',
+      codpais: 'ESP',
+      telefono1: '600000000',
+      email: 'billing@example.test',
+      descripcion: 'Dirección fiscal NETECO'
+    })
+    expect(fetcher.mock.calls[3]![0]).toBe('https://tenant.beply.es/api/3/crearFacturaCliente')
     const invoiceBody = fetcher.mock.calls[3]![1]?.body as URLSearchParams
-    expect(invoiceBody.get('codcliente')).toMatch(/^NE/)
-    expect(invoiceBody.get('codserie')).toBe('NE')
-    expect(invoiceBody.get('codpago')).toBe('REDSYS')
-    expect(invoiceBody.get('idempresa')).toBe('1')
+    expect(Object.fromEntries(invoiceBody)).toMatchObject({
+      codcliente: 'NETOMERUUID123456789',
+      codserie: 'NE',
+      codpago: 'REDSYS',
+      idempresa: '1',
+      fecha: '2026-08-12',
+      hora: '12:11:12',
+      pagada: '1',
+      nombrecliente: 'Cliente de Prueba SL',
+      cifnif: 'B12345674',
+      direccion: 'Calle Fiscal 1',
+      ciudad: 'Ontinyent',
+      provincia: 'Valencia',
+      codpostal: '46870',
+      codpais: 'ESP',
+      numero2: 'NE1234567890',
+      observaciones: 'NETECO NE1234567890; idempotencia invoice:order-uuid:v1'
+    })
     expect(JSON.parse(invoiceBody.get('lineas')!)).toEqual([
       expect.objectContaining({
         referencia: 'SKU-1',
@@ -94,7 +150,8 @@ describe('Beply invoice provider', () => {
       }),
       expect.objectContaining({ referencia: 'ENVIO', pvpunitario: 5 })
     ])
-    expect(invoiceBody.get('numero2')).toBe('NE1234567890')
+    expect(provider.name).toBe('beply')
+    expect(provider.configuration).toEqual({ ...configuration, baseUrl: 'https://tenant.beply.es/api/3' })
   })
 
   it('updates an existing fiscal contact and tolerates a duplicate customer response', async () => {
@@ -104,8 +161,8 @@ describe('Beply invoice provider', () => {
       .mockResolvedValueOnce(json([{ idcontacto: 27 }]))
       .mockResolvedValueOnce(json({ ok: true }))
     const provider = new BeplyInvoiceProvider(configuration, fetcher)
-    await expect(provider.upsertCustomer(request.customer)).resolves.toMatch(/^NE/)
-    expect(fetcher.mock.calls[2]![0]).toContain('/contactos/27')
+    await expect(provider.upsertCustomer(request.customer)).resolves.toBe('NETOMERUUID123456789')
+    expect(fetcher.mock.calls[2]![0]).toBe('https://tenant.beply.es/api/3/contactos/27')
     expect(fetcher.mock.calls[2]![1]?.method).toBe('PUT')
   })
 
@@ -130,6 +187,9 @@ describe('Beply invoice provider', () => {
     expect(body.get('idfacturaoriginal')).toBe('15')
     expect(body.get('motivo')).toBe('Devolución parcial')
     expect(JSON.parse(body.get('lineas')!)).toHaveLength(1)
+    expect(body.get('codserie')).toBe('NR')
+    expect(body.get('codpais')).toBe('FR')
+    expect(body.has('telefono1')).toBe(false)
   })
 
   it('marks an invoice paid and retrieves a validated PDF', async () => {
@@ -142,7 +202,15 @@ describe('Beply invoice provider', () => {
     await expect(provider.markPaid('15', '2026-10-25T00:30:00.000Z')).resolves.toBeUndefined()
     await expect(provider.downloadPdf('15')).resolves.toEqual(bytes)
     expect(fetcher.mock.calls[0]![0]).toContain('pagarFacturaCliente/15')
-    expect(fetcher.mock.calls[1]![0]).toContain('exportarFacturaCliente/15?type=PDF')
+    expect(Object.fromEntries(fetcher.mock.calls[0]![1]?.body as URLSearchParams)).toEqual({
+      fechapago: '2026-10-25',
+      codpago: 'REDSYS',
+      pagada: '1'
+    })
+    expect(fetcher.mock.calls[1]![0]).toBe(
+      'https://tenant.beply.es/api/3/exportarFacturaCliente/15?type=PDF&lang=es_ES'
+    )
+    expect(fetcher.mock.calls[1]![1]?.headers).toMatchObject({ Accept: 'application/pdf' })
   })
 
   it.each([
@@ -213,10 +281,12 @@ describe('Beply invoice provider', () => {
 describe('invoice providers and factory', () => {
   it('provides a deterministic local fake for invoices, credits and PDFs', async () => {
     const provider = new MockInvoiceProvider()
-    expect(await provider.upsertCustomer(request.customer)).toMatch(/^CUS-/)
-    await expect(provider.issueInvoice(request)).resolves.toMatchObject({
-      providerId: expect.stringMatching(/^INV-/),
-      code: expect.stringMatching(/^NE-/),
+    expect(provider.name).toBe('mock')
+    expect(await provider.upsertCustomer(request.customer)).toBe('CUS-1AB0A5C09155')
+    await expect(provider.issueInvoice(request)).resolves.toEqual({
+      providerId: 'INV-6B671FA19A8E',
+      code: 'NE-09218CC55CE3',
+      status: 'issued',
       amountCents: 3025
     })
     await expect(
@@ -225,8 +295,21 @@ describe('invoice providers and factory', () => {
         sourceProviderInvoiceId: '15',
         reason: 'return'
       })
-    ).resolves.toMatchObject({ providerId: expect.stringMatching(/^CRN-/), amountCents: 3025 })
-    expect(new TextDecoder().decode(await provider.downloadPdf('15'))).toContain('%PDF-1.4')
+    ).resolves.toEqual({
+      providerId: 'CRN-6B671FA19A8E',
+      code: 'RECT-6CB8189588CC',
+      status: 'issued',
+      amountCents: 3025
+    })
+    await expect(
+      provider.issueInvoice({
+        ...request,
+        lines: [{ ...request.lines[0]!, discountNetCents: 100 }]
+      })
+    ).resolves.toMatchObject({ amountCents: 2904 })
+    expect(new TextDecoder().decode(await provider.downloadPdf('15'))).toBe(
+      '%PDF-1.4\n% NETECO synthetic invoice 15\n%%EOF'
+    )
     await expect(provider.markPaid('15', request.issuedOn)).resolves.toBeUndefined()
   })
 
@@ -235,19 +318,27 @@ describe('invoice providers and factory', () => {
     expect(invoiceProviderFromEnvironment({ APP_ENV: 'local', INVOICE_PROVIDER: 'mock' })).toBeInstanceOf(
       MockInvoiceProvider
     )
-    expect(
-      invoiceProviderFromEnvironment({
-        APP_ENV: 'production',
-        INVOICE_PROVIDER: 'beply',
-        BEPLY_BASE_URL: configuration.baseUrl,
-        BEPLY_API_TOKEN: configuration.token,
-        BEPLY_INVOICE_SERIES: configuration.invoiceSeries,
-        BEPLY_CORRECTIVE_SERIES: configuration.correctiveSeries,
-        BEPLY_TAX_CODE_21: configuration.taxCode21,
-        BEPLY_PAYMENT_CODE_REDSYS: configuration.paymentCodeRedsys,
-        BEPLY_COMPANY_ID: configuration.companyId
-      })
-    ).toBeInstanceOf(BeplyInvoiceProvider)
+    const production = invoiceProviderFromEnvironment({
+      APP_ENV: 'production',
+      INVOICE_PROVIDER: 'beply',
+      BEPLY_BASE_URL: configuration.baseUrl,
+      BEPLY_API_TOKEN: configuration.token,
+      BEPLY_INVOICE_SERIES: configuration.invoiceSeries,
+      BEPLY_CORRECTIVE_SERIES: configuration.correctiveSeries,
+      BEPLY_TAX_CODE_21: configuration.taxCode21,
+      BEPLY_PAYMENT_CODE_REDSYS: configuration.paymentCodeRedsys,
+      BEPLY_COMPANY_ID: configuration.companyId
+    })
+    expect(production).toBeInstanceOf(BeplyInvoiceProvider)
+    expect((production as BeplyInvoiceProvider).configuration).toMatchObject({
+      baseUrl: 'https://tenant.beply.es/api/3',
+      token: 'test-token',
+      invoiceSeries: 'NE',
+      correctiveSeries: 'NR',
+      taxCode21: 'IVA21',
+      paymentCodeRedsys: 'REDSYS',
+      companyId: '1'
+    })
     expect(() => invoiceProviderFromEnvironment({ APP_ENV: 'production', INVOICE_PROVIDER: 'mock' })).toThrow(
       'must be beply'
     )

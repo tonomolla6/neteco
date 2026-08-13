@@ -1,17 +1,20 @@
 <script setup lang="ts">
+import type { OrderDetailView } from '~~/shared/types/orders'
+
 const route = useRoute()
 const { loggedIn } = useUserSession()
 
-const { data: order, error } = await useFetch<any>(`/api/orders/${route.params.id}`, {
+const { data: orderData, error } = await useFetch<OrderDetailView>(`/api/orders/${route.params.id}`, {
   params: { token: route.query.token }
 })
-if (error.value || !order.value) {
+if (error.value || !orderData.value) {
   throw createError({
     statusCode: error.value?.statusCode ?? 404,
     statusMessage: error.value?.statusMessage ?? 'Pedido no encontrado',
     fatal: true
   })
 }
+const order = computed(() => orderData.value!)
 
 useSeoMeta({ title: `Pedido ${order.value.id}` })
 
