@@ -24,6 +24,7 @@ export default defineEventHandler(async (event) => {
       gtin: string | null
       mpn: string | null
       priceCents: number
+      compareAtPriceCents: number | null
       available: number
       backorderAllowed: boolean
       shippingLabel: string
@@ -33,7 +34,7 @@ export default defineEventHandler(async (event) => {
            COALESCE(product.short_description, product.description, product.name) AS description,
            COALESCE(brand.name, 'NETECO') AS brand, product.attributes ->> 'image' AS image,
            COALESCE(variant.gtin, variant.ean) AS gtin, variant.mpn,
-           variant.price_gross_cents AS "priceCents",
+           price.gross_cents AS "priceCents", price.compare_at_gross_cents AS "compareAtPriceCents",
            greatest(COALESCE(sum(balance.physical_quantity - balance.blocked_quantity), 0)
              - variant.safety_stock - COALESCE((
                SELECT sum(reservation.quantity)::int FROM inventory_reservations reservation
@@ -42,6 +43,7 @@ export default defineEventHandler(async (event) => {
              ), 0), 0)::int AS available,
            variant.backorder_allowed AS "backorderAllowed", profile.kind AS "shippingLabel"
     FROM variants variant
+    JOIN effective_variant_prices price ON price.variant_id = variant.id
     JOIN products product ON product.id = variant.product_id
     LEFT JOIN brands brand ON brand.id = product.brand_id
     JOIN shipping_profiles profile ON profile.id = variant.shipping_profile_id
@@ -50,7 +52,7 @@ export default defineEventHandler(async (event) => {
     LEFT JOIN inventory_balances balance ON balance.variant_id = variant.id
     WHERE product.status = 'published' AND variant.status = 'published'
       AND product.attributes ->> 'image' LIKE '/media/%'
-    GROUP BY variant.id, product.id, brand.name, profile.kind
+    GROUP BY variant.id, product.id, brand.name, profile.kind, price.gross_cents, price.compare_at_gross_cents
     ORDER BY variant.sku
   `
   const entries = items
@@ -61,7 +63,10 @@ export default defineEventHandler(async (event) => {
           ? `<g:mpn>${xml(item.mpn)}</g:mpn>`
           : '<g:identifier_exists>false</g:identifier_exists>'
       const availability = item.available > 0 ? 'in_stock' : item.backorderAllowed ? 'backorder' : 'out_of_stock'
-      return `<item><g:id>${xml(`neteco_${item.id}`)}</g:id><title>${xml(item.name)}</title><description>${xml(item.description)}</description><link>${xml(`${origin}/producto/${item.slug}?sku=${encodeURIComponent(item.sku)}`)}</link><g:image_link>${xml(`${origin}${item.image}`)}</g:image_link><g:availability>${availability}</g:availability><g:price>${(item.priceCents / 100).toFixed(2)} EUR</g:price><g:condition>new</g:condition><g:brand>${xml(item.brand)}</g:brand>${identifier}<g:shipping_label>${xml(item.shippingLabel)}</g:shipping_label><g:return_policy_label>neteco-standard</g:return_policy_label></item>`
+      const price = item.compareAtPriceCents
+        ? `<g:price>${(item.compareAtPriceCents / 100).toFixed(2)} EUR</g:price><g:sale_price>${(item.priceCents / 100).toFixed(2)} EUR</g:sale_price>`
+        : `<g:price>${(item.priceCents / 100).toFixed(2)} EUR</g:price>`
+      return `<item><g:id>${xml(`neteco_${item.id}`)}</g:id><title>${xml(item.name)}</title><description>${xml(item.description)}</description><link>${xml(`${origin}/producto/${item.slug}?sku=${encodeURIComponent(item.sku)}`)}</link><g:image_link>${xml(`${origin}${item.image}`)}</g:image_link><g:availability>${availability}</g:availability>${price}<g:condition>new</g:condition><g:brand>${xml(item.brand)}</g:brand>${identifier}<g:shipping_label>${xml(item.shippingLabel)}</g:shipping_label><g:return_policy_label>neteco-standard</g:return_policy_label></item>`
     })
     .join('')
   setHeader(event, 'content-type', 'application/xml; charset=utf-8')

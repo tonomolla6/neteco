@@ -1,6 +1,6 @@
 import { createError, deleteCookie, getCookie, setCookie, type H3Event } from 'h3'
 import type { TransactionSql } from 'postgres'
-import { splitGross, validateQuantity } from '../domain/money'
+import { selectVolumeUnitPrice, splitGross, validateQuantity, type VolumePriceTier } from '../domain/money'
 import { useDatabase } from '../db/client'
 import { hashOpaqueToken, randomOpaqueToken } from '../utils/secrets'
 
@@ -23,6 +23,11 @@ export interface ServerCartItem {
   format: string
   sku: string
   price: number
+  basePrice: number
+  compareAtPrice: number | null
+  referencePrice30d: number | null
+  priceTiers: VolumePriceTier[]
+  pricingVersion: string
   netPrice: number
   taxRateBasisPoints: number
   qty: number
@@ -145,9 +150,12 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
     SELECT id, version, status, expires_at FROM carts WHERE id = ${cart.id}
   `
   if (!header) throw createError({ statusCode: 404, statusMessage: 'Carrito no encontrado' })
-  const rawItems = await sql<Array<Omit<ServerCartItem, 'netPrice'>>>`
+  const rawItems = await sql<Array<Omit<ServerCartItem, 'netPrice' | 'price'>>>`
     SELECT p.legacy_id AS "productId", p.slug, p.name, COALESCE(b.name, '') AS brand,
-           v.legacy_id AS "variantId", v.format, v.sku, v.price_gross_cents AS price,
+           v.legacy_id AS "variantId", v.format, v.sku, price.gross_cents AS "basePrice",
+           price.compare_at_gross_cents AS "compareAtPrice",
+           price.reference_gross_cents_30d AS "referencePrice30d",
+           price.volume_tiers AS "priceTiers", price.pricing_version AS "pricingVersion",
            tax.rate_basis_points AS "taxRateBasisPoints",
            ci.quantity AS qty,
            jsonb_build_object(
@@ -168,16 +176,17 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
            v.quantity_increment AS "quantityIncrement"
     FROM cart_items ci
     JOIN variants v ON v.id = ci.variant_id
+    JOIN effective_variant_prices price ON price.variant_id = v.id
     JOIN tax_classes tax ON tax.id = v.tax_class_id
     JOIN products p ON p.id = v.product_id
     LEFT JOIN brands b ON b.id = p.brand_id
     WHERE ci.cart_id = ${cart.id}
     ORDER BY ci.added_at, ci.id
   `
-  const items = rawItems.map((item) => ({
-    ...item,
-    netPrice: splitGross(item.price, item.taxRateBasisPoints).netCents
-  }))
+  const items = rawItems.map((item) => {
+    const price = selectVolumeUnitPrice(item.basePrice, item.qty, item.priceTiers)
+    return { ...item, price, netPrice: splitGross(price, item.taxRateBasisPoints).netCents }
+  })
   const subtotal = items.reduce((total, item) => total + item.price * item.qty, 0)
   const subtotalNet = items.reduce((total, item) => total + item.netPrice * item.qty, 0)
   return {

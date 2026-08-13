@@ -246,11 +246,12 @@ export default defineEventHandler(async (event) => {
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
     JOIN LATERAL (
-      SELECT min(variant.price_gross_cents)::int AS min_price,
-             min(round((variant.price_gross_cents::numeric * 10000) /
+      SELECT min(price.gross_cents)::int AS min_price,
+             min(round((price.gross_cents::numeric * 10000) /
                        (10000 + tax.rate_basis_points)))::int AS min_net_price,
              count(*)::int AS formats
       FROM variants variant
+      JOIN effective_variant_prices price ON price.variant_id = variant.id
       JOIN tax_classes tax ON tax.id = variant.tax_class_id
       WHERE variant.product_id = p.id AND variant.status = 'published'
     ) summary ON summary.formats > 0`
@@ -276,8 +277,10 @@ export default defineEventHandler(async (event) => {
      FROM products p
      LEFT JOIN brands b ON b.id = p.brand_id
      JOIN LATERAL (
-       SELECT min(price_gross_cents)::int AS min_price, count(*)::int AS formats
-       FROM variants WHERE product_id = p.id AND status = 'published'
+       SELECT min(price.gross_cents)::int AS min_price, count(*)::int AS formats
+       FROM variants variant
+       JOIN effective_variant_prices price ON price.variant_id = variant.id
+       WHERE variant.product_id = p.id AND variant.status = 'published'
      ) summary ON summary.formats > 0
      ${where.text}`,
     where.parameters

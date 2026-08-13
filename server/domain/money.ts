@@ -42,6 +42,34 @@ function assertInteger(value: number, name: string) {
   if (!Number.isSafeInteger(value)) throw new TypeError(`${name} must be a safe integer`)
 }
 
+export interface VolumePriceTier {
+  minimumQuantity: number
+  unitGrossCents: number
+}
+
+export function selectVolumeUnitPrice(baseGrossCents: number, quantity: number, tiers: VolumePriceTier[]) {
+  assertInteger(baseGrossCents, 'baseGrossCents')
+  assertInteger(quantity, 'quantity')
+  if (baseGrossCents < 0) throw new RangeError('baseGrossCents cannot be negative')
+  if (quantity <= 0) throw new RangeError('quantity must be positive')
+  let selected = baseGrossCents
+  let previousMinimum = 0
+  let previousPrice = baseGrossCents
+  for (const tier of tiers) {
+    assertInteger(tier.minimumQuantity, 'tier.minimumQuantity')
+    assertInteger(tier.unitGrossCents, 'tier.unitGrossCents')
+    if (tier.minimumQuantity <= previousMinimum) {
+      throw new RangeError('volume tiers must have strictly increasing minimum quantities')
+    }
+    if (tier.unitGrossCents < 0) throw new RangeError('tier.unitGrossCents cannot be negative')
+    if (tier.unitGrossCents > previousPrice) throw new RangeError('volume tier prices cannot increase')
+    if (quantity >= tier.minimumQuantity) selected = tier.unitGrossCents
+    previousMinimum = tier.minimumQuantity
+    previousPrice = tier.unitGrossCents
+  }
+  return selected
+}
+
 export function roundRatio(numerator: bigint, denominator: bigint) {
   if (denominator <= 0n) throw new RangeError('denominator must be positive')
   const sign = numerator < 0n ? -1n : 1n

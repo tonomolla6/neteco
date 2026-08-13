@@ -1,6 +1,8 @@
 import type { TransactionSql } from 'postgres'
 import { useDatabase } from '../db/client'
+import { createInitialVariantPrice, scheduleVariantPrice } from './pricing'
 import type { ProductInput } from '../utils/productInput'
+import { volumePriceTiersSchema } from '../utils/price-input'
 import { slugify } from '../utils/slug'
 import { unitsFor } from '../utils/units'
 
@@ -200,6 +202,14 @@ export async function createCatalogProduct(input: ProductInput, actor: CatalogAc
         ) RETURNING id
       `
       if (!created) throw new Error('Variant insert returned no row')
+      await createInitialVariantPrice(transaction, {
+        variantId: created.id,
+        grossCents: Math.round(variant.price * 100),
+        validFrom: new Date(),
+        reason: 'Precio inicial creado con la variante',
+        actorId: actor.id,
+        correlationId
+      })
       await upsertInventory(transaction, {
         variantId: created.id,
         locationId: references.locationId,
@@ -278,8 +288,15 @@ export async function updateCatalogProduct(
         updated_at = now()
       WHERE id = ${current.id}
     `
-    const existingVariants = await transaction<{ id: string; legacyId: number }[]>`
-      SELECT id, legacy_id AS "legacyId" FROM variants WHERE product_id = ${current.id} FOR UPDATE
+    const existingVariants = await transaction<
+      { id: string; legacyId: number; priceGrossCents: number; volumeTiers: unknown }[]
+    >`
+      SELECT variant.id, variant.legacy_id AS "legacyId", price.gross_cents AS "priceGrossCents",
+             price.volume_tiers AS "volumeTiers"
+      FROM variants variant
+      JOIN effective_variant_prices price ON price.variant_id = variant.id
+      WHERE variant.product_id = ${current.id}
+      FOR UPDATE OF variant
     `
     const byLegacyId = new Map(existingVariants.map((variant) => [variant.legacyId, variant.id]))
     const kept = new Set<string>()
@@ -287,8 +304,22 @@ export async function updateCatalogProduct(
       const existingUuid = variant.id === undefined ? undefined : byLegacyId.get(variant.id)
       const unit = unitsFor(variant.format, input.name)
       const sku = variant.sku?.trim() || `NE-${legacyId}-${index + 1}`
+      const nextGrossCents = Math.round(variant.price * 100)
       let variantUuid: string
       if (existingUuid) {
+        const existing = existingVariants.find((candidate) => candidate.id === existingUuid)!
+        if (nextGrossCents !== existing.priceGrossCents) {
+          await scheduleVariantPrice(transaction, {
+            variantId: existingUuid,
+            grossCents: nextGrossCents,
+            compareAtGrossCents: null,
+            volumeTiers: volumePriceTiersSchema.parse(existing.volumeTiers),
+            validFrom: new Date(),
+            reason: 'Precio actualizado desde la edición del producto',
+            actorId: actor.id,
+            correlationId
+          })
+        }
         await transaction`
           UPDATE variants SET
             tax_class_id = ${references.taxId}, shipping_profile_id = ${references.shippingId},
@@ -299,7 +330,7 @@ export async function updateCatalogProduct(
             content_quantity = ${variant.contentQuantity || unit?.[0] || 1},
             units_per_case = ${variant.unitsPerCase}, cases_per_pallet = ${variant.casesPerPallet ?? null},
             minimum_quantity = ${variant.minimumQuantity}, quantity_increment = ${variant.quantityIncrement},
-            maximum_quantity = ${variant.maximumQuantity ?? null}, price_gross_cents = ${Math.round(variant.price * 100)},
+            maximum_quantity = ${variant.maximumQuantity ?? null}, price_gross_cents = ${nextGrossCents},
             weight_grams = ${variant.weightGrams}, width_mm = ${variant.widthMm}, height_mm = ${variant.heightMm},
             depth_mm = ${variant.depthMm}, safety_stock = ${variant.safetyStock},
             backorder_allowed = ${variant.backorderAllowed}, lead_time_days = ${variant.leadTimeDays ?? null},
@@ -323,13 +354,21 @@ export async function updateCatalogProduct(
             ${variant.unitBase}, ${variant.unitLabel || unit?.[1] || 'unidad'},
             ${variant.contentQuantity || unit?.[0] || 1}, ${variant.unitsPerCase},
             ${variant.casesPerPallet ?? null}, ${variant.minimumQuantity}, ${variant.quantityIncrement},
-            ${variant.maximumQuantity ?? null}, ${Math.round(variant.price * 100)}, ${variant.weightGrams},
+            ${variant.maximumQuantity ?? null}, ${nextGrossCents}, ${variant.weightGrams},
             ${variant.widthMm}, ${variant.heightMm}, ${variant.depthMm}, ${variant.safetyStock},
             ${variant.backorderAllowed}, ${variant.leadTimeDays ?? null}, ${variant.color || null},
             ${variant.image || null}, 'admin-v1'
           ) RETURNING id
         `
         variantUuid = created!.id
+        await createInitialVariantPrice(transaction, {
+          variantId: variantUuid,
+          grossCents: nextGrossCents,
+          validFrom: new Date(),
+          reason: 'Precio inicial creado con la variante',
+          actorId: actor.id,
+          correlationId
+        })
       }
       kept.add(variantUuid)
       await upsertInventory(transaction, {

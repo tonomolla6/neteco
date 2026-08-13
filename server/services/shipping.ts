@@ -5,6 +5,7 @@ import { carrierProviderFromEnvironment } from '../integrations/carrier-factory'
 import type { Parcel, ShippingAddress } from '../integrations/carrier-provider'
 import { shippingCommercialPolicy } from '../utils/shipping-policy'
 import { calculateQuote } from '../domain/money'
+import { selectVolumeUnitPrice, type VolumePriceTier } from '../domain/money'
 import { classifyShipment } from '../domain/shipping'
 
 interface ShipmentOrder {
@@ -99,24 +100,31 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
       depthMm: number
       profile: string
       priceGrossCents: number
+      volumeTiers: VolumePriceTier[]
       taxRateBasisPoints: number
       sourceVersion: string | null
     }>
   >`
-    SELECT variant.sku, item.quantity, variant.price_gross_cents AS "priceGrossCents",
-           tax.rate_basis_points AS "taxRateBasisPoints", variant.source_version AS "sourceVersion",
+    SELECT variant.sku, item.quantity, price.gross_cents AS "priceGrossCents",
+           price.volume_tiers AS "volumeTiers", tax.rate_basis_points AS "taxRateBasisPoints",
+           price.pricing_version AS "sourceVersion",
            variant.weight_grams AS "weightGrams",
            variant.width_mm AS "widthMm", variant.height_mm AS "heightMm", variant.depth_mm AS "depthMm",
            profile.kind AS profile
     FROM cart_items item
     JOIN variants variant ON variant.id = item.variant_id
+    JOIN effective_variant_prices price ON price.variant_id = variant.id
     JOIN tax_classes tax ON tax.id = variant.tax_class_id
     JOIN shipping_profiles profile ON profile.id = variant.shipping_profile_id
     WHERE item.cart_id = ${cartId}
     ORDER BY item.added_at, item.id
   `
   if (lines.length === 0) throw createError({ statusCode: 409, statusMessage: 'El carrito está vacío' })
-  const parcels = lines.map((line): Parcel => ({
+  const pricedLines = lines.map((line) => ({
+    ...line,
+    priceGrossCents: selectVolumeUnitPrice(line.priceGrossCents, line.quantity, line.volumeTiers)
+  }))
+  const parcels = pricedLines.map((line): Parcel => ({
     weightGrams: line.weightGrams * line.quantity,
     widthMm: line.widthMm,
     heightMm: line.heightMm,
@@ -126,7 +134,7 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
   }))
   const provider = carrierProviderFromEnvironment()
   const quotedRates = await provider.rates({ originPostalCode: '46870', destination, parcels })
-  const goodsGross = lines.reduce((total, line) => total + line.priceGrossCents * line.quantity, 0)
+  const goodsGross = pricedLines.reduce((total, line) => total + line.priceGrossCents * line.quantity, 0)
   const policy = shippingCommercialPolicy()
   const rates = quotedRates.map((rate) => ({
     ...rate,
@@ -153,13 +161,13 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
   ].map((rate) => {
     const shippingNetCents = rate.netCents
     const shippingGrossCents = shippingNetCents + Math.round((shippingNetCents * rate.taxRateBasisPoints) / 10_000)
-    const pricingVersion = `catalog:${lines
+    const pricingVersion = `catalog:${pricedLines
       .map((line) => line.sourceVersion ?? 'unknown')
       .sort()
       .join('+')};shipping:${rate.provider}:${rate.serviceCode}`
     const quote = calculateQuote({
       pricingVersion,
-      lines: lines.map((line) => ({
+      lines: pricedLines.map((line) => ({
         variantId: line.sku,
         sku: line.sku,
         quantity: line.quantity,

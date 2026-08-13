@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { calculateQuote, quoteLine, roundRatio, splitGross, validateQuantity } from '../../server/domain/money'
+import {
+  calculateQuote,
+  quoteLine,
+  roundRatio,
+  selectVolumeUnitPrice,
+  splitGross,
+  validateQuantity
+} from '../../server/domain/money'
 
 describe('money', () => {
   it('rounds integer ratios half away from zero', () => {
@@ -43,6 +50,39 @@ describe('money', () => {
     expect(() => validateQuantity(1, { quantityIncrement: 1.1 })).toThrow('quantityIncrement must be a safe integer')
     expect(() => validateQuantity(1, { maximumQuantity: 0 })).toThrow('maximumQuantity must be positive')
     expect(() => validateQuantity(1, { maximumQuantity: 1.1 })).toThrow('maximumQuantity must be a safe integer')
+  })
+
+  it('selects volume prices at exact boundaries and rejects malformed scales', () => {
+    const tiers = [
+      { minimumQuantity: 10, unitGrossCents: 950 },
+      { minimumQuantity: 25, unitGrossCents: 900 }
+    ]
+    expect(selectVolumeUnitPrice(1000, 1, tiers)).toBe(1000)
+    expect(selectVolumeUnitPrice(1000, 10, tiers)).toBe(950)
+    expect(selectVolumeUnitPrice(1000, 24, tiers)).toBe(950)
+    expect(selectVolumeUnitPrice(1000, 25, tiers)).toBe(900)
+    expect(() => selectVolumeUnitPrice(1.5, 1, [])).toThrow('baseGrossCents must be a safe integer')
+    expect(() => selectVolumeUnitPrice(1, 1.5, [])).toThrow('quantity must be a safe integer')
+    expect(() => selectVolumeUnitPrice(-1, 1, [])).toThrow('baseGrossCents cannot be negative')
+    expect(() => selectVolumeUnitPrice(1, 0, [])).toThrow('quantity must be positive')
+    expect(() => selectVolumeUnitPrice(100, 1, [{ minimumQuantity: 1.5, unitGrossCents: 90 }])).toThrow(
+      'tier.minimumQuantity must be a safe integer'
+    )
+    expect(() => selectVolumeUnitPrice(100, 1, [{ minimumQuantity: 2, unitGrossCents: 1.5 }])).toThrow(
+      'tier.unitGrossCents must be a safe integer'
+    )
+    expect(() =>
+      selectVolumeUnitPrice(100, 2, [
+        { minimumQuantity: 2, unitGrossCents: 90 },
+        { minimumQuantity: 2, unitGrossCents: 80 }
+      ])
+    ).toThrow('volume tiers must have strictly increasing minimum quantities')
+    expect(() => selectVolumeUnitPrice(100, 2, [{ minimumQuantity: 2, unitGrossCents: -1 }])).toThrow(
+      'tier.unitGrossCents cannot be negative'
+    )
+    expect(() => selectVolumeUnitPrice(100, 2, [{ minimumQuantity: 2, unitGrossCents: 101 }])).toThrow(
+      'volume tier prices cannot increase'
+    )
   })
 
   it('quotes a line from server-side values', () => {

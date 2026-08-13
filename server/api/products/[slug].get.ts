@@ -55,6 +55,10 @@ export default defineEventHandler(async (event) => {
       gtin: string | null
       mpn: string | null
       price: number
+      compareAtPrice: number | null
+      referencePrice30d: number | null
+      priceTiers: Array<{ minimumQuantity: number; unitGrossCents: number }>
+      pricingVersion: string
       taxRateBasisPoints: number
       stock: number
       units: number
@@ -72,7 +76,10 @@ export default defineEventHandler(async (event) => {
     }>
   >`
     SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.ean, v.gtin, v.mpn,
-           v.price_gross_cents AS price, tax.rate_basis_points AS "taxRateBasisPoints",
+           price.gross_cents AS price, price.compare_at_gross_cents AS "compareAtPrice",
+           price.reference_gross_cents_30d AS "referencePrice30d",
+           price.volume_tiers AS "priceTiers", price.pricing_version AS "pricingVersion",
+           tax.rate_basis_points AS "taxRateBasisPoints",
            greatest(
              COALESCE(sum(ib.physical_quantity - ib.blocked_quantity), 0)
              - v.safety_stock
@@ -89,10 +96,13 @@ export default defineEventHandler(async (event) => {
            v.quantity_increment AS "quantityIncrement", v.backorder_allowed AS "backorderAllowed",
            v.lead_time_days AS "leadTimeDays", v.color, v.image
     FROM variants v
+    JOIN effective_variant_prices price ON price.variant_id = v.id
     JOIN tax_classes tax ON tax.id = v.tax_class_id
     LEFT JOIN inventory_balances ib ON ib.variant_id = v.id
     WHERE v.product_id = ${product.uuid} AND v.status = 'published'
-    GROUP BY v.id
+    GROUP BY v.id, price.gross_cents, price.compare_at_gross_cents,
+             price.reference_gross_cents_30d, price.volume_tiers, price.pricing_version,
+             tax.rate_basis_points
     ORDER BY v.legacy_id
   `
   const siblings = product.series
@@ -136,12 +146,13 @@ export default defineEventHandler(async (event) => {
     SELECT related.legacy_id AS id, related.name, related.slug, COALESCE(b.name, 'NETECO') AS brand,
            COALESCE(related.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(related.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
-           related.attributes ->> 'image' AS image, min(v.price_gross_cents)::int AS "minPrice",
-           min(round((v.price_gross_cents::numeric * 10000) / (10000 + tax.rate_basis_points)))::int AS "minNetPrice",
+           related.attributes ->> 'image' AS image, min(price.gross_cents)::int AS "minPrice",
+           min(round((price.gross_cents::numeric * 10000) / (10000 + tax.rate_basis_points)))::int AS "minNetPrice",
            count(v.id)::int AS formats
     FROM products related
     LEFT JOIN brands b ON b.id = related.brand_id
     JOIN variants v ON v.product_id = related.id AND v.status = 'published'
+    JOIN effective_variant_prices price ON price.variant_id = v.id
     JOIN tax_classes tax ON tax.id = v.tax_class_id
     WHERE related.category_id = (SELECT category_id FROM products WHERE id = ${product.uuid})
       AND related.id <> ${product.uuid} AND related.status = 'published'

@@ -9,6 +9,11 @@ export interface CartItem {
   format: string
   sku: string
   price: number
+  basePrice?: number
+  compareAtPrice?: number | null
+  referencePrice30d?: number | null
+  priceTiers?: Array<{ minimumQuantity: number; unitGrossCents: number }>
+  pricingVersion?: string
   netPrice: number
   taxRateBasisPoints: number
   qty: number

@@ -30,8 +30,8 @@ export default defineEventHandler(async (event) => {
   >`
     SELECT p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
-           p.attributes ->> 'image' AS image, min(v.price_gross_cents)::int AS "minPrice",
-           min(round((v.price_gross_cents::numeric * 10000) / (10000 + tax.rate_basis_points)))::int AS "minNetPrice",
+           p.attributes ->> 'image' AS image, min(price.gross_cents)::int AS "minPrice",
+           min(round((price.gross_cents::numeric * 10000) / (10000 + tax.rate_basis_points)))::int AS "minNetPrice",
            (
              SELECT exact_variant.sku FROM variants exact_variant
              WHERE exact_variant.product_id = p.id AND exact_variant.status = 'published'
@@ -42,6 +42,7 @@ export default defineEventHandler(async (event) => {
     FROM products p
     LEFT JOIN brands b ON b.id = p.brand_id
     JOIN variants v ON v.product_id = p.id AND v.status = 'published'
+    JOIN effective_variant_prices price ON price.variant_id = v.id
     JOIN tax_classes tax ON tax.id = v.tax_class_id
     WHERE p.status = 'published'
       AND (

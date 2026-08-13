@@ -11,6 +11,10 @@ interface ProductVariant {
   gtin: string | null
   mpn: string | null
   price: number
+  compareAtPrice: number | null
+  referencePrice30d: number | null
+  priceTiers: Array<{ minimumQuantity: number; unitGrossCents: number }>
+  pricingVersion: string
   netPrice: number
   taxRateBasisPoints: number
   stock: number
@@ -92,6 +96,15 @@ onMounted(() => {
   void track('product_viewed', { productId: product.value.id, variantId: selected.value.id })
 })
 const qty = ref((initialVariant ?? firstVariant).minimumQuantity)
+function priceForQuantity(variant: ProductVariant, quantity: number) {
+  let price = variant.price
+  for (const tier of variant.priceTiers) if (quantity >= tier.minimumQuantity) price = tier.unitGrossCents
+  return price
+}
+const selectedUnitGrossPrice = computed(() => priceForQuantity(selected.value, qty.value))
+const selectedUnitNetPrice = computed(() =>
+  Math.round((selectedUnitGrossPrice.value * 10_000) / (10_000 + selected.value.taxRateBasisPoints))
+)
 const maximumQuantity = computed(() =>
   Math.min(
     selected.value.maximumQuantity ?? Infinity,
@@ -389,9 +402,9 @@ watch(
 )
 
 // precio informativo por unidad/litro/kilo del envase (estilo mayorista)
-function perUnit(variant: ProductVariant): string | null {
+function perUnit(variant: ProductVariant, grossCents = variant.price): string | null {
   if (!variant.units || !variant.unitLabel) return null
-  const per = variant.price / 100 / variant.units
+  const per = grossCents / 100 / variant.units
   const digits = per < 0.1 ? 3 : 2
   return `${per.toLocaleString('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits })} €/${variant.unitLabel}`
 }
@@ -466,8 +479,8 @@ async function addToCart(goToCart = false) {
         variantId: selected.value.id,
         format: selected.value.format,
         sku: selected.value.sku,
-        price: selected.value.price,
-        netPrice: selected.value.netPrice,
+        price: selectedUnitGrossPrice.value,
+        netPrice: selectedUnitNetPrice.value,
         taxRateBasisPoints: selected.value.taxRateBasisPoints,
         visual: product.value.visual,
         image: selected.value.image ?? (colorMode.value ? null : product.value.image) ?? null
@@ -683,14 +696,19 @@ async function addToCart(goToCart = false) {
           </div>
           <div>
             <p class="font-display text-2xl font-bold text-slate-900">
-              {{ formatPrice((showNetPrices ? selected.netPrice : selected.price) * qty) }}
+              {{ formatPrice((showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) * qty) }}
             </p>
             <p class="text-xs text-slate-500">
               <template v-if="showNetPrices">
-                sin IVA · {{ formatPrice(selected.price * qty) }} con IVA ({{ selected.taxRateBasisPoints / 100 }} %)
+                sin IVA · {{ formatPrice(selectedUnitGrossPrice * qty) }} con IVA ({{
+                  selected.taxRateBasisPoints / 100
+                }}
+                %)
               </template>
               <template v-else>IVA incluido ({{ selected.taxRateBasisPoints / 100 }} %)</template>
-              <template v-if="perUnit(selected)"> · {{ perUnit(selected) }}</template>
+              <template v-if="perUnit(selected, selectedUnitGrossPrice)">
+                · {{ perUnit(selected, selectedUnitGrossPrice) }}</template
+              >
             </p>
           </div>
           <p
@@ -716,6 +734,20 @@ async function addToCart(goToCart = false) {
             {{ availability.label }}
           </p>
         </div>
+
+        <section v-if="selected.priceTiers.length" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+          <h2 class="text-sm font-semibold text-emerald-950">Ahorro por volumen</h2>
+          <ul class="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+            <li v-for="tier in selected.priceTiers" :key="tier.minimumQuantity" class="flex justify-between gap-3">
+              <span>Desde {{ tier.minimumQuantity }} unidades</span>
+              <strong>{{ formatPrice(tier.unitGrossCents) }}/ud IVA incl.</strong>
+            </li>
+          </ul>
+        </section>
+        <p v-if="selected.compareAtPrice && selected.referencePrice30d" class="mt-3 text-xs text-slate-500">
+          Precio anterior: <s>{{ formatPrice(selected.compareAtPrice) }}</s> · Precio más bajo de los 30 días
+          anteriores: {{ formatPrice(selected.referencePrice30d) }}.
+        </p>
 
         <section class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="delivery-title">
           <h2 id="delivery-title" class="text-sm font-semibold text-slate-800">
@@ -991,7 +1023,7 @@ async function addToCart(goToCart = false) {
       <div class="min-w-0">
         <p class="truncate text-xs text-slate-500">{{ selected.format }}</p>
         <p class="font-display text-lg font-bold text-slate-900">
-          {{ formatPrice((showNetPrices ? selected.netPrice : selected.price) * qty) }}
+          {{ formatPrice((showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) * qty) }}
         </p>
       </div>
       <UButton

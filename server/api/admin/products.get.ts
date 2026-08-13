@@ -33,11 +33,12 @@ export default defineEventHandler(async (event) => {
            p.featured, p.status = 'published' AS active, p.status, p.series,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
            c.legacy_id AS "categoryId", c.name AS "categoryName",
-           min(v.price_gross_cents)::int AS "minPrice", count(v.id)::int AS formats
+           min(price.gross_cents)::int AS "minPrice", count(v.id)::int AS formats
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
     LEFT JOIN variants v ON v.product_id = p.id
+    LEFT JOIN effective_variant_prices price ON price.variant_id = v.id
     WHERE (${query.q ?? null}::text IS NULL OR p.name ILIKE ${query.q ? `%${query.q}%` : null}
            OR b.name ILIKE ${query.q ? `%${query.q}%` : null}
            OR EXISTS (SELECT 1 FROM variants sku WHERE sku.product_id = p.id AND sku.sku ILIKE ${query.q ? `%${query.q}%` : null}))

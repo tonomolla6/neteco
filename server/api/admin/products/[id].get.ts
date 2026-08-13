@@ -76,7 +76,7 @@ export default defineEventHandler(async (event) => {
     }>
   >`
     SELECT v.legacy_id AS id, v.format, v.sku, v.ean, v.gtin, v.mpn,
-           v.identifier_exception_reason AS "identifierExceptionReason", v.price_gross_cents AS price,
+           v.identifier_exception_reason AS "identifierExceptionReason", price.gross_cents AS price,
            COALESCE(sum(balance.physical_quantity), 0)::int AS stock,
            v.content_quantity::float8 AS units, v.unit_label AS "unitLabel",
            v.unit_base AS "unitBase", v.units_per_case AS "unitsPerCase",
@@ -86,9 +86,10 @@ export default defineEventHandler(async (event) => {
            v.depth_mm AS "depthMm", v.safety_stock AS "safetyStock",
            v.backorder_allowed AS "backorderAllowed", v.lead_time_days AS "leadTimeDays", v.color, v.image
     FROM variants v
+    JOIN effective_variant_prices price ON price.variant_id = v.id
     LEFT JOIN inventory_balances balance ON balance.variant_id = v.id
     WHERE v.product_id = ${product.uuid} AND v.status <> 'discontinued'
-    GROUP BY v.id ORDER BY v.legacy_id
+    GROUP BY v.id, price.gross_cents ORDER BY v.legacy_id
   `
   const { uuid: _uuid, ...publicProduct } = product
   return { ...publicProduct, variants }

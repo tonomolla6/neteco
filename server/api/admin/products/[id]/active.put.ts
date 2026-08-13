@@ -65,14 +65,18 @@ export default defineEventHandler(async (event) => {
     }
     if (targetStatus === 'published') {
       const variants = await transaction<PublicationVariant[]>`
-        SELECT sku, ean, gtin, mpn, identifier_exception_reason AS "identifierExceptionReason",
-               price_gross_cents AS "priceCents", unit_base AS "unitBase", unit_label AS "unitLabel",
+        SELECT variant.sku, variant.ean, variant.gtin, variant.mpn,
+               variant.identifier_exception_reason AS "identifierExceptionReason",
+               price.gross_cents AS "priceCents", variant.unit_base AS "unitBase",
+               variant.unit_label AS "unitLabel",
                content_quantity::float8 AS "contentQuantity", minimum_quantity AS "minimumQuantity",
                quantity_increment AS "quantityIncrement", maximum_quantity AS "maximumQuantity",
                weight_grams AS "weightGrams", width_mm AS "widthMm", height_mm AS "heightMm",
                depth_mm AS "depthMm", backorder_allowed AS "backorderAllowed",
                lead_time_days AS "leadTimeDays"
-        FROM variants WHERE product_id = ${current.uuid} AND status <> 'discontinued'
+        FROM variants variant
+        JOIN effective_variant_prices price ON price.variant_id = variant.id
+        WHERE product_id = ${current.uuid} AND status <> 'discontinued'
         ORDER BY legacy_id
       `
       const issues = catalogPublicationIssues({ ...current, variants })

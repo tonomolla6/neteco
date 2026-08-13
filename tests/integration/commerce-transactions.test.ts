@@ -143,8 +143,9 @@ beforeAll(async () => {
     SELECT v.id AS "variantId", v.legacy_id AS "variantLegacyId", balance.location_id AS "locationId",
            balance.physical_quantity AS "physicalQuantity", balance.blocked_quantity AS "blockedQuantity",
            v.safety_stock AS "safetyStock", v.backorder_allowed AS "backorderAllowed",
-           v.price_gross_cents AS "priceGrossCents", v.source_version AS "sourceVersion"
+           price.gross_cents AS "priceGrossCents", price.pricing_version AS "sourceVersion"
     FROM variants v
+    JOIN effective_variant_prices price ON price.variant_id = v.id
     JOIN products product ON product.id = v.product_id
     JOIN inventory_balances balance ON balance.variant_id = v.id
     WHERE v.status = 'published' AND product.status = 'published'

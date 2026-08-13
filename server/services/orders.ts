@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { createError } from 'h3'
 import type { TransactionSql } from 'postgres'
-import { calculateQuote, splitGross } from '../domain/money'
+import { calculateQuote, selectVolumeUnitPrice, splitGross, type VolumePriceTier } from '../domain/money'
 import { sellableQuantity } from '../domain/inventory'
 import { classifyShipment } from '../domain/shipping'
 import { carrierProviderFromEnvironment } from '../integrations/carrier-factory'
@@ -66,6 +66,7 @@ interface VariantRecord {
   sku: string
   unit_label: string
   price_gross_cents: number
+  volume_tiers: VolumePriceTier[]
   minimum_quantity: number
   maximum_quantity: number | null
   quantity_increment: number
@@ -166,11 +167,13 @@ export async function createOrder(input: CreateOrderInput) {
     const legacyIds = requested.map((item) => item.variantId)
     const variants = await transaction<VariantRecord[]>`
       SELECT v.id, v.legacy_id, v.product_id, p.name, v.format, v.sku, v.unit_label,
-             v.price_gross_cents, v.minimum_quantity, v.maximum_quantity, v.quantity_increment,
+             price.gross_cents AS price_gross_cents, price.volume_tiers,
+             v.minimum_quantity, v.maximum_quantity, v.quantity_increment,
              v.safety_stock, v.backorder_allowed, t.rate_basis_points AS tax_rate_basis_points,
-             v.source_version, shipping.kind AS shipping_profile,
+             price.pricing_version AS source_version, shipping.kind AS shipping_profile,
              v.weight_grams, v.width_mm, v.height_mm, v.depth_mm
       FROM variants v
+      JOIN effective_variant_prices price ON price.variant_id = v.id
       JOIN products p ON p.id = v.product_id
       JOIN tax_classes t ON t.id = v.tax_class_id
       JOIN shipping_profiles shipping ON shipping.id = v.shipping_profile_id
@@ -183,16 +186,19 @@ export async function createOrder(input: CreateOrderInput) {
       throw createError({ statusCode: 409, statusMessage: 'Uno o más artículos ya no están disponibles' })
     }
     const quantityByVariant = new Map(requested.map((item) => [item.variantId, item.qty]))
-    const lines = variants.map((variant) => ({
-      variantId: variant.id,
-      sku: variant.sku,
-      quantity: quantityByVariant.get(variant.legacy_id)!,
-      unitGrossCents: variant.price_gross_cents,
-      taxRateBasisPoints: variant.tax_rate_basis_points,
-      minimumQuantity: variant.minimum_quantity,
-      maximumQuantity: variant.maximum_quantity,
-      quantityIncrement: variant.quantity_increment
-    }))
+    const lines = variants.map((variant) => {
+      const quantity = quantityByVariant.get(variant.legacy_id)!
+      return {
+        variantId: variant.id,
+        sku: variant.sku,
+        quantity,
+        unitGrossCents: selectVolumeUnitPrice(variant.price_gross_cents, quantity, variant.volume_tiers),
+        taxRateBasisPoints: variant.tax_rate_basis_points,
+        minimumQuantity: variant.minimum_quantity,
+        maximumQuantity: variant.maximum_quantity,
+        quantityIncrement: variant.quantity_increment
+      }
+    })
     const goodsGross = lines.reduce((total, line) => total + line.unitGrossCents * line.quantity, 0)
     const parcels = variants.map((variant): Parcel => ({
       weightGrams: variant.weight_grams * quantityByVariant.get(variant.legacy_id)!,
@@ -412,7 +418,12 @@ export async function createOrder(input: CreateOrderInput) {
           ${Math.floor(quoted.netCents / quantity)}, 0, ${quoted.taxRateBasisPoints},
           ${quoted.taxCents}, ${quoted.grossCents}, ${transaction.json({})},
           ${transaction.json({
-            unitGrossCents: variant.price_gross_cents,
+            unitGrossCents: quoted.unitGrossCents,
+            pricingVersion: variant.source_version,
+            volumeTiers: variant.volume_tiers.map((tier) => ({
+              minimumQuantity: tier.minimumQuantity,
+              unitGrossCents: tier.unitGrossCents
+            })),
             profile: variant.shipping_profile,
             weightGrams: variant.weight_grams,
             widthMm: variant.width_mm,
