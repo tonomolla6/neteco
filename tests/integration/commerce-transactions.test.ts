@@ -24,6 +24,8 @@ interface StockFixture {
   blockedQuantity: number
   safetyStock: number
   backorderAllowed: boolean
+  priceGrossCents: number
+  sourceVersion: string | null
 }
 
 let stock: StockFixture
@@ -76,6 +78,9 @@ async function cartInput(quantity = 1): Promise<CreateOrderInput> {
       instructions: ''
     },
     shippingMethod: 'recogida',
+    shippingServiceCode: 'WAREHOUSE-PICKUP',
+    expectedPricingVersion: `catalog:${stock.sourceVersion ?? 'unknown'};shipping:neteco:WAREHOUSE-PICKUP`,
+    expectedTotalGrossCents: stock.priceGrossCents * quantity,
     paymentMethod: 'tarjeta',
     cartId: cart!.id,
     cartVersion: cart!.version,
@@ -137,7 +142,8 @@ beforeAll(async () => {
   const [fixture] = await sql<StockFixture[]>`
     SELECT v.id AS "variantId", v.legacy_id AS "variantLegacyId", balance.location_id AS "locationId",
            balance.physical_quantity AS "physicalQuantity", balance.blocked_quantity AS "blockedQuantity",
-           v.safety_stock AS "safetyStock", v.backorder_allowed AS "backorderAllowed"
+           v.safety_stock AS "safetyStock", v.backorder_allowed AS "backorderAllowed",
+           v.price_gross_cents AS "priceGrossCents", v.source_version AS "sourceVersion"
     FROM variants v
     JOIN products product ON product.id = v.product_id
     JOIN inventory_balances balance ON balance.variant_id = v.id
@@ -184,6 +190,20 @@ afterAll(async () => {
 })
 
 describe('commerce transaction spine', () => {
+  it('requires explicit acceptance when the authoritative checkout quote changes', async () => {
+    const input = await cartInput()
+    input.expectedTotalGrossCents += 1
+
+    await expect(createOrder(input)).rejects.toMatchObject({
+      statusCode: 409,
+      data: { code: 'CHECKOUT_QUOTE_CHANGED' }
+    })
+    const [count] = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM orders WHERE idempotency_key = ${input.idempotencyKey}
+    `
+    expect(count?.count).toBe(0)
+  })
+
   it('creates one order for an idempotency key even after the cart was converted', async () => {
     const input = await cartInput()
     const first = await createOrder(input)

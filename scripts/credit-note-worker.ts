@@ -126,7 +126,7 @@ function request(snapshot: CreditSnapshot, source: RefundLine[]) {
     customer: {
       externalKey: snapshot.orderId,
       legalName: snapshot.customer.company?.trim() || snapshot.customer.name,
-      taxId: snapshot.customer.taxId?.trim() || '00000000T',
+      taxId: snapshot.customer.taxId?.trim() || undefined,
       email: snapshot.customer.email,
       phone: snapshot.customer.phone,
       address: snapshot.billing

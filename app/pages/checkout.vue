@@ -103,6 +103,10 @@ interface ShippingRate {
   estimatedDeliveryFrom: string
   estimatedDeliveryTo: string
   profile: 'parcel' | 'multi_parcel' | 'pallet' | 'own_delivery' | 'adr' | 'pickup'
+  pricingVersion: string
+  subtotalNetCents: number
+  taxCents: number
+  totalGrossCents: number
 }
 
 const shippingRates = ref<ShippingRate[]>([])
@@ -129,8 +133,8 @@ const quotedShippingGross = computed(() => {
   return rate.netCents + Math.round((rate.netCents * rate.taxRateBasisPoints) / 10_000)
 })
 const shippingCost = computed(() => quotedShippingGross.value)
-const total = computed(() => cart.subtotal + shippingCost.value)
-const tax = computed(() => total.value - Math.round(total.value / 1.21))
+const total = computed(() => selectedShippingRate.value?.totalGrossCents ?? cart.subtotal + shippingCost.value)
+const tax = computed(() => selectedShippingRate.value?.taxCents ?? 0)
 
 const submitting = ref(false)
 const errorMsg = ref('')
@@ -311,6 +315,9 @@ async function submit() {
           shippingAddress: { ...shippingAddress },
           billingAddress: effectiveBillingAddress(),
           shippingMethod: shippingMethod.value,
+          shippingServiceCode: selectedShippingRate.value.serviceCode,
+          expectedPricingVersion: selectedShippingRate.value.pricingVersion,
+          expectedTotalGrossCents: selectedShippingRate.value.totalGrossCents,
           paymentMethod: paymentMethod.value,
           cartId: cart.id,
           cartVersion: cart.version,
@@ -346,6 +353,13 @@ async function submit() {
       await finish(order)
     }
   } catch (error) {
+    const responseData =
+      error && typeof error === 'object' && 'data' in error
+        ? (error as { data?: { data?: { code?: string }; code?: string } }).data
+        : undefined
+    const quoteChanged =
+      responseData?.code === 'CHECKOUT_QUOTE_CHANGED' || responseData?.data?.code === 'CHECKOUT_QUOTE_CHANGED'
+    if (quoteChanged) await refreshShippingRates()
     errorMsg.value = apiErrorMessage(
       error,
       'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.'
@@ -570,6 +584,7 @@ async function finish(order: { id: string; token: string }) {
             <fieldset class="mt-5 space-y-2">
               <legend class="sr-only">Selecciona el método de pago</legend>
               <label
+                v-if="runtime.public.bankTransferEnabled"
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
                 :class="
                   paymentMethod === 'tarjeta'
@@ -652,7 +667,7 @@ async function finish(order: { id: string; token: string }) {
               </dd>
             </div>
             <div class="flex justify-between text-xs text-slate-500">
-              <dt>IVA incluido (21 %)</dt>
+              <dt>IVA incluido según producto y servicio</dt>
               <dd>{{ formatPrice(tax) }}</dd>
             </div>
             <div class="flex justify-between border-t border-slate-100 pt-3">

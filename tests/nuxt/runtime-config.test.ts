@@ -9,6 +9,11 @@ const localConfiguration = {
   invoiceProvider: 'mock',
   carrierProvider: 'mock',
   emailProvider: 'log',
+  bankTransfer: {
+    enabled: false,
+    iban: '',
+    beneficiary: ''
+  },
   legal: {
     termsVersion: 'purchase-test',
     privacyVersion: 'privacy-test',
@@ -51,7 +56,8 @@ const localConfiguration = {
     appVersion: 'test',
     legalTermsUrl: 'https://neteco.es/legal',
     privacyUrl: 'https://neteco.es/legal',
-    cookiesUrl: 'https://neteco.es/cookies'
+    cookiesUrl: 'https://neteco.es/cookies',
+    bankTransferEnabled: false
   }
 } as const
 

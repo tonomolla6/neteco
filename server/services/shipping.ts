@@ -4,6 +4,8 @@ import { useDatabase } from '../db/client'
 import { carrierProviderFromEnvironment } from '../integrations/carrier-factory'
 import type { Parcel, ShippingAddress } from '../integrations/carrier-provider'
 import { shippingCommercialPolicy } from '../utils/shipping-policy'
+import { calculateQuote } from '../domain/money'
+import { classifyShipment } from '../domain/shipping'
 
 interface ShipmentOrder {
   id: string
@@ -97,14 +99,18 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
       depthMm: number
       profile: string
       priceGrossCents: number
+      taxRateBasisPoints: number
+      sourceVersion: string | null
     }>
   >`
     SELECT variant.sku, item.quantity, variant.price_gross_cents AS "priceGrossCents",
+           tax.rate_basis_points AS "taxRateBasisPoints", variant.source_version AS "sourceVersion",
            variant.weight_grams AS "weightGrams",
            variant.width_mm AS "widthMm", variant.height_mm AS "heightMm", variant.depth_mm AS "depthMm",
            profile.kind AS profile
     FROM cart_items item
     JOIN variants variant ON variant.id = item.variant_id
+    JOIN tax_classes tax ON tax.id = variant.tax_class_id
     JOIN shipping_profiles profile ON profile.id = variant.shipping_profile_id
     WHERE item.cart_id = ${cartId}
     ORDER BY item.added_at, item.id
@@ -144,7 +150,120 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
       estimatedDeliveryTo: now.toISOString(),
       profile: 'pickup' as const
     }
-  ]
+  ].map((rate) => {
+    const shippingNetCents = rate.netCents
+    const shippingGrossCents = shippingNetCents + Math.round((shippingNetCents * rate.taxRateBasisPoints) / 10_000)
+    const pricingVersion = `catalog:${lines
+      .map((line) => line.sourceVersion ?? 'unknown')
+      .sort()
+      .join('+')};shipping:${rate.provider}:${rate.serviceCode}`
+    const quote = calculateQuote({
+      pricingVersion,
+      lines: lines.map((line) => ({
+        variantId: line.sku,
+        sku: line.sku,
+        quantity: line.quantity,
+        unitGrossCents: line.priceGrossCents,
+        taxRateBasisPoints: line.taxRateBasisPoints
+      })),
+      shippingGrossCents,
+      shippingTaxRateBasisPoints: rate.taxRateBasisPoints
+    })
+    return {
+      ...rate,
+      pricingVersion,
+      subtotalNetCents: quote.subtotalNetCents,
+      taxCents: quote.taxCents,
+      totalGrossCents: quote.totalGrossCents
+    }
+  })
+}
+
+export async function quoteProductDelivery(input: {
+  variantId: string
+  quantity: number
+  postalCode: string
+  city: string
+}) {
+  const sql = useDatabase()
+  const [variant] = await sql<
+    Array<{
+      sku: string
+      minimumQuantity: number
+      maximumQuantity: number | null
+      quantityIncrement: number
+      weightGrams: number
+      widthMm: number
+      heightMm: number
+      depthMm: number
+      profile: string
+      available: number
+      backorderAllowed: boolean
+      leadTimeDays: number | null
+    }>
+  >`
+    SELECT variant.sku, variant.minimum_quantity AS "minimumQuantity",
+           variant.maximum_quantity AS "maximumQuantity", variant.quantity_increment AS "quantityIncrement",
+           variant.weight_grams AS "weightGrams", variant.width_mm AS "widthMm",
+           variant.height_mm AS "heightMm", variant.depth_mm AS "depthMm", profile.kind AS profile,
+           greatest(COALESCE(sum(balance.physical_quantity - balance.blocked_quantity), 0)
+             - variant.safety_stock - COALESCE((
+               SELECT sum(reservation.quantity)::int FROM inventory_reservations reservation
+               WHERE reservation.variant_id = variant.id AND reservation.status = 'active'
+                 AND reservation.expires_at > now()
+             ), 0), 0)::int AS available,
+           variant.backorder_allowed AS "backorderAllowed", variant.lead_time_days AS "leadTimeDays"
+    FROM variants variant
+    JOIN products product ON product.id = variant.product_id
+    JOIN shipping_profiles profile ON profile.id = variant.shipping_profile_id
+    LEFT JOIN inventory_balances balance ON balance.variant_id = variant.id
+    WHERE variant.id = ${input.variantId} AND variant.status = 'published' AND product.status = 'published'
+    GROUP BY variant.id, profile.kind
+  `
+  if (!variant) throw createError({ statusCode: 404, statusMessage: 'Variante no disponible' })
+  if (
+    input.quantity < variant.minimumQuantity ||
+    (input.quantity - variant.minimumQuantity) % variant.quantityIncrement !== 0 ||
+    (variant.maximumQuantity !== null && input.quantity > variant.maximumQuantity)
+  ) {
+    throw createError({ statusCode: 422, statusMessage: 'La cantidad no cumple el mínimo o incremento comercial' })
+  }
+  if (!variant.backorderAllowed && input.quantity > variant.available) {
+    throw createError({ statusCode: 409, statusMessage: 'No hay stock suficiente para calcular esa entrega' })
+  }
+  const parcel: Parcel = {
+    weightGrams: variant.weightGrams * input.quantity,
+    widthMm: variant.widthMm,
+    heightMm: variant.heightMm,
+    depthMm: variant.depthMm,
+    contents: [{ sku: variant.sku, quantity: input.quantity }],
+    handling: variant.profile === 'adr' ? 'adr' : variant.profile === 'pallet' ? 'pallet' : 'parcel'
+  }
+  classifyShipment([parcel])
+  const provider = carrierProviderFromEnvironment()
+  const rates = await provider.rates({
+    originPostalCode: '46870',
+    destination: {
+      name: 'Cotización de producto',
+      line1: 'Dirección pendiente en checkout',
+      postalCode: input.postalCode,
+      city: input.city,
+      region: input.city,
+      countryCode: 'ES'
+    },
+    parcels: [parcel]
+  })
+  return {
+    stockCondition: variant.available >= input.quantity ? ('in_stock' as const) : ('backorder' as const),
+    leadTimeDays: variant.leadTimeDays,
+    rates: rates.map((rate) => ({
+      serviceCode: rate.serviceCode,
+      label: rate.label,
+      profile: rate.profile,
+      estimatedDeliveryFrom: rate.estimatedDeliveryFrom,
+      estimatedDeliveryTo: rate.estimatedDeliveryTo
+    }))
+  }
 }
 
 export async function createOrderShipment(input: {
@@ -288,8 +407,9 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
         ) ON CONFLICT (shipment_id, provider_event_id) DO NOTHING
       `
     }
-    const latest = events.at(-1)?.status
-    if (latest) {
+    const latestEvent = events.at(-1)
+    if (latestEvent) {
+      const latest = latestEvent.status
       const fulfillmentStatus =
         latest === 'delivered' ? 'delivered' : latest === 'in_transit' ? 'in_transit' : 'exception'
       await transaction`UPDATE shipments SET status = ${latest}, updated_at = now() WHERE id = ${shipment.id}`
@@ -297,7 +417,14 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
         UPDATE fulfillments SET status = ${fulfillmentStatus}, updated_at = now() WHERE id = ${shipment.fulfillment_id}
       `
       await transaction`
-        UPDATE orders SET fulfillment_status = ${fulfillmentStatus}, updated_at = now() WHERE id = ${shipment.order_id}
+        UPDATE orders
+        SET fulfillment_status = ${fulfillmentStatus},
+            delivered_at = CASE
+              WHEN ${fulfillmentStatus} = 'delivered' THEN COALESCE(delivered_at, ${latestEvent.occurredAt}::timestamptz)
+              ELSE delivered_at
+            END,
+            updated_at = now()
+        WHERE id = ${shipment.order_id}
       `
       await transaction`
         INSERT INTO order_events (
@@ -306,7 +433,7 @@ export async function syncShipmentTracking(shipmentId: string, correlationId: st
         ) VALUES (
           ${shipment.order_id}, 'shipment.tracking.updated', 'provider', ${provider.name},
           ${transaction.json({ fulfillment: fulfillmentStatus })}, ${transaction.json({ status: latest })},
-          ${transaction.json({ shipmentId })}, ${correlationId}, ${`tracking:${shipmentId}:${latest}:${events.at(-1)?.occurredAt}`}
+          ${transaction.json({ shipmentId })}, ${correlationId}, ${`tracking:${shipmentId}:${latest}:${latestEvent.occurredAt}`}
         ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
       `
       if (latest === 'delivered') {

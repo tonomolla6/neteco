@@ -1,6 +1,8 @@
 import { hashAccessToken } from '../../utils/access-token'
 import { useDatabase } from '../../db/client'
 import { publicOrderStatus } from '../../utils/order-status'
+import { displayIban } from '../../domain/iban'
+import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 
 interface OrderRow {
   id: string
@@ -108,6 +110,18 @@ export default defineEventHandler(async (event) => {
   const customer = order.customer_snapshot
   const address = order.shipping_snapshot
   const goodsGross = items.reduce((total, item) => total + item.price * item.qty, 0)
+  const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
+  const transferInstructions =
+    order.payment_method === 'transferencia' &&
+    order.payment_status === 'pending' &&
+    runtime.bankTransfer.enabled &&
+    runtime.bankTransfer.iban
+      ? {
+          iban: displayIban(runtime.bankTransfer.iban),
+          beneficiary: runtime.bankTransfer.beneficiary,
+          reference: order.public_number
+        }
+      : null
   return {
     id: order.public_number,
     status: publicOrderStatus({
@@ -133,6 +147,7 @@ export default defineEventHandler(async (event) => {
     notes: address.instructions,
     shippingMethod: order.shipping_method,
     paymentMethod: order.payment_method,
+    transferInstructions,
     subtotal: goodsGross,
     shippingCost: order.total_gross_cents - goodsGross,
     tax: order.tax_cents,

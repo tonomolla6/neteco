@@ -1,13 +1,14 @@
 <script setup lang="ts">
-useSeoMeta({
-  title: 'Formas de pago',
-  description:
-    'Paga tus pedidos NETECO con tarjeta, Bizum o transferencia bancaria. Factura con NIF en todos los pedidos.'
-})
 const runtime = useRuntimeConfig()
 const isProduction = runtime.public.appEnv === 'production'
+useSeoMeta({
+  title: 'Formas de pago',
+  description: runtime.public.bankTransferEnabled
+    ? 'Paga tus pedidos NETECO con tarjeta, Bizum o transferencia bancaria mediante flujos trazables.'
+    : 'Paga tus pedidos NETECO con tarjeta o Bizum mediante el flujo alojado y validado de Redsys.'
+})
 
-const methods = [
+const methods = computed(() => [
   {
     icon: 'i-lucide-credit-card',
     title: 'Tarjeta de crédito o débito',
@@ -18,12 +19,16 @@ const methods = [
     title: 'Bizum',
     desc: 'Autorización en el flujo alojado de Redsys. Volver al navegador no basta: el pedido espera la confirmación bancaria.'
   },
-  {
-    icon: 'i-lucide-landmark',
-    title: 'Transferencia bancaria',
-    desc: 'El pedido queda pendiente con una referencia trazable y la reserva tiene caducidad. La preparación comienza tras conciliar el ingreso.'
-  }
-]
+  ...(runtime.public.bankTransferEnabled
+    ? [
+        {
+          icon: 'i-lucide-landmark',
+          title: 'Transferencia bancaria',
+          desc: 'El pedido queda pendiente con una referencia trazable y la reserva tiene caducidad. La preparación comienza tras conciliar el ingreso.'
+        }
+      ]
+    : [])
+])
 </script>
 
 <template>

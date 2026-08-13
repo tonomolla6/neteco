@@ -17,6 +17,13 @@ interface ProductDetail {
   featured: boolean
   series: string | null
   attrs: Array<{ k: string; v: string }>
+  regulatory: {
+    signalWord?: string
+    ufi?: string
+    registrationNumber?: string
+    hazardStatements?: string[]
+    precautionaryStatements?: string[]
+  }
 }
 
 export default defineEventHandler(async (event) => {
@@ -28,7 +35,8 @@ export default defineEventHandler(async (event) => {
            p.usage, COALESCE(p.attributes -> 'badges', '[]'::jsonb) AS badges,
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
            p.attributes ->> 'image' AS image, p.attributes ->> 'datasheet' AS datasheet, p.featured, p.series,
-           COALESCE(p.attributes -> 'attrs', '[]'::jsonb) AS attrs
+           COALESCE(p.attributes -> 'attrs', '[]'::jsonb) AS attrs,
+           COALESCE(p.regulatory, '{}'::jsonb) AS regulatory
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
@@ -42,18 +50,27 @@ export default defineEventHandler(async (event) => {
       id: number
       format: string
       sku: string
+      ean: string | null
+      gtin: string | null
+      mpn: string | null
       price: number
       stock: number
       units: number
+      unitBase: string
       unitLabel: string
+      unitsPerCase: number
+      casesPerPallet: number | null
       minimumQuantity: number
       maximumQuantity: number | null
       quantityIncrement: number
+      backorderAllowed: boolean
+      leadTimeDays: number | null
       color: string | null
       image: string | null
     }>
   >`
-    SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.price_gross_cents AS price,
+    SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.ean, v.gtin, v.mpn,
+           v.price_gross_cents AS price,
            greatest(
              COALESCE(sum(ib.physical_quantity - ib.blocked_quantity), 0)
              - v.safety_stock
@@ -64,9 +81,11 @@ export default defineEventHandler(async (event) => {
              ), 0),
              0
            )::int AS stock,
-           v.content_quantity::float8 AS units, v.unit_label AS "unitLabel",
+           v.content_quantity::float8 AS units, v.unit_base AS "unitBase", v.unit_label AS "unitLabel",
+           v.units_per_case AS "unitsPerCase", v.cases_per_pallet AS "casesPerPallet",
            v.minimum_quantity AS "minimumQuantity", v.maximum_quantity AS "maximumQuantity",
-           v.quantity_increment AS "quantityIncrement", v.color, v.image
+           v.quantity_increment AS "quantityIncrement", v.backorder_allowed AS "backorderAllowed",
+           v.lead_time_days AS "leadTimeDays", v.color, v.image
     FROM variants v
     LEFT JOIN inventory_balances ib ON ib.variant_id = v.id
     WHERE v.product_id = ${product.uuid} AND v.status = 'published'
@@ -123,6 +142,28 @@ export default defineEventHandler(async (event) => {
     ORDER BY related.featured DESC, related.name
     LIMIT 4
   `
+  const documents = await sql<
+    Array<{
+      id: string
+      role: 'datasheet' | 'sds' | 'certificate' | 'label'
+      name: string
+      url: string
+      version: string
+      language: string | null
+      authorizedAt: string | null
+    }>
+  >`
+    SELECT asset.id, media.role, asset.original_name AS name, '/media/' || asset.id::text AS url,
+           media.version, asset.metadata ->> 'language' AS language,
+           asset.authorized_at::text AS "authorizedAt"
+    FROM product_media media
+    JOIN media_assets asset ON asset.id = media.asset_id
+    WHERE media.product_id = ${product.uuid}
+      AND media.role IN ('datasheet', 'sds', 'certificate', 'label')
+      AND asset.rights_status = 'approved' AND asset.quarantine_status = 'clean'
+    ORDER BY CASE media.role WHEN 'sds' THEN 1 WHEN 'datasheet' THEN 2 WHEN 'label' THEN 3 ELSE 4 END,
+             media.sort_order, asset.original_name
+  `
   const { uuid: _uuid, ...publicProduct } = product
-  return { ...publicProduct, variants, siblings, breadcrumb, related }
+  return { ...publicProduct, variants, siblings, breadcrumb, related, documents }
 })

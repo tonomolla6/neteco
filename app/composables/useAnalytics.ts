@@ -6,6 +6,7 @@ type AnalyticsEventName =
   | 'cart_item_added'
   | 'cart_item_removed'
   | 'checkout_started'
+  | 'web_vital'
 
 export function useAnalytics() {
   const { preferences } = useConsent()

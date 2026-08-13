@@ -14,8 +14,11 @@
 | `order_confirmed`          | transición de pedido     | order, total, tax, shipping                      | PII/factura PDF         |
 | `refund_confirmed`         | proveedor + ledger       | order, refund, amount                            | motivo libre sin sanear |
 | `shipment_status_changed`  | inbox carrier            | order, shipment, normalized status               | dirección/POD           |
+| `web_vital`                | navegador con opt-in     | LCP/CLS/INP, rating, path sin query, navegación  | URL completa, user ID   |
 
 `event_id` es UUID único; cliente y servidor deduplican por ese ID. La compra solo nace del servidor tras pago/pedido válido. Versiones incompatibles crean una nueva versión de taxonomía.
+
+RUM usa `PerformanceObserver`, nunca carga un tercero y solo envía LCP/CLS/INP tras consentimiento analítico. La ruta excluye query strings; crawlers, Lighthouse y PageSpeed se descartan antes de crear el identificador anónimo.
 
 ## Política responsable
 

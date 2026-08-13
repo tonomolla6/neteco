@@ -290,11 +290,22 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
     })
   }
 
-  async markPaid(providerInvoiceId: string, paidOn: string) {
+  async markPaid(
+    providerInvoiceId: string,
+    paidOn: string,
+    paymentMethod: NonNullable<IssueInvoiceRequest['paymentMethod']>
+  ) {
     const { date } = dateParts(paidOn)
     await this.request(`pagarFacturaCliente/${encodeURIComponent(providerInvoiceId)}`, {
       method: 'POST',
-      form: { fechapago: date, codpago: this.configuration.paymentCodeRedsys, pagada: 1 }
+      form: {
+        fechapago: date,
+        codpago:
+          paymentMethod === 'bank_transfer'
+            ? this.configuration.paymentCodeBankTransfer
+            : this.configuration.paymentCodeRedsys,
+        pagada: 1
+      }
     })
   }
 

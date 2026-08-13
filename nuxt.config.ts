@@ -24,6 +24,11 @@ export default defineNuxtConfig({
     invoiceProvider: process.env.INVOICE_PROVIDER || 'mock',
     carrierProvider: process.env.CARRIER_PROVIDER || 'mock',
     emailProvider: process.env.EMAIL_PROVIDER || 'log',
+    bankTransfer: {
+      enabled: process.env.BANK_TRANSFER_ENABLED === 'true',
+      iban: process.env.BANK_TRANSFER_IBAN || '',
+      beneficiary: process.env.BANK_TRANSFER_BENEFICIARY || ''
+    },
     legal: {
       termsVersion: process.env.LEGAL_TERMS_VERSION || 'purchase-2026-08-12',
       privacyVersion: process.env.LEGAL_PRIVACY_VERSION || 'privacy-2026-08-12',
@@ -76,7 +81,8 @@ export default defineNuxtConfig({
       appVersion: process.env.APP_VERSION || 'dev',
       legalTermsUrl: process.env.LEGAL_TERMS_URL || 'https://neteco.es/legal',
       privacyUrl: process.env.PRIVACY_URL || 'https://neteco.es/legal',
-      cookiesUrl: process.env.COOKIES_URL || 'https://neteco.es/cookies'
+      cookiesUrl: process.env.COOKIES_URL || 'https://neteco.es/cookies',
+      bankTransferEnabled: process.env.BANK_TRANSFER_ENABLED === 'true'
     }
   },
   routeRules: {

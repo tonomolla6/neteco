@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { validIban } from '../domain/iban'
 
 const environmentSchema = z.enum(['local', 'test', 'preview', 'demo', 'staging', 'production'])
 const providerSchema = z.enum(['mock', 'redsys'])
@@ -20,6 +21,11 @@ export const runtimeConfigurationSchema = z
     invoiceProvider: invoiceProviderSchema,
     carrierProvider: carrierProviderSchema,
     emailProvider: z.enum(['log', 'smtp', 'api']),
+    bankTransfer: z.object({
+      enabled: z.boolean(),
+      iban: z.string(),
+      beneficiary: z.string()
+    }),
     legal: z.object({
       termsVersion: z.string().min(1),
       privacyVersion: z.string().min(1),
@@ -62,7 +68,8 @@ export const runtimeConfigurationSchema = z
       appVersion: z.string().min(1),
       legalTermsUrl: z.string().url(),
       privacyUrl: z.string().url(),
-      cookiesUrl: z.string().url()
+      cookiesUrl: z.string().url(),
+      bankTransferEnabled: z.boolean()
     })
   })
   .superRefine((config, context) => {
@@ -71,6 +78,13 @@ export const runtimeConfigurationSchema = z
         code: 'custom',
         path: ['public', 'appEnv'],
         message: 'Public and private environments differ'
+      })
+    }
+    if (config.public.bankTransferEnabled !== config.bankTransfer.enabled) {
+      context.addIssue({
+        code: 'custom',
+        path: ['public', 'bankTransferEnabled'],
+        message: 'Public and private bank-transfer availability differ'
       })
     }
     if (config.appEnv !== 'production') return
@@ -137,6 +151,16 @@ export const runtimeConfigurationSchema = z
     }
     if (config.carrierProvider === 'mock') {
       context.addIssue({ code: 'custom', path: ['carrierProvider'], message: 'Production cannot use the mock carrier' })
+    }
+    if (
+      config.bankTransfer.enabled &&
+      (!validIban(config.bankTransfer.iban) || config.bankTransfer.beneficiary.trim().length < 3)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['bankTransfer'],
+        message: 'Enabled production bank transfer requires a checksum-valid IBAN and beneficiary'
+      })
     }
     if (config.auth.tokenPepper.startsWith('local-only-') || /^A+=?$/.test(config.auth.encryptionKey)) {
       context.addIssue({ code: 'custom', path: ['auth'], message: 'Production authentication secrets are required' })

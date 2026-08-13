@@ -50,5 +50,10 @@ onMounted(() => {
       @error="failed = true"
     />
   </div>
-  <ProductVisual v-else :visual="product.visual" />
+  <div v-else class="relative">
+    <ProductVisual :visual="product.visual" />
+    <span class="absolute inset-x-2 bottom-2 rounded bg-white/90 px-2 py-1 text-center text-xs text-slate-600">
+      Imagen no disponible
+    </span>
+  </div>
 </template>

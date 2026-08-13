@@ -1,5 +1,6 @@
 import { useDatabase } from '../db/client'
 import type { SerializableParameter } from 'postgres'
+import { uniqueSearchTerms } from '../utils/search-terms'
 
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']
 
@@ -85,14 +86,47 @@ export default defineEventHandler(async (event) => {
     .trim()
     .slice(0, 160)
   if (search) {
+    const synonymRows = await sql<Array<{ replacements: string[] }>>`
+      SELECT replacements FROM search_synonyms
+      WHERE active = true
+        AND lower(unaccent(source_term::text)) = lower(unaccent(${search}))
+      ORDER BY source_term
+    `
+    const expandedTerms = uniqueSearchTerms(
+      search,
+      synonymRows.map((row) => row.replacements)
+    )
     filters.push({
       key: 'q',
-      clause: `(p.search_document @@ websearch_to_tsquery('spanish', ?)
+      clause: `(EXISTS (
+          SELECT 1 FROM unnest(?::text[]) expanded(term)
+          WHERE p.search_document @@ websearch_to_tsquery('spanish', expanded.term)
+        )
+        OR lower(p.name) % lower(?)
+        OR lower(unaccent(p.name)) % lower(unaccent(?))
         OR p.name ILIKE ?
         OR b.name ILIKE ?
+        OR EXISTS (SELECT 1 FROM categories search_category
+                   WHERE search_category.id = p.category_id
+                     AND lower(unaccent(search_category.name)) % lower(unaccent(?)))
+        OR p.attributes::text ILIKE ?
         OR EXISTS (SELECT 1 FROM variants search_variant
-                   WHERE search_variant.product_id = p.id AND search_variant.sku ILIKE ?))`,
-      parameters: [search, `%${search}%`, `%${search}%`, `%${search}%`]
+                   WHERE search_variant.product_id = p.id
+                     AND (search_variant.sku ILIKE ? OR search_variant.ean ILIKE ?
+                       OR search_variant.gtin ILIKE ? OR search_variant.mpn ILIKE ?)))`,
+      parameters: [
+        expandedTerms,
+        search,
+        search,
+        `%${search}%`,
+        `%${search}%`,
+        search,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`,
+        `%${search}%`
+      ]
     })
   }
   const badges = multi(query.badge)

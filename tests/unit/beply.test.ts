@@ -230,7 +230,7 @@ describe('Beply invoice provider', () => {
       .mockResolvedValueOnce(json({ ok: true }))
       .mockResolvedValueOnce(new Response(bytes, { status: 200, headers: { 'content-type': 'application/pdf' } }))
     const provider = new BeplyInvoiceProvider(configuration, fetcher)
-    await expect(provider.markPaid('15', '2026-10-25T00:30:00.000Z')).resolves.toBeUndefined()
+    await expect(provider.markPaid('15', '2026-10-25T00:30:00.000Z', 'redsys')).resolves.toBeUndefined()
     await expect(provider.downloadPdf('15')).resolves.toEqual(bytes)
     expect(fetcher.mock.calls[0]![0]).toContain('pagarFacturaCliente/15')
     expect(Object.fromEntries(fetcher.mock.calls[0]![1]?.body as URLSearchParams)).toEqual({
@@ -242,6 +242,15 @@ describe('Beply invoice provider', () => {
       'https://tenant.beply.es/api/3/exportarFacturaCliente/15?type=PDF&lang=es_ES'
     )
     expect(fetcher.mock.calls[1]![1]?.headers).toMatchObject({ Accept: 'application/pdf' })
+  })
+
+  it('marks a bank transfer with its configured fiscal payment code', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(json({ ok: true }))
+    const provider = new BeplyInvoiceProvider(configuration, fetcher)
+    await expect(provider.markPaid('16', request.issuedOn, 'bank_transfer')).resolves.toBeUndefined()
+    expect(Object.fromEntries(fetcher.mock.calls[0]![1]?.body as URLSearchParams)).toMatchObject({
+      codpago: 'TRANSFER'
+    })
   })
 
   it.each([
@@ -259,7 +268,7 @@ describe('Beply invoice provider', () => {
       configuration,
       vi.fn<typeof fetch>().mockResolvedValue(new Response('provider body', { status }))
     )
-    const result = provider.markPaid('15', request.issuedOn)
+    const result = provider.markPaid('15', request.issuedOn, 'redsys')
     await expect(result).rejects.toMatchObject({
       name: 'BeplyError',
       status,
@@ -274,13 +283,13 @@ describe('Beply invoice provider', () => {
       configuration,
       vi.fn<typeof fetch>().mockRejectedValue(new Error('offline'))
     )
-    await expect(transport.markPaid('15', request.issuedOn)).rejects.toMatchObject({
+    await expect(transport.markPaid('15', request.issuedOn, 'redsys')).rejects.toMatchObject({
       category: 'transport',
       retryable: true,
       status: 0
     })
     const unknownTransport = new BeplyInvoiceProvider(configuration, vi.fn<typeof fetch>().mockRejectedValue('offline'))
-    await expect(unknownTransport.markPaid('15', request.issuedOn)).rejects.toMatchObject({ body: 'unknown' })
+    await expect(unknownTransport.markPaid('15', request.issuedOn, 'redsys')).rejects.toMatchObject({ body: 'unknown' })
     const invalidPdf = new BeplyInvoiceProvider(
       configuration,
       vi.fn<typeof fetch>().mockResolvedValue(new Response('html', { status: 200 }))
@@ -341,7 +350,7 @@ describe('invoice providers and factory', () => {
     expect(new TextDecoder().decode(await provider.downloadPdf('15'))).toBe(
       '%PDF-1.4\n% NETECO synthetic invoice 15\n%%EOF'
     )
-    await expect(provider.markPaid('15', request.issuedOn)).resolves.toBeUndefined()
+    await expect(provider.markPaid('15', request.issuedOn, 'redsys')).resolves.toBeUndefined()
   })
 
   it('selects only permitted providers per environment', () => {

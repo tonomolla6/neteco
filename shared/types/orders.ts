@@ -27,6 +27,7 @@ export interface OrderDetailView {
   notes: string | null
   shippingMethod: string
   paymentMethod: string
+  transferInstructions: { iban: string; beneficiary: string; reference: string } | null
   subtotal: number
   shippingCost: number
   tax: number

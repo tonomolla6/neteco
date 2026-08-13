@@ -86,6 +86,24 @@ const schema = z.discriminatedUnion('name', [
         .object({ itemCount: z.number().int().nonnegative(), totalCents: z.number().int().nonnegative() })
         .strict()
     })
+    .strict(),
+  z
+    .object({
+      ...base,
+      name: z.literal('web_vital'),
+      properties: z
+        .object({
+          metric: z.enum(['LCP', 'CLS', 'INP']),
+          value: z.number().nonnegative().max(120_000),
+          rating: z.enum(['good', 'needs-improvement', 'poor']),
+          path: z
+            .string()
+            .regex(/^\/[a-zA-Z0-9_/-]*$/)
+            .max(240),
+          navigationType: z.enum(['navigate', 'reload', 'back_forward', 'prerender', 'unknown'])
+        })
+        .strict()
+    })
     .strict()
 ])
 
@@ -127,6 +145,10 @@ export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   if (containsLikelyPii(body.properties)) {
     throw createError({ statusCode: 400, statusMessage: 'Analytics properties contain prohibited personal data' })
+  }
+  if (/\b(bot|crawler|spider|lighthouse|pagespeed)\b/i.test(getHeader(event, 'user-agent') ?? '')) {
+    setResponseStatus(event, 202)
+    return { accepted: false }
   }
   let anonymousId = getCookie(event, 'neteco-analytics-id')
   if (!anonymousId || !z.string().uuid().safeParse(anonymousId).success) {

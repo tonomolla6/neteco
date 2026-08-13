@@ -55,16 +55,21 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
       </div>
 
       <div
-        v-if="order.status === 'pendiente_transferencia'"
+        v-if="order.status === 'pendiente_transferencia' && order.transferInstructions"
         class="mt-5 rounded-xl bg-white p-4 text-sm text-slate-600"
       >
         <p class="font-semibold text-slate-800">Datos para la transferencia</p>
         <p class="mt-1">
           Importe: <b>{{ formatPrice(order.total) }}</b>
         </p>
-        <p>IBAN: <b>ES00 0000 0000 0000 0000 0000</b> (demo)</p>
         <p>
-          Concepto: <b>{{ order.id }}</b>
+          Beneficiario: <b>{{ order.transferInstructions.beneficiary }}</b>
+        </p>
+        <p>
+          IBAN: <b>{{ order.transferInstructions.iban }}</b>
+        </p>
+        <p>
+          Concepto: <b>{{ order.transferInstructions.reference }}</b>
         </p>
         <p class="mt-2 text-xs text-slate-400">Prepararemos el pedido en cuanto recibamos el ingreso.</p>
       </div>
@@ -108,7 +113,7 @@ const shipping = computed(() => SHIPPING_METHODS.find((m) => m.value === order.v
             <dd>{{ order.shippingCost ? formatPrice(order.shippingCost) : 'Gratis' }}</dd>
           </div>
           <div class="flex justify-between text-xs text-slate-500">
-            <dt>IVA incluido (21 %)</dt>
+            <dt>IVA incluido</dt>
             <dd>{{ formatPrice(order.tax) }}</dd>
           </div>
           <div class="flex justify-between pt-2 text-base">

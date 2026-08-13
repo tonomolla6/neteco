@@ -108,7 +108,7 @@ function requestFromSnapshot(order: OrderSnapshot, lines: OrderLine[]): IssueInv
     customer: {
       externalKey: order.id,
       legalName: order.customer.company?.trim() || order.customer.name,
-      taxId: order.customer.taxId?.trim() || '00000000T',
+      taxId: order.customer.taxId?.trim() || undefined,
       email: order.customer.email,
       phone: order.customer.phone,
       address: order.billing
@@ -264,7 +264,7 @@ async function processJob(job: Job) {
 
   let pdf: Uint8Array
   try {
-    await provider.markPaid(providerInvoiceId, request.issuedOn)
+    await provider.markPaid(providerInvoiceId, request.issuedOn, request.paymentMethod ?? 'redsys')
     pdf = await provider.downloadPdf(providerInvoiceId)
   } catch (error) {
     if (error instanceof BeplyError) {

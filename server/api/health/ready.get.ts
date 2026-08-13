@@ -35,6 +35,15 @@ export default defineEventHandler(async (event) => {
                WHERE asset.source_url = product.attributes ->> 'image'
                  AND asset.rights_status = 'approved' AND asset.quarantine_status = 'clean'
              )
+             OR (
+               product.regulatory ->> 'requiresSds' = 'true'
+               AND NOT EXISTS (
+                 SELECT 1 FROM product_media media
+                 JOIN media_assets document ON document.id = media.asset_id
+                 WHERE media.product_id = product.id AND media.role = 'sds'
+                   AND document.rights_status = 'approved' AND document.quarantine_status = 'clean'
+               )
+             )
            )) AS "incompleteProducts",
           (SELECT count(*)::int FROM variants variant
            JOIN products product ON product.id = variant.product_id

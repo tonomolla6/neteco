@@ -306,10 +306,16 @@ describe('normalized carrier provider', () => {
     expect(() => carrierProviderFromEnvironment({ APP_ENV: 'production', CARRIER_PROVIDER: 'mock' })).toThrow(
       'contracted'
     )
-    expect(carrierProviderFromEnvironment({ APP_ENV: 'production', CARRIER_PROVIDER: 'manual' })).toBeInstanceOf(
+    expect(() => carrierProviderFromEnvironment({ APP_ENV: 'production', CARRIER_PROVIDER: 'manual' })).toThrow(
+      'contracted production carrier'
+    )
+    expect(() => carrierProviderFromEnvironment({ APP_ENV: 'production', CARRIER_PROVIDER: 'own-delivery' })).toThrow(
+      'contracted production carrier'
+    )
+    expect(carrierProviderFromEnvironment({ APP_ENV: 'test', CARRIER_PROVIDER: 'manual' })).toBeInstanceOf(
       ManualCarrierProvider
     )
-    expect(carrierProviderFromEnvironment({ APP_ENV: 'production', CARRIER_PROVIDER: 'own-delivery' })).toBeInstanceOf(
+    expect(carrierProviderFromEnvironment({ APP_ENV: 'test', CARRIER_PROVIDER: 'own-delivery' })).toBeInstanceOf(
       OwnDeliveryCarrierProvider
     )
     expect(() => carrierProviderFromEnvironment({ APP_ENV: 'production', CARRIER_PROVIDER: 'carrier' })).toThrow(

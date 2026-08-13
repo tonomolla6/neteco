@@ -7,13 +7,21 @@ interface ProductVariant {
   id: number
   format: string
   sku: string
+  ean: string | null
+  gtin: string | null
+  mpn: string | null
   price: number
   stock: number
   units: number
+  unitBase: string
   unitLabel: string
+  unitsPerCase: number
+  casesPerPallet: number | null
   minimumQuantity: number
   maximumQuantity: number | null
   quantityIncrement: number
+  backorderAllowed: boolean
+  leadTimeDays: number | null
   color: string | null
   image: string | null
 }
@@ -31,10 +39,26 @@ interface ProductDetail {
   image: string | null
   datasheet: string | null
   attrs: Array<{ k: string; v: string }>
+  regulatory: {
+    signalWord?: string
+    ufi?: string
+    registrationNumber?: string
+    hazardStatements?: string[]
+    precautionaryStatements?: string[]
+  }
   variants: ProductVariant[]
   siblings: Array<{ name: string; slug: string; visual: ProductVisualData; image: string | null }>
   breadcrumb: Array<{ name: string; slug: string }>
   related: ProductCardData[]
+  documents: Array<{
+    id: string
+    role: 'datasheet' | 'sds' | 'certificate' | 'label'
+    name: string
+    url: string
+    version: string
+    language: string | null
+    authorizedAt: string | null
+  }>
 }
 
 const route = useRoute()
@@ -65,9 +89,86 @@ onMounted(() => {
   void track('product_viewed', { productId: product.value.id, variantId: selected.value.id })
 })
 const qty = ref((initialVariant ?? firstVariant).minimumQuantity)
-const maximumQuantity = computed(() => Math.min(selected.value.maximumQuantity ?? Infinity, selected.value.stock))
-const outOfStock = computed(() => selected.value.stock < selected.value.minimumQuantity)
+const maximumQuantity = computed(() =>
+  Math.min(
+    selected.value.maximumQuantity ?? Infinity,
+    selected.value.backorderAllowed ? Infinity : selected.value.stock
+  )
+)
+const outOfStock = computed(
+  () => selected.value.stock < selected.value.minimumQuantity && !selected.value.backorderAllowed
+)
 const canIncrease = computed(() => qty.value + selected.value.quantityIncrement <= maximumQuantity.value)
+const availability = computed(() => {
+  if (selected.value.stock >= selected.value.minimumQuantity) {
+    const lowThreshold = Math.max(selected.value.minimumQuantity * 3, 5)
+    return selected.value.stock <= lowThreshold
+      ? { label: `Pocas unidades · ${selected.value.stock} disponibles`, tone: 'warning' }
+      : { label: `${selected.value.stock} disponibles`, tone: 'available' }
+  }
+  if (selected.value.backorderAllowed) {
+    return {
+      label: selected.value.leadTimeDays
+        ? `Bajo pedido · plazo estimado ${selected.value.leadTimeDays} días`
+        : 'Bajo pedido',
+      tone: 'backorder'
+    }
+  }
+  return { label: 'Agotado', tone: 'unavailable' }
+})
+
+const deliveryPostalCode = ref('')
+const deliveryCity = ref('')
+const deliveryLoading = ref(false)
+const deliveryError = ref('')
+interface DeliveryQuote {
+  stockCondition: 'in_stock' | 'backorder'
+  leadTimeDays: number | null
+  rates: Array<{
+    serviceCode: string
+    label: string
+    profile: string
+    estimatedDeliveryFrom: string
+    estimatedDeliveryTo: string
+  }>
+}
+const deliveryQuote = ref<DeliveryQuote | null>(null)
+
+function deliveryDate(value: string) {
+  return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(new Date(value))
+}
+
+async function calculateDelivery() {
+  deliveryError.value = ''
+  deliveryQuote.value = null
+  if (!/^\d{5}$/.test(deliveryPostalCode.value.trim()) || deliveryCity.value.trim().length < 2) {
+    deliveryError.value = 'Indica código postal y población para calcular la entrega.'
+    return
+  }
+  deliveryLoading.value = true
+  try {
+    const quote = await $fetch<DeliveryQuote>('/api/shipping/product-rates', {
+      method: 'POST',
+      body: {
+        variantId: selected.value.uuid,
+        quantity: qty.value,
+        postalCode: deliveryPostalCode.value,
+        city: deliveryCity.value
+      }
+    })
+    deliveryQuote.value = quote
+    if (!quote.rates.length) deliveryError.value = 'No hay un servicio contratado disponible para esa zona.'
+  } catch (error) {
+    deliveryError.value = apiErrorMessage(error, 'No se puede confirmar una fecha de entrega para esa zona.')
+  } finally {
+    deliveryLoading.value = false
+  }
+}
+
+watch([selectedId, qty], () => {
+  deliveryQuote.value = null
+  deliveryError.value = ''
+})
 
 watch(selected, (variant) => {
   qty.value = outOfStock.value ? variant.minimumQuantity : Math.min(variant.minimumQuantity, maximumQuantity.value)
@@ -197,6 +298,11 @@ useHead(() => ({
         description: product.value.shortDesc ?? product.value.description ?? undefined,
         image: shownImage.value ? [`${canonicalOrigin}${fichaUrl(shownImage.value)}`] : undefined,
         sku: selected.value.sku,
+        ...(selected.value.ean?.length === 8 ? { gtin8: selected.value.ean } : {}),
+        ...(selected.value.ean?.length === 12 ? { gtin12: selected.value.ean } : {}),
+        ...(selected.value.ean?.length === 13 ? { gtin13: selected.value.ean } : {}),
+        ...(selected.value.gtin?.length === 14 ? { gtin14: selected.value.gtin } : {}),
+        ...(selected.value.mpn ? { mpn: selected.value.mpn } : {}),
         brand: product.value.brand ? { '@type': 'Brand', name: product.value.brand } : undefined,
         offers: {
           '@type': 'Offer',
@@ -571,11 +677,65 @@ async function addToCart(goToCart = false) {
               IVA incluido<template v-if="perUnit(selected)"> · {{ perUnit(selected) }}</template>
             </p>
           </div>
-          <p class="flex items-center gap-1.5 text-sm" :class="outOfStock ? 'text-red-700' : 'text-emerald-700'">
-            <span class="size-2 rounded-full" :class="outOfStock ? 'bg-red-600' : 'bg-emerald-600'" />
-            {{ outOfStock ? 'Agotado' : `${selected.stock} disponibles` }}
+          <p
+            class="flex items-center gap-1.5 text-sm"
+            :class="
+              availability.tone === 'unavailable'
+                ? 'text-red-700'
+                : availability.tone === 'warning' || availability.tone === 'backorder'
+                  ? 'text-amber-700'
+                  : 'text-emerald-700'
+            "
+          >
+            <span
+              class="size-2 rounded-full"
+              :class="
+                availability.tone === 'unavailable'
+                  ? 'bg-red-600'
+                  : availability.tone === 'warning' || availability.tone === 'backorder'
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-600'
+              "
+            />
+            {{ availability.label }}
           </p>
         </div>
+
+        <section class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="delivery-title">
+          <h2 id="delivery-title" class="text-sm font-semibold text-slate-800">
+            Calcula la entrega para esta variante
+          </h2>
+          <p class="mt-1 text-xs text-slate-500">
+            La fecha depende del stock, la cantidad, la zona y un servicio de transporte elegible. Se revalidará al
+            pagar.
+          </p>
+          <form class="mt-3 flex flex-col gap-2 sm:flex-row" @submit.prevent="calculateDelivery">
+            <label class="sr-only" for="delivery-postal-code">Código postal</label>
+            <UInput
+              id="delivery-postal-code"
+              v-model="deliveryPostalCode"
+              inputmode="numeric"
+              autocomplete="postal-code"
+              maxlength="5"
+              placeholder="Código postal"
+            />
+            <label class="sr-only" for="delivery-city">Población</label>
+            <UInput id="delivery-city" v-model="deliveryCity" autocomplete="address-level2" placeholder="Población" />
+            <UButton type="submit" variant="outline" :loading="deliveryLoading">Calcular</UButton>
+          </form>
+          <p v-if="deliveryError" class="mt-2 text-sm text-amber-800" role="alert">{{ deliveryError }}</p>
+          <ul v-else-if="deliveryQuote?.rates.length" class="mt-3 space-y-2" aria-live="polite">
+            <li v-for="rate in deliveryQuote.rates" :key="rate.serviceCode" class="text-sm text-slate-700">
+              <span class="font-semibold">{{ rate.label }}:</span>
+              {{ deliveryDate(rate.estimatedDeliveryFrom) }}–{{ deliveryDate(rate.estimatedDeliveryTo) }}
+              <span v-if="deliveryQuote.stockCondition === 'backorder'" class="text-amber-700">
+                · bajo pedido<template v-if="deliveryQuote.leadTimeDays">
+                  (preparación estimada {{ deliveryQuote.leadTimeDays }} días)</template
+                >
+              </span>
+            </li>
+          </ul>
+        </section>
 
         <div class="mt-5 flex flex-col gap-3 sm:flex-row">
           <UButton
@@ -612,8 +772,8 @@ async function addToCart(goToCart = false) {
 
         <div class="mt-6 grid gap-2 rounded-xl bg-slate-100 p-4 text-sm text-slate-600 sm:grid-cols-2">
           <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio en Ontinyent y la Vall
-            d'Albaida
+            <UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio cuando el destino y la ruta
+            estén habilitados
           </p>
           <p class="flex items-center gap-2">
             <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Fecha y método calculados con tu
@@ -656,6 +816,12 @@ async function addToCart(goToCart = false) {
             <dt class="text-slate-500">Referencia</dt>
             <dd class="font-mono font-medium text-slate-700">{{ selected.sku }}</dd>
           </div>
+          <div v-if="selected.ean || selected.gtin || selected.mpn" class="flex justify-between py-2">
+            <dt class="text-slate-500">EAN / GTIN / MPN</dt>
+            <dd class="font-mono text-right font-medium text-slate-700">
+              {{ selected.ean || selected.gtin || selected.mpn }}
+            </dd>
+          </div>
           <template v-if="selectedSpecs">
             <div v-for="(s, index) in selectedSpecs" :key="`${s.k}-${index}`" class="flex justify-between gap-4 py-2">
               <dt class="shrink-0 text-slate-500">{{ s.k }}</dt>
@@ -677,6 +843,20 @@ async function addToCart(goToCart = false) {
             <dt class="text-slate-500">Unidades por envase</dt>
             <dd class="font-medium text-slate-700">{{ selected.units }}</dd>
           </div>
+          <div class="flex justify-between py-2">
+            <dt class="text-slate-500">Pedido mínimo / incremento</dt>
+            <dd class="font-medium text-slate-700">
+              {{ selected.minimumQuantity }} / {{ selected.quantityIncrement }}
+            </dd>
+          </div>
+          <div v-if="selected.unitsPerCase > 1" class="flex justify-between py-2">
+            <dt class="text-slate-500">Unidades por caja</dt>
+            <dd class="font-medium text-slate-700">{{ selected.unitsPerCase }}</dd>
+          </div>
+          <div v-if="selected.casesPerPallet" class="flex justify-between py-2">
+            <dt class="text-slate-500">Cajas por palé</dt>
+            <dd class="font-medium text-slate-700">{{ selected.casesPerPallet }}</dd>
+          </div>
           <div v-for="attribute in product.attrs" :key="attribute.k" class="flex justify-between gap-4 py-2">
             <dt class="shrink-0 text-slate-500">{{ attribute.k }}</dt>
             <dd class="text-right font-medium text-slate-700">{{ attribute.v }}</dd>
@@ -686,12 +866,15 @@ async function addToCart(goToCart = false) {
             <dd class="font-medium text-slate-700">{{ product.breadcrumb.at(-1)?.name }}</dd>
           </div>
         </dl>
-        <div class="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500">
+        <div
+          v-if="product.documents.length || runtime.public.appEnv !== 'production'"
+          class="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500"
+        >
           <p class="flex items-center gap-1.5 font-medium text-slate-600">
             <UIcon name="i-lucide-file-text" class="size-4" /> Fichas técnicas y de seguridad
           </p>
           <UButton
-            v-if="product.datasheet"
+            v-if="product.datasheet && runtime.public.appEnv !== 'production'"
             :href="product.datasheet"
             target="_blank"
             variant="soft"
@@ -701,7 +884,43 @@ async function addToCart(goToCart = false) {
           >
             Descargar ficha técnica (PDF)
           </UButton>
-          <p v-else class="mt-1">Disponibles al importar el catálogo real (PDF por producto).</p>
+          <ul v-if="product.documents.length" class="mt-2 space-y-2">
+            <li v-for="document in product.documents" :key="`${document.id}-${document.role}-${document.version}`">
+              <UButton :href="document.url" target="_blank" variant="soft" size="sm" icon="i-lucide-file-down">
+                {{
+                  document.role === 'sds'
+                    ? 'Ficha de datos de seguridad'
+                    : document.role === 'datasheet'
+                      ? 'Ficha técnica'
+                      : document.role === 'label'
+                        ? 'Etiqueta'
+                        : 'Certificado'
+                }}
+                · v{{ document.version }}<template v-if="document.language"> · {{ document.language }}</template>
+              </UButton>
+            </li>
+          </ul>
+          <p v-else-if="!product.datasheet && runtime.public.appEnv !== 'production'" class="mt-1">
+            Sin documentos asociados en el catálogo de demostración.
+          </p>
+        </div>
+        <div
+          v-if="product.regulatory.signalWord || product.regulatory.ufi || product.regulatory.registrationNumber"
+          class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+        >
+          <h3 class="font-bold">Información de seguridad del producto</h3>
+          <p v-if="product.regulatory.signalWord" class="mt-1">
+            Palabra de advertencia: <strong>{{ product.regulatory.signalWord }}</strong>
+          </p>
+          <p v-if="product.regulatory.ufi">
+            UFI: <strong>{{ product.regulatory.ufi }}</strong>
+          </p>
+          <p v-if="product.regulatory.registrationNumber">
+            Registro: <strong>{{ product.regulatory.registrationNumber }}</strong>
+          </p>
+          <ul v-if="product.regulatory.hazardStatements?.length" class="mt-2 list-disc pl-5">
+            <li v-for="statement in product.regulatory.hazardStatements" :key="statement">{{ statement }}</li>
+          </ul>
         </div>
       </div>
     </div>

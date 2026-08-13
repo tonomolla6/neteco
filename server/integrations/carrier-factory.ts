@@ -4,7 +4,7 @@ import { ManualCarrierProvider, MockCarrierProvider, OwnDeliveryCarrierProvider 
 export function carrierProviderFromEnvironment(environment: NodeJS.ProcessEnv = process.env): CarrierProvider {
   const provider = environment.CARRIER_PROVIDER ?? 'mock'
   if (provider === 'mock' && environment.APP_ENV !== 'production') return new MockCarrierProvider()
-  if (provider === 'own-delivery') return new OwnDeliveryCarrierProvider()
-  if (provider === 'manual') return new ManualCarrierProvider()
+  if (provider === 'own-delivery' && environment.APP_ENV !== 'production') return new OwnDeliveryCarrierProvider()
+  if (provider === 'manual' && environment.APP_ENV !== 'production') return new ManualCarrierProvider()
   throw new Error('A contracted production carrier adapter is required')
 }

@@ -28,6 +28,7 @@ export default defineEventHandler(async (event) => {
         imageRightsOwner: string | null
         imageRightsLicense: string | null
         imageAuthorizedAt: string | null
+        requiresSds: boolean
       }>
     >`
       SELECT product.id AS uuid, product.status, product.name,
@@ -36,7 +37,8 @@ export default defineEventHandler(async (event) => {
              product.attributes ->> 'image' AS image, product.attributes ->> 'imageAlt' AS "imageAlt",
              product.attributes #>> '{imageRights,owner}' AS "imageRightsOwner",
              product.attributes #>> '{imageRights,license}' AS "imageRightsLicense",
-             product.attributes #>> '{imageRights,authorizedAt}' AS "imageAuthorizedAt"
+             product.attributes #>> '{imageRights,authorizedAt}' AS "imageAuthorizedAt",
+             COALESCE(product.regulatory ->> 'requiresSds', 'false') = 'true' AS "requiresSds"
       FROM products product
       JOIN categories category ON category.id = product.category_id
       LEFT JOIN brands brand ON brand.id = product.brand_id
@@ -68,6 +70,23 @@ export default defineEventHandler(async (event) => {
           path: 'image',
           message: 'La imagen no ha superado cuarentena y aprobación de derechos'
         })
+      }
+      if (current.requiresSds) {
+        const [safetyDocument] = await transaction<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM product_media media
+            JOIN media_assets asset ON asset.id = media.asset_id
+            WHERE media.product_id = ${current.uuid} AND media.role = 'sds'
+              AND asset.rights_status = 'approved' AND asset.quarantine_status = 'clean'
+          ) AS exists
+        `
+        if (!safetyDocument?.exists) {
+          issues.push({
+            code: 'regulatory.sds',
+            path: 'documents.sds',
+            message: 'El producto exige una ficha de datos de seguridad vigente y aprobada'
+          })
+        }
       }
       if (issues.length) {
         throw createError({

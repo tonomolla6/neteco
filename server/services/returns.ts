@@ -34,13 +34,18 @@ export async function requestReturn(
   const correlationId = event.context.correlationId ?? randomUUID()
   return sql.begin('isolation level serializable', async (transaction) => {
     const [order] = await transaction<
-      { id: string; fulfillment_status: string; updated_at: Date; customer_id: string | null }[]
+      { id: string; fulfillment_status: string; delivered_at: Date | null; customer_id: string | null }[]
     >`
-      SELECT orders.id, orders.fulfillment_status, orders.updated_at, orders.customer_id
+      SELECT orders.id, orders.fulfillment_status, orders.delivered_at, orders.customer_id
       FROM orders
       WHERE orders.public_number = ${input.orderNumber}
         AND (
-          (${access.tokenHash} <> '' AND orders.guest_access_hash = ${access.tokenHash})
+          EXISTS (
+            SELECT 1 FROM order_access_sessions guest_session
+            WHERE guest_session.order_id = orders.id
+              AND guest_session.token_hash = ${access.tokenHash}
+              AND guest_session.revoked_at IS NULL AND guest_session.expires_at > now()
+          )
           OR EXISTS (
             SELECT 1 FROM identities identity
             JOIN auth_sessions active ON active.identity_id = identity.id
@@ -61,7 +66,7 @@ export async function requestReturn(
     if (order.fulfillment_status !== 'delivered') {
       throw createError({ statusCode: 409, statusMessage: 'La devolución se solicita después de la entrega' })
     }
-    if (order.updated_at.getTime() < Date.now() - 30 * 24 * 60 * 60_000) {
+    if (!order.delivered_at || order.delivered_at.getTime() < Date.now() - 30 * 24 * 60 * 60_000) {
       throw createError({ statusCode: 409, statusMessage: 'El plazo de devolución requiere revisión de soporte' })
     }
 

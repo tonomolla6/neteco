@@ -62,7 +62,13 @@ export default defineEventHandler(async (event) => {
       if (orderStatus === 'confirmed') orderStatus = 'completed'
     }
     await transaction`
-      UPDATE orders SET order_status = ${orderStatus}, fulfillment_status = ${fulfillmentStatus}, updated_at = now()
+      UPDATE orders
+      SET order_status = ${orderStatus}, fulfillment_status = ${fulfillmentStatus},
+          delivered_at = CASE
+            WHEN ${fulfillmentStatus} = 'delivered' THEN COALESCE(delivered_at, now())
+            ELSE delivered_at
+          END,
+          updated_at = now()
       WHERE id = ${order.id}
     `
     await transaction`

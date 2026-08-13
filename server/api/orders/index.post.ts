@@ -51,6 +51,9 @@ const schema = z
     shippingAddress: shippingAddressSchema,
     billingAddress: addressSchema,
     shippingMethod: z.enum(['reparto', 'envio', 'recogida']),
+    shippingServiceCode: z.string().trim().min(1).max(80),
+    expectedPricingVersion: z.string().trim().min(1).max(500),
+    expectedTotalGrossCents: z.number().int().nonnegative(),
     paymentMethod: z.enum(['tarjeta', 'bizum', 'transferencia']),
     cartId: z.string().uuid(),
     cartVersion: z.number().int().positive(),
@@ -63,16 +66,17 @@ const schema = z
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
+  const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
+  if (body.paymentMethod === 'transferencia' && !runtime.bankTransfer.enabled) {
+    throw createError({ statusCode: 422, statusMessage: 'La transferencia bancaria no está disponible' })
+  }
   const cart = await getServerCart(event, false)
   if (!cart || cart.id !== body.cartId) {
     throw createError({ statusCode: 404, statusMessage: 'Carrito no encontrado' })
   }
   const order = await createOrder({
     ...body,
-    guestTokenEnvelope: encryptSecret(
-      body.guestToken,
-      validateRuntimeConfiguration(useRuntimeConfig(event)).auth.encryptionKey
-    ),
+    guestTokenEnvelope: encryptSecret(body.guestToken, runtime.auth.encryptionKey),
     correlationId: event.context.correlationId ?? crypto.randomUUID()
   })
   const sql = useDatabase()

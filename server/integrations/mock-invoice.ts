@@ -47,5 +47,9 @@ export class MockInvoiceProvider implements InvoiceProvider {
     return new TextEncoder().encode(`%PDF-1.4\n% NETECO synthetic invoice ${providerInvoiceId}\n%%EOF`)
   }
 
-  async markPaid(_providerInvoiceId: string, _paidOn: string) {}
+  async markPaid(
+    _providerInvoiceId: string,
+    _paidOn: string,
+    _paymentMethod: NonNullable<IssueInvoiceRequest['paymentMethod']>
+  ) {}
 }

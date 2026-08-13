@@ -1,7 +1,7 @@
 export interface FiscalCustomer {
   externalKey: string
   legalName: string
-  taxId: string
+  taxId?: string
   email: string
   phone?: string
   address: { line1: string; postalCode: string; city: string; region: string; countryCode: string }
@@ -45,5 +45,9 @@ export interface InvoiceProvider {
   issueCreditNote(
     request: IssueInvoiceRequest & { sourceProviderInvoiceId: string; reason: string }
   ): Promise<ProviderInvoice>
-  markPaid(providerInvoiceId: string, paidOn: string): Promise<void>
+  markPaid(
+    providerInvoiceId: string,
+    paidOn: string,
+    paymentMethod: NonNullable<IssueInvoiceRequest['paymentMethod']>
+  ): Promise<void>
 }

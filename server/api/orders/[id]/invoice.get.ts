@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
   if (!publicNumber) throw createError({ statusCode: 404, statusMessage: 'Factura no encontrada' })
   const cookie = getCookie(event, 'neteco-order-access')
   const cookieToken = cookie?.startsWith(`${publicNumber}.`) ? cookie.slice(publicNumber.length + 1) : undefined
-  const queryToken = String(getQuery(event).token ?? cookieToken ?? '')
+  const accessToken = cookieToken ?? ''
   const documentId = String(getQuery(event).document ?? '')
   const kind = getQuery(event).kind === 'credit_note' ? 'credit_note' : 'invoice'
   if (documentId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(documentId)) {
@@ -34,7 +34,12 @@ export default defineEventHandler(async (event) => {
       AND invoice.provider_invoice_id IS NOT NULL
       AND (${documentId} = '' OR invoice.id = ${documentId || null}::uuid)
       AND (
-        (${queryToken} <> '' AND orders.guest_access_hash = ${hashAccessToken(queryToken)})
+        EXISTS (
+          SELECT 1 FROM order_access_sessions guest_session
+          WHERE guest_session.order_id = orders.id
+            AND guest_session.token_hash = ${hashAccessToken(accessToken)}
+            AND guest_session.revoked_at IS NULL AND guest_session.expires_at > now()
+        )
         OR EXISTS (
           SELECT 1 FROM identities identity
           JOIN auth_sessions active ON active.identity_id = identity.id

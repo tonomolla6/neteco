@@ -3,8 +3,9 @@ import { createError } from 'h3'
 import type { TransactionSql } from 'postgres'
 import { calculateQuote, splitGross } from '../domain/money'
 import { sellableQuantity } from '../domain/inventory'
-import { chargeableWeightGrams, classifyShipment, standardShippingNetCents } from '../domain/shipping'
-import type { Parcel } from '../integrations/carrier-provider'
+import { classifyShipment } from '../domain/shipping'
+import { carrierProviderFromEnvironment } from '../integrations/carrier-factory'
+import type { Parcel, ShippingRate } from '../integrations/carrier-provider'
 import type { PaymentNotification } from '../integrations/payment-provider'
 import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
@@ -42,6 +43,9 @@ export interface CreateOrderInput {
   shippingAddress: CheckoutAddress
   billingAddress: CheckoutAddress
   shippingMethod: 'reparto' | 'envio' | 'recogida'
+  shippingServiceCode: string
+  expectedPricingVersion: string
+  expectedTotalGrossCents: number
   paymentMethod: 'tarjeta' | 'bizum' | 'transferencia'
   cartId: string
   cartVersion: number
@@ -198,34 +202,79 @@ export async function createOrder(input: CreateOrderInput) {
       contents: [{ sku: variant.sku, quantity: quantityByVariant.get(variant.legacy_id)! }],
       handling: variant.shipping_profile === 'adr' ? 'adr' : variant.shipping_profile === 'pallet' ? 'pallet' : 'parcel'
     }))
-    const shippingProfile = classifyShipment(parcels)
-    const chargeableGrams = parcels.reduce((total, parcel) => total + chargeableWeightGrams(parcel), 0)
-    const standardShippingNet = standardShippingNetCents(shippingProfile, chargeableGrams)
-    const standardShippingGross = standardShippingNet + Math.round((standardShippingNet * 2100) / 10_000)
+    classifyShipment(parcels)
+    const provider = carrierProviderFromEnvironment()
+    const now = new Date()
+    const pickupRate: ShippingRate = {
+      provider: 'neteco',
+      serviceCode: 'WAREHOUSE-PICKUP',
+      label: 'Recogida en almacén NETECO',
+      netCents: 0,
+      taxRateBasisPoints: 2100,
+      estimatedDeliveryFrom: now.toISOString(),
+      estimatedDeliveryTo: now.toISOString(),
+      profile: 'pickup'
+    }
+    const availableRates =
+      input.shippingServiceCode === pickupRate.serviceCode
+        ? [pickupRate]
+        : await provider.rates({
+            originPostalCode: '46870',
+            destination: {
+              name: input.shippingAddress.recipientName,
+              line1: input.shippingAddress.line1,
+              line2: input.shippingAddress.line2,
+              postalCode: input.shippingAddress.postalCode,
+              city: input.shippingAddress.city,
+              region: input.shippingAddress.region,
+              countryCode: input.shippingAddress.countryCode,
+              phone: input.shippingAddress.phone
+            },
+            parcels
+          })
+    const selectedRate = availableRates.find((rate) => rate.serviceCode === input.shippingServiceCode)
+    if (!selectedRate) throw createError({ statusCode: 422, statusMessage: 'El servicio de entrega ya no es elegible' })
+    const expectedMethod =
+      selectedRate.profile === 'pickup' ? 'recogida' : selectedRate.profile === 'own_delivery' ? 'reparto' : 'envio'
+    if (input.shippingMethod !== expectedMethod) {
+      throw createError({ statusCode: 422, statusMessage: 'El método y el servicio de entrega no coinciden' })
+    }
     const commercialPolicy = shippingCommercialPolicy()
     const freeParcelShipping =
       commercialPolicy.freeShippingThresholdCents !== null &&
       goodsGross >= commercialPolicy.freeShippingThresholdCents &&
-      ['parcel', 'multi_parcel'].includes(shippingProfile)
-    const shippingGross = input.shippingMethod === 'envio' && !freeParcelShipping ? standardShippingGross : 0
+      ['parcel', 'multi_parcel'].includes(selectedRate.profile)
+    const shippingNet = freeParcelShipping ? 0 : selectedRate.netCents
+    const shippingGross = shippingNet + Math.round((shippingNet * selectedRate.taxRateBasisPoints) / 10_000)
     if (
       input.shippingMethod === 'reparto' &&
       !commercialPolicy.ownDeliveryPostalPrefixes.some((prefix) => input.shippingAddress.postalCode.startsWith(prefix))
     ) {
       throw createError({ statusCode: 422, statusMessage: 'El código postal está fuera del reparto propio' })
     }
-    if (input.shippingMethod === 'reparto' && !['parcel', 'multi_parcel'].includes(shippingProfile)) {
-      throw createError({ statusCode: 422, statusMessage: 'La mercancía no es compatible con reparto propio' })
-    }
     const quote = calculateQuote({
       pricingVersion: `catalog:${variants
         .map((variant) => variant.source_version ?? 'unknown')
         .sort()
-        .join('+')}`,
+        .join('+')};shipping:${selectedRate.provider}:${selectedRate.serviceCode}`,
       lines,
       shippingGrossCents: shippingGross,
-      shippingTaxRateBasisPoints: 2100
+      shippingTaxRateBasisPoints: selectedRate.taxRateBasisPoints
     })
+    if (
+      input.expectedPricingVersion !== quote.pricingVersion ||
+      input.expectedTotalGrossCents !== quote.totalGrossCents
+    ) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'El precio o la entrega han cambiado; revisa y confirma de nuevo',
+        data: {
+          code: 'CHECKOUT_QUOTE_CHANGED',
+          pricingVersion: quote.pricingVersion,
+          totalGrossCents: quote.totalGrossCents
+        }
+      })
+    }
 
     const orderId = randomUUID()
     const publicNumber = publicOrderNumber()
@@ -299,13 +348,11 @@ export async function createOrder(input: CreateOrderInput) {
     })
     const shippingSnapshot = {
       ...addressSnapshot(input.shippingAddress),
-      shippingProfile,
-      serviceCode:
-        input.shippingMethod === 'recogida'
-          ? 'WAREHOUSE-PICKUP'
-          : input.shippingMethod === 'reparto'
-            ? 'OWN-DAY'
-            : `STANDARD-${shippingProfile.toUpperCase()}`
+      shippingProfile: selectedRate.profile,
+      serviceCode: selectedRate.serviceCode,
+      serviceLabel: selectedRate.label,
+      estimatedDeliveryFrom: selectedRate.estimatedDeliveryFrom,
+      estimatedDeliveryTo: selectedRate.estimatedDeliveryTo
     }
     const billingSnapshot = addressSnapshot(input.billingAddress)
     const customerSnapshot = {
