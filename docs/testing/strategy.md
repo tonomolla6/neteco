@@ -78,3 +78,15 @@ Los jobs de reembolso, factura/rectificativa y correo usan adapters determinista
 idempotencia sin red externa. Esta evidencia cubre la orquestación TST-015 en el repositorio, pero no atribuye
 evidencia a los proveedores Redsys o Beply reales; su aceptación con credenciales, contrato y sandbox continúa
 gobernada por los requisitos PAY y BEP correspondientes.
+
+## Concurrencia de stock, reservas y callbacks
+
+TST-016 combina pruebas de integración y E2E sobre PostgreSQL real. Dos carritos intentan comprar a la vez la última
+unidad: solo uno crea el pedido, y la captura concurrente mantiene una única reserva, asignación y solicitud de
+factura. La expiración fuerza el TTL de un pedido por transferencia y lanza dos workers simultáneos; solo uno libera
+la reserva y emite la transición y comunicación correspondientes.
+
+El callback Redsys firmado se envía dos veces en paralelo al endpoint HTTP. Las restricciones de unicidad, la inbox
+transaccional y el bloqueo del pedido deben dejar exactamente un callback persistido, un evento de pago, una
+asignación de inventario y una solicitud de factura. Los adapters de pago siguen siendo locales al test; esta prueba
+acredita la concurrencia de la aplicación y la base de datos, no la disponibilidad del TPV externo.

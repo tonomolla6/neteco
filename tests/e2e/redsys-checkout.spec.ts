@@ -208,22 +208,38 @@ test('records a signed bank rejection and offers a hosted payment retry', async 
   await expect(page.getByRole('heading', { name: '¡Gracias por tu pedido!' })).toBeVisible()
 })
 
-test('accepts an identical callback retry without duplicating the payment event', async ({ page, deterministic }) => {
+test('accepts concurrent identical callbacks without duplicating payment side effects', async ({
+  page,
+  deterministic
+}) => {
   const order = await createGuestRedsysOrder(page, 'duplicate', deterministic)
   const payload = signedCallback(order, '0000')
-  expect((await callback(page.context().request, payload)).status()).toBe(200)
-  expect((await callback(page.context().request, payload)).status()).toBe(200)
-  const count = await databaseQuery(async (sql) => {
-    const [row] = await sql<{ count: number }[]>`
-      SELECT count(*)::int AS count
-      FROM payment_events event
-      JOIN payment_intents intent ON intent.id = event.payment_intent_id
-      JOIN orders purchase ON purchase.id = intent.order_id
+  const responses = await Promise.all([
+    callback(page.context().request, payload),
+    callback(page.context().request, payload)
+  ])
+  expect(responses.map((response) => response.status())).toEqual([200, 200])
+  const state = await databaseQuery(async (sql) => {
+    const [row] = await sql<
+      Array<{ paymentEvents: number; webhookEvents: number; allocations: number; invoicesQueued: number }>
+    >`
+      SELECT
+        (SELECT count(*) FROM payment_events event
+         JOIN payment_intents intent ON intent.id = event.payment_intent_id
+         WHERE intent.order_id = purchase.id)::int AS "paymentEvents",
+        (SELECT count(*) FROM webhook_inbox inbox
+         WHERE inbox.provider = 'redsys'
+           AND inbox.sanitized_payload ->> 'orderReference' = purchase.public_number)::int AS "webhookEvents",
+        (SELECT count(*) FROM inventory_movements movement
+         WHERE movement.reference_id = purchase.id AND movement.movement_type = 'allocate')::int AS allocations,
+        (SELECT count(*) FROM outbox_events event
+         WHERE event.aggregate_id = purchase.id AND event.event_type = 'invoice.issue.requested')::int AS "invoicesQueued"
+      FROM orders purchase
       WHERE purchase.public_number = ${order.id}
     `
-    return row!.count
+    return row
   })
-  expect(count).toBe(1)
+  expect(state).toEqual({ paymentEvents: 1, webhookEvents: 1, allocations: 1, invoicesQueued: 1 })
 })
 
 test('rejects a correctly signed callback whose amount differs from the order', async ({ page, deterministic }) => {
