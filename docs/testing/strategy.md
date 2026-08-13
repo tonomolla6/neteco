@@ -63,6 +63,14 @@ inyectadas; crea solo datos sintéticos, factura, pago, PDF y rectificativa en e
 token. La ejecución externa y una consulta remota contractual para conciliar estados siguen pendientes, por lo que
 TST-018 permanece `PARTIAL_EXTERNAL`.
 
+## Contrato de carrier
+
+La interfaz y el fake determinista cubren el contrato neutral de rate, label, cancelación, polling de tracking,
+retorno, pickup, unidades, zonas e inputs inválidos. Producción rechaza esos adapters de prueba. TST-019 permanece
+`PARTIAL_EXTERNAL` hasta cerrar `DEC-014` y ejecutar la matriz de
+[aceptación del carrier](./carrier-contract.md) contra la documentación y sandbox del proveedor seleccionado. No se
+presupone webhook: el contrato decidirá webhook firmado/deduplicado o polling con SLA y backoff documentados.
+
 ## Cuenta y compra autenticada E2E
 
 El recorrido autenticado crea dos cuentas sintéticas mediante la UI y recupera los tokens de verificación y reset
