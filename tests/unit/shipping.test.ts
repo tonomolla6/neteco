@@ -280,6 +280,29 @@ describe('normalized carrier provider', () => {
     }
   })
 
+  it('injects a carrier outage only in the explicitly configured test operation', async () => {
+    const previousEnvironment = process.env.APP_ENV
+    const previousFailure = process.env.NETECO_TEST_CARRIER_FAILURE
+    try {
+      process.env.APP_ENV = 'test'
+      process.env.NETECO_TEST_CARRIER_FAILURE = 'createShipment'
+      await expect(
+        provider.createShipment({
+          orderNumber: 'NE-FAILURE',
+          destination: address,
+          parcels: [parcel],
+          serviceCode: 'STANDARD-PARCEL',
+          idempotencyKey: 'shipment:failure'
+        })
+      ).rejects.toThrow('Simulated carrier outage')
+    } finally {
+      if (previousEnvironment === undefined) delete process.env.APP_ENV
+      else process.env.APP_ENV = previousEnvironment
+      if (previousFailure === undefined) delete process.env.NETECO_TEST_CARRIER_FAILURE
+      else process.env.NETECO_TEST_CARRIER_FAILURE = previousFailure
+    }
+  })
+
   it('rejects incomplete operational requests', async () => {
     const input = {
       orderNumber: 'NE12345',

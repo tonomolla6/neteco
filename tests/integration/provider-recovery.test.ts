@@ -429,6 +429,8 @@ describe('provider outage recovery', () => {
         EMAIL_PROVIDER: 'smtp',
         EMAIL_FROM: 'NETECO <no-reply@integration.invalid>',
         SMTP_HOST: '127.0.0.1',
+        SMTP_ALLOWED_HOSTS: '127.0.0.1',
+        EMAIL_ALLOWED_RECIPIENTS: '*@integration.invalid',
         SMTP_PORT: String(port),
         SMTP_SECURE: 'false',
         MARKETING_EMAIL_PROVIDER: 'log'
@@ -455,6 +457,8 @@ describe('provider outage recovery', () => {
           EMAIL_PROVIDER: 'smtp',
           EMAIL_FROM: 'NETECO <no-reply@integration.invalid>',
           SMTP_HOST: '127.0.0.1',
+          SMTP_ALLOWED_HOSTS: '127.0.0.1',
+          EMAIL_ALLOWED_RECIPIENTS: '*@integration.invalid',
           SMTP_PORT: String(port),
           SMTP_SECURE: 'false',
           MARKETING_EMAIL_PROVIDER: 'log'

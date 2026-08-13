@@ -424,6 +424,7 @@ describe('invoice providers and factory', () => {
       'must be beply'
     )
     expect(() => invoiceProviderFromEnvironment({ APP_ENV: 'production', INVOICE_PROVIDER: 'beply' })).toThrow()
+    expect(() => invoiceProviderFromEnvironment({ APP_ENV: 'test', INVOICE_PROVIDER: 'beply' })).toThrow('Invalid url')
     expect(() =>
       invoiceProviderFromEnvironment({
         APP_ENV: 'production',

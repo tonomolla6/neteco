@@ -4,36 +4,16 @@ import {
   emailProviderFromEnvironment,
   marketingEmailProviderFromEnvironment
 } from '../server/integrations/email-provider'
-import { renderNewsletterEmail } from '../server/services/newsletter-email'
-import { renderInvoiceEmail } from '../server/services/invoice-email'
+import {
+  renderTransactionalEmail,
+  transactionalEmailEventTypes,
+  type TransactionalEmailEvent
+} from '../server/services/transactional-email'
 import { hashAccessToken } from '../server/utils/access-token'
 import { validatedEmailBaseUrl } from '../server/utils/email-base-url'
-import { decryptSecret, encryptSecret, randomOpaqueToken } from '../server/utils/secrets'
+import { encryptSecret, randomOpaqueToken } from '../server/utils/secrets'
 
-interface OutboxEvent {
-  id: string
-  eventType: string
-  payload: {
-    recipient: string
-    orderId?: string
-    name?: string
-    tokenEnvelope?: string
-    expiresAt?: string
-    occurredAt?: string
-    orderNumber?: string
-    returnNumber?: string
-    totalCents?: number
-    ticketNumber?: string
-    replyBody?: string
-    statusLabel?: string
-    trackingNumber?: string
-    refundCents?: number
-    invoiceId?: string
-    code?: string
-    policyVersion?: string
-    unsubscribeTokenEnvelope?: string
-    unsubscribeExpiresAt?: string
-  }
+interface OutboxEvent extends TransactionalEmailEvent {
   attempts: number
 }
 
@@ -51,15 +31,7 @@ const marketingProvider = marketingEmailProviderFromEnvironment()
 const workerId = `email-${process.pid}`
 const aggregateFilter =
   process.argv.find((argument) => argument.startsWith('--aggregate-id='))?.split('=', 2)[1] ?? null
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
-}
+const supportedEventTypes = [...transactionalEmailEventTypes]
 
 async function claim(): Promise<OutboxEvent | undefined> {
   return sql.begin(async (transaction) => {
@@ -68,17 +40,7 @@ async function claim(): Promise<OutboxEvent | undefined> {
       SET status = 'retry', available_at = now(), locked_at = NULL, locked_by = NULL,
           last_error_code = 'stale_worker_lease', last_error_message = 'Recovered an expired email worker lease'
       WHERE status = 'processing' AND locked_at < now() - interval '15 minutes'
-        AND event_type IN (
-          'identity.verification.requested', 'identity.password_reset.requested',
-          'identity.email_change.requested', 'identity.security.password_changed',
-          'identity.security.email_changed', 'order.created', 'order.confirmed', 'support.ticket.received',
-          'support.ticket.reply'
-          , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
-          'order.shipped', 'order.delivered', 'refund.succeeded.email',
-          'return.requested', 'return.status.updated',
-          'invoice.issued',
-          'newsletter.confirmation.requested', 'newsletter.welcome'
-        )
+        AND event_type IN ${transaction(supportedEventTypes)}
     `
     const [event] = await transaction<OutboxEvent[]>`
       SELECT event.id, event.event_type AS "eventType",
@@ -112,17 +74,7 @@ async function claim(): Promise<OutboxEvent | undefined> {
       WHERE event.status IN ('pending', 'retry')
         AND event.available_at <= now()
         AND (${aggregateFilter}::uuid IS NULL OR event.aggregate_id = ${aggregateFilter}::uuid)
-        AND event.event_type IN (
-          'identity.verification.requested', 'identity.password_reset.requested',
-          'identity.email_change.requested', 'identity.security.password_changed',
-          'identity.security.email_changed', 'order.created', 'order.confirmed', 'support.ticket.received',
-          'support.ticket.reply'
-          , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
-          'order.shipped', 'order.delivered', 'refund.succeeded.email',
-          'return.requested', 'return.status.updated',
-          'invoice.issued',
-          'newsletter.confirmation.requested', 'newsletter.welcome'
-        )
+        AND event.event_type IN ${transaction(supportedEventTypes)}
       ORDER BY event.created_at
       FOR UPDATE OF event SKIP LOCKED
       LIMIT 1
@@ -157,176 +109,12 @@ async function claim(): Promise<OutboxEvent | undefined> {
   })
 }
 
-function render(event: OutboxEvent) {
-  const invoiceEmail = renderInvoiceEmail(event, {
-    baseUrl: baseUrl!,
-    encryptionKey: encryptionKey!
-  })
-  if (invoiceEmail) return invoiceEmail
-  const newsletterEmail = renderNewsletterEmail(event, {
-    baseUrl: baseUrl!,
-    encryptionKey: encryptionKey!
-  })
-  if (newsletterEmail) return newsletterEmail
-  const displayName = event.payload.name?.trim() || 'Hola'
-  const safeName = escapeHtml(displayName)
-  if (event.eventType === 'identity.security.password_changed') {
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: 'Tu contraseña de NETECO ha cambiado',
-      text: `${displayName}: la contraseña de tu cuenta NETECO ha cambiado. Si no has sido tú, contacta con soporte de inmediato.`,
-      html: `<p>${safeName}:</p><p>La contraseña de tu cuenta NETECO ha cambiado.</p><p>Si no has sido tú, contacta con soporte de inmediato.</p>`
-    }
-  }
-  if (event.eventType === 'identity.security.email_changed') {
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: 'El email de tu cuenta NETECO ha cambiado',
-      text: `${displayName}: el email de acceso a tu cuenta NETECO ha cambiado. Si no has sido tú, contacta con soporte de inmediato.`,
-      html: `<p>${safeName}:</p><p>El email de acceso a tu cuenta NETECO ha cambiado.</p><p>Si no has sido tú, contacta con soporte de inmediato.</p>`
-    }
-  }
-  if (event.eventType === 'order.created' || event.eventType === 'order.confirmed') {
-    if (!event.payload.orderNumber || event.payload.totalCents === undefined) {
-      throw new Error('Order email payload is incomplete')
-    }
-    const confirmed = event.eventType === 'order.confirmed'
-    const total = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(
-      event.payload.totalCents / 100
-    )
-    const link = new URL(`/pedido/${encodeURIComponent(event.payload.orderNumber)}`, baseUrl)
-    if (event.payload.tokenEnvelope) {
-      link.searchParams.set('token', decryptSecret(event.payload.tokenEnvelope, encryptionKey!))
-    }
-    const subject = confirmed
-      ? `Pago confirmado · pedido ${event.payload.orderNumber}`
-      : `Pedido recibido · ${event.payload.orderNumber}`
-    const state = confirmed
-      ? 'Hemos confirmado el pago y el pedido pasa a preparación.'
-      : 'Hemos recibido el pedido. Consulta el enlace para comprobar su estado de pago y preparación.'
-    const safeOrderNumber = escapeHtml(event.payload.orderNumber)
-    const safeTotal = escapeHtml(total)
-    const safeLink = escapeHtml(link.toString())
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject,
-      text: `${displayName}: ${state}\nPedido: ${event.payload.orderNumber}\nTotal: ${total}\nEstado: ${link}`,
-      html: `<p>${safeName}:</p><p>${state}</p><p><strong>Pedido:</strong> ${safeOrderNumber}<br><strong>Total:</strong> ${safeTotal}</p><p><a href="${safeLink}">Consultar el estado del pedido</a></p>`
-    }
-  }
-  if (
-    [
-      'order.status.updated',
-      'order.cancelled',
-      'order.cancellation.requested',
-      'order.shipped',
-      'order.delivered'
-    ].includes(event.eventType)
-  ) {
-    if (!event.payload.orderNumber || !event.payload.statusLabel) throw new Error('Order status email is incomplete')
-    const tracking = event.payload.trackingNumber ? `\nSeguimiento: ${event.payload.trackingNumber}` : ''
-    const safeOrderNumber = escapeHtml(event.payload.orderNumber)
-    const safeStatusLabel = escapeHtml(event.payload.statusLabel)
-    const safeTrackingNumber = event.payload.trackingNumber ? escapeHtml(event.payload.trackingNumber) : ''
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: `${event.payload.statusLabel} · pedido ${event.payload.orderNumber}`,
-      text: `${displayName}: el pedido ${event.payload.orderNumber} está ${event.payload.statusLabel}.${tracking}`,
-      html: `<p>${safeName}:</p><p>El pedido <strong>${safeOrderNumber}</strong> está <strong>${safeStatusLabel}</strong>.</p>${safeTrackingNumber ? `<p>Seguimiento: <strong>${safeTrackingNumber}</strong></p>` : ''}`
-    }
-  }
-  if (event.eventType === 'refund.succeeded.email') {
-    if (!event.payload.orderNumber || event.payload.refundCents === undefined) {
-      throw new Error('Refund email payload is incomplete')
-    }
-    const total = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(
-      event.payload.refundCents / 100
-    )
-    const safeOrderNumber = escapeHtml(event.payload.orderNumber)
-    const safeTotal = escapeHtml(total)
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: `Reembolso confirmado · pedido ${event.payload.orderNumber}`,
-      text: `${displayName}: se ha confirmado un reembolso de ${total} para el pedido ${event.payload.orderNumber}. La fecha de abono final depende del banco.`,
-      html: `<p>${safeName}:</p><p>Se ha confirmado un reembolso de <strong>${safeTotal}</strong> para el pedido <strong>${safeOrderNumber}</strong>.</p><p>La fecha de abono final depende del banco.</p>`
-    }
-  }
-  if (event.eventType === 'return.requested' || event.eventType === 'return.status.updated') {
-    if (!event.payload.orderNumber || !event.payload.returnNumber) {
-      throw new Error('Return email payload is incomplete')
-    }
-    const requested = event.eventType === 'return.requested'
-    const status = requested ? 'solicitada' : event.payload.statusLabel
-    if (!status) throw new Error('Return status email payload is incomplete')
-    const safeOrderNumber = escapeHtml(event.payload.orderNumber)
-    const safeReturnNumber = escapeHtml(event.payload.returnNumber)
-    const safeStatus = escapeHtml(status)
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: `Devolución ${status} · ${event.payload.returnNumber}`,
-      text: `${displayName}: la devolución ${event.payload.returnNumber} del pedido ${event.payload.orderNumber} está ${status}.`,
-      html: `<p>${safeName}:</p><p>La devolución <strong>${safeReturnNumber}</strong> del pedido <strong>${safeOrderNumber}</strong> está <strong>${safeStatus}</strong>.</p>`
-    }
-  }
-  if (event.eventType === 'support.ticket.received') {
-    if (!event.payload.ticketNumber) throw new Error('Support email payload is incomplete')
-    const safeTicketNumber = escapeHtml(event.payload.ticketNumber)
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: `Consulta recibida · ${event.payload.ticketNumber}`,
-      text: `${displayName}: hemos registrado tu consulta con la referencia ${event.payload.ticketNumber}. Conserva este número para cualquier seguimiento.`,
-      html: `<p>${safeName}:</p><p>Hemos registrado tu consulta con la referencia <strong>${safeTicketNumber}</strong>.</p><p>Conserva este número para cualquier seguimiento.</p>`
-    }
-  }
-  if (event.eventType === 'support.ticket.reply') {
-    if (!event.payload.ticketNumber || !event.payload.replyBody) throw new Error('Support reply payload is incomplete')
-    const safeReply = escapeHtml(event.payload.replyBody).replaceAll('\n', '<br>')
-    const safeTicketNumber = escapeHtml(event.payload.ticketNumber)
-    return {
-      messageId: event.id,
-      to: event.payload.recipient,
-      subject: `Actualización de tu consulta · ${event.payload.ticketNumber}`,
-      text: `${displayName}:\n\n${event.payload.replyBody}\n\nReferencia: ${event.payload.ticketNumber}`,
-      html: `<p>${safeName}:</p><p>${safeReply}</p><p><strong>Referencia:</strong> ${safeTicketNumber}</p>`
-    }
-  }
-  if (!event.payload.tokenEnvelope || !event.payload.expiresAt) throw new Error('Email token payload is incomplete')
-  const token = decryptSecret(event.payload.tokenEnvelope, encryptionKey!)
-  const verification = event.eventType === 'identity.verification.requested'
-  const emailChange = event.eventType === 'identity.email_change.requested'
-  const path = verification || emailChange ? '/verificar-email' : '/restablecer-clave'
-  const link = new URL(path, baseUrl)
-  link.searchParams.set('token', token)
-  const subject = verification
-    ? 'Verifica tu cuenta de NETECO'
-    : emailChange
-      ? 'Confirma tu nuevo email de NETECO'
-      : 'Restablece tu contraseña de NETECO'
-  const action = verification
-    ? 'verificar tu dirección de correo'
-    : emailChange
-      ? 'confirmar el nuevo email de tu cuenta'
-      : 'elegir una nueva contraseña'
-  const safeLink = escapeHtml(link.toString())
-  return {
-    messageId: event.id,
-    to: event.payload.recipient,
-    subject,
-    text: `${displayName}: usa este enlace para ${action}: ${link.toString()}\nCaduca: ${event.payload.expiresAt}`,
-    html: `<p>${safeName}:</p><p><a href="${safeLink}">Pulsa aquí para ${action}</a>.</p><p>El enlace caduca en la fecha indicada en este mensaje.</p>`
-  }
-}
-
 async function processOne(event: OutboxEvent) {
   try {
-    const email = render(event)
+    const email = renderTransactionalEmail(event, {
+      baseUrl: baseUrl!,
+      encryptionKey: encryptionKey!
+    })
     const marketing = event.eventType === 'newsletter.welcome'
     const provider = marketing ? marketingProvider : transactionalProvider
     const recipientHash = createHash('sha256').update(email.to.trim().toLowerCase()).digest('hex')

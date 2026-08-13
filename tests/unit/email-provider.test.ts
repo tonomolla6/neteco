@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AllowlistedEmailProvider,
   emailProviderFromEnvironment,
   LogEmailProvider,
   marketingEmailProviderFromEnvironment,
@@ -90,6 +91,18 @@ describe('transactional email providers', () => {
     await expect(provider.send({ ...message, headers: { 'Invalid Header': 'value' } })).rejects.toThrow(
       'Invalid email header name'
     )
+    await expect(provider.send({ ...message, subject: 'Pedido\r\nBcc: victim@test' })).rejects.toThrow(
+      'invalid line break'
+    )
+    await expect(provider.send({ ...message, to: 'safe@test\r\nBcc: victim@test' })).rejects.toThrow(
+      'invalid line break'
+    )
+    const unsafeFrom = new SmtpEmailProvider('safe@test\r\nBcc: victim@test', {
+      host: '127.0.0.1',
+      port: 1025,
+      secure: false
+    })
+    await expect(unsafeFrom.send(message)).rejects.toThrow('invalid line break')
   })
 
   it('logs only non-sensitive delivery metadata in local mode', async () => {
@@ -168,5 +181,60 @@ describe('transactional email providers', () => {
     })
     expect(provider).toBeInstanceOf(SmtpEmailProvider)
     expect(provider.name).toBe('marketing-smtp')
+  })
+
+  it('fails closed before sending SMTP outside the non-production allowlists', async () => {
+    expect(() => new AllowlistedEmailProvider(new LogEmailProvider(), [])).toThrow('recipient allowlist is required')
+    expect(() =>
+      emailProviderFromEnvironment({
+        APP_ENV: 'staging',
+        EMAIL_PROVIDER: 'smtp',
+        SMTP_HOST: 'smtp.real.example',
+        EMAIL_FROM: 'staging@neteco.test',
+        SMTP_ALLOWED_HOSTS: 'mailpit'
+      })
+    ).toThrow('host is not allowlisted')
+    expect(() =>
+      emailProviderFromEnvironment({
+        APP_ENV: 'staging',
+        EMAIL_PROVIDER: 'smtp',
+        SMTP_HOST: 'mailpit',
+        EMAIL_FROM: 'staging@neteco.test',
+        SMTP_ALLOWED_HOSTS: 'mailpit,   '
+      })
+    ).toThrow('recipient allowlist is required')
+
+    const provider = emailProviderFromEnvironment({
+      APP_ENV: 'staging',
+      EMAIL_PROVIDER: 'smtp',
+      SMTP_HOST: 'mailpit',
+      EMAIL_FROM: 'staging@neteco.test',
+      SMTP_ALLOWED_HOSTS: 'mailpit',
+      EMAIL_ALLOWED_RECIPIENTS: 'qa@neteco.test,*@integration.invalid'
+    })
+    expect(provider).toBeInstanceOf(AllowlistedEmailProvider)
+    await expect(provider.send({ ...message, to: 'real-customer@example.com' })).rejects.toThrow(
+      'recipient is not allowlisted'
+    )
+    expect(mail.sendMail).not.toHaveBeenCalled()
+    await expect(provider.send({ ...message, to: 'QA@NETECO.TEST' })).resolves.toEqual({
+      providerMessageId: '<provider-id@example.test>'
+    })
+    await expect(provider.send({ ...message, to: 'order@integration.invalid' })).resolves.toEqual({
+      providerMessageId: '<provider-id@example.test>'
+    })
+
+    const marketing = marketingEmailProviderFromEnvironment({
+      APP_ENV: 'staging',
+      MARKETING_EMAIL_PROVIDER: 'smtp',
+      MARKETING_SMTP_HOST: 'mailpit-marketing',
+      MARKETING_EMAIL_FROM: 'newsletter@neteco.test',
+      MARKETING_SMTP_ALLOWED_HOSTS: 'mailpit-marketing',
+      MARKETING_EMAIL_ALLOWED_RECIPIENTS: '*@integration.invalid'
+    })
+    expect(marketing).toBeInstanceOf(AllowlistedEmailProvider)
+    await expect(marketing.send({ ...message, to: 'subscriber@integration.invalid' })).resolves.toEqual({
+      providerMessageId: '<provider-id@example.test>'
+    })
   })
 })
