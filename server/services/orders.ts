@@ -40,6 +40,7 @@ export interface CheckoutAddress {
 }
 
 export interface CreateOrderInput {
+  authenticatedCustomerId?: string
   customer: CheckoutCustomer
   shippingAddress: CheckoutAddress
   billingAddress: CheckoutAddress
@@ -330,15 +331,22 @@ export async function createOrder(input: CreateOrderInput) {
     }
 
     const normalizedEmail = input.customer.email.trim().toLowerCase()
-    const [customer] = await transaction<{ id: string }[]>`
-      INSERT INTO customers (email, name, phone)
-      VALUES (${normalizedEmail}, ${input.customer.name.trim()}, ${input.customer.phone.trim()})
-      ON CONFLICT (email) WHERE email IS NOT NULL AND merged_into_id IS NULL DO UPDATE SET
-        name = EXCLUDED.name,
-        phone = EXCLUDED.phone,
-        updated_at = now()
-      RETURNING id
-    `
+    const [customer] = input.authenticatedCustomerId
+      ? await transaction<{ id: string }[]>`
+          UPDATE customers
+          SET name = ${input.customer.name.trim()}, phone = ${input.customer.phone.trim()}, updated_at = now()
+          WHERE id = ${input.authenticatedCustomerId} AND lower(email::text) = ${normalizedEmail}
+          RETURNING id
+        `
+      : await transaction<{ id: string }[]>`
+          INSERT INTO customers (email, name, phone)
+          VALUES (${normalizedEmail}, ${input.customer.name.trim()}, ${input.customer.phone.trim()})
+          ON CONFLICT (email) WHERE email IS NOT NULL AND merged_into_id IS NULL DO UPDATE SET
+            name = EXCLUDED.name,
+            phone = EXCLUDED.phone,
+            updated_at = now()
+          RETURNING id
+        `
     if (!customer) throw new Error('Customer upsert returned no row')
 
     const addressSnapshot = (address: CheckoutAddress) => ({

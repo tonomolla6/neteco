@@ -155,6 +155,16 @@ async function retryPayment() {
           </div>
         </dl>
         <p class="mt-3 text-sm text-slate-500">Te enviaremos la factura a {{ order.email }}.</p>
+        <UButton
+          v-if="['issued', 'fiscal_pending'].includes(order.invoiceStatus)"
+          :to="`/api/orders/${order.id}/invoice`"
+          external
+          class="mt-4"
+          variant="outline"
+          icon="i-lucide-file-down"
+        >
+          Descargar factura
+        </UButton>
       </div>
 
       <!-- datos entrega -->

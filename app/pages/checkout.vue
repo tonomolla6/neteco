@@ -334,7 +334,7 @@ async function submit() {
     })
     if (pay.redirect) {
       pendingOrder.value = order
-      await cart.clear()
+      cart.resetLocal()
       submitHostedPayment(pay.redirect)
     } else {
       await finish(order)
@@ -358,7 +358,7 @@ async function submit() {
 }
 
 async function finish(order: { id: string; token: string }) {
-  await cart.clear()
+  cart.resetLocal()
   toast.add({ title: 'Pedido realizado', icon: 'i-lucide-check-circle-2', color: 'success' })
   navigateTo(`/pedido/${order.id}`)
 }

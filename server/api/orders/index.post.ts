@@ -6,6 +6,7 @@ import { useDatabase } from '../../db/client'
 import { validateRuntimeConfiguration } from '../../utils/runtime-config'
 import { encryptSecret } from '../../utils/secrets'
 import { hashAccessToken } from '../../utils/access-token'
+import { requireVerifiedIdentity } from '../../utils/auth-session'
 
 const trimmed = (minimum: number, maximum: number) => z.string().trim().min(minimum).max(maximum)
 const taxId = z
@@ -67,6 +68,33 @@ const schema = z
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, schema.parse)
   const runtime = validateRuntimeConfiguration(useRuntimeConfig(event))
+  const sql = useDatabase()
+  const session = await getUserSession(event)
+  const normalizedEmail = body.customer.email.toLowerCase()
+  let authenticatedCustomerId: string | undefined
+  if (session.user?.id) {
+    const authenticated = await requireVerifiedIdentity(event)
+    if (authenticated.profile.email.toLowerCase() !== normalizedEmail) {
+      throw createError({ statusCode: 422, statusMessage: 'El email del pedido debe coincidir con tu cuenta' })
+    }
+    const [account] = await sql<{ customerId: string | null }[]>`
+      SELECT customer_id AS "customerId" FROM identities WHERE id = ${authenticated.profile.id}
+    `
+    if (!account?.customerId) {
+      throw createError({ statusCode: 409, statusMessage: 'La cuenta no tiene un cliente asociado' })
+    }
+    authenticatedCustomerId = account.customerId
+  } else {
+    const [registered] = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM identities
+        WHERE lower(email::text) = ${normalizedEmail} AND status IN ('pending', 'active')
+      ) AS exists
+    `
+    if (registered?.exists) {
+      throw createError({ statusCode: 409, statusMessage: 'Inicia sesión para comprar con este email' })
+    }
+  }
   if (body.paymentMethod === 'transferencia' && !runtime.bankTransfer.enabled) {
     throw createError({ statusCode: 422, statusMessage: 'La transferencia bancaria no está disponible' })
   }
@@ -76,6 +104,7 @@ export default defineEventHandler(async (event) => {
   }
   const order = await createOrder({
     ...body,
+    authenticatedCustomerId,
     guestTokenEnvelope: encryptSecret(body.guestToken, runtime.auth.encryptionKey),
     newsletterSecrets: {
       tokenPepper: runtime.auth.tokenPepper,
@@ -83,7 +112,6 @@ export default defineEventHandler(async (event) => {
     },
     correlationId: event.context.correlationId ?? crypto.randomUUID()
   })
-  const sql = useDatabase()
   await sql`
     INSERT INTO order_access_sessions (order_id, token_hash, expires_at)
     SELECT id, ${hashAccessToken(order.token)}, now() + interval '24 hours'
@@ -98,6 +126,7 @@ export default defineEventHandler(async (event) => {
     path: '/',
     maxAge: 60 * 60 * 24
   })
+  deleteCookie(event, 'neteco-cart', { path: '/' })
   setResponseStatus(event, 201)
   return order
 })

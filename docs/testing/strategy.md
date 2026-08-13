@@ -35,3 +35,11 @@ Playwright ejecuta la rama real del adaptador Redsys con el vector sandbox publi
 El TPV alojado se simula únicamente interceptando el formulario del navegador; las notificaciones firmadas atraviesan
 el endpoint HTTP real y PostgreSQL. La suite cubre éxito, rechazo, abandono, callback antes/después del retorno,
 duplicado, importe/firma inválidos y reintento visible. CI conserva traces, vídeo y screenshots solo en fallo.
+
+## Cuenta y compra autenticada E2E
+
+El recorrido autenticado crea dos cuentas sintéticas mediante la UI y recupera los tokens de verificación y reset
+solo desde el outbox de la base efímera. Comprueba registro, verificación, logout, login, dirección, carrito, checkout,
+Redsys, pedido, emisión y descarga de factura mock, reset y revocación de sesiones. El segundo usuario demuestra que
+direcciones, pedidos y facturas no cruzan identidades; además, reinyecta las cookies anteriores de acceso a pedido y
+carrito para verificar que el logout revocó sus tokens.

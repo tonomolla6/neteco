@@ -196,6 +196,13 @@ export const useCartStore = defineStore('cart', {
       this.version = 0
       this.ready = false
       this.persist()
+    },
+    resetLocal() {
+      this.items = []
+      this.id = null
+      this.version = 0
+      this.ready = false
+      this.persist()
     }
   }
 })
