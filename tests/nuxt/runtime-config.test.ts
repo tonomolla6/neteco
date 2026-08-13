@@ -62,6 +62,43 @@ const localConfiguration = {
   }
 } as const
 
+const productionConfiguration = {
+  ...localConfiguration,
+  appEnv: 'production',
+  databaseUrl: 'postgres://neteco:runtime-test@database.invalid/neteco?sslmode=require',
+  redisUrl: 'rediss://cache.invalid/0',
+  paymentProvider: 'redsys',
+  invoiceProvider: 'beply',
+  carrierProvider: 'manual',
+  emailProvider: 'smtp',
+  legal: { ...localConfiguration.legal, reviewedAt: '2026-08-13' },
+  media: { ...localConfiguration.media, storageDirectory: '/srv/neteco/media', clamavHost: 'clamav.invalid' },
+  auth: {
+    ...localConfiguration.auth,
+    tokenPepper: 'production-runtime-test-token-pepper',
+    encryptionKey: Buffer.alloc(32, 1).toString('base64')
+  },
+  redsys: {
+    ...localConfiguration.redsys,
+    environment: 'production',
+    merchantCode: '123456789',
+    secretKey: 'production-runtime-test-redsys-key'
+  },
+  beply: {
+    ...localConfiguration.beply,
+    token: 'production-runtime-test-beply-token',
+    invoiceSeries: 'INV',
+    correctiveSeries: 'CRN',
+    taxCode0: 'VAT0',
+    taxCode10: 'VAT10',
+    taxCode21: 'VAT21',
+    paymentCodeRedsys: 'CARD',
+    paymentCodeBankTransfer: 'WIRE',
+    companyId: 'NETECO'
+  },
+  public: { ...localConfiguration.public, appEnv: 'production', baseUrl: 'https://neteco.es' }
+} as const
+
 describe('runtime configuration', () => {
   it('allows only safe mocks outside production', () => {
     expect(validateRuntimeConfiguration(localConfiguration).appEnv).toBe('local')
@@ -87,5 +124,15 @@ describe('runtime configuration', () => {
         public: { ...localConfiguration.public, appEnv: 'production', baseUrl: 'http://neteco.invalid' }
       })
     ).toThrow()
+  })
+
+  it('rejects the public Redsys sandbox merchant in production', () => {
+    expect(validateRuntimeConfiguration(productionConfiguration).redsys.environment).toBe('production')
+    expect(() =>
+      validateRuntimeConfiguration({
+        ...productionConfiguration,
+        redsys: { ...productionConfiguration.redsys, merchantCode: '999008881' }
+      })
+    ).toThrow('Production Redsys credentials are required')
   })
 })

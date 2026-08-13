@@ -10,9 +10,10 @@ import {
 import { decryptSecret } from '../../server/utils/secrets'
 import { expect, test } from '../fixtures/playwright'
 import type { DeterministicTestData } from '../fixtures/deterministic'
+import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 
 const execFileAsync = promisify(execFile)
-const REDSYS_SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'
+const REDSYS_SECRET = REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey
 const STOREFRONT_ORIGIN = new URL(
   process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${process.env.PLAYWRIGHT_PORT ?? '3100'}`
 ).origin

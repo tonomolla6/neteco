@@ -59,7 +59,7 @@ const currentRepoEvidence = new Set(
   )
 )
 const currentPartialExternal = new Set(
-  ids('SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014')
+  ids('SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017')
 )
 
 function csv(value: string | number) {
@@ -127,6 +127,8 @@ function evidenceFor(id: string) {
       'tests/e2e/shipping-fulfillment.spec.ts; server/services/orders.ts; server/services/returns.ts; scripts/refund-worker.ts; scripts/credit-note-worker.ts; scripts/outbox-worker.ts; app/pages/devoluciones.vue; app/pages/admin/devoluciones.vue',
     'TST-016':
       'tests/integration/commerce-transactions.test.ts; tests/e2e/bank-transfer.spec.ts; tests/e2e/redsys-checkout.spec.ts; server/services/orders.ts; scripts/reservation-worker.ts; db/migrations/0012_payment_webhook_idempotency.sql',
+    'TST-017':
+      'tests/fixtures/redsys-official.ts; tests/unit/redsys.test.ts; tests/e2e/redsys-checkout.spec.ts; server/integrations/redsys.ts; server/utils/runtime-config.ts; scripts/redsys-sandbox-contract.ts; docs/testing/strategy.md',
     'MKT-002':
       'db/migrations/0026_newsletter_double_opt_in.sql; server/services/newsletter.ts; tests/integration/newsletter-double-opt-in.test.ts',
     'MKT-003':

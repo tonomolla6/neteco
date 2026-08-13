@@ -22,6 +22,7 @@
     "test:nuxt": "vitest run --project nuxt",
     "test:integration": "vitest run --project integration",
     "test:e2e": "tsx scripts/run-e2e.ts",
+    "test:contract:redsys:sandbox": "tsx scripts/redsys-sandbox-contract.ts",
     "test:determinism": "tsx scripts/audit-test-determinism.ts --publish",
     "test:mutation": "stryker run",
     "coverage:policy": "tsx scripts/audit-coverage-policy.ts",

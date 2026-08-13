@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import { REDSYS_OFFICIAL_CONTRACT } from './tests/fixtures/redsys-official'
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 3100)
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`
@@ -55,14 +56,14 @@ export default defineConfig({
           NUXT_PAYMENT_PROVIDER: 'redsys',
           REDSYS_ENV: 'sandbox',
           NUXT_REDSYS_ENVIRONMENT: 'sandbox',
-          REDSYS_MERCHANT_CODE: '999008881',
-          NUXT_REDSYS_MERCHANT_CODE: '"999008881"',
-          REDSYS_TERMINAL: '1',
-          NUXT_REDSYS_TERMINAL: '"1"',
-          REDSYS_SECRET_KEY: 'sq7HjrUOBfKmC576ILgskD5srU870gJ7',
-          NUXT_REDSYS_SECRET_KEY: 'sq7HjrUOBfKmC576ILgskD5srU870gJ7',
-          REDSYS_CURRENCY: '978',
-          NUXT_REDSYS_CURRENCY: '"978"',
+          REDSYS_MERCHANT_CODE: REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode,
+          NUXT_REDSYS_MERCHANT_CODE: JSON.stringify(REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode),
+          REDSYS_TERMINAL: REDSYS_OFFICIAL_CONTRACT.sandbox.terminal,
+          NUXT_REDSYS_TERMINAL: JSON.stringify(REDSYS_OFFICIAL_CONTRACT.sandbox.terminal),
+          REDSYS_SECRET_KEY: REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey,
+          NUXT_REDSYS_SECRET_KEY: REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey,
+          REDSYS_CURRENCY: REDSYS_OFFICIAL_CONTRACT.sandbox.currency,
+          NUXT_REDSYS_CURRENCY: JSON.stringify(REDSYS_OFFICIAL_CONTRACT.sandbox.currency),
           REDSYS_MERCHANT_NAME: 'NETECO E2E',
           NUXT_REDSYS_MERCHANT_NAME: 'NETECO E2E',
           BANK_TRANSFER_ENABLED: 'true',

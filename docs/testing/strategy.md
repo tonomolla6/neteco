@@ -36,6 +36,19 @@ El TPV alojado se simula únicamente interceptando el formulario del navegador; 
 el endpoint HTTP real y PostgreSQL. La suite cubre éxito, rechazo, abandono, callback antes/después del retorno,
 duplicado, importe/firma inválidos y reintento visible. CI conserva traces, vídeo y screenshots solo en fallo.
 
+El contrato TST-017 fija el vector `HMAC_SHA512_V2`, la clave pública de prueba y los parámetros del ejemplo oficial
+de [firma de operaciones](https://pagosonline.redsys.es/desarrolladores-inicio/documentacion-operativa/firmar-una-operacion/),
+además de los rangos de [códigos de respuesta](https://pagosonline.redsys.es/desarrolladores-inicio/integrate-con-nosotros/parametros-de-entrada-y-salida/)
+y las URLs de [entornos de prueba](https://pagosonline.redsys.es/desarrolladores-inicio/integrate-con-nosotros/tarjetas-y-entornos-de-prueba/),
+consultados el 13 de agosto de 2026. Los secretos publicados aparecen solo en fixtures sandbox; la configuración
+productiva exige endpoint productivo, credenciales no vacías y rechaza el comercio público `999008881` de pruebas.
+
+La aceptación externa se ejecuta de forma explícita con `npm run test:contract:redsys:sandbox`. El gate exige
+`REDSYS_CONTRACT_SANDBOX=1`, `REDSYS_ENV=sandbox`, credenciales inyectadas y una URL HTTPS de callback; aborta en
+producción y nunca imprime la clave. El smoke envía un redirect firmado de 1,45 € al endpoint sandbox. Finanzas debe
+completar después los casos oficiales de autorización, denegación y cancelación, conservar callback/portal como
+evidencia y rotar o retirar las credenciales temporales. Hasta entonces TST-017 permanece `PARTIAL_EXTERNAL`.
+
 ## Cuenta y compra autenticada E2E
 
 El recorrido autenticado crea dos cuentas sintéticas mediante la UI y recupera los tokens de verificación y reset

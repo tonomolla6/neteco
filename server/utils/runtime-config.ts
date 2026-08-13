@@ -5,6 +5,7 @@ const environmentSchema = z.enum(['local', 'test', 'preview', 'demo', 'staging',
 const providerSchema = z.enum(['mock', 'redsys'])
 const invoiceProviderSchema = z.enum(['mock', 'beply'])
 const carrierProviderSchema = z.enum(['mock', 'manual', 'own-delivery', 'carrier'])
+const REDSYS_PUBLIC_SANDBOX_MERCHANT_CODE = '999008881'
 
 export const runtimeConfigurationSchema = z
   .object({
@@ -133,7 +134,11 @@ export const runtimeConfigurationSchema = z
         message: 'Production requires Redsys production mode'
       })
     }
-    if (!config.redsys.merchantCode || !config.redsys.secretKey) {
+    if (
+      !config.redsys.merchantCode ||
+      !config.redsys.secretKey ||
+      config.redsys.merchantCode === REDSYS_PUBLIC_SANDBOX_MERCHANT_CODE
+    ) {
       context.addIssue({ code: 'custom', path: ['redsys'], message: 'Production Redsys credentials are required' })
     }
     if (

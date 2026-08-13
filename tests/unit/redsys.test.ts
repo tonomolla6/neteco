@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deterministicUuid } from '../fixtures/deterministic'
+import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 import {
   decodeMerchantParameters,
   deriveOperationKey,
@@ -9,10 +10,7 @@ import {
   verifyMerchantSignature
 } from '../../server/integrations/redsys'
 
-const SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'
-const OFFICIAL_PARAMETERS =
-  'eyJEU19NRVJDSEFOVF9BTU9VTlQiOiI5OTkiLCJEU19NRVJDSEFOVF9PUkRFUiI6IjEyMzQ1Njc4OTAiLCJEU19NRVJDSEFOVF9NRVJDSEFOVENPREUiOiI5OTkwMDg4ODEiLCJEU19NRVJDSEFOVF9DVVJSRU5DWSI6Ijk3OCIsIkRTX01FUkNIQU5UX1RSQU5TQUNUSU9OVFlQRSI6IjAiLCJEU19NRVJDSEFOVF9URVJNSU5BTCI6IjEiLCJEU19NRVJDSEFOVF9NRVJDSEFOVFVSTCI6Imh0dHA6XC9cL3d3dy5wcnVlYmEuY29tXC91cmxOb3RpZmljYWNpb24ucGhwIiwiRFNfTUVSQ0hBTlRfVVJMT0siOiJodHRwOlwvXC93d3cucHJ1ZWJhLmNvbVwvdXJsT0sucGhwIiwiRFNfTUVSQ0hBTlRfVVJMS08iOiJodHRwOlwvXC93d3cucHJ1ZWJhLmNvbVwvdXJsS08ucGhwIn0'
-const OFFICIAL_SIGNATURE = 'Vjo02eSWq249IeZZp3R-ArFnGLhKY0OuzDDlx1BuVtZDC2yhczA7_11uZhsYzLZBCMFAz8u8uzGDX3AErHKmmw'
+const SECRET = REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey
 
 function provider(
   fetcher: typeof fetch = fetch,
@@ -21,8 +19,8 @@ function provider(
   return new RedsysPaymentProvider(
     {
       environment: 'sandbox',
-      merchantCode: '999008881',
-      terminal: '1',
+      merchantCode: REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode,
+      terminal: REDSYS_OFFICIAL_CONTRACT.sandbox.terminal,
       secretKey: SECRET,
       merchantName: 'NETECO',
       ...overrides
@@ -69,9 +67,11 @@ function refundResponse(amount: string, overrides: Record<string, string> = {}) 
 
 describe('Redsys HMAC_SHA512_V2', () => {
   it('matches the official operation-key and signature vectors', () => {
-    expect(deriveOperationKey(SECRET, '1234567890').toString('base64')).toBe('RWt3/IPTzYRMXsQtkiGRKg==')
-    expect(signMerchantParameters(OFFICIAL_PARAMETERS, SECRET)).toBe(OFFICIAL_SIGNATURE)
-    expect(verifyMerchantSignature(OFFICIAL_PARAMETERS, OFFICIAL_SIGNATURE, SECRET)).toBe(true)
+    const vector = REDSYS_OFFICIAL_CONTRACT.signature
+    expect(deriveOperationKey(SECRET, vector.order).toString('base64')).toBe(vector.operationKeyBase64)
+    expect(signMerchantParameters(vector.merchantParameters, SECRET)).toBe(vector.signature)
+    expect(verifyMerchantSignature(vector.merchantParameters, vector.signature, SECRET)).toBe(true)
+    expect(REDSYS_OFFICIAL_CONTRACT.sources.signature).toMatch(/^https:\/\/pagosonline\.redsys\.es\//)
   })
 
   it('round-trips parameters and rejects malformed values and signatures', () => {
@@ -144,10 +144,12 @@ describe('Redsys payment provider', () => {
       'exclusively for EUR'
     )
     expect(() => provider(undefined, { currency: '840' })).toThrow()
-    const production = await provider(undefined, { environment: 'production', currency: '978' }).createRedirect({
-      ...base,
-      method: 'card'
-    })
+    const production = await provider(undefined, {
+      environment: 'production',
+      merchantCode: '123456789',
+      secretKey: 'unit-only-noncredential-key',
+      currency: '978'
+    }).createRedirect({ ...base, method: 'card' })
     expect(production.actionUrl).toBe('https://sis.redsys.es/sis/realizarPago')
     for (const orderReference of ['x123456789012', '123456789012x']) {
       await expect(provider().createRedirect({ ...base, orderReference, method: 'card' })).rejects.toThrow()
@@ -160,13 +162,7 @@ describe('Redsys payment provider', () => {
     }
   })
 
-  it.each([
-    ['0000', 'captured'],
-    ['0099', 'captured'],
-    ['9915', 'cancelled'],
-    ['9998', 'pending'],
-    ['0101', 'failed']
-  ])('maps response %s to %s', async (response, status) => {
+  it.each(REDSYS_OFFICIAL_CONTRACT.responseCases)('maps official response %s to %s', async (response, status) => {
     const result = await provider().verifyNotification(signedNotification(response))
     expect(result).toMatchObject({
       orderReference: '1234567890',
