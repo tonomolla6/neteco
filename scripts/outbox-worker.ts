@@ -247,6 +247,31 @@ function render(event: OutboxEvent) {
 async function processOne(event: OutboxEvent) {
   try {
     const email = render(event)
+    const recipientHash = createHash('sha256').update(email.to.trim().toLowerCase()).digest('hex')
+    const [suppression] = await sql<{ reason: string }[]>`
+      SELECT reason FROM communication_suppressions
+      WHERE channel = 'email' AND destination_hash = ${recipientHash}
+        AND reason IN ('hard_bounce', 'complaint', 'manual', 'legal')
+    `
+    if (suppression) {
+      await sql.begin(async (transaction) => {
+        await transaction`
+          INSERT INTO communication_deliveries (
+            outbox_event_id, provider, provider_message_id, channel, status, recipient_hash
+          ) VALUES (
+            ${event.id}, ${provider.name}, ${`suppressed:${event.id}`}, 'email', 'suppressed', ${recipientHash}
+          ) ON CONFLICT (outbox_event_id) DO NOTHING
+        `
+        await transaction`
+          UPDATE outbox_events
+          SET status = 'completed', completed_at = now(), locked_at = NULL, locked_by = NULL,
+              last_error_code = ${`email_suppressed_${suppression.reason}`},
+              last_error_message = 'Delivery blocked by communication suppression'
+          WHERE id = ${event.id} AND locked_by = ${workerId}
+        `
+      })
+      return
+    }
     const delivery = await provider.send(email)
     await sql.begin(async (transaction) => {
       await transaction`
@@ -254,7 +279,7 @@ async function processOne(event: OutboxEvent) {
           outbox_event_id, provider, provider_message_id, channel, status, recipient_hash
         ) VALUES (
           ${event.id}, ${provider.name}, ${delivery.providerMessageId}, 'email', 'accepted',
-          ${createHash('sha256').update(email.to.trim().toLowerCase()).digest('hex')}
+          ${recipientHash}
         ) ON CONFLICT (outbox_event_id) DO NOTHING
       `
       await transaction`

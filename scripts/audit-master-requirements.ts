@@ -103,7 +103,8 @@ function evidenceFor(id: string) {
     'ADM-017':
       'db/migrations/0023_feature_flag_governance.sql; server/api/admin/feature-flags; app/pages/admin/flags.vue',
     'COM-004': 'scripts/outbox-worker.ts; db/migrations/0015_support_and_communications.sql',
-    'COM-005': 'server/api/webhooks/email.post.ts; db/migrations/0025_email_delivery_webhooks.sql',
+    'COM-005':
+      'server/api/webhooks/email.post.ts; db/migrations/0025_email_delivery_webhooks.sql; scripts/outbox-worker.ts',
     'PER-003': 'app/plugins/rum.client.ts; server/api/analytics/events.post.ts',
     'PER-013': 'app/plugins/rum.client.ts; server/api/analytics/events.post.ts; db/migrations/0019_rum_measurement.sql'
   }

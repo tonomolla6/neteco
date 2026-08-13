@@ -8,4 +8,5 @@ El cuerpo contractual contiene `provider`, `eventId`, `providerMessageId`, `type
 `complaint`) y `occurredAt` ISO-8601. No debe contener la dirección de correo ni contenido del mensaje.
 
 Los eventos se deduplican por proveedor e ID, actualizan la evidencia de entrega y crean una supresión inmediata para
-rebotes duros y quejas. La rotación de la clave exige solape coordinado con el proveedor; se valida primero en staging.
+rebotes duros y quejas. El worker consulta esa lista antes de cada envío y deja evidencia `suppressed` sin contactar al
+proveedor. La rotación de la clave exige solape coordinado con el proveedor; se valida primero en staging.
