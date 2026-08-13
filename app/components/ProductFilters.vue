@@ -114,7 +114,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.marca ? 'rotate-180' : ''"
         />
       </button>
@@ -172,7 +172,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.precio ? 'rotate-180' : ''"
         />
       </button>
@@ -219,7 +219,7 @@ const THUMB =
                 }
               "
             />
-            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">€</span>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-600">€</span>
           </div>
           <span class="text-slate-300">–</span>
           <div class="relative">
@@ -238,7 +238,7 @@ const THUMB =
                 }
               "
             />
-            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">€</span>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-600">€</span>
           </div>
         </div>
       </div>
@@ -262,7 +262,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.etiquetas ? 'rotate-180' : ''"
         />
       </button>
@@ -281,7 +281,7 @@ const THUMB =
         >
           <UIcon v-if="BADGES[b.value]" :name="BADGES[b.value]!.icon" class="size-3.5" />
           {{ BADGES[b.value]?.label ?? b.value }}
-          <span :class="filters.badges.includes(b.value) ? 'text-neteco-100' : 'text-slate-400'">{{ b.n }}</span>
+          <span :class="filters.badges.includes(b.value) ? 'text-neteco-100' : 'text-slate-600'">{{ b.n }}</span>
         </button>
       </div>
     </section>
@@ -304,7 +304,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.envase ? 'rotate-180' : ''"
         />
       </button>
@@ -329,7 +329,7 @@ const THUMB =
           <span class="text-center text-[11px] leading-tight text-slate-700">{{
             ENVASE_LABELS[e.value] ?? e.value
           }}</span>
-          <span class="text-[10px] tabular-nums text-slate-400">{{ e.n }}</span>
+          <span class="text-[10px] tabular-nums text-slate-600">{{ e.n }}</span>
         </button>
       </div>
     </section>
@@ -352,7 +352,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.capacidad ? 'rotate-180' : ''"
         />
       </button>
@@ -370,7 +370,7 @@ const THUMB =
           @click="toggle('capacidades', c.value)"
         >
           {{ formatCapacity(c.value) }}
-          <span :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-400'">{{ c.n }}</span>
+          <span :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-600'">{{ c.n }}</span>
         </button>
       </div>
     </section>
@@ -393,7 +393,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.talla ? 'rotate-180' : ''"
         />
       </button>
@@ -433,7 +433,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.medida ? 'rotate-180' : ''"
         />
       </button>
@@ -451,7 +451,7 @@ const THUMB =
           @click="toggle('medidas', m.value)"
         >
           {{ m.value }}
-          <span :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-400'">{{ m.n }}</span>
+          <span :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-600'">{{ m.n }}</span>
         </button>
       </div>
     </section>
@@ -474,7 +474,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.acabado ? 'rotate-180' : ''"
         />
       </button>
@@ -492,7 +492,7 @@ const THUMB =
           @click="toggle('acabados', a.value)"
         >
           {{ a.value }}
-          <span :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-400'">{{ a.n }}</span>
+          <span :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-600'">{{ a.n }}</span>
         </button>
       </div>
     </section>
@@ -515,7 +515,7 @@ const THUMB =
         </span>
         <UIcon
           name="i-lucide-chevron-down"
-          class="size-4 text-slate-400 transition-transform"
+          class="size-4 text-slate-600 transition-transform"
           :class="open.color ? 'rotate-180' : ''"
         />
       </button>

@@ -148,7 +148,7 @@ async function confirmClear() {
       <div v-else class="py-20 text-center">
         <UIcon name="i-lucide-shopping-cart" class="mx-auto size-14 text-slate-300" />
         <p class="mt-4 text-lg font-medium text-slate-600">Tu carrito está vacío</p>
-        <p class="mt-1 text-sm text-slate-400">Explora el catálogo y añade lo que necesite tu negocio.</p>
+        <p class="mt-1 text-sm text-slate-500">Explora el catálogo y añade lo que necesite tu negocio.</p>
         <UButton to="/catalogo" size="lg" class="mt-6" icon="i-lucide-layout-grid">Ver catálogo</UButton>
       </div>
 

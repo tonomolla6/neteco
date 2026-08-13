@@ -709,7 +709,7 @@ async function finish(order: { id: string; token: string }) {
           <UButton type="submit" size="xl" block class="mt-4" :loading="submitting" icon="i-lucide-lock">
             {{ paymentMethod === 'transferencia' ? 'Confirmar pedido' : `Pagar ${formatPrice(total)}` }}
           </UButton>
-          <p class="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+          <p class="mt-3 flex items-center justify-center gap-1.5 text-xs text-slate-500">
             <UIcon name="i-lucide-shield-check" class="size-3.5" /> Pago protegido mediante redirección bancaria
           </p>
         </aside>

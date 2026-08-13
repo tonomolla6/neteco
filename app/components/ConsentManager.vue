@@ -29,7 +29,10 @@ function saveSelection() {
   visible.value = false
 }
 
-onMounted(() => window.addEventListener('neteco-open-consent', open))
+onMounted(() => {
+  window.addEventListener('neteco-open-consent', open)
+  if (visible.value) nextTick(() => dialog.value?.querySelector<HTMLElement>('button')?.focus())
+})
 onBeforeUnmount(() => window.removeEventListener('neteco-open-consent', open))
 
 watch(
@@ -102,8 +105,8 @@ function trapFocus(event: KeyboardEvent) {
     <div class="mt-4 flex flex-wrap gap-2">
       <UButton color="neutral" variant="outline" @click="reject">Rechazar opcionales</UButton>
       <UButton v-if="!configuring" color="neutral" variant="outline" @click="configuring = true">Configurar</UButton>
-      <UButton v-else @click="saveSelection">Guardar selección</UButton>
-      <UButton v-if="!configuring" @click="accept">Aceptar todas</UButton>
+      <UButton v-else color="neutral" @click="saveSelection">Guardar selección</UButton>
+      <UButton v-if="!configuring" color="neutral" @click="accept">Aceptar todas</UButton>
     </div>
   </section>
 </template>

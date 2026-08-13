@@ -224,7 +224,7 @@ watch(
                 @click="selectedCategory = selectedCategory === c.slug ? '' : c.slug"
               >
                 <span class="truncate">{{ c.name }}</span>
-                <span class="ml-2 shrink-0 text-xs text-slate-400">{{ c.n }}</span>
+                <span class="ml-2 shrink-0 text-xs text-slate-600">{{ c.n }}</span>
               </button>
             </li>
           </ul>
@@ -300,7 +300,7 @@ watch(
                     @click="selectedCategory = selectedCategory === c.slug ? '' : c.slug"
                   >
                     <span class="truncate">{{ c.name }}</span>
-                    <span class="ml-2 shrink-0 text-xs text-slate-400">{{ c.n }}</span>
+                    <span class="ml-2 shrink-0 text-xs text-slate-600">{{ c.n }}</span>
                   </button>
                 </li>
               </ul>

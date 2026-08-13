@@ -12,9 +12,12 @@ const estado = ref('')
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 const catOptions = computed(() => flattenCategoryTree(catData.value?.roots ?? []))
 
-const { data, refresh } = await useFetch<{ items: AdminProductSummary[] }>('/api/admin/products', {
-  query: { q, category, status: estado }
-})
+const filters = computed(() => ({
+  ...(q.value.trim() ? { q: q.value.trim() } : {}),
+  ...(category.value ? { category: category.value } : {}),
+  ...(estado.value ? { status: estado.value } : {})
+}))
+const { data, refresh } = await useFetch<{ items: AdminProductSummary[] }>('/api/admin/products', { query: filters })
 const items = computed(() => data.value?.items ?? [])
 
 const toast = useToast()
@@ -99,7 +102,7 @@ async function removeProduct(product: AdminProductSummary) {
         <option value="">Todos los estados</option>
         <option v-for="(label, value) in STATUS_LABELS" :key="value" :value="value">{{ label }}</option>
       </select>
-      <span class="self-center text-sm text-slate-500">{{ items.length }} productos</span>
+      <span class="self-center text-sm text-slate-600">{{ items.length }} productos</span>
     </div>
 
     <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">

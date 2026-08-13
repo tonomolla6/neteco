@@ -23,9 +23,11 @@
   --color-neteco-950: #062c3d;
 }
 
-/* AA: los CTA sólidos usan el 600 (#007ba6, 4.8:1 con texto blanco) en vez del 500 (3.25:1) */
+/* AA: marca y estados semánticos conservan al menos 4.5:1 sobre sus fondos claros y sólidos. */
 :root {
-  --ui-primary: var(--color-neteco-600);
+  --ui-primary: var(--color-neteco-700);
+  --ui-error: var(--color-red-700);
+  --ui-success: var(--color-green-800);
 }
 
 body {

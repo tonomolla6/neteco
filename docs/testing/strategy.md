@@ -98,6 +98,14 @@ allowlist o parser determinista. La URL de Beply queda limitada a HTTPS bajo `be
 resolver DNS y se consume sin redirects; el CSV de trazabilidad usa el mismo serializador endurecido que cubren los
 payloads de fórmula.
 
+## Accesibilidad automatizada
+
+El gate dedicado `npm run test:a11y` aplica Axe WCAG A/AA sobre la
+[matriz de accesibilidad](./automated-accessibility.md): plantillas públicas, estados vacíos y de error, checkout,
+consentimiento, navegación/filtros móviles, cuenta y panel autenticado con MFA. Un hallazgo `serious` o `critical`
+falla CI y conserva evidencia diagnóstica. Esta automatización complementa, pero no sustituye, la revisión manual de
+TST-023.
+
 ## Transferencia bancaria E2E
 
 El journey de transferencia atraviesa catálogo, carrito, checkout y página de pedido con una reserva real de 72 horas.

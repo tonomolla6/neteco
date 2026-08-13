@@ -31,10 +31,10 @@ async function logout() {
         <NuxtLink to="/admin" class="flex shrink-0 items-center gap-2">
           <img src="/logo-figura.png" alt="" class="h-7 w-auto" />
           <span class="font-display font-bold">NETECO</span>
-          <span class="rounded bg-neteco-500 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">Admin</span>
+          <span class="rounded bg-neteco-700 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">Admin</span>
         </NuxtLink>
 
-        <nav class="ml-4 hidden items-center gap-1 md:flex">
+        <nav class="ml-4 hidden min-w-0 flex-1 items-center gap-1 overflow-x-auto md:flex">
           <NuxtLink
             v-for="l in links"
             :key="l.to"
@@ -48,7 +48,7 @@ async function logout() {
           </NuxtLink>
         </nav>
 
-        <div class="ml-auto flex items-center gap-1 text-sm">
+        <div class="ml-auto flex shrink-0 items-center gap-1 text-sm">
           <NuxtLink
             to="/"
             class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-slate-300 hover:bg-slate-800 hover:text-white"

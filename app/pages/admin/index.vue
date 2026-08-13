@@ -45,8 +45,10 @@ const cards = computed(() => [
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h1 class="text-2xl font-bold text-slate-900">Panel de administración</h1>
       <div class="flex gap-2">
-        <UButton to="/admin/productos/nuevo" icon="i-lucide-plus">Nuevo producto</UButton>
-        <UButton to="/admin/categorias" variant="soft" icon="i-lucide-folder-plus">Nueva familia</UButton>
+        <UButton to="/admin/productos/nuevo" color="neutral" icon="i-lucide-plus">Nuevo producto</UButton>
+        <UButton to="/admin/categorias" color="neutral" variant="outline" icon="i-lucide-folder-plus">
+          Nueva familia
+        </UButton>
       </div>
     </div>
 
