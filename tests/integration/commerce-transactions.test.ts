@@ -11,6 +11,8 @@ import {
   processPaymentNotification,
   type CreateOrderInput
 } from '../../server/services/orders'
+import { hashAccessToken } from '../../server/utils/access-token'
+import { decryptSecret } from '../../server/utils/secrets'
 
 const connection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco'
 const sql = postgres(connection, { max: 4 })
@@ -561,7 +563,8 @@ describe('commerce transaction spine', () => {
       DATABASE_URL: connection,
       APP_ENV: 'test',
       INVOICE_PROVIDER: 'mock',
-      PAYMENT_PROVIDER: 'mock'
+      PAYMENT_PROVIDER: 'mock',
+      AUTH_ENCRYPTION_KEY: Buffer.alloc(32, 11).toString('base64')
     }
     await execFileAsync(
       'node_modules/.bin/tsx',
@@ -587,6 +590,28 @@ describe('commerce transaction spine', () => {
     expect(invoice!.checksum).toMatch(/^[a-f0-9]{64}$/)
     expect(invoice!.size).toBeGreaterThan(10)
     expect(Buffer.from(invoice!.bytes!).subarray(0, 4).toString('ascii')).toBe('%PDF')
+    const [invoiceEmail] = await sql<
+      { tokenEnvelope: string; expiresAt: string; invoiceId: string; accessSessions: number }[]
+    >`
+      SELECT event.payload ->> 'tokenEnvelope' AS "tokenEnvelope",
+             event.payload ->> 'expiresAt' AS "expiresAt",
+             event.payload ->> 'invoiceId' AS "invoiceId",
+             (SELECT count(*) FROM order_access_sessions session
+              WHERE session.order_id = ${internal!.id})::int AS "accessSessions"
+      FROM outbox_events event
+      WHERE event.aggregate_id = ${invoice.id} AND event.event_type = 'invoice.issued'
+    `
+    expect(invoiceEmail).toMatchObject({ invoiceId: invoice.id, accessSessions: 1 })
+    expect(new Date(invoiceEmail!.expiresAt).getTime()).toBeGreaterThan(Date.now())
+    const invoiceToken = decryptSecret(invoiceEmail!.tokenEnvelope, workerEnvironment.AUTH_ENCRYPTION_KEY)
+    const [invoiceAccess] = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM order_access_sessions
+        WHERE order_id = ${internal!.id} AND token_hash = ${hashAccessToken(invoiceToken)}
+          AND revoked_at IS NULL AND expires_at > now()
+      ) AS exists
+    `
+    expect(invoiceAccess?.exists).toBe(true)
 
     const cancelled = await cancelOrderByAdmin({
       publicNumber: order.id,

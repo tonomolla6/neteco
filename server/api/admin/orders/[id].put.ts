@@ -1,11 +1,11 @@
 import { z } from 'zod'
-import { assertTransition, fulfillmentTransitions } from '../../../domain/states'
-import type { orderTransitions } from '../../../domain/states'
+import { nextAdminFulfillmentStatus } from '../../../domain/admin-order-status'
+import type { fulfillmentTransitions, orderTransitions } from '../../../domain/states'
 import { useDatabase } from '../../../db/client'
 import { cancelOrderByAdmin } from '../../../services/orders'
 
 const schema = z.object({
-  status: z.enum(['pagado', 'preparando', 'enviado', 'entregado', 'cancelado']),
+  status: z.enum(['pagado', 'preparando', 'listo_recogida', 'enviado', 'entregado', 'cancelado']),
   reason: z.string().trim().min(3).max(500)
 })
 
@@ -31,10 +31,12 @@ export default defineEventHandler(async (event) => {
         paymentStatus: string
         fulfillmentStatus: keyof typeof fulfillmentTransitions
         inventoryStatus: string
+        shippingMethod: string
       }>
     >`
       SELECT id, order_status AS "orderStatus", payment_status AS "paymentStatus",
-             fulfillment_status AS "fulfillmentStatus", inventory_status AS "inventoryStatus"
+             fulfillment_status AS "fulfillmentStatus", inventory_status AS "inventoryStatus",
+             shipping_method AS "shippingMethod"
       FROM orders WHERE public_number = ${id} FOR UPDATE
     `
     if (!order) return null
@@ -44,21 +46,19 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 409, statusMessage: 'Un administrador no puede fingir una captura bancaria' })
     }
     if (
-      ['preparando', 'enviado', 'entregado'].includes(body.status) &&
+      ['preparando', 'listo_recogida', 'enviado', 'entregado'].includes(body.status) &&
       !['captured', 'partially_refunded'].includes(order.paymentStatus)
     ) {
       throw createError({ statusCode: 409, statusMessage: 'El pedido no puede prepararse sin pago capturado' })
     }
-    if (body.status === 'preparando') {
-      assertTransition(fulfillmentTransitions, fulfillmentStatus, 'picking')
-      fulfillmentStatus = 'picking'
-    } else if (body.status === 'enviado') {
-      if (fulfillmentStatus === 'picking') fulfillmentStatus = 'packed'
-      if (fulfillmentStatus === 'packed') fulfillmentStatus = 'in_transit'
-      else assertTransition(fulfillmentTransitions, fulfillmentStatus, 'in_transit')
-    } else if (body.status === 'entregado') {
-      assertTransition(fulfillmentTransitions, fulfillmentStatus, 'delivered')
-      fulfillmentStatus = 'delivered'
+    if (body.status !== 'pagado' && body.status !== 'cancelado') {
+      fulfillmentStatus = nextAdminFulfillmentStatus({
+        current: fulfillmentStatus,
+        requested: body.status,
+        shippingMethod: order.shippingMethod
+      })
+    }
+    if (body.status === 'entregado') {
       if (orderStatus === 'confirmed') orderStatus = 'completed'
     }
     await transaction`
@@ -98,7 +98,11 @@ export default defineEventHandler(async (event) => {
         aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
       ) VALUES (
         'order', ${order.id}, 'order.status.updated',
-        ${transaction.json({ orderId: order.id, orderNumber: id, statusLabel: body.status })},
+        ${transaction.json({
+          orderId: order.id,
+          orderNumber: id,
+          statusLabel: body.status === 'listo_recogida' ? 'listo para recoger' : body.status
+        })},
         ${correlationId}, ${`order:${order.id}:status:${fulfillmentStatus}`}
       ) ON CONFLICT (idempotency_key) DO NOTHING
     `

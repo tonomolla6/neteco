@@ -3,6 +3,8 @@ import postgres, { type TransactionSql } from 'postgres'
 import { BeplyError } from '../server/integrations/beply'
 import { invoiceProviderFromEnvironment } from '../server/integrations/invoice-factory'
 import type { IssueInvoiceRequest } from '../server/integrations/invoice-provider'
+import { hashAccessToken } from '../server/utils/access-token'
+import { encryptSecret, randomOpaqueToken } from '../server/utils/secrets'
 
 interface Job {
   id: string
@@ -51,7 +53,9 @@ interface InvoiceRecord {
 }
 
 const connection = process.env.DATABASE_URL?.trim()
+const encryptionKey = process.env.AUTH_ENCRYPTION_KEY?.trim()
 if (!connection) throw new Error('DATABASE_URL is required')
+if (!encryptionKey) throw new Error('AUTH_ENCRYPTION_KEY is required')
 const sql = postgres(connection, { max: 2, connect_timeout: 10 })
 const provider = invoiceProviderFromEnvironment()
 const workerId = `invoice-${process.pid}-${randomUUID()}`
@@ -274,6 +278,8 @@ async function processJob(job: Job) {
     throw error
   }
   const checksum = createHash('sha256').update(pdf).digest('hex')
+  const invoiceAccessToken = randomOpaqueToken()
+  const invoiceAccessExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000)
   await sql.begin(async (transaction) => {
     await transaction`
       UPDATE invoices SET provider_invoice_id = ${providerInvoiceId}, provider_code = ${providerCode},
@@ -295,11 +301,24 @@ async function processJob(job: Job) {
       ) ON CONFLICT (order_id, idempotency_key) DO NOTHING
     `
     await transaction`
+      INSERT INTO order_access_sessions (order_id, token_hash, expires_at)
+      VALUES (${order.id}, ${hashAccessToken(invoiceAccessToken)}, ${invoiceAccessExpiresAt})
+      ON CONFLICT (order_id, token_hash) DO UPDATE SET
+        expires_at = EXCLUDED.expires_at, revoked_at = NULL
+    `
+    await transaction`
       INSERT INTO outbox_events (
         aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key
       ) VALUES (
         'invoice', ${prepared.record.id}, 'invoice.issued',
-        ${transaction.json({ orderId: order.id, orderNumber: order.publicNumber, code: providerCode })},
+        ${transaction.json({
+          invoiceId: prepared.record.id,
+          orderId: order.id,
+          orderNumber: order.publicNumber,
+          code: providerCode,
+          tokenEnvelope: encryptSecret(invoiceAccessToken, encryptionKey),
+          expiresAt: invoiceAccessExpiresAt.toISOString()
+        })},
         ${job.correlationId}, ${`invoice:${order.id}:notification:v1`}
       ) ON CONFLICT (idempotency_key) DO NOTHING
     `

@@ -8,7 +8,8 @@ export default defineEventHandler(async (event) => {
   if (!publicNumber) throw createError({ statusCode: 404, statusMessage: 'Factura no encontrada' })
   const cookie = getCookie(event, 'neteco-order-access')
   const cookieToken = cookie?.startsWith(`${publicNumber}.`) ? cookie.slice(publicNumber.length + 1) : undefined
-  const accessToken = cookieToken ?? ''
+  const queryToken = String(getQuery(event).token ?? '')
+  const accessToken = cookieToken || queryToken
   const documentId = String(getQuery(event).document ?? '')
   const kind = getQuery(event).kind === 'credit_note' ? 'credit_note' : 'invoice'
   if (documentId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(documentId)) {

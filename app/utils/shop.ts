@@ -17,6 +17,7 @@ export const ORDER_STATUS: Record<string, { label: string; color: UiColor; icon:
   reembolso_parcial: { label: 'Reembolso parcial', color: 'warning', icon: 'i-lucide-undo-2' },
   reembolsado: { label: 'Reembolsado', color: 'neutral', icon: 'i-lucide-undo-2' },
   preparando: { label: 'En preparación', color: 'info', icon: 'i-lucide-package' },
+  listo_recogida: { label: 'Listo para recoger', color: 'success', icon: 'i-lucide-package-check' },
   enviado: { label: 'Enviado', color: 'info', icon: 'i-lucide-truck' },
   entregado: { label: 'Entregado', color: 'success', icon: 'i-lucide-check-check' },
   cancelado: { label: 'Cancelado', color: 'error', icon: 'i-lucide-circle-x' }

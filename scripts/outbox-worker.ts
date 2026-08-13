@@ -5,13 +5,16 @@ import {
   marketingEmailProviderFromEnvironment
 } from '../server/integrations/email-provider'
 import { renderNewsletterEmail } from '../server/services/newsletter-email'
-import { decryptSecret } from '../server/utils/secrets'
+import { renderInvoiceEmail } from '../server/services/invoice-email'
+import { hashAccessToken } from '../server/utils/access-token'
+import { decryptSecret, encryptSecret, randomOpaqueToken } from '../server/utils/secrets'
 
 interface OutboxEvent {
   id: string
   eventType: string
   payload: {
     recipient: string
+    orderId?: string
     name?: string
     tokenEnvelope?: string
     expiresAt?: string
@@ -23,6 +26,8 @@ interface OutboxEvent {
     statusLabel?: string
     trackingNumber?: string
     refundCents?: number
+    invoiceId?: string
+    code?: string
     policyVersion?: string
     unsubscribeTokenEnvelope?: string
     unsubscribeExpiresAt?: string
@@ -65,6 +70,7 @@ async function claim(): Promise<OutboxEvent | undefined> {
           'support.ticket.reply'
           , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
           'order.shipped', 'order.delivered', 'refund.succeeded.email',
+          'invoice.issued',
           'newsletter.confirmation.requested', 'newsletter.welcome'
         )
     `
@@ -83,13 +89,18 @@ async function claim(): Promise<OutboxEvent | undefined> {
                    ORDER BY created.created_at LIMIT 1
                  )
                )
+             ) ELSE '{}'::jsonb END
+             || CASE WHEN invoice_record.id IS NOT NULL THEN jsonb_build_object(
+               'invoiceId', invoice_record.id
              ) ELSE '{}'::jsonb END AS payload,
              event.attempts
       FROM outbox_events event
       LEFT JOIN refunds ON event.aggregate_type = 'refund' AND refunds.id = event.aggregate_id
+      LEFT JOIN invoices invoice_record ON event.aggregate_type = 'invoice' AND invoice_record.id = event.aggregate_id
       LEFT JOIN orders ON
         (event.aggregate_type = 'order' AND orders.id = event.aggregate_id)
         OR (event.aggregate_type = 'refund' AND orders.id = refunds.order_id)
+        OR (event.aggregate_type = 'invoice' AND orders.id = invoice_record.order_id)
       WHERE event.status IN ('pending', 'retry')
         AND event.available_at <= now()
         AND event.event_type IN (
@@ -99,6 +110,7 @@ async function claim(): Promise<OutboxEvent | undefined> {
           'support.ticket.reply'
           , 'order.status.updated', 'order.cancelled', 'order.cancellation.requested',
           'order.shipped', 'order.delivered', 'refund.succeeded.email',
+          'invoice.issued',
           'newsletter.confirmation.requested', 'newsletter.welcome'
         )
       ORDER BY event.created_at
@@ -106,6 +118,26 @@ async function claim(): Promise<OutboxEvent | undefined> {
       LIMIT 1
     `
     if (!event) return undefined
+    if (event.eventType === 'invoice.issued' && !event.payload.tokenEnvelope) {
+      if (!event.payload.orderId) throw new Error('Invoice email event has no order ID')
+      const accessToken = randomOpaqueToken()
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60_000)
+      const tokenEnvelope = encryptSecret(accessToken, encryptionKey!)
+      await transaction`
+        INSERT INTO order_access_sessions (order_id, token_hash, expires_at)
+        VALUES (${event.payload.orderId}, ${hashAccessToken(accessToken)}, ${expiresAt})
+        ON CONFLICT (order_id, token_hash) DO UPDATE SET expires_at = EXCLUDED.expires_at, revoked_at = NULL
+      `
+      await transaction`
+        UPDATE outbox_events SET payload = payload || ${transaction.json({
+          tokenEnvelope,
+          expiresAt: expiresAt.toISOString()
+        })}
+        WHERE id = ${event.id}
+      `
+      event.payload.tokenEnvelope = tokenEnvelope
+      event.payload.expiresAt = expiresAt.toISOString()
+    }
     await transaction`
       UPDATE outbox_events
       SET status = 'processing', attempts = attempts + 1, locked_at = now(), locked_by = ${workerId}
@@ -116,6 +148,11 @@ async function claim(): Promise<OutboxEvent | undefined> {
 }
 
 function render(event: OutboxEvent) {
+  const invoiceEmail = renderInvoiceEmail(event, {
+    baseUrl: baseUrl!,
+    encryptionKey: encryptionKey!
+  })
+  if (invoiceEmail) return invoiceEmail
   const newsletterEmail = renderNewsletterEmail(event, {
     baseUrl: baseUrl!,
     encryptionKey: encryptionKey!
