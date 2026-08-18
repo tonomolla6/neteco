@@ -1,12 +1,19 @@
 export default {
   testRunner: 'vitest',
   checkers: ['typescript'],
-  tsconfigFile: '.nuxt/tsconfig.server.json',
-  mutate: ['server/domain/**/*.ts', 'server/integrations/**/*.ts', '!**/*.test.ts'],
+  tsconfigFile: 'tsconfig.stryker.json',
+  disableTypeChecks: false,
+  mutate: [
+    'server/domain/**/*.ts',
+    'server/integrations/**/*.ts',
+    '!server/integrations/carrier-provider.ts',
+    '!server/integrations/invoice-provider.ts',
+    '!server/integrations/payment-provider.ts'
+  ],
   thresholds: { high: 95, low: 90, break: 90 },
   reporters: ['clear-text', 'progress', 'html', 'json'],
   inPlace: true,
-  incremental: true,
+  incremental: false,
   cleanTempDir: 'always',
   tempDirName: '.stryker-tmp'
 }

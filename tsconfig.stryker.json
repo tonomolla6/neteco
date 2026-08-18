@@ -1,0 +1,17 @@
+{
+  "extends": "./.nuxt/tsconfig.server.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["server/domain/**/*.ts", "server/integrations/**/*.ts"],
+  "exclude": [
+    ".nuxt",
+    ".output",
+    ".stryker-tmp",
+    "coverage",
+    "node_modules",
+    "playwright-*-report",
+    "reports",
+    "test-results"
+  ]
+}

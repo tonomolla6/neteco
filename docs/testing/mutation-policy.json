@@ -1,0 +1,1805 @@
+{
+  "schemaVersion": 1,
+  "requirementId": "TST-037",
+  "minimumScore": 90,
+  "targetScore": 95,
+  "owner": "NETECO Engineering",
+  "reviewedAt": "2026-08-18T00:00:00Z",
+  "scope": {
+    "include": ["server/domain/**/*.ts", "server/integrations/**/*.ts"],
+    "typeOnlyExclusions": [
+      {
+        "file": "server/integrations/carrier-provider.ts",
+        "reason": "TypeScript-only carrier contract with no executable runtime statements.",
+        "owner": "NETECO Engineering",
+        "reviewedAt": "2026-08-18T00:00:00Z"
+      },
+      {
+        "file": "server/integrations/invoice-provider.ts",
+        "reason": "TypeScript-only invoicing contract with no executable runtime statements.",
+        "owner": "NETECO Engineering",
+        "reviewedAt": "2026-08-18T00:00:00Z"
+      },
+      {
+        "file": "server/integrations/payment-provider.ts",
+        "reason": "TypeScript-only payment contract with no executable runtime statements.",
+        "owner": "NETECO Engineering",
+        "reviewedAt": "2026-08-18T00:00:00Z"
+      }
+    ]
+  },
+  "reviews": [
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/admin-order-status.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 2,
+          "expectedLocations": ["21:9", "30:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving ConditionalExpression mutants at lines 21, 30. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/admin-order-status.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 1,
+          "expectedLocations": ["29:20"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 29. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 1,
+          "expectedLocations": ["108:37"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 108. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "candidate.name",
+          "expectedMatches": 1,
+          "expectedLocations": ["53:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 53. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "variant.mpn",
+          "expectedMatches": 1,
+          "expectedLocations": ["84:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 84. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "variant.unitBase",
+          "expectedMatches": 1,
+          "expectedLocations": ["96:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 96. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "variant.unitLabel",
+          "expectedMatches": 1,
+          "expectedLocations": ["96:38"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 96. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{8}$|^\\d{12,14}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["43:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 43. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{8}|^\\d{12,14}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["43:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 43. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{8}$|\\d{12,14}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["43:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 43. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{8}$|^\\d{12,14}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["43:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 43. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 3,
+          "expectedLocations": ["70:58", "70:70", "76:72"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 3 surviving StringLiteral mutants at lines 70, 76. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/catalog-publication.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "``",
+          "expectedMatches": 1,
+          "expectedLocations": ["76:57"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving StringLiteral mutant at line 76. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "value.trim().toLowerCase()",
+          "expectedMatches": 1,
+          "expectedLocations": ["38:22"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 38. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "z.string()",
+          "expectedMatches": 1,
+          "expectedLocations": ["12:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 12. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/(?:[XYZ]\\d{7}[A-Z]|\\d{8}[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{5}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["39:50"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 39. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[^XYZ]\\d{7}[A-Z]|\\d{8}[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[XYZ]\\d{7}[^A-Z]|\\d{8}[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[XYZ]\\d{7}[A-Z]|\\d[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[XYZ]\\d{7}[A-Z]|\\d{8}[^A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[XYZ]\\d{7}[A-Z]|\\d{8}[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[XYZ]\\D{7}[A-Z]|\\d{8}[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 5. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^[A-Z0-9][A-Z0-9-]{2,31}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["34:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 34. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{5}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["39:50"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 39. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/iban.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 1,
+          "expectedLocations": ["7:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 7. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/iban.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/[A-Z]{2}\\d{2}[A-Z0-9]{11,30}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["7:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 7. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/iban.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\s/g",
+          "expectedMatches": 1,
+          "expectedLocations": ["2:24"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 2. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/iban.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^[A-Z]{2}\\d[A-Z0-9]{11,30}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["7:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 7. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/iban.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^[A-Z]{2}\\d{2}[A-Z0-9]{11,30}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["7:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 7. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/mfa.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 1,
+          "expectedLocations": ["26:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 26. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/mfa.ts",
+          "status": "Survived",
+          "mutatorName": "ObjectLiteral",
+          "replacement": "{}",
+          "expectedMatches": 1,
+          "expectedLocations": ["8:37"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ObjectLiteral mutant at line 8. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/mfa.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{6}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["26:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 26. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/mfa.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{6}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["26:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 26. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/mfa.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 2,
+          "expectedLocations": ["29:13", "30:12"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving StringLiteral mutants at lines 29, 30. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Survived",
+          "mutatorName": "ArithmeticOperator",
+          "replacement": "result / sign",
+          "expectedMatches": 1,
+          "expectedLocations": ["78:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ArithmeticOperator mutant at line 78. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Survived",
+          "mutatorName": "EqualityOperator",
+          "replacement": "baseGrossCents <= 0",
+          "expectedMatches": 1,
+          "expectedLocations": ["53:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving EqualityOperator mutant at line 53. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Survived",
+          "mutatorName": "EqualityOperator",
+          "replacement": "numerator <= 0n",
+          "expectedMatches": 2,
+          "expectedLocations": ["75:16", "76:20"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving EqualityOperator mutants at lines 75, 76. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Survived",
+          "mutatorName": "EqualityOperator",
+          "replacement": "tier.unitGrossCents <= 0",
+          "expectedMatches": 1,
+          "expectedLocations": ["64:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving EqualityOperator mutant at line 64. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Survived",
+          "mutatorName": "EqualityOperator",
+          "replacement": "tier.unitGrossCents >= previousPrice",
+          "expectedMatches": 1,
+          "expectedLocations": ["65:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving EqualityOperator mutant at line 65. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Survived",
+          "mutatorName": "ArrayDeclaration",
+          "replacement": "[\"Stryker was here\"]",
+          "expectedMatches": 4,
+          "expectedLocations": ["50:89", "84:111", "86:71", "87:69"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 4 surviving ArrayDeclaration mutants at lines 50, 84, 86, 87. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Survived",
+          "mutatorName": "LogicalOperator",
+          "replacement": "input.holidays && []",
+          "expectedMatches": 2,
+          "expectedLocations": ["86:53", "87:51"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving LogicalOperator mutants at lines 86, 87. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{5}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["36:8"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 36. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Timeout",
+          "mutatorName": "AssignmentOperator",
+          "replacement": "remaining += 1",
+          "expectedMatches": 1,
+          "expectedLocations": ["59:68"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed timeout at line 59: the mutant removes or reverses progress in the bounded business-day loop. Timeout is the expected kill signal and the runner limit prevents an unbounded CI hang.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Timeout",
+          "mutatorName": "BlockStatement",
+          "replacement": "{}",
+          "expectedMatches": 1,
+          "expectedLocations": ["54:25"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed timeout at line 54: the mutant removes or reverses progress in the bounded business-day loop. Timeout is the expected kill signal and the runner limit prevents an unbounded CI hang.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Timeout",
+          "mutatorName": "BooleanLiteral",
+          "replacement": "holidays.includes(iso)",
+          "expectedMatches": 1,
+          "expectedLocations": ["59:43"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed timeout at line 59: the mutant removes or reverses progress in the bounded business-day loop. Timeout is the expected kill signal and the runner limit prevents an unbounded CI hang.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Timeout",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 1,
+          "expectedLocations": ["59:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed timeout at line 59: the mutant removes or reverses progress in the bounded business-day loop. Timeout is the expected kill signal and the runner limit prevents an unbounded CI hang.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Timeout",
+          "mutatorName": "EqualityOperator",
+          "replacement": "remaining <= 0",
+          "expectedMatches": 1,
+          "expectedLocations": ["54:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed timeout at line 54: the mutant removes or reverses progress in the bounded business-day loop. Timeout is the expected kill signal and the runner limit prevents an unbounded CI hang.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 2,
+          "expectedLocations": ["36:7", "37:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving ConditionalExpression mutants at lines 36, 37. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 1,
+          "expectedLocations": ["38:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 38. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/([ABCDEFGHJNPQRSUVW])(\\d{7})([0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["21:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 21. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/([XYZ])(\\d{7})([A-Z])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["14:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 14. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/(\\d{8})([A-Z])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["9:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 9. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^([ABCDEFGHJNPQRSUVW])(\\d{7})([0-9A-J])/",
+          "expectedMatches": 1,
+          "expectedLocations": ["21:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 21. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^([XYZ])(\\d{7})([A-Z])/",
+          "expectedMatches": 1,
+          "expectedLocations": ["14:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 14. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(\\d{8})([A-Z])/",
+          "expectedMatches": 1,
+          "expectedLocations": ["9:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 9. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/spanish-tax-id.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 5,
+          "expectedLocations": ["16:23", "16:31", "16:39", "36:7", "37:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 5 surviving StringLiteral mutants at lines 16, 36, 37. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "BlockStatement",
+          "replacement": "{}",
+          "expectedMatches": 1,
+          "expectedLocations": ["182:21"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving BlockStatement mutant at line 182. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "BooleanLiteral",
+          "replacement": "true",
+          "expectedMatches": 1,
+          "expectedLocations": ["323:70"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving BooleanLiteral mutant at line 323. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 9,
+          "expectedLocations": ["183:11", "183:45", "322:9", "58:32", "58:50", "58:9", "58:9", "58:9", "69:40"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 9 surviving ConditionalExpression mutants at lines 58, 69, 183, 322. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "EqualityOperator",
+          "replacement": "bytes.byteLength <= 4",
+          "expectedMatches": 1,
+          "expectedLocations": ["322:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving EqualityOperator mutant at line 322. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "LogicalOperator",
+          "replacement": "value === undefined && value === null",
+          "expectedMatches": 1,
+          "expectedLocations": ["58:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving LogicalOperator mutant at line 58. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "await response.text()",
+          "expectedMatches": 1,
+          "expectedLocations": ["152:20"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 152. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "z.string().max(1)",
+          "expectedMatches": 1,
+          "expectedLocations": ["106:18"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 106. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\/$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["52:24"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 52. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\//",
+          "expectedMatches": 1,
+          "expectedLocations": ["123:68"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 123. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 2,
+          "expectedLocations": ["226:22", "323:28"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving StringLiteral mutants at lines 226, 323. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"Stryker was here!\"",
+          "expectedMatches": 3,
+          "expectedLocations": ["123:76", "323:66", "58:60"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 3 surviving StringLiteral mutants at lines 58, 123, 323. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/beply.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "``",
+          "expectedMatches": 2,
+          "expectedLocations": ["144:9", "155:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving StringLiteral mutants at lines 144, 155. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/carrier-factory.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 1,
+          "expectedLocations": ["12:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 12. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/carrier-factory.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 1,
+          "expectedLocations": ["9:36"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving StringLiteral mutant at line 9. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 2,
+          "expectedLocations": ["142:61", "152:13"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving ConditionalExpression mutants at lines 142, 152. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 2,
+          "expectedLocations": ["143:29", "152:13"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving ConditionalExpression mutants at lines 143, 152. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "EqualityOperator",
+          "replacement": "environment.MARKETING_SMTP_SECURE !== 'true'",
+          "expectedMatches": 1,
+          "expectedLocations": ["152:13"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving EqualityOperator mutant at line 152. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "LogicalOperator",
+          "replacement": "environment.MARKETING_SMTP_PASSWORD && undefined",
+          "expectedMatches": 1,
+          "expectedLocations": ["154:15"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving LogicalOperator mutant at line 154. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "LogicalOperator",
+          "replacement": "environment.MARKETING_SMTP_PORT && 587",
+          "expectedMatches": 1,
+          "expectedLocations": ["151:18"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving LogicalOperator mutant at line 151. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "LogicalOperator",
+          "replacement": "environment.MARKETING_SMTP_USER?.trim() && undefined",
+          "expectedMatches": 1,
+          "expectedLocations": ["153:11"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving LogicalOperator mutant at line 153. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "entry",
+          "expectedMatches": 1,
+          "expectedLocations": ["31:26"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 31. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "environment.MARKETING_EMAIL_FROM",
+          "expectedMatches": 1,
+          "expectedLocations": ["146:16"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 146. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "environment.MARKETING_SMTP_HOST",
+          "expectedMatches": 1,
+          "expectedLocations": ["145:16"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 145. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "environment.MARKETING_SMTP_USER",
+          "expectedMatches": 1,
+          "expectedLocations": ["153:11"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 153. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "item",
+          "expectedMatches": 1,
+          "expectedLocations": ["108:20"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 108. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "message.to",
+          "expectedMatches": 1,
+          "expectedLocations": ["29:23"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 29. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 7,
+          "expectedLocations": ["142:85", "143:53", "152:51", "32:36", "69:27", "70:27", "71:27"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 7 surviving StringLiteral mutants at lines 32, 69, 70, 71, 142, 143, 152. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/email-provider.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"Stryker was here!\"",
+          "expectedMatches": 1,
+          "expectedLocations": ["142:100"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving StringLiteral mutant at line 142. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/invoice-factory.ts",
+          "status": "Survived",
+          "mutatorName": "ArrayDeclaration",
+          "replacement": "[]",
+          "expectedMatches": 1,
+          "expectedLocations": ["27:43"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ArrayDeclaration mutant at line 27. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/invoice-factory.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 1,
+          "expectedLocations": ["27:44"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving StringLiteral mutant at line 27. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/invoice-factory.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"Stryker was here!\"",
+          "expectedMatches": 11,
+          "expectedLocations": [
+            "14:67",
+            "15:42",
+            "16:45",
+            "17:58",
+            "18:64",
+            "19:49",
+            "20:51",
+            "21:51",
+            "22:67",
+            "23:80",
+            "24:50"
+          ]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 11 surviving StringLiteral mutants at lines 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 6,
+          "expectedLocations": ["166:9", "64:47", "64:47", "64:71", "68:18", "79:9"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 6 surviving ConditionalExpression mutants at lines 64, 68, 79, 166. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 3,
+          "expectedLocations": ["24:7", "71:20", "72:14"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 3 surviving ConditionalExpression mutants at lines 24, 71, 72. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "profile.toLowerCase()",
+          "expectedMatches": 1,
+          "expectedLocations": ["71:73"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 71. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "MethodExpression",
+          "replacement": "sequence[Math.min(call, sequence.length - 1)]!.split('+').map(status => status.trim())",
+          "expectedMatches": 1,
+          "expectedLocations": ["36:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving MethodExpression mutant at line 36. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{5}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["55:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 55. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{5}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["55:10"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 55. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 2,
+          "expectedLocations": ["58:39", "72:69"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving StringLiteral mutants at lines 58, 72. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/mock-carrier.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "``",
+          "expectedMatches": 1,
+          "expectedLocations": ["71:61"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving StringLiteral mutant at line 71. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "BlockStatement",
+          "replacement": "{}",
+          "expectedMatches": 1,
+          "expectedLocations": ["75:11"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving BlockStatement mutant at line 75. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 2,
+          "expectedLocations": ["145:39", "78:17"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving ConditionalExpression mutants at lines 78, 145. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "true",
+          "expectedMatches": 1,
+          "expectedLocations": ["111:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving ConditionalExpression mutant at line 111. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{1,12}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["29:33"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 29. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/\\d{3}$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["30:35"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 30. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{1,12}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["29:33"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 29. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d{3}/",
+          "expectedMatches": 1,
+          "expectedLocations": ["30:35"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 30. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^\\d$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["24:41"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving Regex mutant at line 24. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "\"\"",
+          "expectedMatches": 2,
+          "expectedLocations": ["221:56", "86:61"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 2 surviving StringLiteral mutants at lines 86, 221. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/integrations/redsys.ts",
+          "status": "Survived",
+          "mutatorName": "StringLiteral",
+          "replacement": "``",
+          "expectedMatches": 1,
+          "expectedLocations": ["262:23"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed 1 surviving StringLiteral mutant at line 262. This is explicit residual test debt toward the 95% target; the executable logic remains measured and the governed 90% gate is not bypassed.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/customer.ts",
+          "status": "Survived",
+          "mutatorName": "Regex",
+          "replacement": "/^(?:[XYZ]\\d[A-Z]|\\d{8}[A-Z]|[ABCDEFGHJNPQRSUVW]\\d{7}[0-9A-J])$/",
+          "expectedMatches": 1,
+          "expectedLocations": ["5:19"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed the surviving Spanish tax-ID regex mutant at line 5, which weakens the NIE numeric-length constraint. This remains explicit test debt toward the 95% target and is not excluded from scope or score.",
+      "disposition": "test-gap"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Timeout",
+          "mutatorName": "ConditionalExpression",
+          "replacement": "false",
+          "expectedMatches": 1,
+          "expectedLocations": ["85:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed the timed-out removal of the splitGross tax-rate guard at line 85. The bounded Stryker timeout is retained as a kill signal, and the mutant remains visible for subsequent test hardening.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/money.ts",
+          "status": "Timeout",
+          "mutatorName": "EqualityOperator",
+          "replacement": "taxRateBasisPoints <= 0",
+          "expectedMatches": 1,
+          "expectedLocations": ["85:7"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed the timed-out lower-bound mutation of splitGross at line 85. The bounded Stryker timeout is retained as a kill signal, and the mutant remains visible for subsequent test hardening.",
+      "disposition": "accepted-risk"
+    },
+    {
+      "selector": {
+        "rule": {
+          "file": "server/domain/shipping.ts",
+          "status": "Timeout",
+          "mutatorName": "EqualityOperator",
+          "replacement": "chargeableWeightGrams(parcel) <= 40_000",
+          "expectedMatches": 1,
+          "expectedLocations": ["30:64"]
+        }
+      },
+      "owner": "NETECO QA",
+      "reviewedAt": "2026-08-18T00:00:00Z",
+      "rationale": "Reviewed the timed-out pallet boundary reversal at line 30. The bounded Stryker timeout is retained as a kill signal, and the mutant remains visible for subsequent test hardening.",
+      "disposition": "accepted-risk"
+    }
+  ]
+}

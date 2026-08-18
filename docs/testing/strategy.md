@@ -14,7 +14,7 @@ El gate `npm run test:performance` usa exclusivamente build, navegador, PostgreS
 
 La versión 2 del presupuesto de transferencia se calibró sobre el máximo medido del build de las seis plantillas (197,5 KB gzip): 210 KB móvil y 220 KB escritorio dejan margen de regresión acotado. El objetivo inicial de optimización de 170 KB continúa documentado en el informe maestro y no se interpreta como ya alcanzado.
 
-No se admiten tests skipped, cuarentena silenciosa ni retries para convertir rojo en verde. Un test inestable bloquea hasta repararse o necesita issue, owner y fecha. Coverage complementa mutation testing (mínimo 90 % inicial), property tests y fault injection.
+No se admiten tests skipped, cuarentena silenciosa ni retries para convertir rojo en verde. Un test inestable bloquea hasta repararse o necesita issue, owner y fecha. Coverage complementa mutation testing (gate inicial 90 %, banda objetivo 95 %), property tests y fault injection. El alcance y cada superviviente o timeout se revisan mediante [`mutation-policy.json`](./mutation-policy.json); una ejecución usa siempre un informe completo sin caché incremental y falla si falta una revisión.
 
 El alcance, los umbrales y cada exclusión de cobertura se gobiernan en
 [`coverage-policy.json`](./coverage-policy.json). Vitest consume ese archivo directamente; CI valida responsable,
