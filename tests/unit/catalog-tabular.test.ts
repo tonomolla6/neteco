@@ -1,5 +1,8 @@
 import ExcelJS from 'exceljs'
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { checkProperty } from '../support/property'
+import { safeCsvValue } from '../../server/utils/csv'
 import {
   CATALOG_TABULAR_MAX_BYTES,
   CATALOG_TABULAR_MAX_CELL_CHARACTERS,
@@ -123,6 +126,19 @@ function completeRecords() {
   ]
 }
 
+const catalogTextArbitrary = fc
+  .array(fc.constantFrom(...'abcXYZ0123 ,"\n\r\t=+-@áñ'), { maxLength: 80 })
+  .map((characters) => characters.join(''))
+
+const catalogRecordArbitrary = fc
+  .array(catalogTextArbitrary, { minLength: catalogTabularColumns.length, maxLength: catalogTabularColumns.length })
+  .map(
+    (values) =>
+      Object.fromEntries(
+        catalogTabularColumns.map((column, index) => [column, values[index] ?? ''])
+      ) as CatalogTabularRecord
+  )
+
 describe('catalog tabular contract', () => {
   it('round-trips quoted UTF-8 CSV with BOM and maps complete assets and documents', () => {
     const exported = exportCatalogCsv(completeRecords())
@@ -233,5 +249,55 @@ describe('catalog tabular contract', () => {
       completeRecords().map((item) => ({ ...item, asset_rights_status: 'pending' }))
     )
     expect(ungoverned.issues.map((issue) => issue.code)).toContain('completeness.asset_governance')
+  })
+
+  it('preserves generated CSV cells, validates arbitrary text safely and keeps valid datasets stable', async () => {
+    await checkProperty(
+      'TST038-catalog-csv-roundtrip',
+      fc.property(catalogRecordArbitrary, (candidate) => {
+        const parsed = parseCatalogCsv(exportCatalogCsv([candidate]))
+        const expected = Object.fromEntries(
+          catalogTabularColumns.map((column) => [column, safeCsvValue(candidate[column])])
+        )
+        expect(parsed).toEqual([expected])
+      })
+    )
+
+    await checkProperty(
+      'TST038-catalog-validation-totality',
+      fc.property(
+        catalogRecordArbitrary,
+        fc.constantFrom(...catalogTabularColumns),
+        catalogTextArbitrary,
+        (candidate, column, value) => {
+          const deepCandidate = record({ [column]: value })
+          for (const generated of [candidate, deepCandidate]) {
+            expect(() => validateCatalogRecords([generated])).not.toThrow()
+            const validation = validateCatalogRecords([generated])
+            expect(validation.valid).toBe(validation.issues.length === 0)
+            expect(validation.summary.rows).toBe(1)
+          }
+        }
+      )
+    )
+
+    await checkProperty(
+      'TST038-catalog-valid-import-stability',
+      fc.property(fc.integer({ min: 0, max: 1_000_000 }), (sequence) => {
+        const records = completeRecords().map((item) => ({
+          ...item,
+          product_name: `Producto profesional property ${sequence}`,
+          short_description: `Descripción corta válida generada para el producto ${sequence}.`,
+          description: `Descripción completa válida y estable para comprobar el contrato tabular del producto ${sequence}.`
+        }))
+        const direct = validateCatalogRecords(records)
+        const parsedRecords = parseCatalogCsv(exportCatalogCsv(records))
+        const afterCsv = validateCatalogRecords(parsedRecords)
+
+        expect(direct.valid).toBe(true)
+        expect(parsedRecords).toEqual(records)
+        expect(afterCsv).toEqual(direct)
+      })
+    )
   })
 })

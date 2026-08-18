@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import fc from 'fast-check'
+import { checkProperty } from '../support/property'
 import {
   calculateQuote,
   quoteLine,
@@ -191,5 +193,196 @@ describe('money', () => {
     expect(() =>
       calculateQuote({ pricingVersion: 'v1', lines: [], shippingGrossCents: 0, shippingTaxRateBasisPoints: 0 })
     ).toThrow('quote requires at least one line')
+  })
+
+  it('preserves split gross invariants across deterministic generated inputs', async () => {
+    await checkProperty(
+      'TST038-money-split-gross',
+      fc.property(
+        fc.record({
+          grossCents: fc.integer({ min: 0, max: 1_000_000 }),
+          taxRateBasisPoints: fc.integer({ min: 0, max: 10_000 }),
+          additionalGrossCents: fc.integer({ min: 0, max: 100_000 })
+        }),
+        ({ grossCents, taxRateBasisPoints, additionalGrossCents }) => {
+          const split = splitGross(grossCents, taxRateBasisPoints)
+          const larger = splitGross(grossCents + additionalGrossCents, taxRateBasisPoints)
+
+          expect(split.netCents + split.taxCents).toBe(grossCents)
+          expect(split.netCents).toBeGreaterThanOrEqual(0)
+          expect(split.netCents).toBeLessThanOrEqual(grossCents)
+          expect(split.taxCents).toBeGreaterThanOrEqual(0)
+          expect(split.taxCents).toBeLessThanOrEqual(grossCents)
+          expect(larger.netCents).toBeGreaterThanOrEqual(split.netCents)
+          expect(larger.taxCents).toBeGreaterThanOrEqual(split.taxCents)
+        }
+      )
+    )
+  })
+
+  it('keeps quote-line totals consistent and discounts monotonic', async () => {
+    await checkProperty(
+      'TST038-money-quote-line',
+      fc.property(
+        fc.record({
+          unitGrossCents: fc.integer({ min: 0, max: 100_000 }),
+          quantity: fc.integer({ min: 1, max: 100 }),
+          taxRateBasisPoints: fc.integer({ min: 0, max: 10_000 }),
+          firstDiscount: fc.integer({ min: 0, max: 100_000 }),
+          secondDiscount: fc.integer({ min: 0, max: 100_000 })
+        }),
+        ({ unitGrossCents, quantity, taxRateBasisPoints, firstDiscount, secondDiscount }) => {
+          const lineGross = unitGrossCents * quantity
+          const lowerDiscount = Math.min(firstDiscount, secondDiscount, lineGross)
+          const higherDiscount = Math.max(firstDiscount, secondDiscount)
+          const boundedHigherDiscount = Math.min(higherDiscount, lineGross)
+          const undiscounted = quoteLine({
+            variantId: 'property-variant',
+            sku: 'PROPERTY-SKU',
+            quantity,
+            unitGrossCents,
+            taxRateBasisPoints
+          })
+          const lower = quoteLine({
+            variantId: 'property-variant',
+            sku: 'PROPERTY-SKU',
+            quantity,
+            unitGrossCents,
+            discountGrossCents: lowerDiscount,
+            taxRateBasisPoints
+          })
+          const higher = quoteLine({
+            variantId: 'property-variant',
+            sku: 'PROPERTY-SKU',
+            quantity,
+            unitGrossCents,
+            discountGrossCents: boundedHigherDiscount,
+            taxRateBasisPoints
+          })
+
+          for (const line of [undiscounted, lower, higher]) {
+            expect(line.netCents + line.taxCents).toBe(line.grossCents)
+            expect(line.grossCents).toBe(lineGross - line.discountGrossCents)
+            expect(line.grossCents).toBeGreaterThanOrEqual(0)
+          }
+          expect(higher.grossCents).toBeLessThanOrEqual(lower.grossCents)
+          expect(higher.netCents).toBeLessThanOrEqual(lower.netCents)
+          expect(higher.taxCents).toBeLessThanOrEqual(lower.taxCents)
+        }
+      )
+    )
+  })
+
+  it('sums generated quote lines and shipping without changing the contract', async () => {
+    await checkProperty(
+      'TST038-money-calculate-quote',
+      fc.property(
+        fc.record({
+          lines: fc.array(
+            fc.record({
+              variantId: fc.integer({ min: 0, max: 1000 }).map((value) => `variant-${value}`),
+              sku: fc.integer({ min: 0, max: 1000 }).map((value) => `SKU-${value}`),
+              quantity: fc.integer({ min: 1, max: 20 }),
+              unitGrossCents: fc.integer({ min: 0, max: 10_000 }),
+              discountGrossCents: fc.integer({ min: 0, max: 10_000 }),
+              taxRateBasisPoints: fc.integer({ min: 0, max: 10_000 })
+            }),
+            { minLength: 1, maxLength: 6 }
+          ),
+          shippingGrossCents: fc.integer({ min: 0, max: 10_000 }),
+          shippingTaxRateBasisPoints: fc.integer({ min: 0, max: 10_000 })
+        }),
+        ({ lines: rawLines, shippingGrossCents, shippingTaxRateBasisPoints }) => {
+          const lines = rawLines.map((line) => ({
+            ...line,
+            discountGrossCents: Math.min(line.discountGrossCents, line.quantity * line.unitGrossCents)
+          }))
+          const quote = calculateQuote({
+            pricingVersion: 'property-version',
+            lines,
+            shippingGrossCents,
+            shippingTaxRateBasisPoints
+          })
+
+          expect(quote.subtotalNetCents).toBe(quote.lines.reduce((sum, line) => sum + line.netCents, 0))
+          expect(quote.discountGrossCents).toBe(quote.lines.reduce((sum, line) => sum + line.discountGrossCents, 0))
+          expect(quote.taxCents).toBe(quote.lines.reduce((sum, line) => sum + line.taxCents, quote.shipping.taxCents))
+          expect(quote.totalGrossCents).toBe(
+            quote.lines.reduce((sum, line) => sum + line.grossCents, quote.shipping.grossCents)
+          )
+          expect(quote.totalGrossCents).toBeGreaterThanOrEqual(quote.shipping.grossCents)
+        }
+      )
+    )
+  })
+
+  it('accepts only generated quantities satisfying their rules', async () => {
+    await checkProperty(
+      'TST038-money-quantity-rules',
+      fc.property(
+        fc.record({
+          minimum: fc.integer({ min: 1, max: 30 }),
+          increment: fc.integer({ min: 1, max: 12 }),
+          validSteps: fc.integer({ min: 0, max: 20 }),
+          maximumSteps: fc.integer({ min: 0, max: 20 })
+        }),
+        ({ minimum, increment, validSteps, maximumSteps }) => {
+          const quantity = minimum + increment * validSteps
+          const maximum = quantity + increment * maximumSteps
+          const rules = { minimumQuantity: minimum, maximumQuantity: maximum, quantityIncrement: increment }
+
+          expect(validateQuantity(quantity, rules)).toBeUndefined()
+          expect(() => validateQuantity(minimum - 1, rules)).toThrow()
+          expect(() => validateQuantity(maximum + 1, rules)).toThrow()
+          if (increment > 1 && quantity + 1 <= maximum) {
+            expect(() => validateQuantity(quantity + 1, rules)).toThrow(
+              `quantity must increase by ${increment} from ${minimum}`
+            )
+          }
+        }
+      )
+    )
+  })
+
+  it('selects non-increasing volume prices at generated quantity boundaries', async () => {
+    await checkProperty(
+      'TST038-money-volume-pricing',
+      fc.property(
+        fc.record({
+          baseGrossCents: fc.integer({ min: 0, max: 100_000 }),
+          quantity: fc.integer({ min: 1, max: 200 }),
+          additionalQuantity: fc.integer({ min: 0, max: 100 }),
+          rawTiers: fc.array(
+            fc.record({
+              minimumQuantity: fc.integer({ min: 2, max: 100 }),
+              unitGrossCents: fc.integer({ min: 0, max: 100_000 })
+            }),
+            { maxLength: 6 }
+          )
+        }),
+        ({ baseGrossCents, quantity, additionalQuantity, rawTiers }) => {
+          const sorted = [...rawTiers].sort((left, right) => left.minimumQuantity - right.minimumQuantity)
+          const tiers = sorted.filter(
+            (tier, index, all) => index === 0 || tier.minimumQuantity !== all[index - 1]?.minimumQuantity
+          )
+          let previousPrice = baseGrossCents
+          const validTiers = tiers.map((tier) => {
+            previousPrice = Math.min(previousPrice, tier.unitGrossCents)
+            return { ...tier, unitGrossCents: previousPrice }
+          })
+          const selected = selectVolumeUnitPrice(baseGrossCents, quantity, validTiers)
+          const largerSelected = selectVolumeUnitPrice(baseGrossCents, quantity + additionalQuantity, validTiers)
+          const expected = validTiers.reduce(
+            (price, tier) => (quantity >= tier.minimumQuantity ? tier.unitGrossCents : price),
+            baseGrossCents
+          )
+
+          expect(selected).toBe(expected)
+          expect(selected).toBeGreaterThanOrEqual(0)
+          expect(selected).toBeLessThanOrEqual(baseGrossCents)
+          expect(largerSelected).toBeLessThanOrEqual(selected)
+        }
+      )
+    )
   })
 })

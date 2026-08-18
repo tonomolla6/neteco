@@ -16,6 +16,8 @@ La versión 2 del presupuesto de transferencia se calibró sobre el máximo medi
 
 No se admiten tests skipped, cuarentena silenciosa ni retries para convertir rojo en verde. Un test inestable bloquea hasta repararse o necesita issue, owner y fecha. Coverage complementa mutation testing (gate inicial 90 %, banda objetivo 95 %), property tests y fault injection. El alcance y cada superviviente o timeout se revisan mediante [`mutation-policy.json`](./mutation-policy.json); una ejecución usa siempre un informe completo sin caché incremental y falla si falta una revisión.
 
+Los [property tests](./property-based.md) ejecutan 200 casos deterministas por propiedad para dinero, descuentos, stock, estados, direcciones y catálogo tabular. Cada fallo publica seed, shrink path y contraejemplo seguro en `test-results/property-failures/`; las seeds revisadas se promueven a una fixture versionada y se reproducen antes de explorar casos nuevos.
+
 El alcance, los umbrales y cada exclusión de cobertura se gobiernan en
 [`coverage-policy.json`](./coverage-policy.json). Vitest consume ese archivo directamente; CI valida responsable,
 revisión, caducidad y umbrales antes de medir, y publica la política junto al informe de cobertura. Una exclusión

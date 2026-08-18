@@ -231,7 +231,7 @@ function parseCsv(text: string): string[][] {
       cell = ''
       quoteClosed = false
     } else if (character === '\n') {
-      row.push(cell.replace(/\r$/, ''))
+      row.push(quoteClosed ? cell : cell.replace(/\r$/, ''))
       rows.push(row)
       row = []
       cell = ''
@@ -240,7 +240,7 @@ function parseCsv(text: string): string[][] {
   }
   if (quoted) throw new Error('CSV contains an unterminated quoted cell')
   if (cell || row.length) {
-    row.push(cell.replace(/\r$/, ''))
+    row.push(quoteClosed ? cell : cell.replace(/\r$/, ''))
     rows.push(row)
   }
   return rows

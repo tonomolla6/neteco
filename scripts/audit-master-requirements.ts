@@ -56,7 +56,7 @@ const mvpMissing = ids('CIC-007')
 
 const currentRepoEvidence = new Set(
   ids(
-    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..027;TST-029..037'
+    'CAT-004..006;CAT-008;PRI-002..008;PRI-010..011;SEA-004;PDP-001..002;PDP-003;PDP-006..008;PDP-010..011;CHK-002..010;CHK-014;CHK-017;ADM-001..003;ADM-009..011;ADM-017;MED-007;MED-011;MED-015;SEO-003;SEO-007;SEO-012;SEO-014;PER-004;PER-011;PER-016..017;MKT-002..003;COM-004..008;TST-011..013;TST-015..016;TST-020..022;TST-024..027;TST-029..038'
   )
 )
 const currentPartialExternal = new Set(
@@ -165,6 +165,8 @@ function evidenceFor(id: string) {
       'scripts/lib/ci-artifacts.ts; scripts/audit-ci-artifacts.ts; scripts/run-browser-flake-monitor.ts; tests/unit/ci-artifacts.test.ts; docs/testing/ci-artifacts.json; docs/testing/ci-reporting.md; playwright.config.ts; playwright.a11y.config.ts; playwright.matrix.config.ts; playwright.visual.config.ts; package.json; .github/workflows/ci.yml',
     'TST-037':
       'stryker.config.mjs; tsconfig.stryker.json; scripts/lib/mutation-evidence.ts; scripts/audit-mutation-evidence.ts; tests/unit/mutation-evidence.test.ts; tests/unit/catalog-publication.test.ts; docs/testing/mutation-policy.json; docs/testing/mutation-policy.md; docs/testing/strategy.md; package.json; .github/workflows/ci.yml',
+    'TST-038':
+      'tests/support/property.ts; tests/fixtures/property-seeds.json; tests/unit/property-helper.test.ts; tests/unit/money.test.ts; tests/unit/inventory.test.ts; tests/unit/states.test.ts; tests/unit/customer.test.ts; tests/unit/catalog-tabular.test.ts; server/services/catalog-tabular.ts; docs/testing/property-based.md; docs/testing/strategy.md; .github/workflows/ci.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':

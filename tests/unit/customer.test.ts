@@ -1,5 +1,6 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
+import { checkProperty } from '../support/property'
 import {
   addressInputSchema,
   normalizeTaxId,
@@ -162,16 +163,18 @@ describe('customer data validation', () => {
     }
   })
 
-  it('never accepts a Spanish postal code outside exactly five digits', () => {
-    fc.assert(
+  it('never accepts a Spanish postal code outside exactly five digits', async () => {
+    await checkProperty(
+      'TST038-address-spanish-postal-grammar',
       fc.property(fc.string(), (candidate) => {
         expect(postalCodeFormatIsValid('ES', candidate)).toBe(/^\d{5}$/.test(candidate.trim().toUpperCase()))
       })
     )
   })
 
-  it('matches the documented fiscal, international postal and phone grammars', () => {
-    fc.assert(
+  it('matches the documented fiscal, international postal and phone grammars', async () => {
+    await checkProperty(
+      'TST038-address-spanish-tax-id-grammar',
       fc.property(fc.string(), (candidate) => {
         const taxId = normalizeTaxId(candidate)
         expect(taxIdFormatIsValid('ES', candidate)).toBe(
@@ -179,17 +182,64 @@ describe('customer data validation', () => {
         )
       })
     )
-    fc.assert(
+    await checkProperty(
+      'TST038-address-international-postal-grammar',
       fc.property(fc.string(), (candidate) => {
         const normalized = candidate.trim().toUpperCase()
         expect(postalCodeFormatIsValid('GB', candidate)).toBe(/^[A-Z0-9][A-Z0-9 -]{1,10}[A-Z0-9]$/i.test(normalized))
       })
     )
-    fc.assert(
+    await checkProperty(
+      'TST038-address-phone-grammar',
       fc.property(fc.string(), (candidate) => {
         const normalized = candidate.replace(/[\s().-]/g, '')
         expect(phoneFormatIsValid(candidate)).toBe(candidate.trim().length === 0 || /^\+?\d{7,15}$/.test(normalized))
       })
+    )
+  })
+
+  it('normalizes and revalidates generated Spanish addresses idempotently', async () => {
+    await checkProperty(
+      'TST038-address-normalization-idempotence',
+      fc.property(
+        fc.record({
+          kind: fc.constantFrom('shipping' as const, 'billing' as const, 'both' as const),
+          postalNumber: fc.integer({ min: 0, max: 99_999 }),
+          taxNumber: fc.integer({ min: 0, max: 99_999_999 }),
+          phoneDigits: fc.array(fc.integer({ min: 0, max: 9 }), { minLength: 9, maxLength: 9 })
+        }),
+        ({ kind, postalNumber, taxNumber, phoneDigits }) => {
+          const postalCode = String(postalNumber).padStart(5, '0')
+          const taxDigits = String(taxNumber).padStart(8, '0')
+          const formattedTaxId = ` ${taxDigits.slice(0, 4)}.${taxDigits.slice(4)}-a `
+          const nationalPhone = phoneDigits.join('')
+          const formattedPhone = `+34 ${nationalPhone.slice(0, 3)} ${nationalPhone.slice(3, 6)} ${nationalPhone.slice(6)}`
+          const normalizedTaxId = `${taxDigits}A`
+          const validated = validateAddress({
+            kind,
+            label: ' Dirección generada ',
+            recipientName: ' Cliente NETECO ',
+            taxId: formattedTaxId,
+            line1: ' Calle Mayor 1 ',
+            postalCode: ` ${postalCode} `,
+            city: ' Ontinyent ',
+            region: ' Valencia ',
+            countryCode: ' es ',
+            phone: ` ${formattedPhone} `
+          })
+
+          expect(normalizeTaxId(formattedTaxId)).toBe(normalizedTaxId)
+          expect(normalizeTaxId(normalizedTaxId)).toBe(normalizedTaxId)
+          expect(postalCodeFormatIsValid('es', ` ${postalCode} `)).toBe(true)
+          expect(postalCodeFormatIsValid('ES', `${postalCode}0`)).toBe(false)
+          expect(taxIdFormatIsValid('es', formattedTaxId)).toBe(true)
+          expect(taxIdFormatIsValid('ES', `${taxDigits}!`)).toBe(false)
+          expect(phoneFormatIsValid(formattedPhone)).toBe(true)
+          expect(phoneFormatIsValid(`${formattedPhone}x`)).toBe(false)
+          expect(validateAddress(validated)).toEqual(validated)
+          expect(validated).toMatchObject({ taxId: normalizedTaxId, postalCode, countryCode: 'ES' })
+        }
+      )
     )
   })
 })
