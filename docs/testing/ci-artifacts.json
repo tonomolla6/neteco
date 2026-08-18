@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "requirementId": "TST-036",
+  "retentionDays": {
+    "qualityEvidence": 14,
+    "applicationSbom": 14,
+    "mutationEvidence": 14,
+    "containerEvidence": 3,
+    "workflowLogs": 14
+  },
+  "evidence": {
+    "junit": [
+      "test-results/unit.xml",
+      "test-results/nuxt.xml",
+      "test-results/component.xml",
+      "test-results/integration.xml",
+      "test-results/e2e.xml",
+      "test-results/accessibility.xml",
+      "test-results/browser-matrix.xml",
+      "test-results/visual.xml"
+    ],
+    "coverage": ["coverage/"],
+    "traces": ["test-results/**/trace.zip (only on failure)"],
+    "screenshots": ["test-results/**/*.png (only on failure)"],
+    "logs": ["GitHub Actions workflow log", "test-results/ci-evidence.json"],
+    "sbom": ["sbom.cdx.json", "neteco-container-sbom.spdx.json"],
+    "performance": ["test-results/performance.json"]
+  },
+  "redaction": {
+    "productionDataAllowed": false,
+    "testData": "synthetic-only",
+    "textArtifacts": "redacted before upload and inventoried with SHA-256",
+    "binaryDiagnostics": "Playwright trace ZIP text is redacted; screenshots and video contain synthetic-only test data"
+  },
+  "access": {
+    "scope": "repository readers through authenticated GitHub Actions runs",
+    "releaseAssets": false
+  }
+}

@@ -8,6 +8,7 @@ const mediaStorageDirectory = resolve(process.cwd(), '.data/e2e-media')
 
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir: 'test-results/e2e',
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,

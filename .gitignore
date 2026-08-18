@@ -6,7 +6,11 @@ node_modules
 dist
 coverage
 playwright-report
+playwright-a11y-report
+playwright-matrix-report
+playwright-visual-report
 test-results
+sbom.cdx.json
 reports/mutation
 reports/stryker-incremental.json
 .stryker-tmp

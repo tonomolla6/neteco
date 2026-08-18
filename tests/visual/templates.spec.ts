@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '../fixtures/playwright'
 
 async function stabilize(page: Page) {
+  await page.mouse.move(0, 0)
   await page.addStyleTag({
     content: `
       *, *::before, *::after {

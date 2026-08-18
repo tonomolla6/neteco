@@ -7,6 +7,7 @@ const databaseConnection = process.env.DATABASE_URL ?? 'postgres://neteco:neteco
 
 interface NetecoFixtures {
   deterministic: DeterministicTestData
+  browserClock: undefined
   externalNetworkGuard: undefined
   cartCleanup: undefined
 }
@@ -15,6 +16,13 @@ export const test = base.extend<NetecoFixtures>({
   deterministic: async ({ browserName: _browserName }, use, testInfo) => {
     await use(deterministicTestData(`e2e:${testInfo.project.name}:${testInfo.titlePath.join(':')}`))
   },
+  browserClock: [
+    async ({ context }, use) => {
+      await context.clock.setFixedTime(deterministicTestData('e2e-browser-clock').date())
+      await use()
+    },
+    { auto: true }
+  ],
   externalNetworkGuard: [
     async ({ context, baseURL }, use) => {
       if (!baseURL) throw new Error('Playwright baseURL is required for the external network guard')
