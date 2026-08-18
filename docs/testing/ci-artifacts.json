@@ -24,7 +24,8 @@
     "screenshots": ["test-results/**/*.png (only on failure)"],
     "logs": ["GitHub Actions workflow log", "test-results/ci-evidence.json"],
     "sbom": ["sbom.cdx.json", "neteco-container-sbom.spdx.json"],
-    "performance": ["test-results/performance.json"]
+    "performance": ["test-results/performance.json"],
+    "chaos": ["test-results/chaos.xml", "test-results/chaos.json"]
   },
   "redaction": {
     "productionDataAllowed": false,

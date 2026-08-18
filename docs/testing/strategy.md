@@ -18,6 +18,8 @@ No se admiten tests skipped, cuarentena silenciosa ni retries para convertir roj
 
 Los [property tests](./property-based.md) ejecutan 200 casos deterministas por propiedad para dinero, descuentos, stock, estados, direcciones y catálogo tabular. Cada fallo publica seed, shrink path y contraejemplo seguro en `test-results/property-failures/`; las seeds revisadas se promueven a una fixture versionada y se reproducen antes de explorar casos nuevos.
 
+El [programa de chaos](./chaos-recovery.md) inyecta latencia, duplicados, orden alterado, pérdida de worker/Redis y límites 429 solo contra PostgreSQL, Redis y proveedores loopback aislados. El workflow semanal bloquea si no se detecta el fallo, si se rompe un invariante durable o si alerta, recuperación y cierre no quedan verificados; publica evidencia JUnit y JSON.
+
 El alcance, los umbrales y cada exclusión de cobertura se gobiernan en
 [`coverage-policy.json`](./coverage-policy.json). Vitest consume ese archivo directamente; CI valida responsable,
 revisión, caducidad y umbrales antes de medir, y publica la política junto al informe de cobertura. Una exclusión

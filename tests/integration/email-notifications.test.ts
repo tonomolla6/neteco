@@ -39,6 +39,24 @@ async function runWorker() {
   })
 }
 
+async function runOperationalAlerts() {
+  try {
+    const result = await execFileAsync('node_modules/.bin/tsx', ['scripts/operational-alerts.ts'], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: database.connection,
+        APP_ENV: 'test'
+      },
+      timeout: 20_000
+    })
+    return { exitCode: 0, stdout: result.stdout }
+  } catch (error) {
+    const failure = error as Error & { code?: number | string; stdout?: string }
+    return { exitCode: Number(failure.code), stdout: failure.stdout ?? '' }
+  }
+}
+
 describe('email notification triggers and deduplication', () => {
   it('claims every supported event once, including an expired reservation', async () => {
     const tokenEnvelope = encryptSecret('integration-action-token', encryptionKey)
@@ -100,6 +118,69 @@ describe('email notification triggers and deduplication', () => {
     expect(afterReplay).toEqual({
       events: transactionalEmailEventTypes.length,
       deliveries: transactionalEmailEventTypes.length
+    })
+  })
+
+  it('alerts on an expired worker lease and clears after recovery', async () => {
+    const aggregateId = testData.uuid('stale-worker-lease')
+    const eventId = await sql.begin(async (transaction) => {
+      const [event] = await transaction<{ id: string }[]>`
+        INSERT INTO outbox_events (
+          aggregate_type, aggregate_id, event_type, payload, correlation_id, idempotency_key,
+          status, locked_at, locked_by
+        ) VALUES (
+          'email_test', ${aggregateId}, 'identity.security.password_changed', ${transaction.json({
+            recipient: testData.email('stale-worker-lease'),
+            locale: 'es-ES',
+            name: 'Cliente lease expirado'
+          })}, ${testData.uuid('stale-worker-lease:correlation')}, ${'email-test:stale-worker-lease'},
+          'processing', now() - interval '16 minutes', 'email-stale-worker'
+        )
+        RETURNING id
+      `
+      return event!.id
+    })
+
+    const active = await runOperationalAlerts()
+    expect(active.exitCode).toBe(2)
+    expect(JSON.parse(active.stdout)).toMatchObject({
+      event: 'operational.alerts.active',
+      alerts: expect.arrayContaining(['stale_worker_leases']),
+      signals: { staleWorkerLeases: 1 },
+      thresholds: { staleWorkerLeases: 0 }
+    })
+
+    const worker = await runWorker()
+    expect(worker.stdout.match(/"event":"email.accepted"/g)).toEqual(['"event":"email.accepted"'])
+    const [afterRecovery] = await sql<
+      {
+        status: string
+        deliveries: number
+        lockedAt: Date | null
+        lockedBy: string | null
+      }[]
+    >`
+      SELECT event.status, count(delivery.id)::int AS deliveries,
+             event.locked_at AS "lockedAt", event.locked_by AS "lockedBy"
+      FROM outbox_events event
+      LEFT JOIN communication_deliveries delivery ON delivery.outbox_event_id = event.id
+      WHERE event.id = ${eventId}
+      GROUP BY event.id, event.status, event.locked_at, event.locked_by
+    `
+    expect(afterRecovery).toMatchObject({
+      status: 'completed',
+      deliveries: 1,
+      lockedAt: null,
+      lockedBy: null
+    })
+
+    const clear = await runOperationalAlerts()
+    expect(clear).toMatchObject({ exitCode: 0 })
+    expect(JSON.parse(clear.stdout)).toMatchObject({
+      event: 'operational.alerts.clear',
+      alerts: [],
+      signals: { staleWorkerLeases: 0 },
+      thresholds: { staleWorkerLeases: 0 }
     })
   })
 })

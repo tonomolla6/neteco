@@ -23,6 +23,7 @@
     "test:component": "vitest run --project component --reporter=default --reporter=junit --outputFile.junit=test-results/component.xml",
     "test:integration": "vitest run --project integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml",
     "test:recovery": "vitest run --project integration tests/integration/provider-recovery.test.ts",
+    "test:chaos": "tsx scripts/run-chaos.ts",
     "test:e2e": "tsx scripts/run-e2e.ts",
     "test:browser-matrix": "tsx scripts/run-e2e.ts --config=playwright.matrix.config.ts",
     "test:visual": "tsx scripts/run-e2e.ts --config=playwright.visual.config.ts",

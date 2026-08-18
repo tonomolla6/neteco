@@ -27,6 +27,8 @@ No crear otra etiqueta sin comprobar la referencia idempotente. Usar contingenci
 
 Sacar de readiness la instancia afectada. Redis puede degradar sesiones/limitación pero no sustituye PostgreSQL. Recuperar leases expirados, revisar backlog/edad/DLQ y ejecutar replay auditado. Para pérdida de datos seguir `restore-and-backup.md`.
 
+El ejercicio local programado, la señal `stale_worker_leases`, la verificación de alerta→recuperación→clear y los límites de replay se detallan en [`../testing/chaos-recovery.md`](../testing/chaos-recovery.md).
+
 ## Deploy defectuoso, DNS o TLS
 
 Detener promoción, conservar logs/versiones y revertir tráfico a la última imagen inmutable compatible. Las migraciones son forward-only: no bajar esquema; aplicar forward-fix. DNS/TLS se cambia con doble revisión, TTL planificado y verificación externa.

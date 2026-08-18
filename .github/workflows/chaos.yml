@@ -1,0 +1,67 @@
+name: Scheduled chaos recovery
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chaos-recovery
+  cancel-in-progress: false
+
+jobs:
+  chaos:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17.6-alpine3.22
+        env:
+          POSTGRES_DB: neteco_test
+          POSTGRES_USER: neteco
+          POSTGRES_PASSWORD: neteco-test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U neteco -d neteco_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:8.2.1-alpine3.22
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      APP_ENV: test
+      APP_BASE_URL: http://127.0.0.1:3100
+      DATABASE_URL: postgres://neteco:neteco-test@127.0.0.1:5432/neteco_test
+      REDIS_URL: redis://127.0.0.1:6379/0
+      PAYMENT_PROVIDER: mock
+      INVOICE_PROVIDER: mock
+      CARRIER_PROVIDER: mock
+      EMAIL_PROVIDER: log
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - run: npm run test:chaos
+      - run: npm run ci:artifacts -- --publish
+        if: always()
+        id: secure-artifacts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.secure-artifacts.outcome == 'success'
+        with:
+          name: chaos-evidence
+          path: |
+            test-results/chaos.xml
+            test-results/chaos.json
+            test-results/ci-evidence.json
+          if-no-files-found: error
+          retention-days: 14

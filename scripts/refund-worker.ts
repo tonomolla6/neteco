@@ -33,6 +33,14 @@ const aggregateFilter =
 
 async function claim() {
   return sql.begin(async (transaction) => {
+    await transaction`
+      UPDATE outbox_events
+      SET status = 'retry', available_at = now(), locked_at = NULL, locked_by = NULL,
+          last_error_code = 'stale_worker_lease',
+          last_error_message = 'Recovered an expired refund worker lease'
+      WHERE status = 'processing' AND locked_at < now() - interval '15 minutes'
+        AND event_type = 'refund.execute.requested'
+    `
     const [job] = await transaction<Job[]>`
       SELECT id, aggregate_id AS "aggregateId", correlation_id AS "correlationId", attempts
       FROM outbox_events

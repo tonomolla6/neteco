@@ -35,7 +35,7 @@ for (const [name, days] of Object.entries({
 })) {
   if (policy.retentionDays[name] !== days) failures.push(`retention mismatch for ${name}`)
 }
-for (const category of ['junit', 'coverage', 'traces', 'screenshots', 'logs', 'sbom', 'performance']) {
+for (const category of ['junit', 'coverage', 'traces', 'screenshots', 'logs', 'sbom', 'performance', 'chaos']) {
   if (!policy.evidence[category]?.length) failures.push(`missing evidence policy for ${category}`)
 }
 for (const [script, report] of Object.entries({

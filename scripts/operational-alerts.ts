@@ -11,6 +11,7 @@ try {
       oldestQueueMinutes: number | null
       invalidPaymentWebhooks: number
       stalePayments: number
+      staleWorkerLeases: number
       inventoryExceptions: number
       fiscalExceptions: number
       staleShipments: number
@@ -27,6 +28,8 @@ try {
        WHERE provider = 'redsys' AND NOT signature_valid AND received_at > now() - interval '15 minutes') AS "invalidPaymentWebhooks",
       (SELECT count(*)::int FROM orders
        WHERE payment_status IN ('initiated', 'pending') AND created_at < now() - interval '30 minutes') AS "stalePayments",
+      (SELECT count(*)::int FROM outbox_events
+       WHERE status = 'processing' AND locked_at < now() - interval '15 minutes') AS "staleWorkerLeases",
       (SELECT count(*)::int FROM inventory_balances balance
        WHERE balance.physical_quantity < 0 OR balance.blocked_quantity > balance.physical_quantity
           OR balance.physical_quantity <> COALESCE((
@@ -52,6 +55,7 @@ try {
     oldestQueueMinutes: Number(process.env.ALERT_MAX_QUEUE_AGE_MINUTES ?? 15),
     invalidPaymentWebhooks: Number(process.env.ALERT_INVALID_PAYMENT_WEBHOOKS ?? 5),
     stalePayments: 0,
+    staleWorkerLeases: 0,
     inventoryExceptions: 0,
     fiscalExceptions: 0,
     staleShipments: 0,
@@ -64,6 +68,7 @@ try {
     (signals.oldestQueueMinutes ?? 0) > thresholds.oldestQueueMinutes ? 'queue_age' : null,
     signals.invalidPaymentWebhooks > thresholds.invalidPaymentWebhooks ? 'invalid_payment_webhooks' : null,
     signals.stalePayments > thresholds.stalePayments ? 'stale_payments' : null,
+    signals.staleWorkerLeases > thresholds.staleWorkerLeases ? 'stale_worker_leases' : null,
     signals.inventoryExceptions > thresholds.inventoryExceptions ? 'inventory_reconciliation' : null,
     signals.fiscalExceptions > thresholds.fiscalExceptions ? 'fiscal_reconciliation' : null,
     signals.staleShipments > thresholds.staleShipments ? 'stale_shipments' : null,

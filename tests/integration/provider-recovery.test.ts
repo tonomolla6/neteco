@@ -6,6 +6,7 @@ import postgres, { type Sql } from 'postgres'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase } from '../../server/db/client'
 import { closeRedis, useRedis } from '../../server/db/redis'
+import { BeplyError, BeplyInvoiceProvider } from '../../server/integrations/beply'
 import { confirmMockPayment, createOrder, type CreateOrderInput } from '../../server/services/orders'
 import { createOrderShipment, quoteCartShipping } from '../../server/services/shipping'
 import { deterministicTestData, type DeterministicTestData } from '../fixtures/deterministic'
@@ -210,10 +211,17 @@ async function smtpServer(port: number) {
 
 async function beplyRecoveryServer() {
   let available = false
+  let failureStatus = 503
+  let responseDelayMs = 0
+  let requests = 0
+  const failureStatuses: number[] = []
   let invoicesCreated = 0
-  const server = createServer((request, response) => {
+  const server = createServer(async (request, response) => {
+    requests += 1
+    if (responseDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, responseDelayMs))
     if (!available) {
-      response.writeHead(503, { 'content-type': 'application/json' })
+      failureStatuses.push(failureStatus)
+      response.writeHead(failureStatus, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ error: 'simulated outage' }))
       return
     }
@@ -244,10 +252,18 @@ async function beplyRecoveryServer() {
   if (!address || typeof address === 'string') throw new Error('Beply recovery server has no port')
   return {
     baseUrl: `http://127.0.0.1:${address.port}/api/3`,
+    setFailureStatus(status: number) {
+      failureStatus = status
+    },
+    setResponseDelay(delayMs: number) {
+      responseDelayMs = delayMs
+    },
     restore() {
       available = true
     },
+    failureStatuses: () => [...failureStatuses],
     invoicesCreated: () => invoicesCreated,
+    requests: () => requests,
     close: () => closeServer(server)
   }
 }
@@ -354,7 +370,7 @@ afterEach(async () => {
 })
 
 describe('provider outage recovery', () => {
-  it('retries a Beply outage and issues one invoice after provider recovery', async () => {
+  it('retries Beply 503 and 429 outages with durable backoff and issues one invoice after provider recovery', async () => {
     const order = await capturedOrder()
     const beply = await beplyRecoveryServer()
     const beplyEnvironment = workerEnvironment({
@@ -386,6 +402,40 @@ describe('provider outage recovery', () => {
         UPDATE outbox_events SET available_at = now()
         WHERE aggregate_id = ${order.id} AND event_type = 'invoice.issue.requested'
       `
+      beply.setFailureStatus(429)
+      await runWorker('scripts/invoice-worker.ts', order.id, beplyEnvironment)
+      const [rateLimited] = await sql<
+        Array<{
+          status: string
+          attempts: number
+          code: string
+          message: string
+          backoffActive: boolean
+          invoiceStatus: string
+        }>
+      >`
+        SELECT event.status, event.attempts, event.last_error_code AS code,
+          event.last_error_message AS message, event.available_at > now() AS "backoffActive",
+          invoice.status AS "invoiceStatus"
+        FROM outbox_events event
+        JOIN invoices invoice ON invoice.order_id = event.aggregate_id AND invoice.kind = 'invoice'
+        WHERE event.aggregate_id = ${order.id} AND event.event_type = 'invoice.issue.requested'
+      `
+      expect(rateLimited).toEqual({
+        status: 'retry',
+        attempts: 2,
+        code: 'beply_provider',
+        message: 'Beply POST clientes failed (429)',
+        backoffActive: true,
+        invoiceStatus: 'failed'
+      })
+      expect(beply.failureStatuses()).toEqual([503, 429])
+      await expectCapturedExactlyOnce(order.id, order.variantId, order.locationId)
+
+      await sql`
+        UPDATE outbox_events SET available_at = now()
+        WHERE aggregate_id = ${order.id} AND event_type = 'invoice.issue.requested'
+      `
       beply.restore()
       await runWorker('scripts/invoice-worker.ts', order.id, beplyEnvironment)
       const [recovered] = await sql<
@@ -401,13 +451,50 @@ describe('provider outage recovery', () => {
       `
       expect(recovered).toEqual({
         status: 'completed',
-        attempts: 2,
+        attempts: 3,
         invoiceStatus: 'issued',
         invoices: 1,
         issuedEvents: 1
       })
       expect(beply.invoicesCreated()).toBe(1)
+      expect(beply.failureStatuses()).toEqual([503, 429])
       await expectCapturedExactlyOnce(order.id, order.variantId, order.locationId)
+    } finally {
+      await beply.close()
+    }
+  })
+
+  it('turns loopback latency above the Beply timeout into a retryable transport error and recovers locally', async () => {
+    const beply = await beplyRecoveryServer()
+    beply.restore()
+    beply.setResponseDelay(1_100)
+    const provider = new BeplyInvoiceProvider({
+      baseUrl: beply.baseUrl,
+      token: 'recovery-token',
+      invoiceSeries: 'NE',
+      correctiveSeries: 'NR',
+      taxCode0: 'IVA0',
+      taxCode10: 'IVA10',
+      taxCode21: 'IVA21',
+      paymentCodeRedsys: 'REDSYS',
+      paymentCodeBankTransfer: 'TRANSFER',
+      companyId: '1',
+      timeoutMs: 1_000
+    })
+    try {
+      const paidOn = '2026-08-18T12:00:00.000Z'
+      const timeoutFailure = await provider.markPaid('7001', paidOn, 'redsys').catch((error) => error)
+      expect(timeoutFailure).toBeInstanceOf(BeplyError)
+      expect(timeoutFailure).toMatchObject({
+        status: 0,
+        category: 'transport',
+        retryable: true
+      })
+      expect(beply.requests()).toBe(1)
+
+      beply.setResponseDelay(0)
+      await expect(provider.markPaid('7001', paidOn, 'redsys')).resolves.toBeUndefined()
+      expect(beply.requests()).toBe(2)
     } finally {
       await beply.close()
     }

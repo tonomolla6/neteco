@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "requirementId": "TST-039",
+  "profile": "ci-loopback-isolated",
+  "schedule": {
+    "cron": "17 3 * * 1"
+  },
+  "scenarios": [
+    {
+      "id": "provider-latency-timeout",
+      "fault": "latency",
+      "testFile": "tests/integration/provider-recovery.test.ts",
+      "testName": "turns loopback latency above the Beply timeout into a retryable transport error and recovers locally",
+      "detection": "Beply transport timeout is classified as retryable without an external request escape.",
+      "recovery": "The same loopback provider succeeds after latency is removed.",
+      "runbookSection": "Provider latency"
+    },
+    {
+      "id": "payment-callback-duplicate",
+      "fault": "duplicate",
+      "testFile": "tests/integration/commerce-transactions.test.ts",
+      "testName": "deduplicates provider event IDs and ignores stale failures after capture",
+      "detection": "The duplicate provider event is reported as duplicate and durable side effects remain singular.",
+      "recovery": "The captured payment, allocation and invoice request remain the canonical result.",
+      "runbookSection": "Duplicate provider events"
+    },
+    {
+      "id": "payment-callback-reordered",
+      "fault": "reordered",
+      "testFile": "tests/integration/commerce-transactions.test.ts",
+      "testName": "deduplicates provider event IDs and ignores stale failures after capture",
+      "detection": "A failure delivered after capture is observed as stale and cannot downgrade payment state.",
+      "recovery": "No replay is needed because the terminal captured state and exact-once effects are preserved.",
+      "runbookSection": "Reordered provider events"
+    },
+    {
+      "id": "expired-worker-lease",
+      "fault": "worker-loss",
+      "testFile": "tests/integration/email-notifications.test.ts",
+      "testName": "alerts on an expired worker lease and clears after recovery",
+      "detection": "The operational alert command exits non-zero with stale_worker_leases.",
+      "recovery": "A replacement worker reclaims the lease, delivers exactly once and clears the alert.",
+      "runbookSection": "Worker loss and stale leases"
+    },
+    {
+      "id": "redis-cache-loss",
+      "fault": "cache-loss",
+      "testFile": "tests/integration/provider-recovery.test.ts",
+      "testName": "keeps checkout atomic while Redis is unavailable and reconnects afterward",
+      "detection": "The Redis client rejects the unavailable endpoint while PostgreSQL remains authoritative.",
+      "recovery": "A fresh client reconnects and answers PONG without duplicate checkout or payment effects.",
+      "runbookSection": "Redis and cache loss"
+    },
+    {
+      "id": "beply-external-rate-limit",
+      "fault": "external-limit",
+      "testFile": "tests/integration/provider-recovery.test.ts",
+      "testName": "retries Beply 503 and 429 outages with durable backoff and issues one invoice after provider recovery",
+      "detection": "HTTP 429 is classified as a provider retry with a future durable availability time.",
+      "recovery": "The same idempotent job completes with one invoice after the provider limit clears.",
+      "runbookSection": "External provider limits"
+    }
+  ]
+}
