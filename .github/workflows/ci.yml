@@ -61,6 +61,7 @@ jobs:
       - run: npm run ci:artifacts
       - run: npm run test:flake-monitor
       - run: npm run audit:exploratory
+      - run: npm run audit:uat:policy
       - run: npm run coverage
       - run: npm run test:nuxt
       - run: npm run test:component

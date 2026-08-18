@@ -61,7 +61,7 @@ const currentRepoEvidence = new Set(
 )
 const currentPartialExternal = new Set(
   ids(
-    'SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019;TST-023;TST-028'
+    'SEO-015;PER-003;PER-013;PAY-003..017;BEP-005..018;SHP-003..020;LEG-003..034;OBS-005..023;TST-014;TST-017..019;TST-023;TST-028;TST-040'
   )
 )
 
@@ -169,6 +169,8 @@ function evidenceFor(id: string) {
       'tests/support/property.ts; tests/fixtures/property-seeds.json; tests/unit/property-helper.test.ts; tests/unit/money.test.ts; tests/unit/inventory.test.ts; tests/unit/states.test.ts; tests/unit/customer.test.ts; tests/unit/catalog-tabular.test.ts; server/services/catalog-tabular.ts; docs/testing/property-based.md; docs/testing/strategy.md; .github/workflows/ci.yml',
     'TST-039':
       'docs/testing/chaos-policy.json; docs/testing/chaos-recovery.md; scripts/lib/chaos-policy.ts; scripts/run-chaos.ts; scripts/operational-alerts.ts; scripts/outbox-worker.ts; scripts/invoice-worker.ts; scripts/refund-worker.ts; scripts/credit-note-worker.ts; tests/unit/chaos-policy.test.ts; tests/unit/worker-leases.test.ts; tests/integration/provider-recovery.test.ts; tests/integration/email-notifications.test.ts; tests/integration/commerce-transactions.test.ts; docs/operations/incident-runbooks.md; docs/testing/strategy.md; package.json; .github/workflows/chaos.yml',
+    'TST-040':
+      'docs/testing/operational-uat-policy.json; docs/testing/operational-uat.md; scripts/lib/operational-uat.ts; scripts/lib/operational-uat-inventory.ts; scripts/run-operational-uat-preflight.ts; scripts/operational-uat-inventory-evidence.ts; scripts/audit-operational-uat-policy.ts; scripts/audit-operational-uat.ts; server/api/health/live.get.ts; tests/unit/operational-uat.test.ts; tests/unit/operational-uat-inventory.test.ts; tests/e2e/health.spec.ts; docs/testing/strategy.md; package.json; .github/workflows/ci.yml; .github/workflows/staging-uat.yml',
     'TST-023':
       'docs/testing/manual-accessibility.md; scripts/audit-manual-accessibility-evidence.ts; scripts/lib/manual-accessibility-evidence.ts; tests/unit/manual-accessibility-evidence.test.ts; package.json',
     'MKT-002':
@@ -262,7 +264,12 @@ const header = [
 const rows = requirements.map((requirement) => {
   const status = statusFor(requirement)
   const operationalEvidence = status === 'PARTIAL_EXTERNAL' ? 'Required before phase acceptance' : ''
-  const externalOwner = status === 'PARTIAL_EXTERNAL' ? 'Business/Operations/Legal/Provider (assign explicitly)' : ''
+  const externalOwner =
+    status === 'PARTIAL_EXTERNAL'
+      ? requirement.id === 'TST-040'
+        ? 'Warehouse/Administration/Support/Release management'
+        : 'Business/Operations/Legal/Provider (assign explicitly)'
+      : ''
   const notes =
     status === 'REPO_EVIDENCE'
       ? 'Repository evidence is not production acceptance; execute the stated criterion and retain evidence.'

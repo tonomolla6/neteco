@@ -1,0 +1,60 @@
+name: Staging operational UAT evidence check
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: 40-character SHA deployed in staging and covered by the UAT
+        required: true
+        type: string
+      evidence_path:
+        description: Repository-relative path to the sanitized final UAT manifest
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-uat-${{ inputs.expected_commit }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: staging
+    env:
+      UAT_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      UAT_STAGING_URL: ${{ vars.UAT_STAGING_URL }}
+      UAT_PRODUCTION_URL: ${{ vars.UAT_PRODUCTION_URL }}
+      UAT_EVIDENCE_PATH: uat-evidence-source/${{ inputs.evidence_path }}
+      UAT_EVIDENCE_REPOSITORY_ROOT: uat-evidence-source
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.expected_commit }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+          path: uat-evidence-source
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: npm run audit:uat:policy
+      - run: npm run uat:preflight
+      - run: npm run audit:uat -- "$UAT_EVIDENCE_PATH"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: operational-uat-evidence-${{ inputs.expected_commit }}
+          path: |
+            test-results/operational-uat-preflight.json
+            test-results/operational-uat-manifest.json
+            test-results/operational-uat-evidence.json
+          if-no-files-found: warn
+          retention-days: 30

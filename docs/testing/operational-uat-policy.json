@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "requirementId": "TST-040",
+  "environment": "staging",
+  "syntheticDataOnly": true,
+  "blockingSeverities": ["P0", "P1"],
+  "scripts": [
+    {
+      "id": "UAT-WH-001",
+      "role": "warehouse",
+      "title": "Preparación de un pedido pagado y conciliación de stock",
+      "preconditions": ["Pedido sintético pagado con una referencia y stock conocido en staging"],
+      "steps": [
+        "Localizar el pedido por su referencia y contrastar producto, unidades, método de entrega y estado del pago",
+        "Mover el pedido por preparación hasta el siguiente estado permitido indicando un motivo operativo",
+        "Ejecutar uat:inventory con case baseline para la referencia y contrastar en su evidencia saneada las unidades reservadas, disponibles y movimientos"
+      ],
+      "expected": [
+        "El estado público y de fulfillment concuerdan, la evidencia de inventario no muestra stock negativo y el log correlacionado conserva el motivo"
+      ],
+      "cleanup": [
+        "Conservar el pedido sintético como evidencia o cerrarlo mediante el flujo permitido, sin editar datos directamente"
+      ]
+    },
+    {
+      "id": "UAT-WH-002",
+      "role": "warehouse",
+      "title": "Expedición sandbox, etiqueta y seguimiento sin duplicados",
+      "preconditions": ["Pedido sintético pagado y preparado con servicio sandbox cotizado"],
+      "steps": [
+        "Crear la expedición con el servicio cotizado y descargar la etiqueta desde el pedido",
+        "Sincronizar el seguimiento dos veces y revisar el estado visible del pedido",
+        "Comprobar referencia, fecha estimada y deduplicación en la respuesta API o log saneado"
+      ],
+      "expected": [
+        "Existe una sola expedición y una etiqueta íntegra; repetir la sincronización no duplica eventos ni retrocede el estado"
+      ],
+      "cleanup": [
+        "Cancelar la expedición sandbox si continúa cancelable y registrar el resultado; no invocar un transportista real"
+      ]
+    },
+    {
+      "id": "UAT-WH-003",
+      "role": "warehouse",
+      "title": "Recogida, cancelación y devolución con inventario conciliado",
+      "preconditions": [
+        "Tres casos sintéticos separados: recogida pagada, expedición cancelable y devolución de un pedido entregado"
+      ],
+      "steps": [
+        "Marcar el pedido de recogida como listo y entregado tras la comprobación de identidad simulada",
+        "Cancelar la expedición separada mientras sea cancelable y confirmar que repetir la acción es idempotente",
+        "Ejecutar uat:inventory con case pickup, cancellation y return sobre tres referencias distintas y contrastar sus evidencias saneadas"
+      ],
+      "expected": [
+        "Cada transición válida se refleja una vez, una transición inválida se rechaza y el inventario final concilia con entrega, cancelación y devolución"
+      ],
+      "cleanup": [
+        "Cerrar los casos sintéticos por sus transiciones normales y conservar sus referencias en las notas de ejecución"
+      ]
+    },
+    {
+      "id": "UAT-ADM-001",
+      "role": "administration",
+      "title": "Acceso administrativo con MFA y límites de autorización",
+      "preconditions": ["Identidades sintéticas de administración y de rol restringido con MFA habilitado"],
+      "steps": [
+        "Acceder al panel con la identidad administrativa completando MFA y revisar el resumen",
+        "Cerrar sesión y probar que la identidad restringida no puede ejecutar una acción reservada",
+        "Volver a entrar y verificar que la sesión y los errores no exponen datos sensibles"
+      ],
+      "expected": [
+        "La identidad administrativa accede tras MFA, la identidad restringida no produce efectos protegidos y ambos requests quedan correlacionados sin secretos"
+      ],
+      "cleanup": [
+        "Cerrar todas las sesiones de prueba y confirmar que el código de recuperación consumido no puede reutilizarse"
+      ]
+    },
+    {
+      "id": "UAT-ADM-002",
+      "role": "administration",
+      "title": "Programación y cancelación reversible de un precio",
+      "preconditions": [
+        "SKU sintético identificado y ventana de precio futura que no afecta a pedidos de otras sesiones"
+      ],
+      "steps": [
+        "Buscar el SKU sintético y registrar su precio, vigencia e histórico inicial",
+        "Programar una vigencia futura de precio con motivo y revisar la vista previa y el histórico",
+        "Cancelar la programación antes de su vigencia y comprobar el precio público original"
+      ],
+      "expected": [
+        "La programación conserva versión y motivo, la cancelación es visible y el storefront mantiene el precio original"
+      ],
+      "cleanup": ["Verificar que el SKU sintético no conserva ninguna programación activa creada por la sesión"]
+    },
+    {
+      "id": "UAT-ADM-003",
+      "role": "administration",
+      "title": "Supervisión de colas, alertas y recuperación operativa",
+      "preconditions": [
+        "Panel de operaciones disponible y un evento sintético preprovisionado en DLQ para esta sesión"
+      ],
+      "steps": [
+        "Revisar profundidad, antigüedad y DLQ en el panel y contrastarlas con la salida saneada de alerts:check",
+        "Identificar el evento sintético preprovisionado sin abrir ni copiar su payload",
+        "Aplicar el replay de DLQ con motivo y verificar el drenado y despeje en panel y alerts:check"
+      ],
+      "expected": [
+        "La señal aparece, el replay es único y auditado, la cola drena y la alerta se limpia sin mostrar payloads sensibles"
+      ],
+      "cleanup": [
+        "Confirmar que no quedan eventos sintéticos activos, leases vencidos ni alertas derivadas del ejercicio"
+      ]
+    },
+    {
+      "id": "UAT-SUP-001",
+      "role": "support",
+      "title": "Triage de ticket con pedido, prioridad y SLA",
+      "preconditions": ["Ticket sintético con referencia de pedido en su contexto y SLA futuro conocido"],
+      "steps": [
+        "Buscar el ticket por referencia y filtrar por estado y categoría",
+        "Contrastar identidad sintética, referencia contextual, conversación, prioridad y vencimiento de SLA sin revelar datos del pedido",
+        "Cambiar prioridad y siguiente estado con un motivo operativo"
+      ],
+      "expected": [
+        "La búsqueda encuentra el caso esperado, el contexto declarado coincide y la actualización queda visible y correlacionada"
+      ],
+      "cleanup": ["Devolver el ticket al estado de prueba acordado o cerrarlo documentando el motivo"]
+    },
+    {
+      "id": "UAT-SUP-002",
+      "role": "support",
+      "title": "Nota privada y respuesta pública por correo sandbox",
+      "preconditions": ["Ticket sintético con buzón sandbox verificable y proveedor de email no productivo"],
+      "steps": [
+        "Añadir una nota privada y confirmar que no genera un correo al cliente",
+        "Enviar una respuesta pública y comprobar el contenido recibido en el buzón sandbox",
+        "Refrescar la consulta sin volver a guardar y revisar el historial completo"
+      ],
+      "expected": [
+        "La nota permanece interna, la respuesta pública produce un solo mensaje y la conversación distingue autor, privacidad y fecha"
+      ],
+      "cleanup": [
+        "Archivar el mensaje sandbox y conservar solo evidencia saneada sin direcciones, tokens ni contenido personal"
+      ]
+    },
+    {
+      "id": "UAT-SUP-003",
+      "role": "support",
+      "title": "Coordinación de devolución, reembolso y factura",
+      "preconditions": [
+        "Pedido sintético entregado con factura sandbox, devolución solicitada y referencias anotadas en el ticket"
+      ],
+      "steps": [
+        "Contrastar manualmente la referencia del ticket con el pedido autorizado y comprobar importe, entrega y factura",
+        "Registrar nota privada y estado de espera mientras el operador sigue la devolución por sus estados permitidos",
+        "Comprobar el resultado de reembolso o excepción fiscal en operaciones y actualizar el ticket sin prometer un resultado pendiente"
+      ],
+      "expected": [
+        "Las referencias, importes y estados son compatibles, la coordinación queda documentada y solo se comunica al cliente el resultado confirmado"
+      ],
+      "cleanup": [
+        "Cerrar el ticket sintético cuando las colas hayan drenado y registrar cualquier excepción como defecto"
+      ]
+    }
+  ]
+}
