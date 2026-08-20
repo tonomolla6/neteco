@@ -16,6 +16,7 @@ export function sqlText(value: string) {
 
 export function renderD1CategorySeed() {
   const sourceId = stableUuid('source:neteco-demo')
+  const seedTimestamp = '2026-08-12T00:00:00Z'
   const statements = [
     'BEGIN TRANSACTION;',
     `INSERT INTO catalog_sources (id, code, name, owner, kind, is_master)
@@ -31,10 +32,10 @@ ON CONFLICT (id) DO UPDATE SET
     const id = stableUuid(`category:${legacyId}`)
     const parentId = parentLegacyId === null ? 'NULL' : sqlText(stableUuid(`category:${parentLegacyId}`))
     statements.push(`INSERT INTO categories (
-  id, legacy_id, parent_id, name, slug, status, sort_order, source_id, source_version
+  id, legacy_id, parent_id, name, slug, status, sort_order, source_id, source_version, created_at, updated_at
 ) VALUES (
   ${sqlText(id)}, ${legacyId}, ${parentId}, ${sqlText(name)}, ${sqlText(slugify(name))},
-  'published', ${legacyId}, ${sqlText(sourceId)}, 'demo-v1'
+  'published', ${legacyId}, ${sqlText(sourceId)}, 'demo-v1', ${sqlText(seedTimestamp)}, ${sqlText(seedTimestamp)}
 )
 ON CONFLICT (id) DO UPDATE SET
   parent_id = excluded.parent_id,
@@ -44,7 +45,7 @@ ON CONFLICT (id) DO UPDATE SET
   sort_order = excluded.sort_order,
   source_id = excluded.source_id,
   source_version = excluded.source_version,
-  updated_at = CURRENT_TIMESTAMP;`)
+  updated_at = excluded.updated_at;`)
   }
 
   statements.push('COMMIT;')

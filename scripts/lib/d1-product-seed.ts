@@ -12,6 +12,7 @@ export function renderD1ProductSeed() {
   const brandId = stableUuid('brand:neteco')
   const taxClassId = stableUuid('tax:es-general-21')
   const shippingProfileId = stableUuid('shipping:parcel')
+  const seedTimestamp = '2026-08-12T00:00:00Z'
   const statements = [
     'BEGIN TRANSACTION;',
     `INSERT INTO brands (id, name, slug, status)
@@ -38,12 +39,13 @@ ON CONFLICT (id) DO UPDATE SET name = excluded.name, kind = excluded.kind;`
     })
     statements.push(`INSERT INTO products (
   id, legacy_id, category_id, brand_id, source_id, name, slug, short_description,
-  description, usage, series, status, featured, attributes, source_version
+  description, usage, series, status, featured, attributes, source_version, created_at, updated_at
 ) VALUES (
   ${sqlText(productId)}, ${productIndex + 1}, ${sqlText(stableUuid(`category:${product.cat}`))},
   ${sqlText(brandId)}, ${sqlText(sourceId)}, ${sqlText(product.name)}, ${sqlText(slugify(product.name))},
   ${sqlText(product.short)}, ${sqlText(product.desc)}, ${sqlNullable(product.usage)}, ${sqlNullable(product.series)},
-  'published', ${product.featured ? 1 : 0}, ${sqlText(attributes)}, 'demo-v1'
+  'published', ${product.featured ? 1 : 0}, ${sqlText(attributes)}, 'demo-v1',
+  ${sqlText(seedTimestamp)}, ${sqlText(seedTimestamp)}
 )
 ON CONFLICT (id) DO UPDATE SET
   category_id = excluded.category_id,
@@ -58,7 +60,7 @@ ON CONFLICT (id) DO UPDATE SET
   featured = excluded.featured,
   attributes = excluded.attributes,
   source_version = excluded.source_version,
-  updated_at = CURRENT_TIMESTAMP;`)
+  updated_at = excluded.updated_at;`)
 
     for (const [variantIndex, [format, euros, sourceSku]] of product.variants.entries()) {
       const variantId = stableUuid(`variant:${productIndex + 1}:${variantIndex + 1}`)
@@ -67,12 +69,12 @@ ON CONFLICT (id) DO UPDATE SET
       statements.push(`INSERT INTO variants (
   id, legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
   unit_label, content_quantity, price_gross_cents, weight_grams, width_mm, height_mm, depth_mm,
-  source_version
+  source_version, created_at, updated_at
 ) VALUES (
   ${sqlText(variantId)}, ${productIndex * 100 + variantIndex + 1}, ${sqlText(productId)},
   ${sqlText(taxClassId)}, ${sqlText(shippingProfileId)}, ${sqlText(sku)}, ${sqlText(format)}, 'published',
   ${sqlText(unit?.[1] ?? 'unidad')}, ${unit?.[0] ?? 1}, ${Math.round(euros * 100)},
-  ${800 + productIndex * 75}, 300, 200, 100, 'demo-v1'
+  ${800 + productIndex * 75}, 300, 200, 100, 'demo-v1', ${sqlText(seedTimestamp)}, ${sqlText(seedTimestamp)}
 )
 ON CONFLICT (id) DO UPDATE SET
   product_id = excluded.product_id,
@@ -89,7 +91,7 @@ ON CONFLICT (id) DO UPDATE SET
   height_mm = excluded.height_mm,
   depth_mm = excluded.depth_mm,
   source_version = excluded.source_version,
-  updated_at = CURRENT_TIMESTAMP;`)
+  updated_at = excluded.updated_at;`)
     }
   }
 
