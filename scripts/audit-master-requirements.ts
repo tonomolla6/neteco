@@ -49,10 +49,10 @@ function ids(specification: string) {
 }
 
 const mvpRepoEvidence = ids(
-  'CAT-002..003;PRI-001..002;SEA-001;CHK-001;PAY-001..002;BEP-003;ORD-001;INV-002;SHP-001..002;CUS-001..002;ADM-001..002;MED-002;SEO-001..002;DAT-001..002;MKT-001;COM-002;SEC-001..002;INT-001;INT-003..004;TST-001..008;CIC-002..004;CIC-008;OBS-001..002;OBS-004'
+  'CAT-002..003;PRI-001..002;SEA-001;CHK-001;PAY-001..002;BEP-003;ORD-001;INV-002;SHP-001..002;CUS-001..002;ADM-001..002;MED-002;SEO-001..002;DAT-001..002;MKT-001;COM-002;SEC-001..002;INT-001;INT-003..004;TST-001..008;CIC-002..005;CIC-008;OBS-001..002;OBS-004'
 )
 const mvpExternal = ids('CAT-001;BEP-001..002;INV-001;MED-001;PER-001..002;SUP-001;LEG-001..002;OBS-003')
-const mvpMissing = ids('BEP-004;COM-001;SEC-003;INT-002;TST-009..010;CIC-001;CIC-005..007;UI-001..002;UI-013')
+const mvpMissing = ids('BEP-004;COM-001;SEC-003;INT-002;TST-009..010;CIC-001;CIC-006..007;UI-001..002;UI-013')
 
 const currentRepoEvidence = new Set(
   ids(
@@ -79,6 +79,8 @@ function evidenceFor(id: string) {
   const evidence: Record<string, string> = {
     'CAT-002':
       'db/d1/migrations/0002_catalog_read_model.sql; scripts/generate-d1-category-seed.ts; scripts/generate-d1-product-seed.ts; scripts/audit-d1-catalog.ts; workers/catalog/; tests/unit/d1-category-seed.test.ts; tests/unit/d1-product-seed.test.ts',
+    'CIC-005':
+      'wrangler.canary.jsonc; workers/canary.ts; worker-configuration.d.ts; .github/workflows/cloudflare-compat.yml; package.json; tests/unit/cloudflare-canary.test.ts',
     'SEA-001': 'db/migrations/0020_search_relevance.sql; server/api/search.get.ts; server/api/products.get.ts',
     'SEA-004': 'server/utils/search-terms.ts; db/migrations/0020_search_relevance.sql',
     'PDP-003': 'server/api/shipping/product-rates.post.ts; server/services/shipping.ts; app/pages/producto/[slug].vue',
@@ -294,7 +296,7 @@ const rows = requirements.map((requirement) => {
     evidenceFor(requirement.id),
     operationalEvidence,
     externalOwner,
-    requirement.id === 'CAT-002' ? '2026-08-20' : '2026-08-13',
+    ['CAT-002', 'CIC-005'].includes(requirement.id) ? '2026-08-20' : '2026-08-13',
     notes
   ]
     .map(csvCell)

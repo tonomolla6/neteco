@@ -1,11 +1,22 @@
 import { defineConfig, defineProject } from 'vitest/config'
 import { defineVitestProject } from '@nuxt/test-utils/config'
+import { resolve } from 'node:path'
 import coveragePolicy from './docs/testing/coverage-policy.json' with { type: 'json' }
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      'cloudflare:workers': resolve('tests/support/cloudflare-workers.ts')
+    }
+  },
   test: {
     projects: [
       defineProject({
+        resolve: {
+          alias: {
+            'cloudflare:workers': resolve('tests/support/cloudflare-workers.ts')
+          }
+        },
         test: {
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],

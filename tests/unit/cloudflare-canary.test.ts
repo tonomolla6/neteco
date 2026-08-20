@@ -12,6 +12,7 @@ function bindings(options: { d1Ok?: boolean; categories?: unknown[]; categoryErr
     CACHE: { get: vi.fn(), put: vi.fn() },
     MEDIA: { get: vi.fn(), put: vi.fn() },
     ASYNC_JOBS: { send: vi.fn() },
+    CATALOG_WORKFLOW: { create: vi.fn(), get: vi.fn() },
     COORDINATOR: { idFromName: vi.fn(), get: vi.fn() }
   } as unknown as CloudflareEnv
 }
@@ -27,12 +28,14 @@ describe('Cloudflare canary', () => {
       durableObjects: { ok: true },
       kv: { ok: true },
       queues: { ok: true },
-      r2: { ok: true }
+      r2: { ok: true },
+      workflows: { ok: true }
     })
     expect(env.ASYNC_JOBS.send).not.toHaveBeenCalled()
     expect(env.CACHE.put).not.toHaveBeenCalled()
     expect(env.MEDIA.put).not.toHaveBeenCalled()
     expect(env.COORDINATOR.get).not.toHaveBeenCalled()
+    expect(env.CATALOG_WORKFLOW.create).not.toHaveBeenCalled()
   })
 
   it('returns 503 and no-store when the D1 probe fails', async () => {

@@ -1,3 +1,4 @@
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { listPublishedCategories } from './catalog/categories'
 import { listPublishedProducts, type ProductSort } from './catalog/products'
 
@@ -15,6 +16,7 @@ export interface CanaryHealth {
     kv: CanaryCheck
     queues: CanaryCheck
     r2: CanaryCheck
+    workflows: CanaryCheck
   }
 }
 
@@ -38,7 +40,8 @@ export async function inspectCanaryBindings(env: CloudflareEnv): Promise<CanaryH
     durableObjects: bindingCheck(env.COORDINATOR, ['idFromName', 'get']),
     kv: bindingCheck(env.CACHE, ['get', 'put']),
     queues: bindingCheck(env.ASYNC_JOBS, ['send']),
-    r2: bindingCheck(env.MEDIA, ['get', 'put'])
+    r2: bindingCheck(env.MEDIA, ['get', 'put']),
+    workflows: bindingCheck(env.CATALOG_WORKFLOW, ['create', 'get'])
   }
 
   return {
@@ -56,6 +59,16 @@ export class CanaryCoordinator implements DurableObject {
 
   fetch(): Response {
     return Response.json({ ok: true, id: this.state.id.toString(), environment: this.env.APP_ENV })
+  }
+}
+
+export class CanaryWorkflow extends WorkflowEntrypoint<CloudflareEnv, { correlationId: string }> {
+  override async run(event: WorkflowEvent<{ correlationId: string }>, step: WorkflowStep) {
+    return step.do('validate platform bindings', async () => ({
+      ok: true,
+      correlationId: event.payload.correlationId,
+      environment: this.env.APP_ENV
+    }))
   }
 }
 

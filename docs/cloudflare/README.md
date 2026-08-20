@@ -11,6 +11,7 @@ The Cloudflare lane is intentionally isolated from the current Nuxt/Node product
 - KV (`CACHE`) only for derived, eventually consistent data.
 - R2 (`MEDIA`) for objects and media.
 - Queues (`ASYNC_JOBS`) with retries and a dead-letter queue.
+- Workflows (`CATALOG_WORKFLOW`) for durable, multi-step jobs.
 
 The canary exposes only `GET /health`. Its probe executes `SELECT 1` in D1 and validates the shape of the other bindings without writing to them. It never imports the Nuxt application or its Node-only dependencies.
 
