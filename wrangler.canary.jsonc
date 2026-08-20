@@ -1,0 +1,69 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "neteco-cloudflare-canary",
+  "main": "workers/canary.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "upload_source_maps": true,
+  "vars": {
+    "APP_ENV": "canary"
+  },
+  "secrets": {
+    "required": []
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "neteco-canary-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "db/d1/migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "neteco-canary-local"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "ASYNC_JOBS",
+        "queue": "neteco-canary-local"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "neteco-canary-local",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "neteco-canary-local-dlq"
+      }
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COORDINATOR",
+        "class_name": "CanaryCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["CanaryCoordinator"]
+    }
+  ]
+}
