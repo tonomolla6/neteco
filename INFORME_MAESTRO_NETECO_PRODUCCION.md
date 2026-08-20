@@ -1,6 +1,7 @@
 # Informe maestro de auditoría y hoja de ruta de producción — NETECO Shop
 
-**Fecha de corte:** 11 de agosto de 2026  
+**Fecha de corte de la auditoría base:** 11 de agosto de 2026<br>
+**Revisión de arquitectura y backlog:** 20 de agosto de 2026<br>
 **Activos revisados:** `https://neteco.es/` y `neteco-shop-main.zip`  
 **Repositorio extraído:** aplicación Nuxt 4 con frontend, API Nitro, panel, SQLite, catálogo semilla y activos locales  
 **Objetivo:** convertir la base actual en una plataforma ecommerce B2B/B2C de suministros profesionales para hostelería, comercio, industria y colectividades; rápida, segura, operable, medible y capaz de competir por servicio, reposición y fiabilidad, no solo por precio.
@@ -8,6 +9,8 @@
 > **Veredicto:** el ZIP es una base de producto válida para evolucionar, pero hoy debe considerarse **demo técnica**. No está preparado para aceptar ventas reales. Alpha deberá cerrar todos los P0/P1 de pagos, stock, fiscalidad/Beply, logística, seguridad, legal, catálogo, SEO, rendimiento, operación y calidad antes de abrir al público.
 
 > **Decisión incorporada:** la facturación fiscal se delegará en **Beply**. NETECO conservará la fuente de verdad de carrito, pedido, pago, fulfillment y experiencia de cliente; Beply será la fuente de verdad del documento fiscal emitido, su numeración, estado tributario, PDF y rectificativas, salvo que en el futuro se decida explícitamente ampliar su papel como ERP/stock.
+
+> **Decisión de plataforma incorporada:** toda la infraestructura propia de NETECO se ejecutará en **Cloudflare**: Nuxt/Nitro sobre Workers, Static Assets/CDN, D1, Durable Objects, KV, R2, Queues, Workflows, Email Service, DNS, TLS, WAF, Turnstile, secretos y observabilidad. No se desplegarán servidores, contenedores, PostgreSQL, Redis, S3 ni colas de otro proveedor. Redsys, Beply, transportistas y los canales externos de marketing/SMS/WhatsApp siguen siendo integraciones empresariales; no forman parte de la infraestructura operada por NETECO.
 
 ---
 
@@ -96,7 +99,7 @@
 1. Eliminar el administrador automático y cualquier contraseña por defecto.
 2. Eliminar PAN, caducidad y CVC de NETECO; implementar Redsys Redirect con notificación firmada servidor-servidor.
 3. Implementar ledger de intentos/eventos de pago, idempotencia, reembolso total/parcial y conciliación.
-4. Sustituir SQLite productivo por PostgreSQL gestionado y migraciones versionadas.
+4. Sustituir SQLite embebido por Cloudflare D1, migraciones versionadas y coordinación crítica mediante Durable Objects.
 5. Implementar disponibilidad vendible, reservas, decremento, liberación, ajustes e historial de stock.
 6. Crear motor de precios, IVA, unidad, descuentos y portes con snapshots inmutables por pedido.
 7. Integrar Beply de forma asíncrona y recuperable; una caída de Beply nunca debe deshacer un pedido ya cobrado.
@@ -176,11 +179,11 @@ La ventaja no es “tener más referencias que Amazon”. Es resolver mejor la c
 | INV-P0-001 | `variants.stock` existe, pero no se encontró `UPDATE variants SET stock` ni reserva. | Sobreventa y divergencia. | Reservas transaccionales, ledger y reconciliación. |
 | TAX-P0-001 | `orders/index.post.ts:43`: `total - round(total / 1.21)`. | IVA fijo y cálculo agregado incorrecto para múltiples clases/portes. | Motor por línea y snapshot fiscal inmutable. |
 | SHIP-P0-001 | `orders/index.post.ts:41`: 5,90 € bajo 150 € para `envio`. | Regla rígida sin peso, zona, bulto, palé o carrier. | Motor de tarifas administrable y adaptadores de transporte. |
-| DB-P0-001 | `server/utils/db.ts:7-15`: crea/migra/siembra SQLite al primer acceso. | Producción no reproducible y migraciones acopladas al arranque. | PostgreSQL y migraciones explícitas en pipeline. |
+| DB-P0-001 | `server/utils/db.ts:7-15`: crea/migra/siembra SQLite al primer acceso. | Producción no reproducible y migraciones acopladas al arranque. | D1 por entorno y migraciones explícitas, verificadas y promovidas por pipeline. |
 | DB-P1-002 | `server/utils/db.ts:108-125`: `ALTER TABLE` aditivos sin versión. | No hay orden, rollback ni trazabilidad de schema. | Herramienta de migraciones con tabla de versión y estrategia forward-fix. |
 | CAT-P0-001 | `.data` está ignorada; el seed solo reconstruye un catálogo pequeño. | Un despliegue limpio no reproduce la tienda preparada. | Fuente maestra versionada/importable y release de datos. |
 | MED-P0-001 | `public/img/products/CREDITS.md` exige sustituir fotos demo y señala marca de tercero. | Derechos/marca y producto incorrecto. | Quitar activos demo; media oficial o propia con licencia registrada. |
-| BKP-P1-001 | `scripts/backup.mjs` crea una copia local bajo `.data/backups`. | Mismo fallo puede destruir original y copia. | Backups gestionados/offsite, retención, cifrado y restore probado. |
+| BKP-P1-001 | `scripts/backup.mjs` crea una copia local bajo `.data/backups`. | Mismo fallo puede destruir original y copia. | D1 Time Travel, exportaciones periódicas a R2 con retención y restore probado. |
 | ORD-P1-001 | Pedido con un `status` textual sin ledgers separados. | Transiciones ambiguas, difícil auditoría y reintento. | Máquinas de estado y timeline de eventos. |
 | AUTH-P1-001 | No se encontraron reset, verificación, MFA, rate limit o sesiones gestionables. | Secuestro de cuenta, abuso y soporte manual. | Identidad completa y controles de abuso. |
 | SEO-P1-001 | 19 `useSeoMeta`; 0 canonical; 0 JSON-LD; sin sitemap. | Duplicidad, baja elegibilidad rich results y rastreo incompleto. | Capa SEO centralizada y automatizada. |
@@ -238,7 +241,7 @@ El esquema actual solo cubre una fracción del dominio. Faltan, como mínimo:
 ## 3.7 Reproducibilidad y documentación ausente
 
 - Versiones de Node y package manager fijadas.
-- Build de contenedor reproducible.
+- Build Nuxt/Worker reproducible con preset Cloudflare y Wrangler fijado.
 - `.env.example` y validación fail-fast de variables.
 - Migraciones numeradas y seed/demo deterministas.
 - ADR de arquitectura e integraciones.
@@ -421,9 +424,16 @@ Shopify destaca por convertir operaciones complejas en flujos administrables. NE
 
 # 8. Arquitectura técnica y modelo operativo objetivo
 
-## 8.1 Decisión recomendada: monolito modular
+## 8.1 Decisión: monolito modular sobre Cloudflare
 
-No se recomienda empezar con microservicios. Un **monolito modular** Nuxt/Nitro bien separado reduce complejidad y permite extraer servicios solo cuando exista necesidad de escala/equipo.
+No se recomienda empezar con microservicios. Se adopta un **monolito modular Nuxt/Nitro desplegado en Cloudflare Workers**, con capacidades auxiliares de Cloudflare separadas por responsabilidad. Wrangler detecta Nuxt, genera el preset `cloudflare`, publica el servidor y los Static Assets y expone los bindings de plataforma al runtime. No habrá servidor Node persistente ni contenedor productivo; cualquier dependencia debe ser compatible con Workers y, solo cuando sea imprescindible, con `nodejs_compat`. [S71–S72]
+
+### Alcance de “100 % Cloudflare”
+
+- Compute, frontend, API, datos, coordinación, cache, objetos, colas, workflows, cron, DNS, TLS, CDN, WAF, mitigación de bots, secretos, telemetría e infraestructura declarativa pertenecen a Cloudflare.
+- No forman parte del diseño PostgreSQL, Redis, Docker/Kubernetes productivo, S3 externo, una VM, un worker Node o una cola de otro proveedor.
+- Redsys, Beply, carriers y los canales de marketing/SMS/WhatsApp son **proveedores funcionales externos**. Solo se accede a ellos desde Workers/Workflows y nunca alojan el runtime o la persistencia maestra de NETECO. El correo transaccional usa Cloudflare Email Service si su beta, límites, entregabilidad y SLA superan UAT; una excepción requiere decisión formal y adaptador sustituible.
+- Si una función no cabe en límites o garantías actuales de Cloudflare, se rediseña o se registra como bloqueo explícito; no se introduce infraestructura paralela de forma silenciosa.
 
 ### Módulos de dominio
 
@@ -447,16 +457,29 @@ No se recomienda empezar con microservicios. Un **monolito modular** Nuxt/Nitro 
 
 | Componente | Recomendación | Motivo |
 | --- | --- | --- |
-| Aplicación | Nuxt/Nitro en contenedor inmutable. | SSR/hybrid rendering y despliegue reproducible. |
-| Base | PostgreSQL gestionado con PITR. | Transacciones, concurrencia, backup y operación. |
-| Redis | Cache, rate limit, locks, sesiones/colas según diseño. | Evitar estado en memoria local y gestionar concurrencia. |
-| Objetos | S3-compatible con versionado y antivirus. | Imágenes, PDFs, exportaciones y documentos. |
-| Cola/worker | Outbox + worker; DLQ y reintentos. | Beply, email, carriers, feeds e imágenes sin bloquear requests. |
-| CDN/WAF | Caché, TLS, compresión, bot/rate protection. | Velocidad y protección de borde. |
-| Búsqueda | PostgreSQL FTS/trigram al inicio; Typesense/Meilisearch si métricas lo exigen. | Evitar infraestructura prematura y mantener evolución. |
-| Observabilidad | Logs, métricas, trazas, errores y RUM correlacionados. | Diagnóstico técnico y de negocio. |
-| Secretos | Secret manager y OIDC en CI. | Sin credenciales permanentes en repositorio o runner. |
-| IaC | Infraestructura declarativa y revisada. | Repetición, auditoría y recuperación. |
+| Aplicación | Nuxt/Nitro en Cloudflare Workers con preset `cloudflare`. | SSR/híbrido, API y despliegue reproducible sin servidor persistente. |
+| Frontend estático | Workers Static Assets + CDN/Cache Rules. | JS/CSS/fuentes/assets versionados se publican con el Worker y se sirven desde el edge. |
+| Base relacional | D1 independiente por entorno. | Fuente de verdad de catálogo, clientes, pedidos, ledgers y configuración transaccional. |
+| Coordinación consistente | Durable Objects con SQLite, particionados por agregado/SKU. | Serializar reservas, idempotencia y contención por clave sin fingir locks de PostgreSQL. |
+| Cache/config derivada | Workers KV y Cache API. | Lecturas globales rápidas; nunca dinero, stock, permisos o consentimientos como única verdad porque KV es eventualmente consistente. [S76] |
+| Objetos y media | R2 con claves inmutables, metadatos, cuarentena y lifecycle; Cloudflare Images para derivados. | Imágenes, PDFs, exportaciones, artefactos y copias D1 dentro de Cloudflare. |
+| Asíncrono | Cloudflare Queues con consumidores Worker, reintentos, DLQ e idempotencia. | Desacoplar Beply, email, carriers, feeds e imágenes con entrega al menos una vez. [S77–S78] |
+| Procesos duraderos | Cloudflare Workflows. | Orquestaciones de varios pasos, esperas y compensaciones que sobreviven a reintentos/fallos. [S79] |
+| Programación | Cron Triggers para disparos periódicos y Durable Object Alarms para agenda por entidad. | Evitar cron manual y repartir trabajo pesado mediante Queues/Workflows. |
+| Correo transaccional | Cloudflare Email Service binding + Queues/Workflows; Email Routing/Email Workers para entrada. | Mantener envío/recepción operativa en Cloudflare, condicionado a validar la beta y sus límites antes de Alpha. [S88] |
+| Borde y abuso | Cloudflare DNS/TLS/CDN, WAF, Rate Limiting y Turnstile con validación servidor. | Rendimiento, reglas gestionadas y protección de formularios/endpoints. [S84–S85] |
+| Búsqueda | D1 FTS5 e índices explícitos; Vectorize solo si una fase futura demuestra necesidad semántica. | Búsqueda Cloudflare-native sin infraestructura dedicada prematura. [S86] |
+| Observabilidad | Workers Logs, traces, métricas, Analytics Engine, Web Analytics/RUM y Logpush a R2 cuando aplique. | Diagnóstico técnico/negocio correlacionado y retención controlada dentro de Cloudflare. [S83] |
+| Secretos | Workers Secrets/Secrets Store bindings por entorno. | Valores cifrados fuera de Git/config y contratos de secretos requeridos. [S81] |
+| IaC y deploy | Wrangler para aplicación/bindings y Terraform/OpenTofu con provider Cloudflare para cuenta/zona. | Repetición, revisión y ausencia de drift por cambios manuales. [S87] |
+
+### Regla de consistencia y transacciones
+
+1. D1 es la base relacional maestra. Operaciones SQL que deban confirmar o revertir juntas usan prepared statements y `D1Database.batch()`, que ejecuta la secuencia como transacción. [S73]
+2. La concurrencia crítica no se implementa con locks inexistentes ni con KV. Un Durable Object por SKU/agregado serializa la reserva y mantiene su ledger consistente; D1 conserva pedido, eventos y proyecciones consultables.
+3. Una compra con varios SKU es una saga idempotente: reservar por SKU, crear/confirmar pedido, y compensar todas las reservas ya obtenidas si una falla. Cada paso tiene clave idempotente y estado reconciliable; no se promete una transacción distribuida inexistente.
+4. Queues entrega al menos una vez y no garantiza orden global. Consumidores, webhooks y Workflows deben tolerar duplicados, desorden y reanudación. [S77]
+5. KV solo contiene proyecciones regenerables. Una lectura que decide cobro, stock, autorización, factura o devolución consulta D1/Durable Objects.
 
 ## 8.3 Patrón de integración obligatorio
 
@@ -466,14 +489,14 @@ Toda integración externa debe implementarse detrás de una interfaz de proveedo
 - `InvoiceProvider` — Beply.
 - `CarrierProvider` — reparto propio, paquetería, palé/ADR.
 - `EmailProvider` — transaccional/marketing separados.
-- `SearchProvider` — motor actual o dedicado.
-- `ObjectStorageProvider` — media/documentos.
+- `SearchProvider` — D1 FTS5 y, si se aprueba después, Vectorize.
+- `ObjectStorageProvider` — R2/Cloudflare Images.
 
 Reglas comunes:
 
 1. timeouts explícitos y circuit breaker cuando proceda;
 2. idempotency key propia y deduplicación;
-3. outbox para side effects posteriores a transacción;
+3. outbox en D1 y publicación en Queues/Workflows para efectos posteriores a transacción;
 4. inbox de webhooks con payload firmado, hash y estado de procesado;
 5. reintentos exponenciales con jitter solo en errores recuperables;
 6. DLQ, replay manual y auditoría;
@@ -486,14 +509,14 @@ Reglas comunes:
 
 | Dato | Fuente de verdad | Réplicas/uso |
 | --- | --- | --- |
-| Carrito | NETECO | Cliente y backend. |
-| Pedido y líneas snapshot | NETECO | Beply/carrier reciben copia contractual. |
-| Pago e historial de eventos | NETECO + evidencia Redsys | Beply recibe estado de cobro cuando corresponda. |
+| Carrito | D1; Durable Object cuando necesita coordinación inmediata | El cliente conserva solo una proyección. |
+| Pedido y líneas snapshot | D1 | Beply/carrier reciben copia contractual. |
+| Pago e historial de eventos | D1 + evidencia Redsys | Beply recibe estado de cobro cuando corresponda. |
 | Factura fiscal | Beply | NETECO guarda ID, código, estado, PDF/checksum y enlace seguro. |
-| Stock ecommerce | NETECO o ERP definido, nunca doble maestro | Beply solo si se amplía alcance mediante decisión explícita. |
-| Media original | Object storage NETECO | CDN sirve derivados. |
-| Consentimientos | NETECO/CMP/ESP sincronizados con trazabilidad | Marketing respeta suppression global. |
-| Tracking | Carrier normalizado en NETECO | Cliente y soporte consumen mismo timeline. |
+| Stock ecommerce | Ledger por SKU en Durable Objects + proyección/reconciliación en D1; nunca doble maestro | Beply solo si se amplía alcance mediante decisión explícita. |
+| Media original | R2 con clave inmutable/checksum | Cloudflare Images/CDN sirve derivados. |
+| Consentimientos | D1/CMP/ESP sincronizados con trazabilidad | Marketing respeta suppression global; KV solo puede cachear una proyección no decisoria. |
+| Tracking | Carrier normalizado en D1 | Cliente y soporte consumen el mismo timeline. |
 
 ## 8.5 Estados separados e inmutables
 
@@ -513,15 +536,15 @@ Cada transición debe registrar actor, instante, origen, motivo, versión y corr
 | Entorno | Datos | Integraciones | Acceso/objetivo |
 | --- | --- | --- | --- |
 | Local | Seed sintético por desarrollador. | Mocks/sandboxes. | Desarrollo rápido y offline razonable. |
-| CI efímero | DB nueva por job. | Mocks/containers. | Tests reproducibles. |
-| Preview por PR | Snapshot/demo sintético aislado. | Sin credenciales productivas. | Revisión visual/funcional de cambio. |
+| CI efímero | D1 local aislada por job con Miniflare/Wrangler. | Mocks y emuladores/bindings locales. | Tests reproducibles sin servicios personales. |
+| Preview por PR | Worker version/URL de preview y D1/R2/KV sintéticos aislados. | Sin credenciales productivas. | Revisión visual/funcional de cambio. |
 | Demo | Dataset rico y reiniciable. | Sandbox/mocks. | Ventas, formación y prueba desde panel. |
 | Staging | Datos anonimizados o sintéticos realistas. | Redsys test, Beply test, carrier test. | Ensayo de release/migración/E2E. |
 | Producción | PII real. | Credenciales y endpoints reales. | Ventas reales; acceso mínimo, auditoría y alertas. |
 
 ### Reglas de aislamiento
 
-- Cuentas, bases, buckets, claves, dominios, colas y analítica distintos.
+- Recursos y bindings distintos por entorno: D1, namespaces DO/KV, buckets R2, colas, workflows, secretos, hostnames y analítica.
 - Nunca copiar PII productiva a demo/preview.
 - Banners visuales y hostname inequívocos en entornos no productivos.
 - Correos/SMS de pruebas interceptados o allowlist.
@@ -530,27 +553,35 @@ Cada transición debe registrar actor, instante, origen, motivo, versión y corr
 - Feature flags con defaults seguros por entorno.
 - Configuración validada al arrancar; producción falla cerrada si falta un secreto.
 
+## 8.7 Recuperación y despliegue Cloudflare
+
+- D1 Time Travel está siempre activo y permite recuperación por minuto durante 30 días en plan Paid (7 días en Free). La restauración es destructiva e in-place, por lo que exige aprobación, bookmark previo y runbook. [S74]
+- Un Workflow programado exporta D1 a R2 con claves inmutables, checksum, manifiesto y lifecycle para la retención superior a 30 días; un restore drill importa el dump en una D1 aislada y valida integridad/journeys antes de considerar recuperable la copia. [S74–S75]
+- R2 no se tratará como si tuviera versionado S3 implícito: nuevas revisiones usan nuevas claves, el puntero activo vive en D1, lifecycle gestiona caducidad y Bucket Locks protege prefijos críticos contra overwrite/borrado durante su retención. [S80, S89]
+- Cada cambio crea una versión de Worker; staging y producción usan upload/promoción, despliegue gradual y rollback de Workers. Las versiones no versionan D1/R2/KV/DO, por lo que schema y código aplican expand/contract y forward-fix. [S82]
+- Las migraciones D1 jamás se ejecutan de forma destructiva al arrancar una request. Pipeline hace preflight, aplica migración numerada, ejecuta smoke y registra versión/bookmark.
+
 # 9. Especificación detallada por dominio
 
 Este backlog no es una lista de ideas sueltas. Cada fila define una capacidad, la fase mínima recomendada, su prioridad y un criterio verificable de terminación. **Alpha acumula MVP + Alpha**; ninguna tarea P0/P1 de esas fases puede trasladarse a Beta para “salir antes” sin una aceptación formal de riesgo.
-**Total de requisitos funcionales/técnicos:** 686 en 25 dominios.
+**Total de requisitos funcionales/técnicos:** 702 en 26 dominios.
 
 | Fase mínima | Requisitos de la fase | Acumulados al terminar |
 | --- | --- | --- |
-| MVP | 65 | 65 |
-| Alpha | 389 | 454 |
-| Beta | 57 | 511 |
-| Fase 1 | 49 | 560 |
-| Fase 2 | 24 | 584 |
-| Fase 3 | 42 | 626 |
-| Fase 4 | 31 | 657 |
-| Fase 5 | 22 | 679 |
-| Fase 6 | 7 | 686 |
+| MVP | 68 | 68 |
+| Alpha | 402 | 470 |
+| Beta | 57 | 527 |
+| Fase 1 | 49 | 576 |
+| Fase 2 | 24 | 600 |
+| Fase 3 | 42 | 642 |
+| Fase 4 | 31 | 673 |
+| Fase 5 | 22 | 695 |
+| Fase 6 | 7 | 702 |
 
 | Prioridad | Cantidad |
 | --- | --- |
-| P0 | 286 |
-| P1 | 183 |
+| P0 | 300 |
+| P1 | 185 |
 | P2 | 180 |
 | P3 | 37 |
 
@@ -561,7 +592,7 @@ La ficha comercial, técnica, regulatoria y logística debe tener fuente, tipo, 
 | ID | Fase | Prio. | Funcionalidad / trabajo | Criterio de aceptación |
 | --- | --- | --- | --- | --- |
 | CAT-001 | MVP | P0 | Definir fuente maestra del catálogo y propiedad por campo. | Matriz aprobada: NETECO/proveedor/Beply/ERP; no existen dos maestros para el mismo dato. |
-| CAT-002 | MVP | P0 | Migrar catálogo desde SQLite/seed a PostgreSQL mediante import reproducible. | Un entorno vacío queda idéntico tras migraciones + release de datos validado. |
+| CAT-002 | MVP | P0 | Migrar catálogo desde SQLite/seed a D1 mediante import reproducible. | Una D1 vacía queda idéntica tras migraciones Wrangler + release de datos validado. |
 | CAT-003 | MVP | P0 | Crear modelo producto-variante estable con identificadores internos inmutables. | Cambios de slug/SKU no rompen pedidos, URLs ni integraciones. |
 | CAT-004 | Alpha | P0 | Exigir SKU único y política de EAN/GTIN/MPN/fabricante. | Validador bloquea duplicados o formatos inválidos y genera informe de excepciones. |
 | CAT-005 | Alpha | P0 | Implementar estado editorial: borrador, revisión, publicado, oculto, descatalogado. | Solo publicado aparece; cada transición queda auditada. |
@@ -735,7 +766,7 @@ Beply emite y conserva el documento fiscal; NETECO orquesta de forma asíncrona,
 | BEP-001 | MVP | P0 | Confirmar contrato, instancia de prueba, API key, permisos y soporte Beply. | Checklist contractual resuelto; claves separadas por entorno y contacto de escalado. |
 | BEP-002 | MVP | P0 | Definir momento fiscal de emisión con asesoría. | Regla documentada por tipo de pedido/pago/entrega; no se improvisa en código. |
 | BEP-003 | MVP | P0 | Crear interfaz `InvoiceProvider` y cliente Beply versionado. | Timeouts, auth, formatos y errores normalizados; sin API key en frontend. |
-| BEP-004 | MVP | P0 | Implementar outbox transaccional para facturación. | Confirmar pedido/pago y encolar factura ocurre atómicamente; caída externa no pierde evento. |
+| BEP-004 | MVP | P0 | Implementar outbox D1 para facturación. | Pedido/pago y evento outbox se confirman en el mismo batch D1; publicador Queue/Workflow reanudable y reconciliación evitan perder o duplicar factura. |
 | BEP-005 | Alpha | P0 | Upsert/mapeo de cliente fiscal. | NIF, razón social, dirección y email se validan; ID Beply se conserva y no duplica por reintento. |
 | BEP-006 | Alpha | P0 | Crear factura mediante función de alto nivel. | Payload sale de snapshot inmutable y respuesta guarda `idfactura`, código y líneas. |
 | BEP-007 | Alpha | P0 | Idempotencia propia ante reintentos. | Un pedido/versión fiscal solo puede generar una factura; 409 entra en reconciliación, no reemisión ciega. |
@@ -941,8 +972,8 @@ Todo asset necesita correspondencia, derechos, vigencia, accesibilidad y derivad
 | MED-004 | Alpha | P0 | Fotografía principal real por producto Alpha. | Fondo/encuadre consistentes, resolución fuente suficiente, color razonable y correspondencia exacta con variante. |
 | MED-005 | Alpha | P0 | Imágenes de etiqueta, reverso y escala cuando aportan información. | Texto/regulación legibles; no contradicen ficha vigente; datos sensibles/terceros revisados. |
 | MED-006 | Alpha | P0 | PDFs técnicos y SDS vigentes con control de versión. | Idioma, fecha/revisión, producto/UFI correctos; histórico y retirada controlada. |
-| MED-007 | Alpha | P0 | Pipeline de subida seguro. | MIME real, tamaño/dimensiones, antivirus, normalización de nombre, metadata stripping cuando procede y cuarentena. |
-| MED-008 | Alpha | P0 | Derivados automáticos responsivos. | AVIF/WebP/JPEG fallback, srcset/sizes, miniaturas, calidad y recorte focal; original no se sirve salvo descarga autorizada. |
+| MED-007 | Alpha | P0 | Pipeline de subida seguro a R2. | Presigned/direct upload limitado entra en bucket/prefix de cuarentena; MIME/magic bytes, tamaño/dimensiones, metadata y análisis compatible con Workers se validan antes de promover una clave inmutable. |
+| MED-008 | Alpha | P0 | Derivados responsivos con Cloudflare Images. | AVIF/WebP/JPEG fallback, srcset/sizes, miniaturas, calidad y recorte focal medidos; original R2 no se sirve salvo descarga autorizada. |
 | MED-009 | Alpha | P0 | Alt text contextual administrable. | Describe función/producto sin keyword stuffing; decorativas con alt vacío; validación en publicación. |
 | MED-010 | Alpha | P1 | Galería accesible y zoom eficiente. | Teclado/táctil, captions cuando proceda, tamaño reservado y carga diferida fuera de la imagen principal. |
 | MED-011 | Alpha | P1 | Política de nombres/URLs estables de media. | Slug legible no es dependencia de identidad; cambios no rompen referencias/caché. |
@@ -1010,21 +1041,21 @@ La velocidad se gobierna con presupuestos, datos de campo y gates; no con una op
 | PER-002 | MVP | P0 | Establecer baseline reproducible. | Lighthouse/WebPageTest o equivalente desde condiciones fijas; resultados versionados por home/categoría/PDP/búsqueda/carrito/checkout. |
 | PER-003 | Alpha | P0 | Objetivo de campo Core Web Vitals “bueno”. | En p75 por URL type: LCP ≤2,5 s, INP ≤200 ms y CLS ≤0,1; RUM segmenta dispositivo/red/plantilla. |
 | PER-004 | Alpha | P0 | Rendering híbrido explícito por ruta. | Contenido público usa SSR/prerender/SWR/ISR según frescura; cuenta/checkout/panel son privados y no cacheables públicamente. |
-| PER-005 | Alpha | P0 | CDN y caché con claves/invalidation correctas. | Cookies, moneda/segmento y auth no contaminan caché; purge por publicación y stale-while-revalidate controlado. |
+| PER-005 | Alpha | P0 | Cloudflare CDN/Cache Rules/API con claves e invalidación correctas. | Cookies, moneda/segmento y auth no contaminan caché; purge por publicación y stale-while-revalidate controlado; rutas privadas siempre bypass/no-store. |
 | PER-006 | Alpha | P0 | Imágenes responsivas modernas. | `NuxtImg`/`NuxtPicture` o pipeline equivalente, tamaños reales, preload solo hero, lazy loading bajo fold y dimensiones reservadas. |
 | PER-007 | Alpha | P0 | Evitar layout shift. | Media, banners, widgets, fuentes y placeholders reservan espacio; modales/barras no empujan contenido inesperadamente. |
 | PER-008 | Alpha | P0 | Presupuesto de JavaScript inicial. | Code splitting, componentes lazy, tree-shaking y terceros retrasados; cada script tiene dueño, finalidad y coste medido. |
 | PER-009 | Alpha | P0 | Fuentes optimizadas. | Self-host/subset cuando licencia permite, formatos modernos, preload mínimo, `font-display` y fallbacks métricamente compatibles. |
 | PER-010 | Alpha | P0 | Consultas e índices medidos. | Planes/latencia de catálogo, búsqueda, carrito, pedido y panel; no N+1 ni scans crecientes sin límite. |
 | PER-011 | Alpha | P0 | Paginación y límites server-side. | APIs no devuelven catálogos completos; topes, cursores y orden estable. |
-| PER-012 | Alpha | P0 | Compresión y protocolo moderno. | Brotli/gzip en borde, HTTP/2/3 según proveedor, cache headers y ETags donde corresponda. |
+| PER-012 | Alpha | P0 | Compresión y protocolo moderno en Cloudflare. | Brotli/gzip, HTTP/2/3, cache headers y ETags se validan en la zona/Worker; no se añade un proxy/origin alternativo. |
 | PER-013 | Alpha | P0 | RUM con muestreo y privacidad. | Vitals, TTFB, errores JS y navegación correlacionados sin capturar PII; alertas por regresión real. |
 | PER-014 | Alpha | P0 | Pruebas de carga de rutas críticas. | Búsqueda, PDP, carrito, checkout callback, panel y jobs cumplen capacidad objetivo con margen y sin corrupción. |
 | PER-015 | Alpha | P1 | Prefetch/preconnect con disciplina. | Solo destinos/probabilidades útiles; no descarga rutas/productos masivos ni abre terceros antes de consentimiento. |
 | PER-016 | Alpha | P1 | Skeletons y estados de carga accesibles. | No ocultan errores ni causan CLS; aria-live solo donde ayuda. |
 | PER-017 | Alpha | P1 | Control de caché privada. | Cuenta, pedido, PDFs y panel llevan `private/no-store` apropiado y no aparecen en history/cache compartida. |
-| PER-018 | Alpha | P1 | Optimizar servidor y cold starts. | Contenedor mantiene dependencias nativas compatibles; health/readiness y warmup medidos. |
-| PER-019 | Alpha | P1 | Jobs pesados fuera del request. | Importación, imágenes, PDFs, emails, Beply, feeds y exports usan cola; UI muestra estado. |
+| PER-018 | Alpha | P1 | Optimizar Worker, CPU y cold starts. | Bundle y dependencias son compatibles con Workers; CPU time, wall time, subrequests, memoria y arranque se miden contra límites del plan. |
+| PER-019 | Alpha | P1 | Jobs pesados fuera del request. | Importación, imágenes, PDFs, emails, Beply, feeds y exports se fragmentan con R2 + Queues/Workflows; UI muestra estado y no exceden límites Worker. |
 | PER-020 | Beta | P2 | Performance gate en CI. | PR/release falla ante regresión presupuestada y adjunta diff; excepciones temporales caducan. |
 | PER-021 | Beta | P2 | Test sintético de compra desde ubicaciones clave. | Navegación y API monitorizadas con datos demo; no realiza cargos/ventas reales. |
 | PER-022 | Fase 1 | P2 | Optimización de terceros por valor. | A/B de impacto/coste; eliminación de píxeles/widgets sin retorno. |
@@ -1115,10 +1146,10 @@ Los canales transaccionales deben ser fiables y los comerciales consentidos, ded
 
 | ID | Fase | Prio. | Funcionalidad / trabajo | Criterio de aceptación |
 | --- | --- | --- | --- | --- |
-| COM-001 | MVP | P0 | Separar proveedor/canal transaccional del marketing. | Dominios/subdominios, reputación, listas y credenciales separados; una baja comercial no bloquea factura/pedido. |
+| COM-001 | MVP | P0 | Adoptar Cloudflare Email Service para transaccional y separar marketing. | Binding/envíos/routing Cloudflare usan dominio/reputación propios; marketing queda aislado y la beta tiene UAT, límites, owner y excepción formal si no cumple Alpha. |
 | COM-002 | MVP | P0 | Catálogo de plantillas y eventos. | Cada trigger, destinatario, idioma, datos, owner y condición está documentado y versionado. |
-| COM-003 | Alpha | P0 | Configurar SPF, DKIM y DMARC. | Alineación validada, reporting monitorizado y política endurecida progresivamente sin romper fuentes legítimas. |
-| COM-004 | Alpha | P0 | Envío asíncrono idempotente. | Outbox, provider message ID, retries, DLQ y dedup; una respuesta HTTP lenta no duplica correos. |
+| COM-003 | Alpha | P0 | Configurar Cloudflare Email Service/DNS, SPF, DKIM y DMARC. | Dominio/subdominio, alineación y reporting monitorizados; política endurecida sin romper fuentes legítimas ni mezclar marketing. |
+| COM-004 | Alpha | P0 | Envío asíncrono idempotente por Email Service. | Outbox D1, Queue/Workflow, message ID, retries, DLQ y dedup; una respuesta lenta/repetida no duplica correos. |
 | COM-005 | Alpha | P0 | Webhooks de entrega/rebote/queja firmados. | Eventos deduplicados actualizan estado/suppression y alertan anomalías; payload sensible minimizado. |
 | COM-006 | Alpha | P0 | Plantillas transaccionales esenciales. | Verificación, reset, pedido recibido, pago, preparación, envío/recogida, entrega, cancelación, reembolso, incidencia y factura disponibles. |
 | COM-007 | Alpha | P0 | Enlaces seguros y con caducidad. | Pedido/factura/reset/acción no contienen PII ni tokens eternos; revocación y single-use cuando corresponda. |
@@ -1170,7 +1201,7 @@ La seguridad se implementa como controles comprobables en identidad, autorizaci�
 | --- | --- | --- | --- | --- |
 | SEC-001 | MVP | P0 | Modelo de amenazas y clasificación de datos. | Activos, actores, trust boundaries, abuso, PII/secretos/dinero y mitigaciones se revisan por arquitectura y antes de cambios críticos. |
 | SEC-002 | MVP | P0 | Baseline OWASP ASVS para requisitos verificables. | Nivel objetivo acordado, controles trazados a tests/evidencias y excepciones con riesgo/fecha/owner. |
-| SEC-003 | MVP | P0 | Secretos fuera de código y archivos de ejemplo. | Secret manager por entorno, rotación, mínimo privilegio, acceso auditado y detección de secretos en commits. |
+| SEC-003 | MVP | P0 | Secretos en Workers Secrets/Secrets Store. | Bindings por entorno, rotación, mínimo privilegio, acceso auditado y detección en commits; ningún secreto usa `vars`, KV o bundle cliente. |
 | SEC-004 | Alpha | P0 | Eliminar credenciales/usuarios predeterminados. | Instalación no crea admin conocido; bootstrap one-shot expira y queda inutilizable tras completar. |
 | SEC-005 | Alpha | P0 | Sesiones seguras. | Cookies Secure/HttpOnly/SameSite apropiado, rotación login/privilegio, expiración idle/absolute, revocación y dispositivos visibles cuando proceda. |
 | SEC-006 | Alpha | P0 | Contraseñas robustas y hash moderno. | Argon2id o equivalente calibrado; bloqueo inteligente, password managers permitidos y listas de contraseñas comprometidas cuando viable. |
@@ -1182,21 +1213,21 @@ La seguridad se implementa como controles comprobables en identidad, autorizaci�
 | SEC-012 | Alpha | P0 | Consultas parametrizadas y acceso a datos seguro. | ORM/query builder/SQL parametrizado; revisión de búsquedas/filtros/imports contra SQL/NoSQL injection. |
 | SEC-013 | Alpha | P0 | Headers de seguridad. | HSTS, CSP, frame-ancestors, nosniff, Referrer-Policy, Permissions-Policy y cache headers validados por ruta. |
 | SEC-014 | Alpha | P0 | CORS cerrado y explícito. | Sin wildcard con credenciales; orígenes/métodos/headers por entorno y tests de preflight. |
-| SEC-015 | Alpha | P0 | Rate limiting y protección de abuso. | Login/reset/registro/búsqueda/cart/checkout/contacto/webhooks/admin tienen límites por identidad/IP/riesgo y respuestas seguras. |
+| SEC-015 | Alpha | P0 | Cloudflare Rate Limiting, Turnstile y límites de aplicación. | Login/reset/registro/búsqueda/cart/checkout/contacto/webhooks/admin combinan WAF/rate rules y DO por identidad cuando haga falta; Siteverify se valida servidor y callbacks legítimos quedan probados. |
 | SEC-016 | Alpha | P0 | Redsys alojado y alcance PCI minimizado. | NETECO no almacena/procesa/transmite PAN/CVC; inventario de páginas/scripts y cuestionario PCI aplicable revisado. |
 | SEC-017 | Alpha | P0 | Validación criptográfica de webhooks/callbacks. | Firma, timestamp/nonce cuando exista, orden/importe/moneda/merchant y replay se verifican antes de mutar estado. |
-| SEC-018 | Alpha | P0 | Upload seguro. | Límites, MIME/magic bytes, extensión generada, antivirus, almacenamiento no ejecutable, descarga segura y autorización. |
+| SEC-018 | Alpha | P0 | Upload seguro a R2 en cuarentena. | URL limitada, tamaño, MIME/magic bytes, nombre generado, objeto no ejecutable y descarga autorizada; análisis de malware compatible con Workers o bloqueo del tipo hasta decisión explícita. |
 | SEC-019 | Alpha | P0 | Prevención SSRF y fetch remoto controlado. | No se descargan URLs arbitrarias; allowlist, DNS/IP checks, límites y salida de red restringida. |
 | SEC-020 | Alpha | P0 | Protección de logs y errores. | Redacción de tokens, cookies, PII, claves y payloads; errores públicos genéricos con correlation ID. |
-| SEC-021 | Alpha | P0 | Cifrado en tránsito y reposo. | TLS moderno, certificados/renovación monitorizados, DB/object storage/backups cifrados y claves gestionadas. |
-| SEC-022 | Alpha | P0 | Gestión de dependencias y supply chain. | Lock congelado, fuentes registradas, actualizaciones automatizadas/revisadas, SBOM, firmas/checksums y escaneo de contenedor. |
+| SEC-021 | Alpha | P0 | Cifrado en tránsito, reposo y secretos Cloudflare. | SSL/TLS y certificados monitorizados; D1/DO/R2 protegidos por plataforma; credenciales solo en Workers Secrets/Secrets Store, nunca KV, código o cliente. |
+| SEC-022 | Alpha | P0 | Gestión de dependencias y supply chain. | Lock congelado, fuentes registradas, actualizaciones automatizadas/revisadas, SBOM, firmas/checksums y escaneo del bundle/artefactos Worker. |
 | SEC-023 | Alpha | P0 | SAST, secret scan y dependency scan en CI. | Hallazgos bloquean por severidad/alcance; SLA y proceso de excepción/remediación definidos. |
 | SEC-024 | Alpha | P0 | DAST y pruebas de autorización en staging. | Cobertura de auth, IDOR, XSS, CSRF, headers, uploads y endpoints críticos; no ataca producción sin plan. |
 | SEC-025 | Alpha | P0 | Plan de respuesta a incidentes y brechas. | Roles, contacto, contención, evidencia, comunicación, legal/notificación, rotación y ejercicios tabletop. |
-| SEC-026 | Alpha | P1 | Protección de bots/credential stuffing adaptativa. | Challenge solo ante riesgo; no bloquea clientes legítimos/accesibilidad y tiene fallback soporte. |
+| SEC-026 | Alpha | P1 | WAF/Bot protection adaptativa. | Cloudflare Managed/Custom Rules y Turnstile desafían solo ante riesgo; plan/capacidades elegidos, accesibilidad/falsos positivos medidos y fallback soporte. |
 | SEC-027 | Alpha | P1 | Inventario de endpoints y esquema de API. | Versionado, auth, permisos, rate limits, owners y deprecación; endpoints internos no quedan públicos accidentalmente. |
 | SEC-028 | Alpha | P1 | Separación de funciones en producción. | Deploy, secretos, reembolsos, roles y datos masivos requieren permisos distintos/aprobación según riesgo. |
-| SEC-029 | Alpha | P1 | Acceso administrativo restringido y monitorizado. | MFA, sesiones cortas, red/IdP cuando convenga, alertas de anomalía y revisión periódica de cuentas. |
+| SEC-029 | Alpha | P1 | Acceso administrativo restringido con Cloudflare Access. | Access protege backoffice/preview como defensa adicional; MFA/sesión/RBAC internos siguen obligatorios, con alertas y revisión periódica. |
 | SEC-030 | Alpha | P1 | Política de retención de auditoría de seguridad. | Integridad, acceso limitado, búsqueda, export legal y borrado al vencer plazo. |
 | SEC-031 | Alpha | P1 | Antifraude básico de pedidos/pagos. | Velocidad, identidad/dirección, intentos y listas operativas; revisión manual y no decisiones opacas irreversibles. |
 | SEC-032 | Alpha | P1 | Vulnerabilidad disclosure/security contact. | Canal monitorizado, alcance, safe harbor razonable y proceso de triage/remediación. |
@@ -1263,22 +1294,22 @@ Toda dependencia externa puede fallar, duplicar o reordenar eventos; los contrat
 | ID | Fase | Prio. | Funcionalidad / trabajo | Criterio de aceptación |
 | --- | --- | --- | --- | --- |
 | INT-001 | MVP | P0 | Catálogo de integraciones y contratos. | Owner, datos, dirección, auth, SLA, sandbox, límites, errores y criticidad documentados para cada proveedor. |
-| INT-002 | MVP | P0 | Outbox transaccional común. | Evento de negocio y registro outbox se confirman en una transacción; worker usa lease/lock y reanudación segura. |
+| INT-002 | MVP | P0 | Outbox D1 hacia Cloudflare Queues/Workflows. | Evento y outbox se confirman en un batch D1; publicador reanudable entrega con ID único, consumidor deduplica y reconciliador recupera el commit previo a un fallo de publish. |
 | INT-003 | MVP | P0 | Inbox de webhooks común. | Conserva ID/hash/payload redacted/firma/estado/intentos; deduplica antes de aplicar side effects. |
 | INT-004 | MVP | P0 | Identificadores de correlación end-to-end. | Request, cart, order, payment, invoice, shipment y job se enlazan en logs/timeline sin exponer secretos. |
 | INT-005 | Alpha | P0 | Idempotency keys por operación externa. | Retry/replay/concurrencia no crea segundo pago, factura, etiqueta, email o exportación. |
 | INT-006 | Alpha | P0 | Política de timeout/retry/backoff/jitter. | Solo errores recuperables se reintentan; límites y deadline total; 4xx de negocio van a corrección/DLQ. |
-| INT-007 | Alpha | P0 | Dead-letter queue y replay manual. | Error, payload seguro, causa, intentos y dependencia visibles; replay requiere permiso/motivo y vuelve a ser idempotente. |
+| INT-007 | Alpha | P0 | Cloudflare Queues DLQ y replay manual. | `max_retries`/DLQ, payload seguro, causa, intentos y dependencia visibles; replay autorizado es idempotente y se ejecuta antes de vencer retención. |
 | INT-008 | Alpha | P0 | Circuit breaker/fallback por proveedor crítico. | Evita cascada; checkout/fulfillment aplica fallback seguro y comunica indisponibilidad sin inventar éxito. |
 | INT-009 | Alpha | P0 | Validación de esquema de entrada/salida. | Campos/tipos/enums/fechas/moneda se normalizan; cambios incompatibles disparan alerta/test de contrato. |
 | INT-010 | Alpha | P0 | Credenciales y endpoints por entorno. | No existe fallback a producción; startup valida host/merchant/instance/series y bloquea combinaciones peligrosas. |
 | INT-011 | Alpha | P0 | Egress allowlist y DNS/TLS verificados. | Workers solo alcanzan hosts requeridos; certificados/hostname y redirects no degradan seguridad. |
-| INT-012 | Alpha | P0 | Reconciliación independiente de webhooks. | Jobs detectan callbacks perdidos y estados divergentes para Redsys, Beply y transportistas. |
+| INT-012 | Alpha | P0 | Reconciliación independiente de webhooks. | Cron Trigger inicia Workflow paginado que detecta callbacks perdidos/estados divergentes de Redsys, Beply y carriers sin exceder límites ni duplicar efectos. |
 | INT-013 | Alpha | P1 | Versionado de eventos internos. | Payload con versión, compatibilidad/adaptadores y deprecación; consumidores no dependen de tablas internas. |
 | INT-014 | Alpha | P1 | Panel de salud de integraciones. | Éxito/error/latencia/backlog/último evento/config redacted y acciones de prueba/replay autorizadas. |
 | INT-015 | Alpha | P1 | Mocks/fakes deterministas. | Redsys/Beply/carriers/email simulan éxito, rechazo, timeout, duplicado, orden alterado y payload inválido. |
-| INT-016 | Alpha | P1 | Rate limit y backpressure saliente. | Cuotas por proveedor, batching, concurrency y pausa; no agota API ni memoria/DB durante picos. |
-| INT-017 | Alpha | P1 | Jobs programados con timezone y lock distribuido. | No se ejecutan dos veces en réplicas; missed run/retry/owner/último éxito visibles. |
+| INT-016 | Alpha | P1 | Rate limit y backpressure saliente. | Queues controla batching/concurrencia/delay por proveedor; Workflows pausa/reintenta y ningún pico agota API, CPU/subrequests o D1. |
+| INT-017 | Alpha | P1 | Programación Cloudflare idempotente. | Cron Triggers en UTC disparan Queues/Workflows y DO Alarms cubren vencimientos por entidad; duplicado/missed run/retry/owner/último éxito son visibles. |
 | INT-018 | Beta | P2 | Pruebas de contrato periódicas contra sandbox. | Detectan cambios de proveedor antes de release; secretos/datos sintéticos y cuotas controlados. |
 | INT-019 | Beta | P2 | Fault injection de integraciones. | Timeout, 500, 401, payload parcial, duplicado y latencia prueban recuperación sin corrupción. |
 | INT-020 | Fase 3 | P2 | API pública B2B versionada. | OpenAPI, auth/scopes, idempotencia, cuotas, sandbox, changelog y soporte/deprecación. |
@@ -1300,7 +1331,7 @@ La cobertura 100 % exigida se combina con mutación, contratos, E2E, seguridad, 
 | TST-006 | MVP | P0 | Objetivo de cobertura total del código ejecutable propio. | CI usa `thresholds: 100` y `perFile` sobre el include acordado; cualquier exclusión es explícita, revisada, fechada y visible en informe. |
 | TST-007 | MVP | P0 | No confundir cobertura con corrección. | Mutation testing, property-based, concurrency, contract y E2E complementan el 100 %; score/umbral crítico definido. |
 | TST-008 | MVP | P0 | Tests unitarios de servicios de dominio. | Tablas de decisión y bordes para dinero, redondeo, IVA, cantidades, fechas, estados, permisos y disponibilidad. |
-| TST-009 | MVP | P0 | Tests de repositorios contra PostgreSQL real. | Testcontainers/servicio CI; transacciones, constraints, locks, índices y errores reales, no solo mocks. |
+| TST-009 | MVP | P0 | Tests de persistencia contra D1 y Durable Objects reales/locales. | Wrangler/Miniflare aislado y suite remota controlada validan batch transaccional, constraints, índices, sesiones, serialización DO y errores reales; no solo mocks. |
 | TST-010 | MVP | P0 | Tests de migraciones desde bases soportadas. | Vacío→latest y versión anterior→latest; datos/constraints/rollback operativo o forward fix verificados. |
 | TST-011 | Alpha | P0 | E2E de compra invitada Redsys simulada/sandbox. | Éxito, rechazo, abandono, callback antes/después del retorno, duplicado, importe/firma inválidos y retry. |
 | TST-012 | Alpha | P0 | E2E de cuenta y compra autenticada. | Registro/verificación/login/reset/dirección/carrito/pedido/factura, aislamiento y cierre de sesión. |
@@ -1315,8 +1346,8 @@ La cobertura 100 % exigida se combina con mutación, contratos, E2E, seguridad, 
 | TST-021 | Alpha | P0 | Tests de seguridad de input/salida. | XSS, SQL injection, CSRF, SSRF, path traversal, CSV injection, upload, headers, cookies y rate limits. |
 | TST-022 | Alpha | P0 | Tests de accesibilidad automatizados. | Axe/pa11y equivalente en plantillas/estados/modales/checkout/panel; fallos serios bloquean CI. |
 | TST-023 | Alpha | P0 | Pruebas manuales de accesibilidad. | Teclado, foco, lector, zoom/reflow, contraste, errores y autenticación con checklist/evidencia por release mayor. |
-| TST-024 | Alpha | P0 | Tests de rendimiento/carga. | Budgets frontend y API/worker; picos, backpressure, DB pool, callback y búsqueda con criterios pass/fail. |
-| TST-025 | Alpha | P0 | Tests de recuperación ante proveedor caído. | Beply/carrier/email/Redis indisponibles y DB failover simulado; pedido/pago no se corrompen y cola recupera. |
+| TST-024 | Alpha | P0 | Tests de rendimiento/carga. | Budgets frontend y Worker; picos, CPU/subrequests, D1 rows read/write, DO contention, Queue backlog, callbacks y búsqueda tienen pass/fail y margen sobre cuotas. |
+| TST-025 | Alpha | P0 | Tests de recuperación ante dependencia caída. | Beply/carrier/email indisponibles, reintentos/duplicados de Queues y fallo simulado de D1/DO/R2; pedido/pago no se corrompen y la plataforma reconcilia. |
 | TST-026 | Alpha | P1 | Component tests de UI crítica. | Búsqueda, filtros, selector variante, quantity, carrito, formularios, modales, tablas y permisos cubren estados/error/teclado. |
 | TST-027 | Alpha | P1 | Regresión visual por plantillas/breakpoints. | Snapshots revisados y estables; fuentes/animaciones/datos deterministas, diff como artefacto. |
 | TST-028 | Alpha | P1 | Matriz navegador/dispositivo. | Chromium, Firefox, WebKit y móviles objetivo; soporte documentado y smoke real en dispositivo cuando sea crítico. |
@@ -1330,7 +1361,7 @@ La cobertura 100 % exigida se combina con mutación, contratos, E2E, seguridad, 
 | TST-036 | Alpha | P1 | Reporting y artifacts de CI. | JUnit/cobertura/trazas/screenshots/logs/SBOM/performance accesibles, redacted y con retención definida. |
 | TST-037 | Beta | P1 | Mutation testing de módulos críticos. | Umbral alto acordado y mutantes supervivientes revisados; no excluir lógica difícil sin justificación. |
 | TST-038 | Beta | P2 | Property-based testing ampliado. | Invariantes de dinero, descuentos, estados, stock, direcciones y parser/import; seeds de fallos persistidos. |
-| TST-039 | Beta | P2 | Chaos/fault injection programado. | Latencia, duplicados, orden alterado, pérdida de worker/cache y límites externos; runbook/alerta/recuperación verificados. |
+| TST-039 | Beta | P2 | Chaos/fault injection programado. | Latencia, duplicados, orden alterado, fallo de Worker/D1/DO/KV/Queue/R2 y límites externos; runbook/alerta/recuperación verificados. |
 | TST-040 | Beta | P2 | UAT operativa con almacén/administración/soporte. | Scripts sobre staging, criterios firmados y defectos P0/P1 a cero antes de ampliar tráfico. |
 | TST-041 | Fase 1 | P2 | Tests de promociones/automatizaciones generados por tabla. | Combinaciones, margen, elegibilidad, frecuencia, consentimientos y reembolso cubiertos. |
 | TST-042 | Fase 3 | P2 | Tests multiempresa y B2B masivos. | Tarifas, sedes, roles, aprobación, crédito, SSO/API y aislamiento bajo concurrencia. |
@@ -1343,39 +1374,39 @@ Un commit debe convertirse en el mismo artefacto probado y promovido, con entorn
 
 | ID | Fase | Prio. | Funcionalidad / trabajo | Criterio de aceptación |
 | --- | --- | --- | --- | --- |
-| CIC-001 | MVP | P0 | Fijar toolchain exacta y compatible. | Node/package manager/OS/libc/native deps definidos en repo y contenedor; Nuxt lock/engines pasan sin warning de versión. |
+| CIC-001 | MVP | P0 | Fijar toolchain de build y runtime Workers. | Node/package manager/Wrangler/compatibility date/flags definidos; Nuxt usa preset `cloudflare`, lock/engines pasan y no quedan módulos nativos o APIs Node incompatibles. |
 | CIC-002 | MVP | P0 | Instalación reproducible con lock congelado. | `npm ci`/equivalente sin modificar lock; registry/cache/proxy documentados y checksum de artefactos. |
 | CIC-003 | MVP | P0 | Scripts estándar de calidad. | `lint`, `format:check`, `typecheck`, `test:unit`, `test:integration`, `test:e2e`, `coverage`, `build` y `db:migrate` funcionan local/CI. |
 | CIC-004 | MVP | P0 | Workflow de pull request obligatorio. | Install→format/lint/type→unit/coverage→integration→build→security; checks requeridos y sin push directo a rama protegida. |
-| CIC-005 | MVP | P0 | PostgreSQL/Redis/servicios efímeros en CI. | Versiones fijadas, health checks, DB limpia y artefactos de diagnóstico; sin dependencia de servicios personales. |
-| CIC-006 | MVP | P0 | Imagen de contenedor multi-stage no root. | Runtime mínimo, healthcheck, CA/timezone, dependencias nativas compatibles, labels/SBOM y scanner sin críticos. |
-| CIC-007 | MVP | P0 | Infraestructura como código por entorno. | Red, compute, DB, Redis, storage, CDN/WAF, DNS, secretos, observabilidad y backups revisables/recreables. |
+| CIC-005 | MVP | P0 | Bindings Cloudflare aislados en desarrollo y CI. | D1, DO, KV, R2, Queues y Workflows locales/efímeros usan Wrangler/Miniflare con estado limpio, versiones fijadas y diagnósticos; sin servicios personales. |
+| CIC-006 | MVP | P0 | Bundle Worker reproducible y compatible. | Build genera `.output/server/index.mjs` y `.output/public`, respeta límites de tamaño/startup, produce SBOM y no incluye binarios nativos, secretos ni vulnerabilidades bloqueantes. |
+| CIC-007 | MVP | P0 | Infraestructura Cloudflare como código por entorno. | Workers, D1, DO, KV, R2, Queues, Workflows/Cron, DNS/TLS, CDN/WAF/Turnstile, secretos, observabilidad y recuperación son revisables/recreables con Wrangler + Terraform/OpenTofu. |
 | CIC-008 | MVP | P0 | Contrato de configuración y `.env.example` sin secretos. | Schema valida required/type/enum/URL por entorno; documentación de obtención/rotación y startup fail-fast. |
-| CIC-009 | Alpha | P0 | Preview environment por PR. | URL/DB/datos demo aislados, expiración automática, noindex/auth, correos interceptados e integraciones mock/sandbox. |
+| CIC-009 | Alpha | P0 | Preview Cloudflare por PR. | Worker/hostname y bindings D1/DO/KV/R2/Queues sintéticos aislados, expiración automática, Access/noindex, correos interceptados e integraciones mock/sandbox. |
 | CIC-010 | Alpha | P0 | Demo estable y reiniciable desde panel/pipeline. | Dataset representativo, cuentas/roles/escenarios, reset idempotente, reloj opcional y cero PII productiva. |
-| CIC-011 | Alpha | P0 | Staging equivalente a producción. | Misma topología/config shape/versiones, menor capacidad; Redsys/Beply/carrier sandbox y dominios/keys separados. |
-| CIC-012 | Alpha | P0 | Entornos protegidos y secretos mediante OIDC. | Aprobaciones/roles, no secretos permanentes en CI, historial de deploy y acceso auditado. |
-| CIC-013 | Alpha | P0 | Pipeline de release a staging. | Artefacto inmutable/promovible, migración, deploy, smoke/E2E/DAST/performance/contract y evidencia; no recompila distinto para prod. |
-| CIC-014 | Alpha | P0 | Migraciones expand/contract compatibles. | Aplicación vieja/nueva coexisten durante rollout; backup/check/preflight, lock/timeout y forward fix documentado. |
-| CIC-015 | Alpha | P0 | Deploy productivo canary/blue-green o rolling seguro. | Readiness, capacidad, métricas/errores/negocio como gates y abort automático/manual. |
-| CIC-016 | Alpha | P0 | Rollback de aplicación probado. | Reutiliza artefacto anterior; feature flags/compat DB permiten revertir sin pérdida; tiempo medido en ejercicio. |
+| CIC-011 | Alpha | P0 | Staging Cloudflare equivalente a producción. | Misma forma de Worker/bindings/rules y plan suficiente, con recursos y secretos separados; Redsys/Beply/carrier sandbox. |
+| CIC-012 | Alpha | P0 | Despliegues y secretos protegidos. | Token Cloudflare de mínimo privilegio o Workers Builds, aprobaciones/roles, Workers Secrets/Secrets Store, historial de deploy y acceso auditado; nada sensible en Git/logs. |
+| CIC-013 | Alpha | P0 | Pipeline de release a staging. | El mismo build output inmutable/digest se sube a cada Worker de entorno, registrando sus version IDs, tras migración D1/DO y gates; no se recompila distinto para producción. |
+| CIC-014 | Alpha | P0 | Migraciones D1/DO expand/contract compatibles. | Versiones vieja/nueva coexisten durante rollout; bookmark/export/preflight, límites y forward-fix documentados; ninguna migración destructiva en request startup. |
+| CIC-015 | Alpha | P0 | Workers gradual deployment seguro. | Version affinity/overrides cuando proceda, métricas de versión/errores/negocio como gates y promoción o abort controlados. |
+| CIC-016 | Alpha | P0 | Rollback de Worker probado. | `wrangler rollback`/deployment anterior y flags revierten código sin asumir rollback de D1/R2/KV/DO; compatibilidad y tiempo quedan demostrados. |
 | CIC-017 | Alpha | P0 | Post-deploy smoke de negocio. | Home/search/PDP/cart/checkout simulado, login/panel, jobs y health de proveedores; no crea cargo/factura real. |
 | CIC-018 | Alpha | P0 | Separación de despliegue y activación. | Feature flags permiten código oscuro; migración/backfill antes de exposición y kill switch por funcionalidad. |
-| CIC-019 | Alpha | P0 | SBOM, firma/provenance y escaneo de artefacto. | Artefacto identificable por commit/build, firmado/verificable y sin vulnerabilidades bloqueantes según política. |
-| CIC-020 | Alpha | P0 | Backups/PITR configurados antes de datos reales. | Política, cifrado, cuenta/proyecto separados y prueba de restauración; no solo snapshot del mismo host. |
+| CIC-019 | Alpha | P0 | SBOM, provenance y escaneo del bundle Worker. | Worker Version identificable por commit/build, attestation verificable y sin vulnerabilidades bloqueantes según política. |
+| CIC-020 | Alpha | P0 | D1 Time Travel y exportaciones a R2 antes de datos reales. | Plan Paid, política/bookmarks, Workflow de export, checksums/lifecycle y restore aislado probados; no se confunde PITR con clon no disponible. |
 | CIC-021 | Alpha | P1 | Branch protection y CODEOWNERS. | Revisión obligatoria en pagos/seguridad/inventario/infra; firmas/status checks/conversación resuelta según política. |
 | CIC-022 | Alpha | P1 | Actualizaciones automatizadas de dependencias. | Renovate/Dependabot agrupa, ejecuta suite, prioriza seguridad y no auto-mergea cambios críticos sin revisión. |
 | CIC-023 | Alpha | P1 | Release notes y changelog operativo. | Cambios cliente/panel/schema/config/flags/runbooks/rollback conocidos; versión desplegada visible. |
-| CIC-024 | Alpha | P1 | Jobs/schedulers desplegados y versionados con app. | Ownership, concurrency, timezone, timeout y smoke; no cron manual invisible. |
+| CIC-024 | Alpha | P1 | Queues, Workflows, Cron Triggers y DO Alarms versionados. | Ownership, idempotencia, concurrencia, UTC/Europe-Madrid, límites, DLQ/compensación y smoke; no procesos residentes ni cron manual invisible. |
 | CIC-025 | Alpha | P1 | Seed y migraciones de datos versionados. | Datos demo separados de catálogo release; checksums, idempotencia y rollback/reconciliación. |
-| CIC-026 | Alpha | P1 | Política de acceso a producción. | Least privilege/JIT, cuentas individuales, MFA, break-glass sellado, revisiones periódicas y no shell/DB habitual. |
-| CIC-027 | Alpha | P1 | Configuración de dominio, DNS y TLS con rollback. | TTL/certificados/redirecciones/canonical/email DNS y monitorización; plan de cutover probado. |
+| CIC-026 | Alpha | P1 | Política de acceso a producción Cloudflare. | Least privilege, cuentas individuales, MFA/Access, break-glass sellado, API tokens acotados y revisiones; sin edición habitual en dashboard/console D1. |
+| CIC-027 | Alpha | P1 | Cloudflare DNS, SSL/TLS y dominio con rollback. | TTL, DNSSEC, certificados, redirects, canonical, SPF/DKIM/DMARC y monitorización declarados; cutover/rollback probado. |
 | CIC-028 | Beta | P1 | Promoción Alpha→Beta por checklist firmado. | P0/P1 cero, SLO/alertas/runbooks/restore/pentest/UAT y negocio/legal aprueban; evidencia adjunta al release. |
 | CIC-029 | Beta | P2 | Despliegue progresivo por tráfico/cliente/zona. | Cohortes/flags, métricas guardrail y rollback; clientes saben alcance Beta cuando corresponda. |
-| CIC-030 | Beta | P2 | Policy-as-code para infraestructura/configuración. | Bloquea bucket público, DB expuesta, secretos, TLS débil, tags/backups ausentes y drift crítico. |
+| CIC-030 | Beta | P2 | Policy-as-code para Cloudflare. | Bloquea R2 público accidental, bindings cruzados, D1/DO sin aislamiento, secretos en vars, TLS débil, WAF/Time Travel/export ausentes y drift crítico. |
 | CIC-031 | Fase 1 | P2 | Pipeline de campañas/contenido independiente y seguro. | Preview, QA, schedule, aprobación y rollback sin desplegar código; performance/accessibility checks. |
 | CIC-032 | Fase 3 | P2 | Entornos sandbox para API/clientes B2B. | Datos sintéticos, keys/scopes/cuotas y docs; aislamiento y reset automático. |
-| CIC-033 | Fase 4 | P2 | Estrategia multi-región/read replica solo por necesidad. | RTO/latencia/coste medidos; pruebas de failover y consistencia antes de prometer alta disponibilidad adicional. |
+| CIC-033 | Fase 4 | P2 | D1 read replication/particionado solo por necesidad medida. | Sessions/bookmarks, consistencia, latencia, cuotas y coste se prueban; no se activa ni se fragmenta una base sin evidencia y runbook. |
 | CIC-034 | Fase 5 | P3 | Plataforma interna/developer portal ligero. | Plantillas, catálogo servicios, ownership, docs/runbooks y métricas; reduce toil sin sobrediseñar. |
 
 ## 9.25 Observabilidad, SRE, backups y continuidad
@@ -1386,10 +1417,10 @@ Detectar, entender, contener y recuperar fallos de negocio es parte del producto
 | --- | --- | --- | --- | --- |
 | OBS-001 | MVP | P0 | Definir SLI/SLO y criticidad por journey. | Disponibilidad/latencia/corrección para storefront, checkout, pagos, pedidos, facturación, envío y panel; error budget con owner. |
 | OBS-002 | MVP | P0 | Logging estructurado con correlation IDs. | JSON, nivel/evento/servicio/entorno/version, IDs de negocio y redacción; no PAN/CVC/token/contraseña/PII innecesaria. |
-| OBS-003 | MVP | P0 | Métricas técnicas y de negocio. | HTTP/DB/cache/queue/jobs y pedidos/pagos/stock/facturas/expediciones/devoluciones con etiquetas de cardinalidad controlada. |
+| OBS-003 | MVP | P0 | Métricas técnicas y de negocio. | HTTP/Workers, D1, DO, KV/cache, Queues/Workflows/R2 y pedidos/pagos/stock/facturas/expediciones/devoluciones con cardinalidad controlada. |
 | OBS-004 | MVP | P0 | Error tracking frontend/backend. | Stack/source maps/version/user pseudónimo/contexto redacted, agrupación y enlace a deploy; alerts accionables. |
-| OBS-005 | Alpha | P0 | Trazas distribuidas en journeys críticos. | Request→DB→outbox→worker→Redsys/Beply/carrier/email enlazado; muestreo y coste controlados. |
-| OBS-006 | Alpha | P0 | Health, readiness y startup checks reales. | Readiness no pasa sin DB/config esencial; dependencia externa degradada no tumba app si existe operación segura. |
+| OBS-005 | Alpha | P0 | Trazas distribuidas en journeys críticos. | Request→D1/DO→Queue/Workflow→Redsys/Beply/carrier/email enlazado; versión Worker, muestreo y coste controlados. |
+| OBS-006 | Alpha | P0 | Health y checks de bindings/config reales. | Endpoint valida configuración y smoke seguro de D1/DO/Queues/R2; una dependencia externa degradada no tumba el Worker si existe operación segura. |
 | OBS-007 | Alpha | P0 | Alertas de pago y pedido. | Caída de conversiones, callback/firma inválida, pending envejecido, duplicado/discrepancia y reembolso fallido con runbook. |
 | OBS-008 | Alpha | P0 | Alertas de inventario. | Stock negativo, reserva huérfana/expirada, divergencia y sobreventa potencial; tarea y conciliación. |
 | OBS-009 | Alpha | P0 | Alertas Beply. | Backlog/edad, 401/403, 422 repetido, 5xx, factura ausente/duplicada/diferente y rectificativa fallida. |
@@ -1397,19 +1428,19 @@ Detectar, entender, contener y recuperar fallos de negocio es parte del producto
 | OBS-011 | Alpha | P0 | Dashboard de colas/jobs. | Profundidad, oldest age, throughput, retry, DLQ, lock y último éxito; replay desde panel seguro. |
 | OBS-012 | Alpha | P0 | Monitorización sintética pública y de checkout seguro. | DNS/TLS/home/search/PDP/cart/checkout simulado desde región objetivo; no usa proveedor productivo para cobrar. |
 | OBS-013 | Alpha | P0 | RUM y Core Web Vitals. | p75 por plantilla/dispositivo/red, errores JS y navegación; regresión ligada a release/feature flag. |
-| OBS-014 | Alpha | P0 | Backups PostgreSQL con PITR y retención. | Cifrados, monitorizados, cuenta/proyecto separado cuando viable y sin credenciales de borrado compartidas con app. |
-| OBS-015 | Alpha | P0 | Backups/versionado de objetos y configuración. | Media/PDF/export/config/IaC/secret metadata recuperables; lifecycle y protección contra borrado masivo. |
-| OBS-016 | Alpha | P0 | Restore drill completo. | Restaura DB+objetos+config en entorno aislado, valida integridad/journeys y registra tiempo/diferencias; no solo “backup successful”. |
+| OBS-014 | Alpha | P0 | D1 Time Travel y exportación con retención. | Time Travel monitorizado; Workflow exporta dumps con checksum/manifiesto a R2 y permisos separados, respetando RPO y retención superior a 30 días. |
+| OBS-015 | Alpha | P0 | Protección de R2 y configuración Cloudflare. | Media/PDF/export/IaC/metadata recuperables mediante claves inmutables, lifecycle/bucket lock cuando aplique y protección contra borrado masivo. |
+| OBS-016 | Alpha | P0 | Restore drill Cloudflare completo. | Importa D1 en base aislada, recupera R2/config/bindings/Worker Version, valida integridad/journeys y mide tiempo; no restaura producción para probar. |
 | OBS-017 | Alpha | P0 | RPO/RTO definidos y aceptados. | Valores por datos/pedidos/media/config, arquitectura y runbooks los cumplen en ejercicio; dependencias externas contempladas. |
-| OBS-018 | Alpha | P0 | Runbooks de incidentes críticos. | Pago ambiguo, sobreventa, Beply caído, carrier caído, deploy malo, DB/Redis, fuga de secreto, breach y DNS/TLS. |
+| OBS-018 | Alpha | P0 | Runbooks de incidentes críticos. | Pago ambiguo, sobreventa, Beply/carrier caído, Worker malo, D1/DO/Queues/R2, fuga de secreto, WAF y DNS/TLS. |
 | OBS-019 | Alpha | P0 | On-call/escalado y contactos de proveedores. | Severidades, horario, responsable, suplente, banco/Beply/carrier/hosting y criterio de comunicación a cliente. |
 | OBS-020 | Alpha | P0 | Reconciliación financiera/operativa diaria. | Pedidos, capturas, reembolsos, Beply, stock y expediciones cuadran; discrepancias tienen owner/SLA/evidencia. |
 | OBS-021 | Alpha | P1 | Retención y acceso a telemetría. | Plazos, coste, privacidad, auditoría y legal hold; paneles no conceden acceso implícito a PII. |
 | OBS-022 | Alpha | P1 | Status page y comunicación de incidentes. | Componentes/plantillas/owner; información útil sin revelar seguridad ni prometer más que SLO. |
 | OBS-023 | Alpha | P1 | Postmortem sin culpa para incidentes significativos. | Timeline, impacto, detección, causas contribuyentes, acciones/owners/fechas y seguimiento de eficacia. |
-| OBS-024 | Beta | P1 | Game day antes de ampliar tráfico. | Caída de Beply/carrier/cache/worker y rollback/restore; tiempos, alertas y coordinación comparados con objetivo. |
+| OBS-024 | Beta | P1 | Game day antes de ampliar tráfico. | Caída de Beply/carrier, D1/DO/Queue/R2 y Worker deployment; rollback/restore, alertas y coordinación comparados con objetivo. |
 | OBS-025 | Beta | P2 | Error budget en decisiones de release. | Exceso de fallos pausa features y prioriza fiabilidad; datos transparentes, no KPI decorativo. |
-| OBS-026 | Beta | P2 | Capacity planning. | Carga pico, DB pool, storage, queue, CDN y proveedores con headroom/costes; prueba antes de campañas. |
+| OBS-026 | Beta | P2 | Capacity planning Cloudflare. | Carga pico, CPU/subrequests, filas D1, hotspots DO, R2, Queues/Workflows, CDN y proveedores con cuotas/headroom/coste; prueba antes de campañas. |
 | OBS-027 | Fase 1 | P2 | Observabilidad de automatizaciones/marketing. | Disparos, supresión, entrega, conversión, queja, descuento/margen y errores por workflow. |
 | OBS-028 | Fase 3 | P2 | SLO por cuentas B2B/contratos. | Promesas medibles, exclusiones, reporting y alertas; no SLA contractual sin capacidad operativa. |
 | OBS-029 | Fase 4 | P2 | Telemetría de almacén/rutas. | Pick rate/error, dock-to-stock, packing, on-time, daños, capacidad y dispositivos; privacidad laboral revisada. |
@@ -1427,21 +1458,21 @@ Usar **Redsys por Redirección alojada** en Alpha. La propia documentación de R
 sequenceDiagram
     participant C as Cliente
     participant N as NETECO
-    participant DB as PostgreSQL
+    participant DB as D1/DO
     participant R as Redsys
-    participant W as Worker/Outbox
+    participant W as Queue/Workflow
     participant B as Beply
 
     C->>N: Confirmar checkout
     N->>DB: Revalidar precio, IVA, stock y envío
-    N->>DB: Crear pedido awaiting_payment + reserva + intento
+    N->>DB: Batch D1 + reserva serializada por DO
     N-->>C: Form firmado para Redsys
     C->>R: Redirección alojada
     R-->>N: Notificación servidor-servidor firmada
     N->>N: Validar firma, comercio, terminal, pedido, importe, moneda y resultado
     N->>DB: Guardar evento/deduplicar/transicionar pago y pedido
     N-->>R: HTTP 2xx
-    N->>W: Outbox: email, factura, fulfillment, analítica
+    N->>W: Publicar efectos idempotentes
     C->>N: Retorno OK/KO (solo UX)
     N-->>C: Estado leído desde servidor
     W->>B: Emitir factura cuando corresponda
@@ -1643,7 +1674,7 @@ El motor calcula coste cotizado, precio al cliente y margen por separado. Debe p
 3. priorizar el surtido Alpha por ventas/margen/stock, no fotografiar todo sin orden;
 4. sesión de producto con guía repetible: frontal, trasera, escala, detalle y grupo de variantes;
 5. sesión corporativa: equipo, sede, almacén, preparación, control, vehículos y entrega;
-6. subir originales a object storage, generar derivados responsivos y mantener checksum;
+6. subir originales a R2, generar derivados con Cloudflare Images y mantener checksum;
 7. revisión producto/regulación/marketing antes de publicar;
 8. dashboard de completitud y fecha de próxima revisión.
 
@@ -1718,9 +1749,9 @@ flowchart LR
     A[Checkout + toolchain fijada] --> B[Install frozen lock]
     B --> C[Format + lint + typecheck]
     C --> D[Unit + 100% coverage]
-    D --> E[Postgres/Redis integration + migrations]
-    E --> F[Build container]
-    F --> G[SAST + secrets + deps + SBOM + image scan]
+    D --> E[D1 + Durable Objects + bindings integration]
+    E --> F[Build Nuxt preset Cloudflare + Worker bundle]
+    F --> G[SAST + secrets + deps + SBOM + bundle scan]
     G --> H[Preview efímera]
     H --> I[Component + E2E + a11y + SEO + visual]
     I --> J[Contract + DAST + performance budgets]
@@ -1729,11 +1760,11 @@ flowchart LR
 
 ### Pipeline de release
 
-1. promover **el mismo artefacto** de PR, no recompilarlo;
+1. promover **el mismo build output/digest** de PR, no recompilarlo; cada Worker de entorno registra su propio version ID;
 2. migraciones expand/contract y preflight en staging;
 3. smoke, suite E2E, contrato sandbox, DAST, carga y restore/rollback según cadencia;
 4. aprobación de entorno protegida y changelog/runbook;
-5. canary/blue-green con métricas técnicas y de negocio;
+5. Workers gradual deployment con métricas técnicas y de negocio, controlando version skew;
 6. smoke postdeploy y observación de pago/pedido/colas;
 7. abort/rollback automático o manual si supera guardrails;
 8. activar feature flags por cohorte después de estabilizar.
@@ -1752,7 +1783,39 @@ El panel debe permitir restablecer un escenario demo rico y sintético: catálog
 - revisión manual exploratoria y UAT de operaciones además de automatización;
 - pentest y restore/rollback ejercitados antes de Beta.
 
-GitHub permite proteger entornos y requerir revisores/controles antes de acceder a secretos o desplegar; Playwright aporta trazas/retries/webServer y Vitest integración con Nuxt/cobertura. [S42–S47]
+GitHub permite proteger entornos y requerir revisores/controles antes de acceder a secretos o desplegar; Playwright aporta trazas/retries/webServer y Vitest integración con Nuxt/cobertura. Workers Versions permite separar upload, promoción gradual y rollback, sin versionar automáticamente los datos enlazados. [S42–S47, S82]
+
+## 9.33 Rework funcional del panel y del área cliente
+
+El backoffice actual y el portal de pedidos se consideran **provisionales**. Deben rediseñarse de extremo a extremo usando Shopify como referencia de claridad operativa, navegación, densidad de información y autoservicio, pero sin copiar su identidad visual, código, assets o branding. El resultado debe pertenecer a NETECO, compartir un design system coherente y priorizar la tarea real de cada rol.
+
+| ID | Fase | Prio. | Funcionalidad / trabajo | Criterio de aceptación |
+| --- | --- | --- | --- | --- |
+| UI-001 | MVP | P0 | Investigar tareas, roles y arquitectura de información del panel/área cliente. | Inventario de rutas y acciones, top tasks, card sorting/validación y mapa objetivo aprobados; depende de ADM-001/002, CUS-001/002 y ORD-001. |
+| UI-002 | MVP | P0 | Crear design system funcional NETECO inspirado en principios de Shopify. | Tokens, grid, tipografía, iconos y componentes documentan loading/skeleton, vacío, error, forbidden, stale, success y offline; no hay copia visual de Shopify. |
+| UI-003 | Alpha | P0 | Rehacer shell y navegación administrativa por rol. | Navegación estable, búsqueda global, breadcrumbs/contexto, command palette útil y acciones recientes; cualquier tarea P0 se alcanza en máximo dos niveles. |
+| UI-004 | Alpha | P0 | Rehacer dashboard operativo de excepciones. | Pagos, pedidos, stock, Beply, logística, Queues/Workflows y SLA muestran gravedad, owner, antigüedad y próxima acción, no gráficos decorativos. |
+| UI-005 | Alpha | P0 | Rehacer tablas y listados operativos server-side. | Filtro, orden, cursor, columnas/vistas guardadas, selección y bulk actions funcionan con D1 sin cargar datasets completos al navegador. |
+| UI-006 | Alpha | P0 | Rehacer detalle/edición de producto, cliente y configuración. | Formularios agrupados por tarea, validación inline, borrador, diff, conflicto de edición y guardado explícito para cambios críticos; contexto no se pierde tras error. |
+| UI-007 | Alpha | P0 | Rehacer detalle administrativo del pedido. | Timeline integra pedido, pago, factura, fulfillment, comunicación y auditoría; cada estado explica próxima acción y acciones permitidas por rol. |
+| UI-008 | Alpha | P0 | Rehacer devoluciones, reembolsos, incidencias, etiquetas y tracking. | Flujos guiados muestran elegibilidad, impacto monetario/stock/fiscal, confirmación, progreso asíncrono y resolución sin saltos manuales de estado. |
+| UI-009 | Alpha | P0 | Rehacer área cliente completa. | Cuenta, perfil/seguridad, direcciones, pedidos, facturas, devoluciones y preferencias comparten navegación clara, mobile-first y aislamiento por propietario/empresa. |
+| UI-010 | Alpha | P0 | Rehacer detalle de pedido del cliente. | Estado en lenguaje comprensible, timeline, tracking, factura, repetición, ayuda/devolución y CTA siguiente funcionan sin exponer notas o estados internos. |
+| UI-011 | Alpha | P1 | Responsive específico para escritorio, tablet, móvil y almacén. | Sin scroll horizontal accidental a 320/768/1024/1440 px; tablas tienen patrón responsive explícito y targets táctiles mínimos de 44×44 px. |
+| UI-012 | Alpha | P0 | Cumplir WCAG 2.2 AA en panel y área cliente. | Cero fallos axe críticos/serios; teclado, foco, lector, zoom/reflow, contraste, errores y autenticación pasan pruebas manuales y automáticas. |
+| UI-013 | MVP | P0 | Crear fixtures y harness de estados UI. | Story/component/E2E cubren permisos, datos densos, empty/loading/error/stale, breakpoints y regresión visual con datos deterministas. |
+| UI-014 | Alpha | P0 | Validar UX con usuarios representativos. | Operaciones, administración, almacén, soporte y clientes completan al menos 90 % de tareas P0 definidas; hallazgos P0/P1 se corrigen y revalidan. |
+| UI-015 | Alpha | P1 | Adaptar patrones UI a límites Cloudflare. | Paginación D1, bulk mediante Queues/Workflows, exports en R2, progreso/retry/DLQ y `private, no-store` están implementados y medidos. |
+| UI-016 | Alpha | P0 | Añadir gate de release de panel y área cliente. | Matriz RBAC 100 %, E2E/visual/a11y sin skips/flaky, preview Worker aislada, despliegue gradual/rollback probado y ninguna ruta privada cacheable públicamente. |
+
+### Presupuestos y principios de experiencia
+
+- Al menos el 90 % de las pantallas debe usar componentes del design system; excepciones requieren decisión registrada.
+- Las consultas administrativas críticas deben tener p95 ≤ 500 ms con el dataset Alpha o un presupuesto alternativo justificado por operación.
+- Toda acción financiera/destructiva exige permiso backend, impacto visible, confirmación contextual, idempotency key, correlation ID y auditoría.
+- Los trabajos largos no bloquean una request: Queue/Workflow expone queued/running/partial/failed/completed, reintento seguro y resultado descargable en R2.
+- `/admin`, `/cuenta`, `/pedidos`, PDFs y exports llevan `private, no-store`; Cache Rules/WAF se prueban para evitar fugas.
+- La densidad visual se adapta al rol: escritorio para operación compleja, móvil para consulta/acciones seguras y vistas específicas para escáner/tablet de almacén.
 
 # 10. Hoja de ruta: MVP, Alpha, Beta y fases de producción
 
@@ -1760,21 +1823,21 @@ La hoja de ruta es **acumulativa**: una fase no sustituye controles de la anteri
 
 | Fase mínima | Requisitos nuevos | Requisitos acumulados | Distribución de prioridad |
 | --- | --- | --- | --- |
-| MVP | 65 | 65 | P0 64 · P1 1 · P2 0 · P3 0 |
-| Alpha | 389 | 454 | P0 222 · P1 167 · P2 0 · P3 0 |
-| Beta | 57 | 511 | P0 0 · P1 5 · P2 52 · P3 0 |
-| Fase 1 | 49 | 560 | P0 0 · P1 2 · P2 47 · P3 0 |
-| Fase 2 | 24 | 584 | P0 0 · P1 2 · P2 21 · P3 1 |
-| Fase 3 | 42 | 626 | P0 0 · P1 5 · P2 35 · P3 2 |
-| Fase 4 | 31 | 657 | P0 0 · P1 0 · P2 24 · P3 7 |
-| Fase 5 | 22 | 679 | P0 0 · P1 0 · P2 0 · P3 22 |
-| Fase 6 | 7 | 686 | P0 0 · P1 1 · P2 1 · P3 5 |
+| MVP | 68 | 68 | P0 67 · P1 1 · P2 0 · P3 0 |
+| Alpha | 402 | 470 | P0 233 · P1 169 · P2 0 · P3 0 |
+| Beta | 57 | 527 | P0 0 · P1 5 · P2 52 · P3 0 |
+| Fase 1 | 49 | 576 | P0 0 · P1 2 · P2 47 · P3 0 |
+| Fase 2 | 24 | 600 | P0 0 · P1 2 · P2 21 · P3 1 |
+| Fase 3 | 42 | 642 | P0 0 · P1 5 · P2 35 · P3 2 |
+| Fase 4 | 31 | 673 | P0 0 · P1 0 · P2 24 · P3 7 |
+| Fase 5 | 22 | 695 | P0 0 · P1 0 · P2 0 · P3 22 |
+| Fase 6 | 7 | 702 | P0 0 · P1 1 · P2 1 · P3 5 |
 
 ## 10.1 Camino crítico transversal
 
 ```mermaid
 flowchart TD
-    A[Identidad de negocio + catálogo Alpha + contratos] --> B[Toolchain fijada + PostgreSQL + migraciones]
+    A[Identidad de negocio + catálogo Alpha + contratos] --> B[Workers + bindings Cloudflare + migraciones D1/DO]
     B --> C[Modelo de precio/IVA/stock/pedido]
     C --> D[Checkout server-driven + Redsys sandbox]
     D --> E[Pedido confirmado + outbox + Beply sandbox]
@@ -1797,7 +1860,7 @@ Dependencias que no deben aplazarse:
 
 ## 10.2 MVP interno — fundación demostrable
 
-**Alcance:** 65 requisitos nuevos; 65 acumulados.  
+**Alcance:** 68 requisitos nuevos; 68 acumulados.
 **Uso permitido:** desarrollo, demo interna y pruebas de integración. **No acepta ventas reales.**
 
 ### Objetivo
@@ -1806,8 +1869,8 @@ Demostrar un flujo completo y reproducible con datos sintéticos: catálogo → 
 
 ### Entregables esenciales
 
-1. Toolchain fijada, instalación limpia reproducible, `.env.example`, validación de configuración y contenedor.
-2. PostgreSQL, migraciones versionadas, seed sintético y reset de demo.
+1. Toolchain fijada, instalación limpia reproducible, contrato de bindings/secrets y build Nuxt/Worker.
+2. D1 y Durable Objects con migraciones versionadas, seed sintético y reset de demo.
 3. Módulos de dominio, IDs inmutables, snapshots, estados separados y outbox/inbox.
 4. Motor único de precio/IVA/portes y disponibilidad/reserva transaccional.
 5. Eliminación de contraseña admin y de entrada local de tarjeta/CVC.
@@ -1830,7 +1893,7 @@ Demostrar un flujo completo y reproducible con datos sintéticos: catálogo → 
 
 ## 10.3 Alpha — plataforma completa y publicable
 
-**Alcance:** 389 requisitos nuevos; **454 acumulados**.  
+**Alcance:** 402 requisitos nuevos; **470 acumulados**.
 **Resultado:** producto técnicamente apto para producción. Alpha no es una maqueta ni una excusa para dejar pagos, seguridad, legal, SEO u operación “para Beta”.
 
 ### Objetivo
@@ -1866,7 +1929,7 @@ Poder vender, cobrar, reservar, preparar, transportar, facturar con Beply, devol
 
 ## 10.4 Beta — producción controlada, endurecimiento y aprendizaje
 
-**Alcance:** 57 requisitos nuevos; 511 acumulados.  
+**Alcance:** 57 requisitos nuevos; 527 acumulados.
 **Uso:** producción con cohortes/zonas/catálogos controlados y guardrails. No sirve para terminar P0/P1 de Alpha.
 
 ### Objetivo
@@ -1876,7 +1939,7 @@ Comprobar comportamiento real, corregir fricción, endurecer seguridad/operació
 ### Prioridades
 
 1. Pentest independiente, auditoría legal/accesibilidad externa y retest.
-2. Game days de Beply, carrier, worker/cache, base, rollback y restore.
+2. Game days de Beply, carrier, Worker, D1/DO/KV/Queues/R2, rollback y restore.
 3. Mutation testing del núcleo crítico y eliminación de tests flaky.
 4. Analítica de embudo, búsqueda, zero-results, soporte y devoluciones por causa.
 5. Mejora de catálogo/atributos/media a partir de consultas e incidencias reales.
@@ -2072,7 +2135,7 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 | Puerta | Condición de aprobación | Evidencia mínima | Bloquea Alpha |
 | --- | --- | --- | --- |
 | Alcance | MVP + Alpha completos; P0/P1 = 0. | Backlog firmado y excepciones inexistentes o riesgo formal extraordinario. | Sí |
-| Build reproducible | Toolchain/lock/container fijados; build limpio. | CI desde checkout vacío y checksum del artefacto. | Sí |
+| Build reproducible | Toolchain/lock/Wrangler/preset fijados; bundle Worker limpio. | CI desde checkout vacío, SBOM y Worker Version identificable. | Sí |
 | Datos/migraciones | Migraciones forward seguras, seed/import y backup previo. | Ensayo staging, tiempos, validación y plan de forward-fix. | Sí |
 | Catálogo | Surtido Alpha completo, correcto y autorizado. | Informe de completitud, muestreo experto y licencias. | Sí |
 | Dinero | Totales, Redsys, refund y conciliación correctos. | Tests + sandbox/prod controlado + conciliación firmada. | Sí |
@@ -2101,12 +2164,12 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 
 - [ ] Node, package manager, lock y dependencias fijados; instalación limpia sin warnings ignorados.
 - [ ] `format`, `lint`, `typecheck`, tests, coverage y build existen y pasan en CI.
-- [ ] Contenedor no-root, filesystem mínimo, health/readiness y shutdown ordenado.
+- [ ] Build `cloudflare` genera Worker + Static Assets; bundle/startup/CPU y compatibilidad de dependencias cumplen límites.
 - [ ] Infraestructura declarativa, revisada y reproducible; no depende de clics sin registrar.
-- [ ] PostgreSQL gestionado, pool dimensionado, TLS, PITR y acceso privado/mínimo.
-- [ ] Redis/colas/object storage/CDN/WAF configurados según arquitectura.
+- [ ] D1 por entorno, migraciones, índices, Time Travel y exports a R2 configurados/probados.
+- [ ] Durable Objects, KV derivado, R2, Queues, Workflows/Cron, Cloudflare CDN/WAF/Turnstile configurados según arquitectura.
 - [ ] DNS, TLS, HSTS, headers, compresión, cache y redirects de dominio probados.
-- [ ] Secret manager, OIDC de CI y rotación; cero secretos en repo, imagen, logs o cliente.
+- [ ] Workers Secrets/Secrets Store, token CI mínimo y rotación; cero secretos en repo, bundle, logs, KV o cliente.
 - [ ] Entornos local/CI/preview/demo/staging/prod aislados física/lógicamente según criticidad.
 - [ ] Costes/quotas y alertas de capacidad definidos.
 
@@ -2316,7 +2379,7 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 - [ ] RBAC/ABAC server-side y tests de acceso horizontal/vertical.
 - [ ] CSRF, XSS, CSP, SSRF, upload, path traversal, injection y deserialización mitigados/probados.
 - [ ] Webhooks verifican firma/replay; APIs tienen límites, schema y authorization.
-- [ ] Dependencias, secretos, SAST, container, IaC y SBOM escaneados en CI.
+- [ ] Dependencias, secretos, SAST, bundle Worker, IaC y SBOM escaneados en CI.
 - [ ] Logs/errores/redacción evitan PII, tokens y datos de pago.
 - [ ] Antivirus/tipo/tamaño/nombre seguro para uploads y cuarentena.
 - [ ] WAF/rate/bot protección y reglas antifraude sin discriminación opaca.
@@ -2326,7 +2389,7 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 
 - [ ] Cobertura 100 % lines/functions/statements/branches bajo política, global y per-file.
 - [ ] Unit/property/concurrency para dinero, impuestos, promociones, stock y estados.
-- [ ] Integration real con PostgreSQL/Redis/colas/object storage y migraciones.
+- [ ] Integración real/local equivalente con D1, DO, KV, R2, Queues, Workflows y migraciones.
 - [ ] Contract tests para Redsys/Beply/carriers/email y fixtures versionados.
 - [ ] Component tests de formularios/estados; E2E de journeys felices y fallos.
 - [ ] Tests de accesibilidad, visual, SEO/schema, seguridad y rendimiento.
@@ -2334,7 +2397,7 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 - [ ] Required checks, CODEOWNERS, branch rules y environments protegidos.
 - [ ] El mismo artefacto probado se promueve; no build distinto por entorno.
 - [ ] Staging replica topología/configuración esencial sin usar PII productiva.
-- [ ] Migración, canary/blue-green, smoke, guardrails y rollback automatizado/documentado.
+- [ ] Migración, Workers gradual deployment, smoke, guardrails y rollback automatizado/documentado.
 - [ ] Supply-chain provenance, firma/attestation y SBOM archivados.
 
 ### Observabilidad, reconciliación y continuidad
@@ -2344,9 +2407,9 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 - [ ] Alertas accionables por error rate, latencia, cola, stock, pago y conciliación.
 - [ ] No alertas sin owner/runbook; paging solo por impacto urgente.
 - [ ] Reconciliación diaria de pedidos–Redsys–refunds–Beply–stock–shipments.
-- [ ] Backups offsite/cifrados/inmutables según riesgo y monitor de éxito.
+- [ ] D1 Time Travel y exports con checksum/retención en R2 monitorizados; objetos críticos usan claves inmutables/bucket lock según riesgo.
 - [ ] Restore completo y point-in-time probados; RPO/RTO medidos.
-- [ ] Runbooks para pago ambiguo, Beply/carrier caídos, sobreventa, deploy, DB/Redis, DNS/TLS y secreto/breach.
+- [ ] Runbooks para pago ambiguo, Beply/carrier caídos, sobreventa, Worker deploy, D1/DO/Queues/R2, DNS/TLS y secreto/breach.
 - [ ] On-call, severidades, escalado, comunicación y postmortem.
 - [ ] Status page/plantillas y criterio de notificación a cliente/autoridad según caso.
 
@@ -2392,6 +2455,23 @@ Una historia o funcionalidad solo está terminada cuando cumple simultáneamente
 
 El rollback de código no debe ejecutar automáticamente una migración destructiva inversa. Se usa compatibilidad expand/contract, feature flags y forward-fix; toda acción financiera/fiscal pendiente se reconcilia antes de cerrar el incidente.
 
+## 11.5 Definition of Done Cloudflare
+
+Además de la definición general, ninguna tarea técnica se cierra hasta demostrar lo siguiente cuando le aplique:
+
+- funciona con `wrangler dev`/Miniflare y en un entorno Cloudflare remoto aislado;
+- bindings, IDs y secretos están separados para local, CI, preview, demo, staging y producción;
+- no depende en producción de servidor Node, contenedor, PostgreSQL, Redis, S3 externo, cron del sistema o estado en memoria entre requests;
+- D1/DO protegen datos críticos y KV/cache solo contiene proyecciones regenerables;
+- todo mensaje Queue, paso Workflow, webhook y callback es idempotente, observable, tolera duplicados/reordenación y tiene compensación o DLQ;
+- migraciones D1/DO numeradas pasan vacío→latest y anterior→latest, no se ejecutan al arrancar una request y son compatibles con rollback de Worker;
+- rutas privadas usan `private, no-store` y existe prueba de que Cache Rules/CDN no sirven panel, cuenta, pedido, PDF o export a otro usuario;
+- Worker Version, Static Assets, bindings y compatibility date quedan identificados; el mismo artefacto probado se promueve gradualmente y su rollback se ensaya;
+- Workers Logs/traces/métricas llevan correlation ID y versión sin PAN, CVC, secretos o PII innecesaria;
+- WAF/Rate Limiting/Turnstile/Access se prueban sin bloquear callbacks legítimos de Redsys, Beply o carriers;
+- D1 Time Travel, export R2, lifecycle/bucket lock y restore aislado aportan evidencia para el RPO/RTO aplicable;
+- límites, cuotas, plan y coste de Workers, D1, DO, KV, R2, Queues, Workflows, Images y telemetría están medidos con margen y alertas.
+
 # 12. Métricas, SLO y cuadro de mando
 
 Los objetivos siguientes son una **propuesta inicial**, no promesas contractuales. Deben ajustarse tras medir baseline, capacidad, contratos y coste. Todo KPI necesita definición, fuente, owner, frecuencia, dimensión y acción asociada.
@@ -2408,7 +2488,7 @@ Los objetivos siguientes son una **propuesta inicial**, no promesas contractuale
 | Solicitud Beply procesada | 99 % < 5 min cuando deba emitirse | Excluye indisponibilidad declarada, pero cuenta backlog. | Alertar por edad de cola y reconciliar. |
 | Jobs críticos | 99,9 % dentro de deadline; oldest age < 15 min | Colas por tipo/prioridad. | Escalar worker/proveedor o pausar dependencias. |
 | API lectura catálogo p95 | < 300 ms server-side objetivo | Por ruta/región, sin red del usuario. | Perf profile/cache/index. |
-| API mutación crítica p95 | < 500 ms sin proveedor externo síncrono | Pedidos/stock/admin. | Optimizar DB/locks y desacoplar side effects. |
+| API mutación crítica p95 | < 500 ms sin proveedor externo síncrono | Pedidos/stock/admin. | Optimizar D1/DO y desacoplar efectos con Queues/Workflows. |
 | Core Web Vitals p75 | LCP ≤ 2,5 s; INP ≤ 200 ms; CLS ≤ 0,1 | RUM móvil y escritorio por plantilla. | Bloquear regresión y priorizar rutas afectadas. |
 | Errores JS storefront | < 0,5 % sesiones; crítico = 0 conocido | RUM por release/navegador. | Rollback/flag según impacto. |
 | RPO pedidos/pagos | ≤ 15 min propuesto | Ejercicio y capacidades reales. | Rediseñar backup/replicación si no cumple. |
@@ -2512,7 +2592,7 @@ Estos tamaños son guardrails de diseño y se recalibran con datos; no justifica
 3. **Producto/conversión:** funnel, búsqueda, PDP, checkout, errores, feedback y experimentos.
 4. **Marketing/comunidad:** crecimiento consentido, journeys, incrementalidad, margen y presión.
 5. **SEO/contenido:** indexación, CWV, no-brand, clusters, completitud y actualización.
-6. **Plataforma/SRE:** SLO/error budget, releases, errores, colas, DB, proveedores, seguridad y backups.
+6. **Plataforma/SRE:** SLO/error budget, Workers deployments, errores, Queues/Workflows, D1/DO/R2, proveedores, seguridad y recuperación.
 
 Cada panel debe enlazar a la lista accionable subyacente. Un gráfico sin owner, umbral y siguiente acción no es control operativo.
 
@@ -2539,9 +2619,9 @@ El código no puede resolver estas decisiones por sí solo. Deben cerrarse antes
 | DEC-015 | Palé/industrial/ADR | Volumen, mercancía, UN/clase/LQ, embalaje, documentación, carrier y territorios. | SKU/servicio afectado |
 | DEC-016 | Envío gratis | Umbral por zona/segmento/perfil/margen; exclusiones remoto, palé y ADR. | Promoción/Alpha si se anuncia |
 | DEC-017 | Devolución/cancelación | B2B/B2C, excepciones, plazos, portes, estado producto, RMA y disposición. | Legal/operación Alpha |
-| DEC-018 | Proveedor cloud/CDN | Región, SLA, managed DB, Redis, object storage, WAF, observabilidad y soporte. | Infra MVP |
+| DEC-018 | Cuenta y plan Cloudflare | Workers Paid, límites/coste de D1/DO/KV/R2/Queues/Workflows/Images, jurisdicción de datos, WAF/Bots/Access, soporte, RPO/RTO y cuotas de lanzamiento. | Infra MVP |
 | DEC-019 | Dominios y cutover | Host canónico, subdominios panel/media/demo, DNS, correo y convivencia con landing. | SEO/Launch Alpha |
-| DEC-020 | Correo/marketing | ESP transaccional y plataforma marketing, dominios, IP, double opt-in y suppression. | Comunicaciones Alpha/F1 |
+| DEC-020 | Correo/marketing | Aceptación de Cloudflare Email Sending Beta para transaccional tras UAT de límites/entregabilidad/SLA; plataforma marketing separada, dominios, double opt-in y suppression. | Comunicaciones Alpha/F1 |
 | DEC-021 | CMP/analítica | Proveedor o solución, GA4/alternativa, server-side, session replay y consentimiento. | Privacidad/medición Alpha |
 | DEC-022 | Helpdesk/CRM | Construir/integrar, canales, horarios, SLA, WhatsApp, identificación y retención. | Soporte Alpha |
 | DEC-023 | Roles del panel | Perfiles reales, segregación de funciones, doble aprobación y MFA. | Seguridad Alpha |
@@ -2671,6 +2751,25 @@ La base propia se justifica si NETECO necesita logística local, B2B, químicos,
 | S68 | Makro España | [https://www.makro.es/](https://www.makro.es/) | Benchmark B2B/generalista, servicios y compra profesional. |
 | S69 | Eurosanex | [https://www.eurosanex.com/](https://www.eurosanex.com/) | Proveedor/competidor de limpieza profesional y origen de referencias del sync revisado. |
 | S70 | Hostelería10 | [https://hosteleria10.com/](https://hosteleria10.com/) | Benchmark de equipamiento y catálogo hostelero. |
+| S71 | Cloudflare Workers — Nuxt | [https://developers.cloudflare.com/workers/framework-guides/web-apps/more-web-frameworks/nuxt/](https://developers.cloudflare.com/workers/framework-guides/web-apps/more-web-frameworks/nuxt/) | Preset Cloudflare, salida server/assets, Wrangler y bindings para Nuxt. |
+| S72 | Cloudflare Workers — Static Assets | [https://developers.cloudflare.com/workers/static-assets/](https://developers.cloudflare.com/workers/static-assets/) | Publicación conjunta con Worker y distribución/cache en la red Cloudflare. |
+| S73 | Cloudflare D1 — `D1Database.batch()` | [https://developers.cloudflare.com/d1/worker-api/d1-database/#batch](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch) | Ejecución secuencial y transaccional de prepared statements. |
+| S74 | Cloudflare D1 — Time Travel | [https://developers.cloudflare.com/d1/reference/time-travel/](https://developers.cloudflare.com/d1/reference/time-travel/) | PITR por minuto, retención, restauración in-place y límites de clonación. |
+| S75 | Cloudflare Workflows — exportar D1 a R2 | [https://developers.cloudflare.com/workflows/examples/backup-d1/](https://developers.cloudflare.com/workflows/examples/backup-d1/) | Exportación programada, reintentos y conservación de dumps D1 en R2. |
+| S76 | Cloudflare Workers KV — consistencia | [https://developers.cloudflare.com/kv/concepts/how-kv-works/](https://developers.cloudflare.com/kv/concepts/how-kv-works/) | Consistencia eventual, propagación y casos apropiados/no apropiados. |
+| S77 | Cloudflare Queues — garantías de entrega | [https://developers.cloudflare.com/queues/reference/delivery-guarantees/](https://developers.cloudflare.com/queues/reference/delivery-guarantees/) | Entrega al menos una vez y necesidad de idempotencia. |
+| S78 | Cloudflare Queues — DLQ | [https://developers.cloudflare.com/queues/configuration/dead-letter-queues/](https://developers.cloudflare.com/queues/configuration/dead-letter-queues/) | Configuración y retención de mensajes tras agotar reintentos. |
+| S79 | Cloudflare Workflows | [https://developers.cloudflare.com/workflows/](https://developers.cloudflare.com/workflows/) | Ejecución durable por pasos, waits, reintentos y estado persistido. |
+| S80 | Cloudflare R2 — object lifecycle | [https://developers.cloudflare.com/r2/buckets/object-lifecycles/](https://developers.cloudflare.com/r2/buckets/object-lifecycles/) | Retención, transición de clase y expiración de objetos. |
+| S81 | Cloudflare Workers — Secrets | [https://developers.cloudflare.com/workers/configuration/secrets/](https://developers.cloudflare.com/workers/configuration/secrets/) | Secrets/Secrets Store bindings, validación y separación de valores sensibles. |
+| S82 | Cloudflare Workers — Versions & Deployments | [https://developers.cloudflare.com/workers/versions-and-deployments/](https://developers.cloudflare.com/workers/versions-and-deployments/) | Versiones, promoción gradual, rollback y exclusión del estado de bindings. |
+| S83 | Cloudflare Workers — Observability | [https://developers.cloudflare.com/workers/observability/](https://developers.cloudflare.com/workers/observability/) | Logs, trazas, métricas, Query Builder y export de telemetría. |
+| S84 | Cloudflare Turnstile — validación | [https://developers.cloudflare.com/turnstile/get-started/server-side-validation/](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/) | Validación servidor obligatoria, expiración y single-use de tokens. |
+| S85 | Cloudflare WAF — custom rules | [https://developers.cloudflare.com/waf/custom-rules/](https://developers.cloudflare.com/waf/custom-rules/) | Reglas de seguridad, acciones y disponibilidad por plan. |
+| S86 | Cloudflare D1 — SQL/FTS5 | [https://developers.cloudflare.com/d1/sql-api/sql-statements/](https://developers.cloudflare.com/d1/sql-api/sql-statements/) | Compatibilidad SQLite y extensión FTS5 para búsqueda inicial. |
+| S87 | Cloudflare Terraform provider | [https://developers.cloudflare.com/terraform/](https://developers.cloudflare.com/terraform/) | Infraestructura Cloudflare declarativa y versionada. |
+| S88 | Cloudflare Email Service | [https://developers.cloudflare.com/email-service/](https://developers.cloudflare.com/email-service/) | Envío transaccional beta, Email Routing, Workers bindings, disponibilidad y límites a validar. |
+| S89 | Cloudflare R2 — Bucket Locks | [https://developers.cloudflare.com/r2/buckets/bucket-locks/](https://developers.cloudflare.com/r2/buckets/bucket-locks/) | Retención que impide borrado o sobrescritura accidental/prematura de objetos. |
 
 ## 14.2 Ficheros/rutas internas clave revisadas
 
