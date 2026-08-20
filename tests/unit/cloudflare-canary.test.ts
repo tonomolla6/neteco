@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import worker, { inspectCanaryBindings } from '../../workers/canary'
 
-function bindings(options: { d1Ok?: boolean } = {}) {
+function bindings(options: { d1Ok?: boolean; categories?: unknown[]; categoryError?: Error } = {}) {
   const first = vi.fn().mockResolvedValue(options.d1Ok === false ? null : { ok: 1 })
+  const all = options.categoryError
+    ? vi.fn().mockRejectedValue(options.categoryError)
+    : vi.fn().mockResolvedValue({ results: options.categories ?? [] })
   return {
     APP_ENV: 'canary',
-    DB: { prepare: vi.fn(() => ({ first })) },
+    DB: { prepare: vi.fn(() => ({ first, all })) },
     CACHE: { get: vi.fn(), put: vi.fn() },
     MEDIA: { get: vi.fn(), put: vi.fn() },
     ASYNC_JOBS: { send: vi.fn() },
@@ -43,5 +46,38 @@ describe('Cloudflare canary', () => {
   it('does not expose routes other than the health probe', async () => {
     const response = await worker.fetch(new Request('https://canary.neteco.invalid/'), bindings())
     expect(response.status).toBe(404)
+  })
+
+  it('serves categories from D1 with an explicit public cache policy', async () => {
+    const response = await worker.fetch(
+      new Request('https://canary.neteco.invalid/api/categories'),
+      bindings({
+        categories: [
+          {
+            id: 7,
+            name: 'Productos químicos',
+            slug: 'productos-quimicos',
+            parentId: null,
+            sort: 7,
+            directCount: 0
+          }
+        ]
+      })
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('public, max-age=60, stale-while-revalidate=300')
+    await expect(response.json()).resolves.toMatchObject({ roots: [{ id: 7, count: 0 }] })
+  })
+
+  it('turns a D1 catalog failure into a generic, private 503 response', async () => {
+    const response = await worker.fetch(
+      new Request('https://canary.neteco.invalid/api/categories'),
+      bindings({ categoryError: new Error('sensitive D1 detail') })
+    )
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    await expect(response.json()).resolves.toEqual({ error: 'catalog_unavailable' })
   })
 })

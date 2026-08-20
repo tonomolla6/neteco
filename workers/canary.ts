@@ -1,3 +1,5 @@
+import { listPublishedCategories } from './catalog/categories'
+
 export interface CanaryCheck {
   ok: boolean
   detail?: string
@@ -59,6 +61,18 @@ export class CanaryCoordinator implements DurableObject {
 export default {
   async fetch(request: Request, env: CloudflareEnv): Promise<Response> {
     const url = new URL(request.url)
+    if (request.method === 'GET' && url.pathname === '/api/categories') {
+      try {
+        return Response.json(await listPublishedCategories(env.DB), {
+          headers: { 'cache-control': 'public, max-age=60, stale-while-revalidate=300' }
+        })
+      } catch {
+        return Response.json(
+          { error: 'catalog_unavailable' },
+          { status: 503, headers: { 'cache-control': 'no-store' } }
+        )
+      }
+    }
     if (request.method !== 'GET' || url.pathname !== '/health') {
       return Response.json({ error: 'not_found' }, { status: 404 })
     }
