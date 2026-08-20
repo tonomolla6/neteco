@@ -6,8 +6,8 @@ const reportPath = resolve('INFORME_MAESTRO_NETECO_PRODUCCION.md')
 const outputPath = resolve('docs/production/requirements-traceability.csv')
 const validPhases = new Set(['MVP', 'Alpha', 'Beta', 'Fase 1', 'Fase 2', 'Fase 3', 'Fase 4', 'Fase 5', 'Fase 6'])
 const expectedPhases: Record<string, number> = {
-  MVP: 65,
-  Alpha: 389,
+  MVP: 68,
+  Alpha: 402,
   Beta: 57,
   'Fase 1': 49,
   'Fase 2': 24,
@@ -16,7 +16,7 @@ const expectedPhases: Record<string, number> = {
   'Fase 5': 22,
   'Fase 6': 7
 }
-const expectedPriorities: Record<string, number> = { P0: 286, P1: 183, P2: 180, P3: 37 }
+const expectedPriorities: Record<string, number> = { P0: 300, P1: 185, P2: 180, P3: 37 }
 
 type Status = 'REPO_EVIDENCE' | 'PARTIAL_EXTERNAL' | 'MISSING' | 'NOT_VERIFIED' | 'ROADMAP_NOT_STARTED'
 
@@ -49,10 +49,10 @@ function ids(specification: string) {
 }
 
 const mvpRepoEvidence = ids(
-  'CAT-003;PRI-001..002;SEA-001;CHK-001;PAY-001..002;BEP-003..004;ORD-001;INV-002;SHP-001..002;CUS-001..002;ADM-001..002;MED-002;SEO-001..002;DAT-001..002;MKT-001;COM-001..002;SEC-001..003;INT-001..004;TST-001..010;CIC-001..006;CIC-008;OBS-001..002;OBS-004'
+  'CAT-003;PRI-001..002;SEA-001;CHK-001;PAY-001..002;BEP-003;ORD-001;INV-002;SHP-001..002;CUS-001..002;ADM-001..002;MED-002;SEO-001..002;DAT-001..002;MKT-001;COM-002;SEC-001..002;INT-001;INT-003..004;TST-001..008;CIC-002..004;CIC-008;OBS-001..002;OBS-004'
 )
-const mvpExternal = ids('CAT-001..002;BEP-001..002;INV-001;MED-001;PER-001..002;SUP-001;LEG-001..002;OBS-003')
-const mvpMissing = ids('CIC-007')
+const mvpExternal = ids('CAT-001;BEP-001..002;INV-001;MED-001;PER-001..002;SUP-001;LEG-001..002;OBS-003')
+const mvpMissing = ids('CAT-002;BEP-004;COM-001;SEC-003;INT-002;TST-009..010;CIC-001;CIC-005..007;UI-001..002;UI-013')
 
 const currentRepoEvidence = new Set(
   ids(
@@ -202,7 +202,8 @@ function evidenceFor(id: string) {
     INT: 'db/migrations/0001_platform_foundation.sql; scripts/reconcile.ts',
     TST: 'tests/; vitest.config.ts; playwright.config.ts',
     CIC: '.github/workflows/ci.yml; Dockerfile; package-lock.json',
-    OBS: 'server/api/health/; scripts/operational-alerts.ts; docs/operations/'
+    OBS: 'server/api/health/; scripts/operational-alerts.ts; docs/operations/',
+    UI: 'app/pages/admin/; app/pages/cuenta/; app/pages/pedido/; app/components/'
   }
   return evidence[id] ?? domainEvidence[id.split('-')[0]!] ?? ''
 }
@@ -210,14 +211,14 @@ function evidenceFor(id: string) {
 const source = await readFile(reportPath, 'utf8')
 const requirements: Requirement[] = []
 let domain = ''
-for (const line of source.slice(0, source.indexOf('## 9.26 ')).split('\n')) {
+for (const line of source.slice(0, source.indexOf('# 10. ')).split('\n')) {
   const heading = line.match(/^## 9\.\d+ (.+)$/)
   if (heading) domain = heading[1]!.trim()
   const columns = line
     .split('|')
     .slice(1, -1)
     .map((value) => value.trim())
-  if (columns.length !== 5 || !/^[A-Z]{3}-\d{3}$/.test(columns[0]!) || !validPhases.has(columns[1]!)) continue
+  if (columns.length !== 5 || !/^[A-Z]{2,4}-\d{3}$/.test(columns[0]!) || !validPhases.has(columns[1]!)) continue
   requirements.push({
     id: columns[0]!,
     phase: columns[1]!,
@@ -229,7 +230,7 @@ for (const line of source.slice(0, source.indexOf('## 9.26 ')).split('\n')) {
 }
 
 const failures: string[] = []
-if (requirements.length !== 686) failures.push(`expected 686 requirements, found ${requirements.length}`)
+if (requirements.length !== 702) failures.push(`expected 702 requirements, found ${requirements.length}`)
 const duplicated = requirements.filter(
   (item, index) => requirements.findIndex((candidate) => candidate.id === item.id) !== index
 )
@@ -318,7 +319,7 @@ const counts = requirements.reduce<Record<Status, number>>(
   { REPO_EVIDENCE: 0, PARTIAL_EXTERNAL: 0, MISSING: 0, NOT_VERIFIED: 0, ROADMAP_NOT_STARTED: 0 }
 )
 process.stdout.write(
-  `requirements=686 ${Object.entries(counts)
+  `requirements=702 ${Object.entries(counts)
     .map(([status, count]) => `${status}=${count}`)
     .join(' ')}${process.argv.includes('--write') ? ` output=${outputPath}` : ''}\n`
 )

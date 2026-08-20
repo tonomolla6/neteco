@@ -1,6 +1,6 @@
 # Estado de producción y trazabilidad
 
-`requirements-traceability.csv` es el inventario automático de los 686 requisitos de la sección 9 del informe maestro. Se regenera con `npm run requirements:audit -- --write`; CI valida conteo, IDs únicos, fases y prioridades.
+`requirements-traceability.csv` es el inventario automático de los 702 requisitos de la sección 9 del informe maestro. Se regenera con `npm run requirements:audit -- --write`; CI valida conteo, IDs únicos, fases y prioridades.
 
 Los estados son deliberadamente estrictos:
 
