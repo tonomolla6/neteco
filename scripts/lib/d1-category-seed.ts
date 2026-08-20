@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { CATEGORIES } from '../../server/db/seed'
 import { slugify } from '../../server/utils/slug'
 
-function stableUuid(value: string) {
+export function stableUuid(value: string) {
   const bytes = createHash('sha256').update(`neteco:${value}`).digest().subarray(0, 16)
   bytes[6] = (bytes[6]! & 0x0f) | 0x50
   bytes[8] = (bytes[8]! & 0x3f) | 0x80
@@ -10,7 +10,7 @@ function stableUuid(value: string) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-function sqlText(value: string) {
+export function sqlText(value: string) {
   return `'${value.replaceAll("'", "''")}'`
 }
 

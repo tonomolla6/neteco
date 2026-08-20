@@ -16,6 +16,8 @@ The canary exposes only `GET /health`. Its probe executes `SELECT 1` in D1 and v
 
 The first vertical route, `GET /api/categories`, reads the published category tree from D1 and applies an explicit public cache policy. This slice does not yet promise product detail, inventory, scheduled prices or media documents; those require their own D1/R2 models before traffic can move from the Node runtime.
 
+`GET /api/products` now exercises the D1 product/variant read model with stable pagination, category descendants, safe sort selection, parameterized FTS5 search and gross/net minimum prices. It deliberately omits facets and scheduled price history until those models have parity tests; the existing Node endpoint remains authoritative during this canary stage.
+
 The canary declares an empty required-secret set, so Wrangler does not expose unrelated application secrets from a local `.env` file. Environment-specific secret names must be declared explicitly when a Worker starts using them; values remain outside Git.
 
 Run the complete local gate with:

@@ -1,4 +1,5 @@
 import { listPublishedCategories } from './catalog/categories'
+import { listPublishedProducts, type ProductSort } from './catalog/products'
 
 export interface CanaryCheck {
   ok: boolean
@@ -65,6 +66,37 @@ export default {
       try {
         return Response.json(await listPublishedCategories(env.DB), {
           headers: { 'cache-control': 'public, max-age=60, stale-while-revalidate=300' }
+        })
+      } catch {
+        return Response.json(
+          { error: 'catalog_unavailable' },
+          { status: 503, headers: { 'cache-control': 'no-store' } }
+        )
+      }
+    }
+    if (request.method === 'GET' && url.pathname === '/api/products') {
+      try {
+        const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
+        const limit = Math.min(Math.max(Number.parseInt(url.searchParams.get('limit') ?? '24', 10) || 24, 1), 100)
+        const requestedSort = url.searchParams.get('sort') ?? 'default'
+        const sort: ProductSort = ['name', 'price_asc', 'price_desc'].includes(requestedSort)
+          ? (requestedSort as ProductSort)
+          : 'default'
+        const result = await listPublishedProducts(env.DB, {
+          category: url.searchParams.get('category')?.slice(0, 180) || undefined,
+          search: url.searchParams.get('q')?.trim().slice(0, 160) || undefined,
+          page,
+          limit,
+          sort
+        })
+        if (!result) {
+          return Response.json(
+            { error: 'category_not_found' },
+            { status: 404, headers: { 'cache-control': 'no-store' } }
+          )
+        }
+        return Response.json(result, {
+          headers: { 'cache-control': 'public, max-age=30, stale-while-revalidate=120' }
         })
       } catch {
         return Response.json(
