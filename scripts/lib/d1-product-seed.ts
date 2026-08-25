@@ -66,6 +66,8 @@ ON CONFLICT (id) DO UPDATE SET
       const variantId = stableUuid(`variant:${productIndex + 1}:${variantIndex + 1}`)
       const unit = unitsFor(format, product.name)
       const sku = sourceSku ?? `NE-${String(productIndex + 1).padStart(3, '0')}-${variantIndex + 1}`
+      const priceVersionId = stableUuid(`price-version:${productIndex + 1}:${variantIndex + 1}`)
+      const grossCents = Math.round(euros * 100)
       statements.push(`INSERT INTO variants (
   id, legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
   unit_label, content_quantity, price_gross_cents, weight_grams, width_mm, height_mm, depth_mm,
@@ -73,7 +75,7 @@ ON CONFLICT (id) DO UPDATE SET
 ) VALUES (
   ${sqlText(variantId)}, ${productIndex * 100 + variantIndex + 1}, ${sqlText(productId)},
   ${sqlText(taxClassId)}, ${sqlText(shippingProfileId)}, ${sqlText(sku)}, ${sqlText(format)}, 'published',
-  ${sqlText(unit?.[1] ?? 'unidad')}, ${unit?.[0] ?? 1}, ${Math.round(euros * 100)},
+  ${sqlText(unit?.[1] ?? 'unidad')}, ${unit?.[0] ?? 1}, ${grossCents},
   ${800 + productIndex * 75}, 300, 200, 100, 'demo-v1', ${sqlText(seedTimestamp)}, ${sqlText(seedTimestamp)}
 )
 ON CONFLICT (id) DO UPDATE SET
@@ -92,6 +94,29 @@ ON CONFLICT (id) DO UPDATE SET
   depth_mm = excluded.depth_mm,
   source_version = excluded.source_version,
   updated_at = excluded.updated_at;`)
+      statements.push(`INSERT INTO variant_price_versions (
+  id, variant_id, gross_cents, compare_at_gross_cents, reference_gross_cents_30d,
+  volume_tiers, valid_from, valid_until, status, reason, created_by, created_at
+) VALUES (
+  ${sqlText(priceVersionId)}, ${sqlText(variantId)}, ${grossCents}, NULL, NULL,
+  '[]', ${sqlText(seedTimestamp)}, NULL, 'approved',
+  'Precio base importado al activar el histórico gobernado en D1', NULL, ${sqlText(seedTimestamp)}
+)
+ON CONFLICT (id) DO UPDATE SET
+  variant_id = excluded.variant_id,
+  gross_cents = excluded.gross_cents,
+  compare_at_gross_cents = excluded.compare_at_gross_cents,
+  reference_gross_cents_30d = excluded.reference_gross_cents_30d,
+  volume_tiers = excluded.volume_tiers,
+  valid_from = excluded.valid_from,
+  valid_until = excluded.valid_until,
+  status = excluded.status,
+  reason = excluded.reason,
+  created_by = excluded.created_by,
+  created_at = excluded.created_at,
+  cancelled_by = NULL,
+  cancelled_at = NULL,
+  cancellation_reason = NULL;`)
     }
   }
 

@@ -17,7 +17,13 @@ The canary exposes only `GET /health`. Its probe executes `SELECT 1` in D1 and v
 
 The first vertical route, `GET /api/categories`, reads the published category tree from D1 and applies an explicit public cache policy. This slice does not yet promise product detail, inventory, scheduled prices or media documents; those require their own D1/R2 models before traffic can move from the Node runtime.
 
-`GET /api/products` now exercises the D1 product/variant read model with stable pagination, category descendants, safe sort selection, parameterized FTS5 search and gross/net minimum prices. It deliberately omits facets and scheduled price history until those models have parity tests; the existing Node endpoint remains authoritative during this canary stage.
+`GET /api/products` now exercises the D1 product/variant read model with stable pagination, category descendants, safe sort selection, parameterized FTS5 search and gross/net minimum prices. It deliberately omits facets until those models have parity tests; the existing Node endpoint remains authoritative during this canary stage.
+
+## Effective pricing
+
+Governed price history lives in `variant_price_versions` (`db/d1/migrations/0003_variant_price_versions.sql`). Every published variant resolves one deterministic effective price: the latest approved version with `valid_from <= instant` and an open or not-yet-reached `valid_until`, ties broken by `created_at DESC, id DESC`. Variants without any live version fall back to the legacy base price. The evaluation instant is always bound server-side; request input can never select it.
+
+The shared selection logic in `workers/catalog/pricing.ts` is used by both the Worker and `scripts/audit-d1-catalog.ts`. The audit creates an isolated temporary D1, applies every migration and seed, executes active/future/expired/cancelled/tie/boundary/fallback scenarios, and proves that its final canonical data snapshot matches the pre-scenario digest. The temporary D1 is discarded even when an assertion fails.
 
 The canary declares an empty required-secret set, so Wrangler does not expose unrelated application secrets from a local `.env` file. Environment-specific secret names must be declared explicitly when a Worker starts using them; values remain outside Git.
 

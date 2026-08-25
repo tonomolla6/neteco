@@ -1,3 +1,10 @@
+import {
+  effectiveGrossCentsExpression,
+  parameterizeEffectivePricingSql,
+  resolvePricingInstant,
+  type EffectivePricingOptions
+} from './pricing'
+
 export type ProductSort = 'default' | 'name' | 'price_asc' | 'price_desc'
 
 export interface ProductQuery {
@@ -66,8 +73,10 @@ function ftsQuery(value: string) {
 
 export async function listPublishedProducts(
   database: D1Database,
-  query: ProductQuery
+  query: ProductQuery,
+  pricingOptions?: EffectivePricingOptions
 ): Promise<D1ProductListResponse | null> {
+  const instant = resolvePricingInstant(pricingOptions)
   const conditions = ["p.status = 'published'"]
   const parameters: Array<string | number> = []
 
@@ -107,17 +116,27 @@ export async function listPublishedProducts(
     }
   }
 
-  const summary = `WITH variant_summary AS (
-    SELECT variant.product_id,
-           min(variant.price_gross_cents) AS minPrice,
-           min(CAST(round((variant.price_gross_cents * 10000.0) /
-                          (10000 + tax.rate_basis_points)) AS INTEGER)) AS minNetPrice,
-           count(*) AS formats
-    FROM variants variant
-    JOIN tax_classes tax ON tax.id = variant.tax_class_id
-    WHERE variant.status = 'published'
-    GROUP BY variant.product_id
-  )`
+  const { sql: effectiveSummary, instantParameters } = parameterizeEffectivePricingSql(
+    `WITH effective_variant_prices AS (
+      SELECT variant.id AS variantId,
+             ${effectiveGrossCentsExpression('variant')} AS grossCents
+      FROM variants variant
+      WHERE variant.status = 'published'
+    ),
+    variant_summary AS (
+      SELECT priced.product_id,
+             min(effective.grossCents) AS minPrice,
+             min(CAST(round((effective.grossCents * 10000.0) /
+                            (10000 + tax.rate_basis_points)) AS INTEGER)) AS minNetPrice,
+             count(*) AS formats
+      FROM variants priced
+      JOIN effective_variant_prices effective ON effective.variantId = priced.id
+      JOIN tax_classes tax ON tax.id = priced.tax_class_id
+      WHERE priced.status = 'published'
+      GROUP BY priced.product_id
+    )`,
+    instant
+  )
   const joins = `FROM products p
     JOIN categories c ON c.id = p.category_id AND c.status = 'published'
     LEFT JOIN brands b ON b.id = p.brand_id
@@ -131,10 +150,12 @@ export async function listPublishedProducts(
       price_desc: 'summary.minPrice DESC, lower(p.name), p.id'
     }[query.sort] ?? 'p.featured DESC, lower(p.name), p.id'
 
-  const countStatement = database.prepare(`${summary} SELECT count(*) AS total ${joins} ${where}`).bind(...parameters)
+  const countStatement = database
+    .prepare(`${effectiveSummary} SELECT count(*) AS total ${joins} ${where}`)
+    .bind(...instantParameters, ...parameters)
   const listStatement = database
     .prepare(
-      `${summary}
+      `${effectiveSummary}
       SELECT p.id AS uuid,
              p.legacy_id AS id,
              p.name,
@@ -154,7 +175,7 @@ export async function listPublishedProducts(
       ORDER BY ${orderBy}
       LIMIT ? OFFSET ?`
     )
-    .bind(...parameters, query.limit, (query.page - 1) * query.limit)
+    .bind(...instantParameters, ...parameters, query.limit, (query.page - 1) * query.limit)
   const [countResult, listResult] = await database.batch<ProductRecord | { total: number }>([
     countStatement,
     listStatement

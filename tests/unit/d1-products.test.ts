@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { listPublishedProducts } from '../../workers/catalog/products'
 
+const PINNED_INSTANT = '2026-08-20T00:00:00Z'
+
 function database(options: { categoryExists?: boolean; total?: number } = {}) {
   const statements: Array<{ sql: string; parameters: unknown[] }> = []
   const prepare = vi.fn((sql: string) => {
@@ -46,11 +48,11 @@ function database(options: { categoryExists?: boolean; total?: number } = {}) {
 describe('D1 product read model', () => {
   it('returns the existing public contract with parsed JSON and stable pagination', async () => {
     const fixture = database({ total: 25 })
-    const result = await listPublishedProducts(fixture.database, {
-      page: 2,
-      limit: 24,
-      sort: 'price_asc'
-    })
+    const result = await listPublishedProducts(
+      fixture.database,
+      { page: 2, limit: 24, sort: 'price_asc' },
+      { instant: PINNED_INSTANT }
+    )
 
     expect(result).toEqual({
       items: [
@@ -73,14 +75,34 @@ describe('D1 product read model', () => {
     expect(fixture.statements.at(-1)?.parameters.slice(-2)).toEqual([24, 24])
   })
 
+  it('resolves prices against governed versions with the pinned instant bound before filters', async () => {
+    const fixture = database()
+    await listPublishedProducts(fixture.database, { page: 1, limit: 24, sort: 'default' }, { instant: PINNED_INSTANT })
+
+    for (const statement of fixture.statements) {
+      expect(statement.sql).toContain('variant_price_versions')
+      expect(statement.parameters.slice(0, 2)).toEqual([PINNED_INSTANT, PINNED_INSTANT])
+    }
+  })
+
+  it('never lets the client choose the pricing instant', async () => {
+    const fixture = database()
+    await listPublishedProducts(fixture.database, { page: 1, limit: 24, sort: 'default' })
+
+    for (const statement of fixture.statements) {
+      const [from, until] = statement.parameters.slice(0, 2) as [string, string]
+      expect(from).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/)
+      expect(until).toBe(from)
+    }
+  })
+
   it('returns null for an unknown published category before listing products', async () => {
     const fixture = database({ categoryExists: false })
-    const result = await listPublishedProducts(fixture.database, {
-      category: 'no-existe',
-      page: 1,
-      limit: 24,
-      sort: 'default'
-    })
+    const result = await listPublishedProducts(
+      fixture.database,
+      { category: 'no-existe', page: 1, limit: 24, sort: 'default' },
+      { instant: PINNED_INSTANT }
+    )
 
     expect(result).toBeNull()
     expect(fixture.batch).not.toHaveBeenCalled()
@@ -88,14 +110,15 @@ describe('D1 product read model', () => {
 
   it('uses parameterized FTS5 and LIKE fallbacks for user search text', async () => {
     const fixture = database()
-    await listPublishedProducts(fixture.database, {
-      search: 'nítrilo azul',
-      page: 1,
-      limit: 10,
-      sort: 'name'
-    })
+    await listPublishedProducts(
+      fixture.database,
+      { search: 'nítrilo azul', page: 1, limit: 10, sort: 'name' },
+      { instant: PINNED_INSTANT }
+    )
 
     expect(fixture.statements[0]?.parameters).toEqual([
+      PINNED_INSTANT,
+      PINNED_INSTANT,
       '"nítrilo"* AND "azul"*',
       '%nítrilo azul%',
       '%nítrilo azul%',

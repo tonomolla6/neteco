@@ -91,7 +91,7 @@ function evidenceFor(id: string) {
     'CHK-009': 'app/pages/checkout.vue; server/domain/money.ts',
     'PRI-004': 'server/services/cart.ts; app/components/ProductCard.vue; app/pages/checkout.vue',
     'PRI-006':
-      'db/migrations/0024_price_history_and_schedules.sql; server/services/pricing.ts; app/pages/admin/precios.vue',
+      'db/migrations/0024_price_history_and_schedules.sql; server/services/pricing.ts; app/pages/admin/precios.vue; db/d1/migrations/0003_variant_price_versions.sql; workers/catalog/pricing.ts; scripts/audit-d1-catalog.ts; tests/unit/d1-effective-pricing.test.ts',
     'PRI-008':
       'server/domain/money.ts; server/services/orders.ts; app/pages/producto/[slug].vue; tests/unit/money.test.ts',
     'PRI-011': 'server/services/pricing.ts; server/api/admin/prices.post.ts; app/pages/admin/precios.vue',
@@ -296,7 +296,11 @@ const rows = requirements.map((requirement) => {
     evidenceFor(requirement.id),
     operationalEvidence,
     externalOwner,
-    ['CAT-002', 'CIC-005'].includes(requirement.id) ? '2026-08-20' : '2026-08-13',
+    requirement.id === 'PRI-006'
+      ? '2026-08-25'
+      : ['CAT-002', 'CIC-005'].includes(requirement.id)
+        ? '2026-08-20'
+        : '2026-08-13',
     notes
   ]
     .map(csvCell)
