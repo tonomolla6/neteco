@@ -13,7 +13,8 @@ function bindings(options: { d1Ok?: boolean; categories?: unknown[]; categoryErr
     MEDIA: { get: vi.fn(), put: vi.fn() },
     ASYNC_JOBS: { send: vi.fn() },
     CATALOG_WORKFLOW: { create: vi.fn(), get: vi.fn() },
-    COORDINATOR: { idFromName: vi.fn(), get: vi.fn() }
+    COORDINATOR: { idFromName: vi.fn(), get: vi.fn() },
+    INVENTORY: { idFromName: vi.fn(), get: vi.fn() }
   } as unknown as CloudflareEnv
 }
 
@@ -26,6 +27,7 @@ describe('Cloudflare canary', () => {
     expect(result.checks).toEqual({
       d1: { ok: true },
       durableObjects: { ok: true },
+      inventory: { ok: true },
       kv: { ok: true },
       queues: { ok: true },
       r2: { ok: true },

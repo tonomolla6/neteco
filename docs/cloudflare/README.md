@@ -42,6 +42,20 @@ npm run dev:worker-canary
 
 The generated `worker-configuration.d.ts` is committed so the binding contract is checked by the main TypeScript build. Regenerate it after every Wrangler configuration change with `npm run cloudflare:typegen`.
 
+## Inventory operations
+
+Inventory state lives in D1 (`db/d1/migrations/0004_inventory_operations.sql`): locations, per-variant/location balances (physical / blocked), append-only movements with signed deltas, and multi-line reservations. Safety stock remains authoritative on the catalog variant. Sellable stock is derived, never duplicated:
+
+```
+sellable = physical - blocked - safety - SUM(active reservation lines)
+```
+
+Every multi-row mutation (`workers/catalog/inventory.ts`) runs as one D1 batch — a single implicit transaction — and ends with a guard statement that violates a CHECK constraint unless all post-conditions hold, so partial effects cannot survive a failure. Idempotency keys are unique per reservation and movement; replays return the same reservation state without new ledger rows, and key reuse with a different payload is rejected. Expiries are gated on the current `expires_at`, which makes stale alarms or redelivered queue messages harmless no-ops.
+
+`InventoryCoordinator` (`workers/inventory-coordinator.ts`) serialises commands through one globally named Durable Object and persistently stores successful command responses for retry-after-lost-response safety. Reusing a command ID with different content is rejected. The object schedules expiry alarms from live D1 data and never stores stock quantities itself. The queue consumer processes versioned expiry messages with per-message ack/retry: malformed payloads are acknowledged permanently, transient failures retry with backoff into the configured dead-letter queue, and duplicates inside one batch are processed once. Delivery stays at-least-once; exactly-once effects come from the D1 idempotency keys.
+
+The isolated inventory audit (`npm run d1:audit:inventory:isolated`) runs migrations, seeds and the full adversarial scenario suite against an ephemeral local D1 directory that is always deleted afterwards, even on failure.
+
 ## Bundle boundary
 
 `scripts/audit-worker-bundle.ts` rejects Node/server dependencies that cannot enter the Cloudflare runtime: PostgreSQL, Redis, SMTP, Sharp, native binaries, filesystem and raw network imports. The Nuxt Worker is not eligible for deployment until its complete server import graph passes the same gate.

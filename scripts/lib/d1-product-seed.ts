@@ -2,6 +2,7 @@ import { PRODUCTS } from '../../server/db/seed'
 import { slugify } from '../../server/utils/slug'
 import { unitsFor } from '../../server/utils/units'
 import { sqlText, stableUuid } from './d1-category-seed'
+import { seededSafetyStock } from './d1-inventory-constants'
 
 function sqlNullable(value: string | null | undefined) {
   return value === null || value === undefined ? 'NULL' : sqlText(value)
@@ -68,14 +69,15 @@ ON CONFLICT (id) DO UPDATE SET
       const sku = sourceSku ?? `NE-${String(productIndex + 1).padStart(3, '0')}-${variantIndex + 1}`
       const priceVersionId = stableUuid(`price-version:${productIndex + 1}:${variantIndex + 1}`)
       const grossCents = Math.round(euros * 100)
+      const safetyStock = seededSafetyStock(productIndex + 1, variantIndex + 1)
       statements.push(`INSERT INTO variants (
   id, legacy_id, product_id, tax_class_id, shipping_profile_id, sku, format, status,
-  unit_label, content_quantity, price_gross_cents, weight_grams, width_mm, height_mm, depth_mm,
+  unit_label, content_quantity, price_gross_cents, safety_stock, weight_grams, width_mm, height_mm, depth_mm,
   source_version, created_at, updated_at
 ) VALUES (
   ${sqlText(variantId)}, ${productIndex * 100 + variantIndex + 1}, ${sqlText(productId)},
   ${sqlText(taxClassId)}, ${sqlText(shippingProfileId)}, ${sqlText(sku)}, ${sqlText(format)}, 'published',
-  ${sqlText(unit?.[1] ?? 'unidad')}, ${unit?.[0] ?? 1}, ${grossCents},
+  ${sqlText(unit?.[1] ?? 'unidad')}, ${unit?.[0] ?? 1}, ${grossCents}, ${safetyStock},
   ${800 + productIndex * 75}, 300, 200, 100, 'demo-v1', ${sqlText(seedTimestamp)}, ${sqlText(seedTimestamp)}
 )
 ON CONFLICT (id) DO UPDATE SET
@@ -88,6 +90,7 @@ ON CONFLICT (id) DO UPDATE SET
   unit_label = excluded.unit_label,
   content_quantity = excluded.content_quantity,
   price_gross_cents = excluded.price_gross_cents,
+  safety_stock = excluded.safety_stock,
   weight_grams = excluded.weight_grams,
   width_mm = excluded.width_mm,
   height_mm = excluded.height_mm,

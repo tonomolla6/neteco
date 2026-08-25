@@ -95,6 +95,17 @@ function evidenceFor(id: string) {
     'PRI-008':
       'server/domain/money.ts; server/services/orders.ts; app/pages/producto/[slug].vue; tests/unit/money.test.ts',
     'PRI-011': 'server/services/pricing.ts; server/api/admin/prices.post.ts; app/pages/admin/precios.vue',
+    'INV-002':
+      'db/migrations/0013_inventory_ledger_deltas.sql; db/d1/migrations/0004_inventory_operations.sql; workers/catalog/inventory.ts; scripts/lib/d1-inventory-seed.ts; scripts/audit-d1-inventory.ts',
+    'INV-003': 'workers/catalog/inventory.ts; tests/unit/d1-inventory.test.ts; scripts/audit-d1-inventory.ts',
+    'INV-004': 'workers/catalog/inventory.ts; tests/unit/d1-inventory.test.ts; scripts/audit-d1-inventory.ts',
+    'INV-005':
+      'workers/catalog/inventory.ts; workers/inventory-coordinator.ts; scripts/reservation-worker.ts; scripts/audit-d1-inventory.ts; tests/unit/d1-inventory-coordinator.test.ts',
+    'INV-006': 'workers/catalog/inventory.ts; tests/unit/d1-inventory.test.ts; scripts/audit-d1-inventory.ts',
+    'INV-008':
+      'db/d1/migrations/0004_inventory_operations.sql; scripts/lib/d1-inventory-seed.ts; scripts/audit-d1-inventory.ts',
+    'INV-009':
+      'db/d1/migrations/0004_inventory_operations.sql; workers/catalog/inventory.ts; tests/unit/d1-inventory.test.ts',
     'SEO-003': 'server/routes/sitemap.xml.get.ts; server/routes/sitemaps/',
     'SEO-007': 'app/app.vue; app/pages/producto/[slug].vue',
     'SEO-015': 'server/routes/feeds/google-merchant.xml.get.ts; docs/operations/merchant-feed.md',

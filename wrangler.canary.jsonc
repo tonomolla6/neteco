@@ -64,6 +64,10 @@
       {
         "name": "COORDINATOR",
         "class_name": "CanaryCoordinator"
+      },
+      {
+        "name": "INVENTORY",
+        "class_name": "InventoryCoordinator"
       }
     ]
   },
@@ -71,6 +75,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["CanaryCoordinator"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["InventoryCoordinator"]
     }
   ]
 }

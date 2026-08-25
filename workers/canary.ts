@@ -1,6 +1,47 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { listPublishedCategories } from './catalog/categories'
 import { listPublishedProducts, type ProductSort } from './catalog/products'
+import { expireExpiredReservations, InventoryError, isCanonicalInventoryInstant } from './catalog/inventory'
+export { InventoryCoordinator } from './inventory-coordinator'
+
+const QUEUE_MESSAGE_VERSION = 1
+
+interface ExpiryQueueMessage {
+  version: number
+  type: string
+  messageId: string
+  correlationId: string
+  /** Canonical UTC instant this delivery was scheduled for; stale values are ignored by the SQL gate. */
+  before: string
+}
+
+function parseExpiryMessage(
+  body: unknown
+): { ok: true; message: ExpiryQueueMessage } | { ok: false; permanent: boolean } {
+  if (typeof body !== 'object' || body === null) return { ok: false, permanent: true }
+  const raw = body as Record<string, unknown>
+  if (raw.version !== QUEUE_MESSAGE_VERSION) return { ok: false, permanent: true }
+  if (raw.type !== 'inventory.expire') return { ok: false, permanent: true }
+  for (const key of ['messageId', 'correlationId'] as const)
+    if (
+      typeof raw[key] !== 'string' ||
+      !(raw[key] as string).length ||
+      (raw[key] as string).length > 200 ||
+      [...(raw[key] as string)].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+    )
+      return { ok: false, permanent: true }
+  if (!isCanonicalInventoryInstant(raw.before)) return { ok: false, permanent: true }
+  return {
+    ok: true,
+    message: {
+      before: raw.before as string,
+      correlationId: raw.correlationId as string,
+      messageId: raw.messageId as string,
+      type: raw.type as string,
+      version: QUEUE_MESSAGE_VERSION
+    }
+  }
+}
 
 export interface CanaryCheck {
   ok: boolean
@@ -13,6 +54,7 @@ export interface CanaryHealth {
   checks: {
     d1: CanaryCheck
     durableObjects: CanaryCheck
+    inventory: CanaryCheck
     kv: CanaryCheck
     queues: CanaryCheck
     r2: CanaryCheck
@@ -38,6 +80,7 @@ export async function inspectCanaryBindings(env: CloudflareEnv): Promise<CanaryH
   const checks = {
     d1,
     durableObjects: bindingCheck(env.COORDINATOR, ['idFromName', 'get']),
+    inventory: bindingCheck(env.INVENTORY, ['idFromName', 'get']),
     kv: bindingCheck(env.CACHE, ['get', 'put']),
     queues: bindingCheck(env.ASYNC_JOBS, ['send']),
     r2: bindingCheck(env.MEDIA, ['get', 'put']),
@@ -129,7 +172,47 @@ export default {
     })
   },
 
-  queue(batch: MessageBatch): void {
-    batch.ackAll()
+  async queue(batch: MessageBatch, env: CloudflareEnv): Promise<void> {
+    const processedInBatch = new Set<string>()
+    await Promise.all(
+      batch.messages.map(async (message) => {
+        const parsed = parseExpiryMessage(message.body)
+        // Permanent malformations are acknowledged without retry loops; the
+        // dead-letter queue plus max_retries bound everything transient.
+        if (!parsed.ok) {
+          console.log(JSON.stringify({ event: 'inventory.queue.permanent_skip' }))
+          message.ack()
+          return
+        }
+        if (processedInBatch.has(parsed.message.messageId)) {
+          message.ack() // duplicate inside the same delivery batch: at-least-once, process once
+          return
+        }
+        processedInBatch.add(parsed.message.messageId)
+        try {
+          await expireExpiredReservations(env.DB, {
+            at: parsed.message.before,
+            correlationId: parsed.message.correlationId
+          })
+          message.ack()
+        } catch (error) {
+          if (error instanceof InventoryError && error.code === 'invalid_input') {
+            console.log(
+              JSON.stringify({ event: 'inventory.queue.permanent_reject', messageId: parsed.message.messageId })
+            )
+            message.ack()
+            return
+          }
+          console.log(
+            JSON.stringify({
+              event: 'inventory.queue.retry',
+              messageId: parsed.message.messageId,
+              attempt: message.attempts
+            })
+          )
+          message.retry({ delaySeconds: Math.min(30 * 2 ** message.attempts, 300) })
+        }
+      })
+    )
   }
 } satisfies ExportedHandler<CloudflareEnv>
