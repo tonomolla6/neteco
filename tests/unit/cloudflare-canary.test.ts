@@ -14,7 +14,8 @@ function bindings(options: { d1Ok?: boolean; categories?: unknown[]; categoryErr
     ASYNC_JOBS: { send: vi.fn() },
     CATALOG_WORKFLOW: { create: vi.fn(), get: vi.fn() },
     COORDINATOR: { idFromName: vi.fn(), get: vi.fn() },
-    INVENTORY: { idFromName: vi.fn(), get: vi.fn() }
+    INVENTORY: { idFromName: vi.fn(), get: vi.fn() },
+    CARTS: { idFromName: vi.fn(), get: vi.fn() }
   } as unknown as CloudflareEnv
 }
 
@@ -28,6 +29,7 @@ describe('Cloudflare canary', () => {
       d1: { ok: true },
       durableObjects: { ok: true },
       inventory: { ok: true },
+      carts: { ok: true },
       kv: { ok: true },
       queues: { ok: true },
       r2: { ok: true },
@@ -37,6 +39,7 @@ describe('Cloudflare canary', () => {
     expect(env.CACHE.put).not.toHaveBeenCalled()
     expect(env.MEDIA.put).not.toHaveBeenCalled()
     expect(env.COORDINATOR.get).not.toHaveBeenCalled()
+    expect(env.CARTS.get).not.toHaveBeenCalled()
     expect(env.CATALOG_WORKFLOW.create).not.toHaveBeenCalled()
   })
 

@@ -86,14 +86,18 @@ function evidenceFor(id: string) {
     'PDP-003': 'server/api/shipping/product-rates.post.ts; server/services/shipping.ts; app/pages/producto/[slug].vue',
     'PDP-007': 'server/api/products/[slug].get.ts; app/pages/producto/[slug].vue',
     'PDP-008': 'server/api/admin/products/[id]/active.put.ts; server/api/health/ready.get.ts',
-    'CHK-002': 'server/services/orders.ts; app/pages/checkout.vue; tests/integration/commerce-transactions.test.ts',
+    'CHK-001':
+      'server/services/cart.ts; server/services/orders.ts; app/pages/checkout.vue; db/d1/migrations/0005_cart_checkout.sql; workers/catalog/cart.ts; workers/cart-coordinator.ts; tests/unit/d1-cart.test.ts; tests/unit/d1-cart-coordinator.test.ts; scripts/audit-d1-cart.ts',
+    'CHK-002':
+      'server/services/orders.ts; app/pages/checkout.vue; tests/integration/commerce-transactions.test.ts; workers/catalog/cart.ts; workers/catalog/pricing.ts; workers/catalog/inventory.ts; tests/unit/d1-cart.test.ts; scripts/audit-d1-cart.ts',
     'CHK-006': 'server/services/shipping.ts; server/services/orders.ts',
-    'CHK-009': 'app/pages/checkout.vue; server/domain/money.ts',
+    'CHK-009':
+      'app/pages/checkout.vue; server/domain/money.ts; db/d1/migrations/0005_cart_checkout.sql; workers/catalog/cart.ts; tests/unit/d1-cart.test.ts; scripts/audit-d1-cart.ts',
     'PRI-004': 'server/services/cart.ts; app/components/ProductCard.vue; app/pages/checkout.vue',
     'PRI-006':
       'db/migrations/0024_price_history_and_schedules.sql; server/services/pricing.ts; app/pages/admin/precios.vue; db/d1/migrations/0003_variant_price_versions.sql; workers/catalog/pricing.ts; scripts/audit-d1-catalog.ts; tests/unit/d1-effective-pricing.test.ts',
     'PRI-008':
-      'server/domain/money.ts; server/services/orders.ts; app/pages/producto/[slug].vue; tests/unit/money.test.ts',
+      'server/domain/money.ts; server/services/orders.ts; app/pages/producto/[slug].vue; tests/unit/money.test.ts; workers/catalog/pricing.ts; workers/catalog/cart.ts; tests/unit/d1-cart.test.ts',
     'PRI-011': 'server/services/pricing.ts; server/api/admin/prices.post.ts; app/pages/admin/precios.vue',
     'INV-002':
       'db/migrations/0013_inventory_ledger_deltas.sql; db/d1/migrations/0004_inventory_operations.sql; workers/catalog/inventory.ts; scripts/lib/d1-inventory-seed.ts; scripts/audit-d1-inventory.ts',

@@ -180,7 +180,7 @@ function rawSellableDelta() {
 }
 
 /** Non-negative sellable expression evaluated against one `inventory_balances` row aliased `b`. */
-function sellableExpression() {
+export function sellableExpression() {
   return `max(0, b.physical_quantity - b.blocked_quantity - ${safetyStockExpression()} - COALESCE((
     SELECT SUM(active_lines.quantity)
     FROM inventory_reservation_lines active_lines

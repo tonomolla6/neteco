@@ -56,6 +56,18 @@ Every multi-row mutation (`workers/catalog/inventory.ts`) runs as one D1 batch �
 
 The isolated inventory audit (`npm run d1:audit:inventory:isolated`) runs migrations, seeds and the full adversarial scenario suite against an ephemeral local D1 directory that is always deleted afterwards, even on failure.
 
+## Server-side carts and pre-checkout quotes
+
+Carts live in D1 (`db/d1/migrations/0005_cart_checkout.sql`): non-enumerable ids, the secret token stored only as SHA-256, explicit active/expired/converted states and a monotonic optimistic-concurrency version. One line per variant; quantity 0 removes.
+
+Every mutation or quote is a command with an idempotency key scoped to its cart, `expectedVersion`, a correlation id and a server-generated instant. Authentication happens before either replay layer is consulted. The persistent `cart_commands` ledger plus `CartCoordinator` (`workers/cart-coordinator.ts`) — one Durable Object instance per cart via the deterministic key `cart:<cartId>` — give replayable, serialised mutations: same key+payload replays the original response byte-for-byte even after a Durable Object restart, same key+different payload is rejected, stale versions conflict without effects, and each batch ends with a CHECK-violating guard so partial writes cannot survive. The object caches only successful results, and its command fingerprints exclude the cart token.
+
+Quotes are immutable at the database boundary (UPDATE/DELETE triggers) and resolved entirely server-side: effective prices through `workers/catalog/pricing.ts`, VAT through `tax_classes` with rounding from `server/domain/money.ts` (the single math implementation), availability observed from inventory without reserving anything, EUR currency, shipping explicitly pending at 0 cents. A quote fails as a whole if any line is no longer published; changing prices, stock or the cart never mutates an existing quote.
+
+The canary exposes `POST /api/carts`, `GET /api/carts/:id`, `PUT /api/carts/:id/items/:variantId` and `POST /api/carts/:id/quote` — all `Cache-Control: no-store`, token via `Authorization: Cart <token>`, mutations requiring `Idempotency-Key`. The creation response returns the token exactly once.
+
+The isolated cart audit (`npm run d1:audit:cart:isolated`) runs migrations, code-generated seeds and the full adversarial suite against an ephemeral D1 directory that is always deleted afterwards.
+
 ## Bundle boundary
 
 `scripts/audit-worker-bundle.ts` rejects Node/server dependencies that cannot enter the Cloudflare runtime: PostgreSQL, Redis, SMTP, Sharp, native binaries, filesystem and raw network imports. The Nuxt Worker is not eligible for deployment until its complete server import graph passes the same gate.

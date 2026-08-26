@@ -2,7 +2,91 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import { listPublishedCategories } from './catalog/categories'
 import { listPublishedProducts, type ProductSort } from './catalog/products'
 import { expireExpiredReservations, InventoryError, isCanonicalInventoryInstant } from './catalog/inventory'
+import { CartError, getCart } from './catalog/cart'
+import { cartDoName } from './cart-coordinator'
 export { InventoryCoordinator } from './inventory-coordinator'
+export { CartCoordinator } from './cart-coordinator'
+
+const CART_BODY_LIMIT_BYTES = 4096
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function cartErrorResponse(error: unknown): Response {
+  if (error instanceof CartError)
+    return noStoreJson(
+      { error: { code: error.code } },
+      error.code === 'invalid_input'
+        ? 400
+        : error.code === 'unauthorized'
+          ? 401
+          : error.code === 'empty_cart' || error.code === 'variant_not_available'
+            ? 422
+            : 409
+    )
+  return noStoreJson({ error: { code: 'internal' } }, 500)
+}
+
+function noStoreJson(body: unknown, status: number): Response {
+  return Response.json(body, { status, headers: { 'cache-control': 'no-store' } })
+}
+
+function bearerCartToken(request: Request): string | null {
+  const match = (request.headers.get('authorization') ?? '').match(/^Cart ([A-Za-z0-9_-]{43,86})$/)
+  return match ? match[1]! : null
+}
+
+async function readLimitedJson(request: Request): Promise<Record<string, unknown> | null> {
+  const declaredLength = Number(request.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > CART_BODY_LIMIT_BYTES) return null
+  if (!request.body) return {}
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    totalBytes += value.byteLength
+    if (totalBytes > CART_BODY_LIMIT_BYTES) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  let raw: string
+  try {
+    raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return null
+  }
+  if (!raw.length) return {}
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+function serverNow(): string {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+async function dispatchCartCommand(env: CloudflareEnv, command: Record<string, unknown>): Promise<Response> {
+  const cartId = typeof command.cartId === 'string' ? command.cartId : `create:${crypto.randomUUID()}`
+  const stub = env.CARTS.get(env.CARTS.idFromName(cartDoName(cartId)))
+  const response = await stub.fetch(
+    new Request('https://cart-coordinator.invalid/command', {
+      method: 'POST',
+      body: JSON.stringify(command)
+    })
+  )
+  return noStoreJson(await response.json(), response.status)
+}
 
 const QUEUE_MESSAGE_VERSION = 1
 
@@ -55,6 +139,7 @@ export interface CanaryHealth {
     d1: CanaryCheck
     durableObjects: CanaryCheck
     inventory: CanaryCheck
+    carts: CanaryCheck
     kv: CanaryCheck
     queues: CanaryCheck
     r2: CanaryCheck
@@ -81,6 +166,7 @@ export async function inspectCanaryBindings(env: CloudflareEnv): Promise<CanaryH
     d1,
     durableObjects: bindingCheck(env.COORDINATOR, ['idFromName', 'get']),
     inventory: bindingCheck(env.INVENTORY, ['idFromName', 'get']),
+    carts: bindingCheck(env.CARTS, ['idFromName', 'get']),
     kv: bindingCheck(env.CACHE, ['get', 'put']),
     queues: bindingCheck(env.ASYNC_JOBS, ['send']),
     r2: bindingCheck(env.MEDIA, ['get', 'put']),
@@ -161,8 +247,110 @@ export default {
         )
       }
     }
+    if (request.method === 'POST' && url.pathname === '/api/carts') {
+      try {
+        const body = await readLimitedJson(request)
+        if (!body) return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const cartId = crypto.randomUUID()
+        const correlationId =
+          typeof body.correlationId === 'string'
+            ? body.correlationId
+            : (request.headers.get('x-correlation-id') ?? 'api')
+        return await dispatchCartCommand(env, {
+          cartId,
+          commandId: crypto.randomUUID(),
+          payload: { correlationId: correlationId.slice(0, 200), now: serverNow() },
+          type: 'create'
+        })
+      } catch {
+        return noStoreJson({ error: { code: 'internal' } }, 500)
+      }
+    }
+    const cartRoute =
+      url.pathname.match(/^\/api\/carts\/([0-9a-f-]{36})$/) ?? url.pathname.match(/^\/api\/carts\/([^/]+)$/)
+    if (request.method === 'GET' && cartRoute) {
+      try {
+        if (!UUID_PATTERN.test(cartRoute[1]!)) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const token = bearerCartToken(request)
+        if (!token) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const view = await getCart(env.DB, { cartId: cartRoute[1]!, now: serverNow(), token })
+        return noStoreJson(view, 200)
+      } catch (error) {
+        return cartErrorResponse(error)
+      }
+    }
+    const itemRoute = url.pathname.match(/^\/api\/carts\/([^/]+)\/items\/([^/]+)$/)
+    if (request.method === 'PUT' && itemRoute) {
+      try {
+        const [, cartId, variantIdRaw] = itemRoute
+        if (!UUID_PATTERN.test(cartId!)) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const token = bearerCartToken(request)
+        if (!token) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const idempotencyKey = request.headers.get('idempotency-key')
+        if (!idempotencyKey || idempotencyKey.length > 200)
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        if (!UUID_PATTERN.test(variantIdRaw!)) return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const body = await readLimitedJson(request)
+        if (!body) return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const expectedVersion = body.expectedVersion
+        const quantity = body.quantity
+        if (typeof expectedVersion !== 'number' || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        if (typeof quantity !== 'number' || !Number.isSafeInteger(quantity))
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        return await dispatchCartCommand(env, {
+          cartId,
+          commandId: idempotencyKey,
+          payload: {
+            cartId,
+            correlationId: String(request.headers.get('x-correlation-id') ?? 'api').slice(0, 200),
+            expectedVersion,
+            idempotencyKey,
+            now: serverNow(),
+            quantity,
+            token,
+            variantId: variantIdRaw!
+          },
+          type: 'mutate'
+        })
+      } catch {
+        return noStoreJson({ error: { code: 'internal' } }, 500)
+      }
+    }
+    const quoteRoute = url.pathname.match(/^\/api\/carts\/([^/]+)\/quote$/)
+    if (request.method === 'POST' && quoteRoute) {
+      try {
+        const cartId = quoteRoute[1]!
+        if (!UUID_PATTERN.test(cartId)) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const token = bearerCartToken(request)
+        if (!token) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const idempotencyKey = request.headers.get('idempotency-key')
+        if (!idempotencyKey || idempotencyKey.length > 200)
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const body = await readLimitedJson(request)
+        if (!body) return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const expectedVersion = body.expectedVersion
+        if (typeof expectedVersion !== 'number' || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        return await dispatchCartCommand(env, {
+          cartId,
+          commandId: idempotencyKey,
+          payload: {
+            cartId,
+            correlationId: String(request.headers.get('x-correlation-id') ?? 'api').slice(0, 200),
+            expectedVersion,
+            idempotencyKey,
+            now: serverNow(),
+            token
+          },
+          type: 'quote'
+        })
+      } catch {
+        return noStoreJson({ error: { code: 'internal' } }, 500)
+      }
+    }
     if (request.method !== 'GET' || url.pathname !== '/health') {
-      return Response.json({ error: 'not_found' }, { status: 404 })
+      return Response.json({ error: { code: 'not_found' } }, { status: 404 })
     }
 
     const health = await inspectCanaryBindings(env)

@@ -68,6 +68,10 @@
       {
         "name": "INVENTORY",
         "class_name": "InventoryCoordinator"
+      },
+      {
+        "name": "CARTS",
+        "class_name": "CartCoordinator"
       }
     ]
   },
@@ -79,6 +83,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["InventoryCoordinator"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["CartCoordinator"]
     }
   ]
 }
