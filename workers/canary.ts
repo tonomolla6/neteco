@@ -4,6 +4,7 @@ import { listPublishedProducts, type ProductSort } from './catalog/products'
 import { expireExpiredReservations, InventoryError, isCanonicalInventoryInstant } from './catalog/inventory'
 import { CartError, getCart } from './catalog/cart'
 import { cartDoName } from './cart-coordinator'
+import { compensateStaleAttempts, getOrderView } from './catalog/checkout'
 export { InventoryCoordinator } from './inventory-coordinator'
 export { CartCoordinator } from './cart-coordinator'
 
@@ -349,6 +350,99 @@ export default {
         return noStoreJson({ error: { code: 'internal' } }, 500)
       }
     }
+    const shippingRoute = url.pathname.match(/^\/api\/carts\/([^/]+)\/shipping-options$/)
+    if (request.method === 'POST' && shippingRoute) {
+      try {
+        const cartId = shippingRoute[1]!
+        if (!UUID_PATTERN.test(cartId)) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const token = bearerCartToken(request)
+        if (!token) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const idempotencyKey = request.headers.get('idempotency-key')
+        if (!idempotencyKey || idempotencyKey.length > 200)
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const body = await readLimitedJson(request)
+        if (!body) return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        if (typeof body.expectedVersion !== 'number' || !Number.isSafeInteger(body.expectedVersion))
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        return await dispatchCartCommand(env, {
+          cartId,
+          commandId: idempotencyKey,
+          payload: {
+            cartId,
+            correlationId: String(request.headers.get('x-correlation-id') ?? 'api').slice(0, 200),
+            destination: body.destination ?? null,
+            expectedVersion: body.expectedVersion,
+            idempotencyKey,
+            now: serverNow(),
+            token
+          },
+          type: 'shipping-options'
+        })
+      } catch {
+        return noStoreJson({ error: { code: 'internal' } }, 500)
+      }
+    }
+    const orderRoute = url.pathname.match(/^\/api\/carts\/([^/]+)\/orders$/)
+    if (request.method === 'POST' && orderRoute) {
+      try {
+        const cartId = orderRoute[1]!
+        if (!UUID_PATTERN.test(cartId)) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const token = bearerCartToken(request)
+        if (!token) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const idempotencyKey = request.headers.get('idempotency-key')
+        if (!idempotencyKey || idempotencyKey.length > 200)
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        const body = await readLimitedJson(request)
+        if (!body) return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        if (
+          typeof body.expectedVersion !== 'number' ||
+          !Number.isSafeInteger(body.expectedVersion) ||
+          typeof body.selectedOptionIndex !== 'number' ||
+          !Number.isSafeInteger(body.selectedOptionIndex)
+        )
+          return noStoreJson({ error: { code: 'invalid_input' } }, 400)
+        return await dispatchCartCommand(env, {
+          cartId,
+          commandId: idempotencyKey,
+          payload: {
+            consentPrivacy: body.consentPrivacy === true,
+            consentTos: body.consentTos === true,
+            contactEmail: String(body.contactEmail ?? ''),
+            correlationId: String(request.headers.get('x-correlation-id') ?? 'api').slice(0, 200),
+            expectedVersion: body.expectedVersion,
+            idempotencyKey,
+            now: serverNow(),
+            billingAddress: body.billingAddress ?? null,
+            quoteId: String(body.quoteId ?? ''),
+            selectedOptionHash: String(body.selectedOptionHash ?? ''),
+            selectedOptionIndex: body.selectedOptionIndex,
+            shippingAddress: body.shippingAddress ?? null,
+            shippingQuoteId: String(body.shippingQuoteId ?? ''),
+            token
+          },
+          type: 'checkout'
+        })
+      } catch {
+        return noStoreJson({ error: { code: 'internal' } }, 500)
+      }
+    }
+    const orderGetRoute = url.pathname.match(/^\/api\/orders\/([^/]+)$/)
+    if (request.method === 'GET' && orderGetRoute) {
+      try {
+        if (!UUID_PATTERN.test(orderGetRoute[1]!)) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const match = (request.headers.get('authorization') ?? '').match(/^Order ([A-Za-z0-9_-]{43,86})$/)
+        if (!match) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const view = await getOrderView(env.DB, {
+          orderId: orderGetRoute[1]!,
+          token: match[1]!
+        })
+        // Unknown id and wrong token are indistinguishable.
+        if (!view) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        return noStoreJson(view, 200)
+      } catch {
+        return noStoreJson({ error: { code: 'internal' } }, 500)
+      }
+    }
     if (request.method !== 'GET' || url.pathname !== '/health') {
       return Response.json({ error: { code: 'not_found' } }, { status: 404 })
     }
@@ -382,6 +476,7 @@ export default {
             at: parsed.message.before,
             correlationId: parsed.message.correlationId
           })
+          await compensateStaleAttempts(env.DB, { at: parsed.message.before })
           message.ack()
         } catch (error) {
           if (error instanceof InventoryError && error.code === 'invalid_input') {

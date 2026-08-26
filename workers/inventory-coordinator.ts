@@ -1,6 +1,7 @@
 import {
   canonicalJson,
   InventoryError,
+  INVENTORY_COORDINATOR_NAME,
   assignReservation,
   expireExpiredReservations,
   releaseReservation,
@@ -11,6 +12,7 @@ import {
   type OperationInput,
   type ReserveInput
 } from './catalog/inventory'
+import { compensateStaleAttempts } from './catalog/checkout'
 
 function hasControlCharacters(value: string): boolean {
   return [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
@@ -29,7 +31,7 @@ function hasControlCharacters(value: string): boolean {
  * expirations, never stock quantities.
  */
 
-export const INVENTORY_COORDINATOR_NAME = 'neteco-inventory-global'
+export { INVENTORY_COORDINATOR_NAME } from './catalog/inventory'
 
 interface StoredResponse {
   commandHash: string
@@ -244,10 +246,12 @@ export class InventoryCoordinator implements DurableObject {
       await this.state.storage.setAlarm(Date.parse(scheduled.at))
       return
     }
+    const at = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     await expireExpiredReservations(this.env.DB, {
-      at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      at,
       correlationId: `do:${INVENTORY_COORDINATOR_NAME}:${scheduled.token}`
     })
+    await compensateStaleAttempts(this.env.DB, { at })
     await this.scheduleNextExpiry()
   }
 

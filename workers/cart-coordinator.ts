@@ -10,6 +10,15 @@ import {
   type QuoteRequestInput,
   type SetLineInput
 } from './catalog/cart'
+import {
+  placeOrder,
+  requestShippingOptions,
+  type CheckoutInventoryGateway,
+  type PlaceOrderInput
+} from './catalog/checkout'
+import { INVENTORY_COORDINATOR_NAME, InventoryError, type ReserveResult, type SimpleResult } from './catalog/inventory'
+import type { ShippingDestination } from './catalog/shipping'
+import { assertDestination } from './catalog/shipping'
 
 /**
  * CartCoordinator partitions work ONE Durable Object instance PER CART.
@@ -47,6 +56,7 @@ function isCanonicalInstant(value: unknown): value is string {
 
 export interface CoordinatorDeps {
   database: D1Database
+  inventory?: CheckoutInventoryGateway
   /** Durable per-command responses; unbounded by design. */
   getResponse: (commandId: string) => Promise<{ payloadHash: string; status: number; body: unknown } | undefined>
   putResponse: (commandId: string, value: { payloadHash: string; status: number; body: unknown }) => Promise<void>
@@ -105,6 +115,53 @@ function parseQuotePayload(payload: unknown): { ok: true; input: QuoteRequestInp
       expectedVersion: raw.expectedVersion as number,
       idempotencyKey: raw.idempotencyKey as string,
       now: raw.now as string,
+      token: raw.token as string
+    }
+  }
+}
+
+function parseCheckoutPayload(
+  cartId: string,
+  payload: unknown
+): { ok: true; input: PlaceOrderInput } | { ok: false; message: string } {
+  if (typeof payload !== 'object' || payload === null) return { ok: false, message: 'payload must be an object' }
+  const raw = payload as Record<string, unknown>
+  for (const key of [
+    'idempotencyKey',
+    'token',
+    'correlationId',
+    'contactEmail',
+    'quoteId',
+    'shippingQuoteId',
+    'selectedOptionHash'
+  ] as const)
+    if (typeof raw[key] !== 'string' || (raw[key] as string).length === 0)
+      return { ok: false, message: `${key} is required` }
+  if (!isCanonicalInstant(raw.now)) return { ok: false, message: 'now must be canonical ISO-8601 UTC' }
+  if (!Number.isSafeInteger(raw.expectedVersion) || (raw.expectedVersion as number) < 1)
+    return { ok: false, message: 'expectedVersion must be a positive integer' }
+  if (!Number.isSafeInteger(raw.selectedOptionIndex) || (raw.selectedOptionIndex as number) < 0)
+    return { ok: false, message: 'selectedOptionIndex is invalid' }
+  if (raw.consentTos !== true || raw.consentPrivacy !== true) return { ok: false, message: 'consents are mandatory' }
+  if (typeof raw.shippingAddress !== 'object' || raw.shippingAddress === null)
+    return { ok: false, message: 'shippingAddress is required' }
+  return {
+    ok: true,
+    input: {
+      billingAddress: raw.billingAddress as PlaceOrderInput['billingAddress'],
+      cartId,
+      consentPrivacy: true,
+      consentTos: true,
+      contactEmail: raw.contactEmail as string,
+      correlationId: raw.correlationId as string,
+      expectedVersion: raw.expectedVersion as number,
+      idempotencyKey: raw.idempotencyKey as string,
+      now: raw.now as string,
+      quoteId: raw.quoteId as string,
+      selectedOptionHash: raw.selectedOptionHash as string,
+      selectedOptionIndex: raw.selectedOptionIndex as number,
+      shippingAddress: raw.shippingAddress as PlaceOrderInput['shippingAddress'],
+      shippingQuoteId: raw.shippingQuoteId as string,
       token: raw.token as string
     }
   }
@@ -180,6 +237,58 @@ export async function handleCartCommand(
             : { status: 409, body: { error: { code: 'conflict' } } }
         const outcome = await quoteCart(deps.database, parsed.input)
         const status = outcome.outcome === 'quoted' ? 200 : outcome.outcome === 'empty_cart' ? 422 : 409
+        result = { status, body: outcome as unknown as Record<string, unknown> }
+        break
+      }
+      case 'shipping-options': {
+        if (!isValidKey(command.cartId)) return { status: 400, body: { error: { code: 'invalid_input' } } }
+        const raw = (command.payload ?? {}) as Record<string, unknown>
+        const parsed = parseQuotePayload({ ...raw, cartId: command.cartId })
+        if (!parsed.ok || parsed.input.cartId !== command.cartId)
+          return { status: 400, body: { error: { code: 'invalid_input' } } }
+        let destination: ShippingDestination
+        try {
+          destination = assertDestination(raw.destination)
+        } catch {
+          return { status: 400, body: { error: { code: 'invalid_input' } } }
+        }
+        await assertCartAuthorized(deps.database, parsed.input.cartId, parsed.input.token)
+        cacheHash = await canonicalPayloadHash({
+          cartId: parsed.input.cartId,
+          destination,
+          expectedVersion: parsed.input.expectedVersion,
+          type: 'shipping-options'
+        })
+        const cached = await deps.getResponse(command.commandId)
+        if (cached)
+          return cached.payloadHash === cacheHash
+            ? { status: cached.status, body: cached.body as Record<string, unknown> }
+            : { status: 409, body: { error: { code: 'conflict' } } }
+        const outcome = await requestShippingOptions(deps.database, {
+          ...parsed.input,
+          destination
+        })
+        const status = outcome.outcome === 'options' ? 200 : outcome.outcome === 'empty_cart' ? 422 : 409
+        result = { status, body: outcome as unknown as Record<string, unknown> }
+        break
+      }
+      case 'checkout': {
+        if (!isValidKey(command.cartId)) return { status: 400, body: { error: { code: 'invalid_input' } } }
+        const parsedCheckout = parseCheckoutPayload(command.cartId, command.payload)
+        if (!parsedCheckout.ok) return { status: 400, body: { error: { code: 'invalid_input' } } }
+        await assertCartAuthorized(deps.database, command.cartId, parsedCheckout.input.token)
+        // Checkout responses contain the one-time order access token. They are
+        // replayed from D1 and deterministically re-derived, never persisted in
+        // this DO's response cache.
+        const outcome = await placeOrder(deps.database, parsedCheckout.input, deps.inventory)
+        const status =
+          outcome.outcome === 'order_created'
+            ? 200
+            : outcome.outcome === 'out_of_stock'
+              ? 409
+              : outcome.outcome === 'revalidation_required'
+                ? 409
+                : 422
         result = { status, body: outcome as unknown as Record<string, unknown> }
         break
       }
@@ -261,6 +370,7 @@ export class CartCoordinator implements DurableObject {
       outcome = await this.runSerially(() =>
         handleCartCommand(command, {
           database: this.env.DB,
+          inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
           getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
           putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
           setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs)),
@@ -297,9 +407,38 @@ export class CartCoordinator implements DurableObject {
   private dependencies(): CoordinatorDeps {
     return {
       database: this.env.DB,
+      inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
       getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
       putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
       setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs))
+    }
+  }
+
+  private inventoryGateway(): CheckoutInventoryGateway {
+    const stub = this.env.INVENTORY.get(this.env.INVENTORY.idFromName(INVENTORY_COORDINATOR_NAME))
+    const command = async <T>(type: 'reserve' | 'release', payload: unknown): Promise<T> => {
+      const raw = payload as { idempotencyKey: string }
+      const operation = payload as { now?: string }
+      const commandId =
+        type === 'reserve' ? `${type}:${raw.idempotencyKey}` : `${type}:${raw.idempotencyKey}:${operation.now ?? ''}`
+      const response = await stub.fetch('https://inventory.internal/command', {
+        body: JSON.stringify({ commandId, payload, type }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST'
+      })
+      const body = (await response.json()) as Record<string, unknown>
+      if (response.status >= 500) throw new Error('inventory coordinator unavailable')
+      if ('error' in body) {
+        const error = body.error as { code?: string; message?: string }
+        if (error.code === 'insufficient_stock')
+          throw new InventoryError('insufficient_stock', error.message ?? 'Insufficient inventory')
+        throw new Error(`inventory coordinator rejected command: ${error.code ?? 'unknown'}`)
+      }
+      return body as T
+    }
+    return {
+      release: (input) => command<SimpleResult>('release', input),
+      reserve: (input) => command<ReserveResult>('reserve', input)
     }
   }
 }

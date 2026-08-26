@@ -483,12 +483,15 @@ export interface QuoteSnapshot {
   cartId: string
   cartVersion: number
   pricingInstant: string
+  expiresAt: string
   currency: Currency
   shipping: { grossCents: 0; pending: true }
   lines: QuoteLineSnapshot[]
   totals: { netCents: number; taxCents: number; grossCents: number }
   snapshotHash: string
 }
+
+const QUOTE_TTL_SECONDS = 30 * 60
 
 export type QuoteResult =
   | { outcome: 'quoted'; quote: QuoteSnapshot }
@@ -507,6 +510,7 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
   // The evaluation instant is ALWAYS the server-generated command instant;
   // nothing about pricing timing is ever client-controlled.
   const pricingInstant = input.now
+  const expiresAt = new Date(Date.parse(input.now) + QUOTE_TTL_SECONDS * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
   const payload = { kind: 'quote', cartId: input.cartId, expectedVersion: input.expectedVersion }
   const payloadHash = await canonicalPayloadHash(payload)
@@ -572,6 +576,7 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
     cartId: input.cartId,
     cartVersion: cart.version,
     currency: 'EUR',
+    expiresAt,
     lines,
     pricingInstant,
     quoteId: crypto.randomUUID(),
@@ -589,6 +594,7 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
     currency: quote.currency,
     lines: quote.lines,
     pricingInstant: quote.pricingInstant,
+    expiresAt: quote.expiresAt,
     shipping: quote.shipping,
     totals: quote.totals
   })
@@ -600,8 +606,8 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
           `INSERT INTO checkout_quotes (
            id, cart_id, cart_version, pricing_instant, currency, shipping_gross_cents,
            shipping_pending, total_net_cents, total_tax_cents, total_gross_cents,
-           snapshot_hash, correlation_id, created_at
-         ) VALUES (?1, ?2, ?3, ?4, 'EUR', 0, 1, ?5, ?6, ?7, ?8, ?9, ?10)`
+           snapshot_hash, correlation_id, created_at, expires_at
+         ) VALUES (?1, ?2, ?3, ?4, 'EUR', 0, 1, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
         )
         .bind(
           quote.quoteId,
@@ -613,7 +619,8 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
           quote.totals.grossCents,
           quote.snapshotHash,
           input.correlationId,
-          input.now
+          input.now,
+          expiresAt
         ),
       ...quote.lines.map((line) =>
         database

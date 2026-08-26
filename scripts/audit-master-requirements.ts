@@ -89,10 +89,19 @@ function evidenceFor(id: string) {
     'CHK-001':
       'server/services/cart.ts; server/services/orders.ts; app/pages/checkout.vue; db/d1/migrations/0005_cart_checkout.sql; workers/catalog/cart.ts; workers/cart-coordinator.ts; tests/unit/d1-cart.test.ts; tests/unit/d1-cart-coordinator.test.ts; scripts/audit-d1-cart.ts',
     'CHK-002':
-      'server/services/orders.ts; app/pages/checkout.vue; tests/integration/commerce-transactions.test.ts; workers/catalog/cart.ts; workers/catalog/pricing.ts; workers/catalog/inventory.ts; tests/unit/d1-cart.test.ts; scripts/audit-d1-cart.ts',
+      'server/services/orders.ts; app/pages/checkout.vue; tests/integration/commerce-transactions.test.ts; workers/catalog/cart.ts; workers/catalog/pricing.ts; workers/catalog/inventory.ts; workers/catalog/checkout.ts; tests/unit/d1-cart.test.ts; tests/unit/d1-checkout.test.ts; scripts/audit-d1-cart.ts; scripts/audit-d1-checkout.ts',
     'CHK-006': 'server/services/shipping.ts; server/services/orders.ts',
     'CHK-009':
       'app/pages/checkout.vue; server/domain/money.ts; db/d1/migrations/0005_cart_checkout.sql; workers/catalog/cart.ts; tests/unit/d1-cart.test.ts; scripts/audit-d1-cart.ts',
+    'SHP-001':
+      'server/integrations/carrier-provider.ts; server/services/shipping.ts; db/d1/migrations/0006_checkout_orders.sql; workers/catalog/shipping.ts; scripts/lib/d1-shipping-seed.ts; tests/unit/d1-checkout.test.ts',
+    'SHP-002': 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    'SHP-003':
+      'server/integrations/carrier-provider.ts; server/services/shipping.ts; db/d1/migrations/0006_checkout_orders.sql; scripts/lib/d1-shipping-seed.ts; workers/catalog/shipping.ts',
+    'SHP-006':
+      'server/integrations/carrier-provider.ts; server/services/shipping.ts; workers/catalog/shipping.ts; db/d1/migrations/0006_checkout_orders.sql; scripts/lib/d1-shipping-seed.ts; tests/unit/d1-checkout.test.ts; scripts/audit-d1-checkout.ts',
+    'ORD-001':
+      'server/services/orders.ts; db/migrations/0001_platform_foundation.sql; db/d1/migrations/0006_checkout_orders.sql; workers/catalog/checkout.ts; tests/unit/d1-checkout.test.ts; scripts/audit-d1-checkout.ts',
     'PRI-004': 'server/services/cart.ts; app/components/ProductCard.vue; app/pages/checkout.vue',
     'PRI-006':
       'db/migrations/0024_price_history_and_schedules.sql; server/services/pricing.ts; app/pages/admin/precios.vue; db/d1/migrations/0003_variant_price_versions.sql; workers/catalog/pricing.ts; scripts/audit-d1-catalog.ts; tests/unit/d1-effective-pricing.test.ts',
@@ -311,11 +320,13 @@ const rows = requirements.map((requirement) => {
     evidenceFor(requirement.id),
     operationalEvidence,
     externalOwner,
-    requirement.id === 'PRI-006'
-      ? '2026-08-25'
-      : ['CAT-002', 'CIC-005'].includes(requirement.id)
-        ? '2026-08-20'
-        : '2026-08-13',
+    ['SHP-001', 'SHP-003', 'SHP-006', 'ORD-001'].includes(requirement.id)
+      ? '2026-08-26'
+      : ['PRI-006'].includes(requirement.id)
+        ? '2026-08-25'
+        : ['CAT-002', 'CIC-005'].includes(requirement.id)
+          ? '2026-08-20'
+          : '2026-08-13',
     notes
   ]
     .map(csvCell)

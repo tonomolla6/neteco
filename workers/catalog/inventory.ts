@@ -25,6 +25,8 @@
 
 export type ReservationStatus = 'reserved' | 'assigned' | 'released' | 'expired'
 
+export const INVENTORY_COORDINATOR_NAME = 'neteco-inventory-global'
+
 function hasControlCharacters(value: string): boolean {
   return [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
 }

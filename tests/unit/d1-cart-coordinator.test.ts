@@ -67,6 +67,17 @@ async function world(options: WorldOptions = {}) {
       )
       .run(variantId)
   }
+  sqlite.exec(`
+    INSERT INTO shipping_zones (id, code, name, kind, postal_prefixes, active, created_at)
+    VALUES ('zone-pickup', 'pickup', 'Recogida', 'warehouse_pickup', '[]', 1, '2026-08-12T00:00:00Z');
+    INSERT INTO shipping_rates (
+      id, zone_id, method_code, service_profile, net_cents, tax_rate_basis_points,
+      eta_min_days, eta_max_days, rate_version, active, created_at
+    ) VALUES (
+      'rate-pickup', 'zone-pickup', 'pickup', 'parcel', 0, 2100,
+      0, 0, 1, 1, '2026-08-12T00:00:00Z'
+    );
+  `)
 
   let database = d1OverSqlite(sqlite)
   let inFlight = 0
@@ -333,6 +344,83 @@ describe('CartCoordinator partitioning and serialization', () => {
 })
 
 describe('cart HTTP contract', () => {
+  it('serves shipping, checkout and authenticated guest order lookup end to end', async () => {
+    const { env, storageOfName } = await world()
+    const cart = await createCart(env)
+    expect((await mutateViaApi(env, cart, 'http-add', UUID_A, 2, 1)).status).toBe(200)
+    const headers = { authorization: `Cart ${cart.token}`, 'idempotency-key': 'http-quote' }
+    const quoteResponse = await worker.fetch!(
+      new Request(`https://canary.neteco.invalid/api/carts/${cart.cartId}/quote`, {
+        body: JSON.stringify({ expectedVersion: 2 }),
+        headers,
+        method: 'POST'
+      }),
+      env
+    )
+    expect(quoteResponse.status).toBe(200)
+    const quote = (await json(quoteResponse)).quote as Record<string, unknown>
+
+    const shippingResponse = await worker.fetch!(
+      new Request(`https://canary.neteco.invalid/api/carts/${cart.cartId}/shipping-options`, {
+        body: JSON.stringify({ destination: { city: 'Ontinyent', postalCode: '46870' }, expectedVersion: 2 }),
+        headers: { ...headers, 'idempotency-key': 'http-shipping' },
+        method: 'POST'
+      }),
+      env
+    )
+    expect(shippingResponse.status).toBe(200)
+    const shipping = (await json(shippingResponse)).body as Record<string, unknown>
+    const pickup = (shipping.options as Array<Record<string, unknown>>)[0]!
+    const checkoutPayload = {
+      consentPrivacy: true,
+      consentTos: true,
+      contactEmail: 'http@neteco.es',
+      expectedVersion: 2,
+      quoteId: quote.quoteId,
+      selectedOptionHash: pickup.optionHash,
+      selectedOptionIndex: pickup.optionIndex,
+      shippingAddress: {
+        city: 'Ontinyent',
+        line1: 'Carrer Major 1',
+        phone: '+34 600 000 000',
+        postalCode: '46870',
+        province: 'València',
+        recipientName: 'Compra HTTP'
+      },
+      shippingQuoteId: shipping.shippingQuoteId
+    }
+    const checkoutRequest = () =>
+      worker.fetch!(
+        new Request(`https://canary.neteco.invalid/api/carts/${cart.cartId}/orders`, {
+          body: JSON.stringify(checkoutPayload),
+          headers: { ...headers, 'idempotency-key': 'http-checkout' },
+          method: 'POST'
+        }),
+        env
+      )
+    const first = await checkoutRequest()
+    expect(first.status).toBe(200)
+    expect(first.headers.get('cache-control')).toBe('no-store')
+    const firstBody = await json(first)
+    const order = firstBody.body as Record<string, unknown>
+    expect(order.orderToken).toMatch(/^[0-9a-f]{64}$/)
+    const replay = await checkoutRequest()
+    expect(await json(replay)).toEqual(firstBody)
+    expect(JSON.stringify([...(await storageOfName(cartDoName(cart.cartId))!.list({})).entries()])).not.toContain(
+      order.orderToken as string
+    )
+
+    const lookup = await worker.fetch!(
+      new Request(`https://canary.neteco.invalid/api/orders/${String(order.id)}`, {
+        headers: { authorization: `Order ${String(order.orderToken)}` }
+      }),
+      env
+    )
+    expect(lookup.status).toBe(200)
+    expect(lookup.headers.get('cache-control')).toBe('no-store')
+    await expect(json(lookup)).resolves.toMatchObject({ id: order.id })
+  })
+
   it('marks every response no-store and never leaks the token afterwards', async () => {
     const logSpy = vi.spyOn(console, 'log')
     const { env } = await world()

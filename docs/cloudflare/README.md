@@ -68,6 +68,16 @@ The canary exposes `POST /api/carts`, `GET /api/carts/:id`, `PUT /api/carts/:id/
 
 The isolated cart audit (`npm run d1:audit:cart:isolated`) runs migrations, code-generated seeds and the full adversarial suite against an ephemeral D1 directory that is always deleted afterwards.
 
+## Checkout acceptance, shipping and contractual orders
+
+`0006_checkout_orders.sql` adds the server-side shipping configuration (zones for warehouse pickup, own delivery by postal prefix and peninsular parcel fallback, with parcel/pallet/ADR rate profiles), expirable shipping-option snapshots, orders with immutable line/address snapshots, the persistent `checkout_attempts` saga and append-only `order_events`/`checkout_commands` ledgers protected by triggers. ADR is deliberately ineligible until regulatory data exists. Quote expiry arrives here too without touching 0005.
+
+The checkout flow enters through the same per-cart `CartCoordinator`: `shipping-options` and `checkout` commands serialise against mutations and quotes, while inventory mutations are sent through the global `InventoryCoordinator`. Before any side effect the service revalidates quote ownership/freshness, cart version/state, effective prices, price-version ids, publication, availability/backorder and the selected shipping option against live data; any drift returns `revalidation_required` plus fresh server-side snapshots with zero effects. Shipping rates are stored net and tax/gross use the shared integer money rounding; order totals include both goods and shipping and are constrained to `net + tax = gross` in D1.
+
+The saga models its failure windows explicitly on D1 (`checkout_attempts`): the immutable reservation plan is persisted first, reservation uses deterministic derived keys and a real TTL, and order creation, attempt completion, response ledger and cart conversion commit atomically. Interrupted attempts recover on retry from persisted state alone; only genuinely expired/abandoned ones are compensated idempotently, and an order-linked attempt can never be swept. Guest order lookup accepts the access token returned at creation/replay; only its SHA-256 is stored, and unknown-id and wrong-token answer identically with `no-store`.
+
+The isolated audit (`npm run d1:audit:checkout:isolated`) applies migrations and every seed from scratch into an ephemeral D1 directory that is always deleted afterwards.
+
 ## Bundle boundary
 
 `scripts/audit-worker-bundle.ts` rejects Node/server dependencies that cannot enter the Cloudflare runtime: PostgreSQL, Redis, SMTP, Sharp, native binaries, filesystem and raw network imports. The Nuxt Worker is not eligible for deployment until its complete server import graph passes the same gate.

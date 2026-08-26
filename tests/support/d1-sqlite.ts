@@ -7,7 +7,8 @@ const MIGRATIONS = [
   '0002_catalog_read_model.sql',
   '0003_variant_price_versions.sql',
   '0004_inventory_operations.sql',
-  '0005_cart_checkout.sql'
+  '0005_cart_checkout.sql',
+  '0006_checkout_orders.sql'
 ].map((name) => fileURLToPath(new URL(`../../db/d1/migrations/${name}`, import.meta.url)))
 
 export async function openMigratedDatabase() {
