@@ -347,6 +347,7 @@ describe('permission-based staff navigation', () => {
       '/admin/clientes/contexto',
       '/admin/soporte',
       '/admin/soporte-chat',
+      '/admin/soporte-rca',
       '/admin/gestor-cuentas',
       '/admin/aportaciones-productos'
     ])
@@ -377,6 +378,7 @@ describe('permission-based staff navigation', () => {
       '/admin/clientes/contexto',
       '/admin/soporte',
       '/admin/soporte-chat',
+      '/admin/soporte-rca',
       '/admin/gestor-cuentas',
       '/admin/aportaciones-productos'
     ])

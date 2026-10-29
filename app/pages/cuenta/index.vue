@@ -412,6 +412,7 @@ onBeforeUnmount(() => {
     <UiPageHeader title="Resumen" description="Tu último pedido, tus datos y los accesos rápidos a cada sección." />
 
     <AccountFeedback :notice="notice" />
+    <B2BCustomerTerms v-if="cloudflare" :enabled="authorized()" :scope-key="scopeKey" />
     <div v-if="cloudflare" class="space-y-3">
       <p v-if="!authorized()" role="status">
         Confirma tu sesión y correo verificado para consultar el resumen privado.

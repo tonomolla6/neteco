@@ -1,0 +1,657 @@
+import {
+  type GenerateCatalogContentInput,
+  type ReviewCatalogGenerationInput,
+  type ApplyCatalogGenerationInput,
+  type CatalogAiGenerationRecord,
+  type VerifiableClaimItem,
+  type DuplicateCheckResult,
+  type MatchedDuplicateProduct,
+  GenerateCatalogContentInputSchema,
+  ReviewCatalogGenerationInputSchema,
+  ApplyCatalogGenerationInputSchema,
+  CatalogAiGenerationError,
+  catalogAiPayloadHash,
+  computeTextSimilarity
+} from '../../shared/catalog-ai-generation'
+import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
+
+export interface CatalogAiOperationOptions {
+  idempotencyKey: string
+  now?: () => string
+}
+
+function getIsoNow(options?: CatalogAiOperationOptions): string {
+  const custom = options?.now?.()
+  if (custom) return custom
+  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+async function verifyCatalogAiAuth(
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  now: string
+): Promise<void> {
+  const authDirect = await authorizeD1Session(database, claims, 'catalog.ai_generate', { now, requireMfa: false })
+  if (authDirect.allowed) return
+
+  const authCatalog = await authorizeD1Session(database, claims, 'catalog.write', { now, requireMfa: false })
+  if (authCatalog.allowed) return
+
+  const authAdmin = await authorizeD1Session(database, claims, 'administration.manage', { now, requireMfa: false })
+  if (authAdmin.allowed) return
+
+  throw new CatalogAiGenerationError(
+    'unauthorized',
+    'Permisos insuficientes: se requiere catalog.ai_generate, catalog.write o administration.manage'
+  )
+}
+
+export async function checkD1CatalogDuplicates(
+  database: D1Database,
+  text: string,
+  title?: string
+): Promise<DuplicateCheckResult> {
+  const products = await database
+    .prepare(`SELECT id, name, short_description, description FROM products LIMIT 100`)
+    .all<{ id: string; name: string; short_description: string | null; description: string | null }>()
+
+  const rows = products.results || []
+  const matches: MatchedDuplicateProduct[] = []
+  let maxScore = 0
+
+  const queryComposite = `${title || ''} ${text}`.trim()
+
+  for (const prod of rows) {
+    const prodComposite = `${prod.name} ${prod.short_description || ''} ${prod.description || ''}`.trim()
+    const score = computeTextSimilarity(queryComposite, prodComposite)
+    if (score > 0.2) {
+      matches.push({
+        productId: prod.id,
+        name: prod.name,
+        similarityScore: score
+      })
+    }
+    if (score > maxScore) {
+      maxScore = score
+    }
+  }
+
+  matches.sort((a, b) => b.similarityScore - a.similarityScore)
+
+  const duplicateRisk =
+    maxScore > 0.7 ? 'high' : maxScore > 0.4 ? 'medium' : maxScore > 0.2 ? 'low' : 'none'
+
+  return {
+    maxSimilarityScore: maxScore,
+    duplicateRisk,
+    matchedProducts: matches
+  }
+}
+
+export async function generateD1CatalogContent(
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  rawInput: GenerateCatalogContentInput,
+  options: CatalogAiOperationOptions
+): Promise<CatalogAiGenerationRecord> {
+  const parsed = GenerateCatalogContentInputSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    throw new CatalogAiGenerationError('invalid_input', `Entrada inválida: ${parsed.error.message}`)
+  }
+  const input = parsed.data
+  const now = getIsoNow(options)
+
+  await verifyCatalogAiAuth(database, claims, now)
+
+  const payloadHash = await catalogAiPayloadHash('generate_catalog_content', input)
+
+  // 1. Idempotency check
+  const existingCommand = await database
+    .prepare(
+      `SELECT payload_hash, receipt_json FROM catalog_ai_generation_commands
+       WHERE actor_id = ?1 AND idempotency_key = ?2`
+    )
+    .bind(claims.identityId, options.idempotencyKey)
+    .first<{ payload_hash: string; receipt_json: string }>()
+
+  if (existingCommand) {
+    if (existingCommand.payload_hash !== payloadHash) {
+      throw new CatalogAiGenerationError(
+        'idempotency_conflict',
+        'La clave de idempotencia ya fue utilizada con una carga distinta'
+      )
+    }
+    return JSON.parse(existingCommand.receipt_json)
+  }
+
+  // 2. Extract verifiable claims from technical sources
+  const verifiableClaims: VerifiableClaimItem[] = []
+  for (const source of input.sources) {
+    for (const claim of source.verifiedClaims) {
+      const isEco = /biodegrad|oecd|eco|sostenible/i.test(claim)
+      const isSafety = /exento|seguridad|epi|guantes|cloro|alcali/i.test(claim)
+      const isEfficacy = /eficacia|potente|minutos|rapido|rendimiento/i.test(claim)
+      const isTechnical = /ph|densidad|dilucion|temperatura/i.test(claim)
+      const category = isEco ? 'eco' : isSafety ? 'safety' : isEfficacy ? 'efficacy' : isTechnical ? 'technical' : 'regulatory'
+
+      verifiableClaims.push({
+        claimText: claim,
+        sourceRef: source.id,
+        verified: true,
+        hazardClpCompliant: true,
+        category
+      })
+    }
+  }
+
+  if (verifiableClaims.length === 0) {
+    throw new CatalogAiGenerationError(
+      'unverified_claims',
+      'Las fuentes técnicas no contienen ningún claim verificable'
+    )
+  }
+
+  // 3. Duplicate detection against existing catalog products
+  const duplicateCheck = await checkD1CatalogDuplicates(
+    database,
+    `${input.prompt} ${input.sources.map((s) => s.textSnippet).join(' ')}`,
+    input.productName
+  )
+
+  // 4. Content synthesis
+  const sourceSnippets = input.sources.map((s) => s.textSnippet).join('. ')
+  const claimsText = input.sources.flatMap((s) => s.verifiedClaims).join('. ')
+
+  const generatedTitle = `${input.productName} Profesional Neteco`
+  const generatedShortDescription = `Solución técnica profesional para ${input.productName.toLowerCase()}. Formulación garantizada con claims verificados.`
+  const generatedDescription =
+    `Producto de limpieza química avanzada para uso técnico e industrial. ` +
+    `${sourceSnippets}. ` +
+    `Propiedades verificadas: ${claimsText}. Cumple normativas técnicas y de seguridad aplicables.`
+  const usageClaim = verifiableClaims.find((c) => /minuto|tiempo|actua/i.test(c.claimText))?.claimText
+  const generatedUsage =
+    `Modo de empleo recomendado: Aplicar según las especificaciones técnicas del fabricante. ` +
+    (usageClaim ? `Instrucciones técnicas: ${usageClaim}. ` : `Dejar actuar entre 5 y 30 minutos según grado de incrustación. `) +
+    `Aclarar con abundante agua si procede.`
+  const generatedAttributes: Record<string, unknown> = {
+    gama: 'profesional',
+    origen: 'fabricacion_propia',
+    pH: verifiableClaims.find((c) => /ph/i.test(c.claimText))?.claimText || 'neutro (7.0)',
+    normativa: verifiableClaims.find((c) => /une|iso|oecd/i.test(c.claimText))?.claimText || 'UNE-EN estandar'
+  }
+
+  const generationId = crypto.randomUUID()
+  const aiModelName = 'neteco-catalog-gen-v1'
+
+  const record: CatalogAiGenerationRecord = {
+    id: generationId,
+    productId: input.productId ?? null,
+    targetScope: input.targetScope,
+    actorId: claims.identityId,
+    sources: input.sources,
+    prompt: input.prompt,
+    generatedTitle,
+    generatedShortDescription,
+    generatedDescription,
+    generatedUsage,
+    generatedAttributes,
+    verifiableClaims,
+    duplicateCheck,
+    isAiGenerated: true,
+    aiModelName,
+    approvalStatus: 'pending_review',
+    humanReviewedAt: null,
+    humanReviewerId: null,
+    appliedContent: null,
+    reviewNotes: null,
+    version: 1,
+    createdAt: now,
+    updatedAt: now
+  }
+
+  // Write to D1
+  await database
+    .prepare(
+      `INSERT INTO catalog_ai_generations (
+        id, product_id, target_scope, actor_id, sources_json, prompt,
+        generated_title, generated_short_description, generated_description,
+        generated_usage, generated_attributes_json, verifiable_claims_json,
+        duplicate_check_json, is_ai_generated, ai_model_name, approval_status,
+        human_reviewed_at, human_reviewer_id, applied_content_json, review_notes,
+        version, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, 'pending_review', NULL, NULL, NULL, NULL, 1, ?15, ?15)`
+    )
+    .bind(
+      record.id,
+      record.productId,
+      record.targetScope,
+      record.actorId,
+      JSON.stringify(record.sources),
+      record.prompt,
+      record.generatedTitle,
+      record.generatedShortDescription,
+      record.generatedDescription,
+      record.generatedUsage,
+      JSON.stringify(record.generatedAttributes),
+      JSON.stringify(record.verifiableClaims),
+      JSON.stringify(record.duplicateCheck),
+      record.aiModelName,
+      now
+    )
+    .run()
+
+  // Record command in append-only table
+  const commandId = crypto.randomUUID()
+  await database
+    .prepare(
+      `INSERT INTO catalog_ai_generation_commands (
+        command_id, generation_id, actor_id, action, idempotency_key,
+        expected_version, result_version, payload_hash, input_json, receipt_json, created_at
+      ) VALUES (?1, ?2, ?3, 'generate_catalog_content', ?4, 0, 1, ?5, ?6, ?7, ?8)`
+    )
+    .bind(
+      commandId,
+      record.id,
+      claims.identityId,
+      options.idempotencyKey,
+      payloadHash,
+      JSON.stringify(input),
+      JSON.stringify(record),
+      now
+    )
+    .run()
+
+  return record
+}
+
+export async function reviewD1CatalogAiGeneration(
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  generationId: string,
+  rawInput: ReviewCatalogGenerationInput,
+  options: CatalogAiOperationOptions
+): Promise<CatalogAiGenerationRecord> {
+  const parsed = ReviewCatalogGenerationInputSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    throw new CatalogAiGenerationError('invalid_input', `Decisión de revisión inválida: ${parsed.error.message}`)
+  }
+  const input = parsed.data
+  const now = getIsoNow(options)
+
+  await verifyCatalogAiAuth(database, claims, now)
+
+  const payloadHash = await catalogAiPayloadHash('human_review_decision', { generationId, ...input })
+
+  // Idempotency check
+  const existingCommand = await database
+    .prepare(
+      `SELECT payload_hash, receipt_json FROM catalog_ai_generation_commands
+       WHERE actor_id = ?1 AND idempotency_key = ?2`
+    )
+    .bind(claims.identityId, options.idempotencyKey)
+    .first<{ payload_hash: string; receipt_json: string }>()
+
+  if (existingCommand) {
+    if (existingCommand.payload_hash !== payloadHash) {
+      throw new CatalogAiGenerationError(
+        'idempotency_conflict',
+        'La clave de idempotencia ya fue utilizada con una carga distinta'
+      )
+    }
+    return JSON.parse(existingCommand.receipt_json)
+  }
+
+  const row = await database
+    .prepare(`SELECT * FROM catalog_ai_generations WHERE id = ?1`)
+    .bind(generationId)
+    .first<any>()
+
+  if (!row) {
+    throw new CatalogAiGenerationError('not_found', `Generación ${generationId} no encontrada`)
+  }
+
+  // CAS check
+  if (row.version !== input.expectedVersion) {
+    throw new CatalogAiGenerationError(
+      'concurrency_conflict',
+      `Conflicto de concurrencia: versión esperada (${input.expectedVersion}) != actual (${row.version})`
+    )
+  }
+
+  const newStatus =
+    input.decision === 'approve'
+      ? 'approved'
+      : input.decision === 'reject'
+        ? 'rejected'
+        : 'modified_and_approved'
+
+  const finalShortDescription = input.modifiedContent?.shortDescription ?? row.generated_short_description
+  const finalDescription = input.modifiedContent?.description ?? row.generated_description
+  const finalUsage = input.modifiedContent?.usage ?? row.generated_usage
+  const finalAttributes = input.modifiedContent?.attributes
+    ? JSON.stringify(input.modifiedContent.attributes)
+    : row.generated_attributes_json
+  const finalNotes = input.reviewNotes ?? row.review_notes
+  const newVersion = row.version + 1
+
+  await database
+    .prepare(
+      `UPDATE catalog_ai_generations
+       SET approval_status = ?1,
+           human_reviewed_at = ?2,
+           human_reviewer_id = ?3,
+           review_notes = ?4,
+           generated_short_description = ?5,
+           generated_description = ?6,
+           generated_usage = ?7,
+           generated_attributes_json = ?8,
+           version = ?9,
+           updated_at = ?10
+       WHERE id = ?11 AND version = ?12`
+    )
+    .bind(
+      newStatus,
+      now,
+      claims.identityId,
+      finalNotes,
+      finalShortDescription,
+      finalDescription,
+      finalUsage,
+      finalAttributes,
+      newVersion,
+      now,
+      generationId,
+      row.version
+    )
+    .run()
+
+  const updatedRecord: CatalogAiGenerationRecord = {
+    id: row.id,
+    productId: row.product_id,
+    targetScope: row.target_scope,
+    actorId: row.actor_id,
+    sources: JSON.parse(row.sources_json),
+    prompt: row.prompt,
+    generatedTitle: row.generated_title,
+    generatedShortDescription: finalShortDescription,
+    generatedDescription: finalDescription,
+    generatedUsage: finalUsage,
+    generatedAttributes: finalAttributes ? JSON.parse(finalAttributes) : null,
+    verifiableClaims: JSON.parse(row.verifiable_claims_json),
+    duplicateCheck: JSON.parse(row.duplicate_check_json),
+    isAiGenerated: true,
+    aiModelName: row.ai_model_name,
+    approvalStatus: newStatus,
+    humanReviewedAt: now,
+    humanReviewerId: claims.identityId,
+    appliedContent: row.applied_content_json ? JSON.parse(row.applied_content_json) : null,
+    reviewNotes: finalNotes,
+    version: newVersion,
+    createdAt: row.created_at,
+    updatedAt: now
+  }
+
+  // Record command
+  const commandId = crypto.randomUUID()
+  await database
+    .prepare(
+      `INSERT INTO catalog_ai_generation_commands (
+        command_id, generation_id, actor_id, action, idempotency_key,
+        expected_version, result_version, payload_hash, input_json, receipt_json, created_at
+      ) VALUES (?1, ?2, ?3, 'human_review_decision', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+    )
+    .bind(
+      commandId,
+      generationId,
+      claims.identityId,
+      options.idempotencyKey,
+      input.expectedVersion,
+      newVersion,
+      payloadHash,
+      JSON.stringify(input),
+      JSON.stringify(updatedRecord),
+      now
+    )
+    .run()
+
+  return updatedRecord
+}
+
+export async function applyD1CatalogAiGeneration(
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  generationId: string,
+  rawInput: ApplyCatalogGenerationInput,
+  options: CatalogAiOperationOptions
+): Promise<{ applied: boolean; targetProductId: string; version: number }> {
+  const parsed = ApplyCatalogGenerationInputSchema.safeParse(rawInput)
+  if (!parsed.success) {
+    throw new CatalogAiGenerationError('invalid_input', `Entrada inválida: ${parsed.error.message}`)
+  }
+  const input = parsed.data
+  const now = getIsoNow(options)
+
+  await verifyCatalogAiAuth(database, claims, now)
+
+  const payloadHash = await catalogAiPayloadHash('apply_to_product', { generationId, ...input })
+
+  // Idempotency check
+  const existingCommand = await database
+    .prepare(
+      `SELECT payload_hash, receipt_json FROM catalog_ai_generation_commands
+       WHERE actor_id = ?1 AND idempotency_key = ?2`
+    )
+    .bind(claims.identityId, options.idempotencyKey)
+    .first<{ payload_hash: string; receipt_json: string }>()
+
+  if (existingCommand) {
+    if (existingCommand.payload_hash !== payloadHash) {
+      throw new CatalogAiGenerationError(
+        'idempotency_conflict',
+        'La clave de idempotencia ya fue utilizada con una carga distinta'
+      )
+    }
+    return JSON.parse(existingCommand.receipt_json)
+  }
+
+  const row = await database
+    .prepare(`SELECT * FROM catalog_ai_generations WHERE id = ?1`)
+    .bind(generationId)
+    .first<any>()
+
+  if (!row) {
+    throw new CatalogAiGenerationError('not_found', `Generación ${generationId} no encontrada`)
+  }
+
+  // CAS check
+  if (row.version !== input.expectedVersion) {
+    throw new CatalogAiGenerationError(
+      'concurrency_conflict',
+      `Conflicto de concurrencia: versión esperada (${input.expectedVersion}) != actual (${row.version})`
+    )
+  }
+
+  // Strict approval check: MUST be approved or modified_and_approved
+  if (row.approval_status !== 'approved' && row.approval_status !== 'modified_and_approved') {
+    throw new CatalogAiGenerationError(
+      'not_approved',
+      `No se puede aplicar contenido que no haya sido aprobado previamente por revisión humana (estado actual: ${row.approval_status})`
+    )
+  }
+
+  const appliedContent = {
+    appliedAt: now,
+    appliedBy: claims.identityId,
+    targetProductId: input.targetProductId,
+    shortDescription: row.generated_short_description,
+    description: row.generated_description,
+    usage: row.generated_usage,
+    attributes: row.generated_attributes_json ? JSON.parse(row.generated_attributes_json) : {},
+    aiAttribution: {
+      isAiGenerated: true,
+      generationId: row.id,
+      modelName: row.ai_model_name,
+      reviewedBy: row.human_reviewer_id,
+      reviewedAt: row.human_reviewed_at
+    }
+  }
+
+  // Update target product in catalog
+  await database
+    .prepare(
+      `UPDATE products
+       SET short_description = COALESCE(?1, short_description),
+           description = COALESCE(?2, description),
+           usage = COALESCE(?3, usage),
+           updated_at = ?4
+       WHERE id = ?5`
+    )
+    .bind(
+      row.generated_short_description,
+      row.generated_description,
+      row.generated_usage,
+      now,
+      input.targetProductId
+    )
+    .run()
+
+  const newVersion = row.version + 1
+
+  await database
+    .prepare(
+      `UPDATE catalog_ai_generations
+       SET applied_content_json = ?1,
+           version = ?2,
+           updated_at = ?3
+       WHERE id = ?4 AND version = ?5`
+    )
+    .bind(JSON.stringify(appliedContent), newVersion, now, generationId, row.version)
+    .run()
+
+  const receipt = {
+    applied: true,
+    targetProductId: input.targetProductId,
+    version: newVersion
+  }
+
+  // Record command
+  const commandId = crypto.randomUUID()
+  await database
+    .prepare(
+      `INSERT INTO catalog_ai_generation_commands (
+        command_id, generation_id, actor_id, action, idempotency_key,
+        expected_version, result_version, payload_hash, input_json, receipt_json, created_at
+      ) VALUES (?1, ?2, ?3, 'apply_to_product', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+    )
+    .bind(
+      commandId,
+      generationId,
+      claims.identityId,
+      options.idempotencyKey,
+      input.expectedVersion,
+      newVersion,
+      payloadHash,
+      JSON.stringify(input),
+      JSON.stringify(receipt),
+      now
+    )
+    .run()
+
+  return receipt
+}
+
+export async function readD1CatalogAiGeneration(
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  generationId: string
+): Promise<CatalogAiGenerationRecord> {
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  await verifyCatalogAiAuth(database, claims, now)
+
+  const row = await database
+    .prepare(`SELECT * FROM catalog_ai_generations WHERE id = ?1`)
+    .bind(generationId)
+    .first<any>()
+
+  if (!row) {
+    throw new CatalogAiGenerationError('not_found', `Generación ${generationId} no encontrada`)
+  }
+
+  return {
+    id: row.id,
+    productId: row.product_id,
+    targetScope: row.target_scope,
+    actorId: row.actor_id,
+    sources: JSON.parse(row.sources_json),
+    prompt: row.prompt,
+    generatedTitle: row.generated_title,
+    generatedShortDescription: row.generated_short_description,
+    generatedDescription: row.generated_description,
+    generatedUsage: row.generated_usage,
+    generatedAttributes: row.generated_attributes_json ? JSON.parse(row.generated_attributes_json) : null,
+    verifiableClaims: JSON.parse(row.verifiable_claims_json),
+    duplicateCheck: JSON.parse(row.duplicate_check_json),
+    isAiGenerated: true,
+    aiModelName: row.ai_model_name,
+    approvalStatus: row.approval_status,
+    humanReviewedAt: row.human_reviewed_at,
+    humanReviewerId: row.human_reviewer_id,
+    appliedContent: row.applied_content_json ? JSON.parse(row.applied_content_json) : null,
+    reviewNotes: row.review_notes,
+    version: row.version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }
+}
+
+export async function listD1CatalogAiGenerations(
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  filters?: { productId?: string; status?: string }
+): Promise<CatalogAiGenerationRecord[]> {
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  await verifyCatalogAiAuth(database, claims, now)
+
+  let sql = `SELECT * FROM catalog_ai_generations WHERE 1=1`
+  const params: unknown[] = []
+
+  if (filters?.productId) {
+    params.push(filters.productId)
+    sql += ` AND product_id = ?${params.length}`
+  }
+  if (filters?.status) {
+    params.push(filters.status)
+    sql += ` AND approval_status = ?${params.length}`
+  }
+
+  sql += ` ORDER BY created_at DESC LIMIT 50`
+
+  const statement = database.prepare(sql)
+  const rows = params.length > 0 ? (await statement.bind(...params).all<any>()).results : (await statement.all<any>()).results
+
+  return (rows || []).map((row) => ({
+    id: row.id,
+    productId: row.product_id,
+    targetScope: row.target_scope,
+    actorId: row.actor_id,
+    sources: JSON.parse(row.sources_json),
+    prompt: row.prompt,
+    generatedTitle: row.generated_title,
+    generatedShortDescription: row.generated_short_description,
+    generatedDescription: row.generated_description,
+    generatedUsage: row.generated_usage,
+    generatedAttributes: row.generated_attributes_json ? JSON.parse(row.generated_attributes_json) : null,
+    verifiableClaims: JSON.parse(row.verifiable_claims_json),
+    duplicateCheck: JSON.parse(row.duplicate_check_json),
+    isAiGenerated: true,
+    aiModelName: row.ai_model_name,
+    approvalStatus: row.approval_status,
+    humanReviewedAt: row.human_reviewed_at,
+    humanReviewerId: row.human_reviewer_id,
+    appliedContent: row.applied_content_json ? JSON.parse(row.applied_content_json) : null,
+    reviewNotes: row.review_notes,
+    version: row.version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }))
+}

@@ -4,6 +4,8 @@ import PublishedProductRelations from '~/components/PublishedProductRelations.vu
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
 import ProductImageLightbox from '~/components/ProductImageLightbox.vue'
 import ProductEngagementPanel from '~/components/ProductEngagementPanel.vue'
+import ProductVideoMediaGuide from '~/components/ProductVideoMediaGuide.vue'
+import ProductVerifiedReviewsQa from '~/components/ProductVerifiedReviewsQa.vue'
 import { z } from 'zod'
 import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
@@ -1091,6 +1093,9 @@ async function addToCart(goToCart = false) {
       </div>
     </div>
 
+    <!-- Guía de vídeo, dosificación y montaje (MED-016 y PDP-018) -->
+    <ProductVideoMediaGuide :product-id="product.id" class="mt-8" />
+
     <ProductEngagementPanel
       v-if="engagementEnabled"
       :product-id="product.id"
@@ -1100,6 +1105,10 @@ async function addToCart(goToCart = false) {
       :customer-enabled="engagementCustomerEnabled"
       class="mt-8"
     />
+
+    <!-- Reviews verificadas y Q&A moderado (PDP-016) -->
+    <ProductVerifiedReviewsQa :product-id="product.id" :product-name="product.name" class="mt-8" />
+
     <PublishedProductRelations :product-slugs="[String(route.params.slug)]" class="mt-8" />
 
     <!-- relacionados -->

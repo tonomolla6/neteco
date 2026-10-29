@@ -201,6 +201,8 @@ function parseCheckoutPayload(
     'purchaseOrderReference'
   ] as const)
     if (raw[key] !== undefined && typeof raw[key] !== 'string') return { ok: false, message: `${key} must be a string` }
+  if (raw.paymentMethod !== undefined && raw.paymentMethod !== 'credit')
+    return { ok: false, message: 'paymentMethod is invalid' }
   if (raw.ownerSession !== undefined && raw.ownerSession !== null && !isSessionClaims(raw.ownerSession))
     return { ok: false, message: 'ownerSession is invalid' }
   if (raw.salesQuote !== undefined) {
@@ -243,6 +245,7 @@ function parseCheckoutPayload(
       shippingQuoteId: raw.shippingQuoteId as string,
       token: raw.token as string,
       ownerSession: raw.ownerSession as VerifiedSessionClaims | null | undefined,
+      ...(raw.paymentMethod === 'credit' ? { paymentMethod: 'credit' as const } : {}),
       ...(raw.salesQuote === undefined ? {} : { salesQuote: raw.salesQuote as PlaceOrderInput['salesQuote'] })
     }
   }
@@ -427,7 +430,9 @@ export async function handleCartCommand(
         const status =
           outcome.outcome === 'order_created'
             ? 200
-            : outcome.outcome === 'out_of_stock'
+            : outcome.outcome === 'out_of_stock' ||
+                outcome.outcome === 'credit_unavailable' ||
+                outcome.outcome === 'credit_limit_exceeded'
               ? 409
               : outcome.outcome === 'revalidation_required'
                 ? 409

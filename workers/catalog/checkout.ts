@@ -330,6 +330,7 @@ export interface PlaceOrderInput {
   ownerSession?: VerifiedSessionClaims | null
   /** A reference only: immutable D1 approval is the sole price authority. */
   salesQuote?: SalesQuoteCheckoutReference
+  paymentMethod?: 'credit'
 }
 
 export type PlaceOrderResult =
@@ -345,6 +346,8 @@ export type PlaceOrderResult =
       freshShippingOptions?: Record<string, unknown>
     }
   | { outcome: 'out_of_stock'; detail: string }
+  | { outcome: 'credit_unavailable' }
+  | { outcome: 'credit_limit_exceeded' }
 
 export { assertAddress as assertCheckoutAddress }
 function assertAddress(value: AddressInput | undefined, requirePhone: boolean): void {
@@ -726,6 +729,8 @@ export async function placeOrder(
   )
     throw new CartError('invalid_input', 'expectedTotalGrossCents is invalid')
 
+  if (input.paymentMethod !== undefined && input.paymentMethod !== 'credit')
+    throw new CartError('invalid_input', 'paymentMethod is invalid')
   const customerId = input.ownerSession ? await activeOrderCustomerId(database, input.ownerSession, input.now) : null
   if (input.ownerSession && !customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
   const salesQuote = input.salesQuote
@@ -762,6 +767,7 @@ export async function placeOrder(
     buyerTaxId,
     ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
     ...(customerId ? { customerId } : {}),
+    ...(input.paymentMethod === 'credit' ? { paymentMethod: 'credit' } : {}),
     ...(input.salesQuote ? { salesQuote: input.salesQuote } : {}),
     expectedVersion: input.expectedVersion,
     quoteId: input.quoteId,
@@ -808,6 +814,21 @@ export async function placeOrder(
   if (cartView.status !== 'active') return { outcome: 'not_active', status: cartView.status }
   if (cartView.version !== input.expectedVersion)
     return { outcome: 'version_conflict', currentVersion: cartView.version }
+
+  const creditTerms =
+    input.paymentMethod === 'credit' && customerId
+      ? await database
+          .prepare(
+            `SELECT c.id companyId,t.payment_days paymentDays,t.version
+        FROM companies c JOIN customers customer ON customer.id=c.customer_id
+        JOIN b2b_credit_terms t ON t.company_id=c.id
+        WHERE c.customer_id=?1 AND c.status='approved' AND customer.status='active'
+          AND t.blocked=0 AND t.payment_days IN(15,30,60)`
+          )
+          .bind(customerId)
+          .first<{ companyId: string; paymentDays: number; version: number }>()
+      : null
+  if (input.paymentMethod === 'credit' && !creditTerms) return { outcome: 'credit_unavailable' }
 
   const quoteRow = await database
     .prepare('SELECT cart_id, cart_version, expires_at FROM checkout_quotes WHERE id = ?1')
@@ -972,7 +993,7 @@ export async function placeOrder(
     }
     const attemptId = crypto.randomUUID()
     reservationExpiresAt = plusSeconds(input.now, RESERVATION_TTL_SECONDS)
-    await database
+    const attemptInsert = database
       .prepare(
         `INSERT INTO checkout_attempts (
            id, cart_id, command_key, state, reservation_expires_at, reservation_lines_json,
@@ -989,7 +1010,39 @@ export async function placeOrder(
         hash,
         input.now
       )
-      .run()
+    if (creditTerms && customerId) {
+      const amount = storedQuoteLines.reduce((sum, line) => sum + line.grossCents, selected.grossCents)
+      if (!Number.isSafeInteger(amount) || amount < 1) throw new CartError('invalid_input', 'Invalid credit amount')
+      try {
+        await database.batch([
+          attemptInsert,
+          database
+            .prepare(
+              `INSERT INTO b2b_credit_reservations
+             (attempt_id,company_id,customer_id,amount_cents,payment_days,terms_version,created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7)`
+            )
+            .bind(
+              attemptId,
+              creditTerms.companyId,
+              customerId,
+              amount,
+              creditTerms.paymentDays,
+              creditTerms.version,
+              input.now
+            )
+        ])
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('b2b_credit_limit_exceeded'))
+          return { outcome: 'credit_limit_exceeded' }
+        if (error instanceof Error && error.message.includes('b2b_credit_unavailable'))
+          return { outcome: 'credit_unavailable' }
+        throw error
+      }
+    } else {
+      await attemptInsert.run()
+    }
+
     attempt = {
       id: attemptId,
       correlation_id: input.correlationId,
@@ -1118,6 +1171,13 @@ export async function placeOrder(
     shippingGrossCents: selected.grossCents,
     shippingMethodCode: selected.methodCode,
     status: 'awaiting_payment',
+    ...(creditTerms
+      ? {
+          paymentMethod: 'transferencia',
+          paymentDays: creditTerms.paymentDays,
+          paymentDueAt: plusSeconds(input.now, creditTerms.paymentDays * 86400)
+        }
+      : {}),
     totalGrossCents: totalGross,
     totalNetCents: totalNet,
     totalTaxCents: totalTax
@@ -1143,6 +1203,15 @@ export async function placeOrder(
     customerId && approvedCompany && !salesQuote
       ? inlineEffectivePricingSql(effectiveB2BVersionIdExpression('variant', '?11'), input.now)
       : null
+  const creditEligibility = `EXISTS(SELECT 1 FROM b2b_credit_reservations r
+    JOIN companies company ON company.id=r.company_id AND company.customer_id=r.customer_id
+    JOIN customers customer ON customer.id=company.customer_id
+    JOIN b2b_credit_terms terms ON terms.company_id=company.id
+    WHERE r.attempt_id=?1 AND company.status='approved' AND customer.status='active'
+      AND terms.blocked=0 AND terms.payment_days=r.payment_days AND terms.version=r.terms_version
+      AND terms.credit_limit_cents >= COALESCE((SELECT SUM(open.outstanding_cents)
+        FROM b2b_credit_open_amounts open WHERE open.company_id=r.company_id AND
+        (open.order_id IS NOT NULL OR (open.state IN('reserving','reserved') AND open.reservation_expires_at>?2))),0))`
   try {
     await database.batch([
       database
@@ -1244,7 +1313,17 @@ export async function placeOrder(
         .bind(
           orderEventId,
           orderId,
-          JSON.stringify({ attemptId: attempt.id, reservationId }),
+          JSON.stringify({
+            attemptId: attempt.id,
+            reservationId,
+            ...(creditTerms
+              ? {
+                  paymentMethod: 'transferencia',
+                  paymentDays: creditTerms.paymentDays,
+                  paymentDueAt: plusSeconds(input.now, creditTerms.paymentDays * 86400)
+                }
+              : {})
+          }),
           input.correlationId,
           input.now
         ),
@@ -1271,6 +1350,20 @@ export async function placeOrder(
            ) VALUES (?1, ?2, 'checkout', ?3, 200, ?4, ?5, ?6)`
         )
         .bind(input.cartId, input.idempotencyKey, hash, JSON.stringify(storedResult), input.correlationId, input.now),
+      ...(input.paymentMethod === 'credit'
+        ? [
+            database
+              .prepare(
+                `INSERT INTO carts(id,token_hash,status,version,expires_at,correlation_id,created_at,updated_at)
+            SELECT 'credit-guard:'||?1,printf('%.0f',0),'guard-impossible',1,'2026-01-01T00:00:00Z',?1,?2,?2
+            WHERE NOT ${creditEligibility} OR NOT EXISTS(
+              SELECT 1 FROM orders purchase JOIN b2b_credit_reservations credit ON credit.attempt_id=purchase.attempt_id
+              WHERE purchase.id=?3 AND credit.customer_id=purchase.customer_id AND credit.amount_cents=purchase.total_gross_cents
+            )`
+              )
+              .bind(attempt.id, input.now, orderId)
+          ]
+        : []),
       ...(input.salesQuote
         ? await salesQuoteCompletionStatements(
             database,
@@ -1320,6 +1413,16 @@ export async function placeOrder(
         )
     ])
   } catch (error) {
+    if (input.paymentMethod === 'credit' && isD1CheckConstraintFailure(error)) {
+      const stillValid = await database
+        .prepare(`SELECT ${creditEligibility} AS valid`)
+        .bind(attempt.id, input.now)
+        .first<{ valid: number }>()
+      if (!stillValid?.valid) {
+        await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
+        return { outcome: 'credit_unavailable' }
+      }
+    }
     if (input.salesQuote) {
       try {
         await readSalesQuoteCheckoutAuthority(

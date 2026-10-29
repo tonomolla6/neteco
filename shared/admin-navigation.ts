@@ -72,11 +72,23 @@ const sections: Array<{
         icon: 'i-lucide-truck',
         permission: 'administration.manage'
       },
+      {
+        to: '/admin/rutas',
+        label: 'Rutas de reparto',
+        icon: 'i-lucide-map-pin',
+        permission: 'administration.manage'
+      },
       { to: '/admin/soporte', label: 'Soporte', icon: 'i-lucide-life-buoy', permission: 'support.manage' },
       {
         to: '/admin/soporte-chat',
         label: 'Chat de soporte',
         icon: 'i-lucide-messages-square',
+        permission: 'support.manage'
+      },
+      {
+        to: '/admin/soporte-rca',
+        label: 'Análisis Causa Raíz (RCA)',
+        icon: 'i-lucide-file-search',
         permission: 'support.manage'
       },
       {
@@ -138,6 +150,24 @@ const sections: Array<{
         permission: 'administration.manage'
       },
       {
+        to: '/admin/automatizaciones',
+        label: 'Automatizaciones',
+        icon: 'i-lucide-workflow',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/audiencias',
+        label: 'Segmentos y Audiencias',
+        icon: 'i-lucide-users',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/experimentos',
+        label: 'A/B Testing & Experimentos',
+        icon: 'i-lucide-flask-conical',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/newsletter',
         label: 'Newsletter editorial',
         icon: 'i-lucide-mails',
@@ -183,6 +213,12 @@ const sections: Array<{
       {
         to: '/admin/operaciones',
         label: 'Operaciones y colas',
+        icon: 'i-lucide-activity',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/observabilidad',
+        label: 'Observabilidad y SRE',
         icon: 'i-lucide-activity',
         permission: 'administration.manage'
       },

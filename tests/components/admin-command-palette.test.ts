@@ -132,8 +132,9 @@ describe('authorized administrative command palette', () => {
     await input.trigger('keydown', { key: 'ArrowDown' })
     const wrapped = input.attributes('aria-activedescendant')
     expect(wrapper.get(`[id="${wrapped}"]`).text()).toContain('Ficha de cliente')
-    // Operación lists five links for support.manage before Catálogo (Ficha de cliente, Soporte,
-    // Chat de soporte, Gestores de cuenta B2B, Reseñas y preguntas), so Productos is five steps after the wrap.
+    // Operación lists six links for support.manage before Catálogo (Ficha de cliente, Soporte,
+    // Chat de soporte, Soporte RCA, Gestores de cuenta B2B, Reseñas y preguntas), so Productos is six steps after the wrap.
+    await input.trigger('keydown', { key: 'ArrowDown' })
     await input.trigger('keydown', { key: 'ArrowDown' })
     await input.trigger('keydown', { key: 'ArrowDown' })
     await input.trigger('keydown', { key: 'ArrowDown' })

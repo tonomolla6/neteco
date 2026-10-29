@@ -28,6 +28,7 @@ const links = [
         { to: '/cuenta/recuperar-carrito', label: 'Recuperación de carrito', icon: 'i-lucide-shopping-cart' },
         { to: '/cuenta/aportaciones-productos', label: 'Reseñas y preguntas', icon: 'i-lucide-message-square' },
         { to: '/cuenta/presupuestos', label: 'Mis presupuestos', icon: 'i-lucide-file-check-2' },
+        { to: '/cuenta/metodos-de-pago', label: 'Métodos de pago', icon: 'i-lucide-credit-card' },
         { to: '/cuenta/soporte', label: 'Mis consultas', icon: 'i-lucide-life-buoy' }
       ]
     : [])

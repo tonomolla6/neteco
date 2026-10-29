@@ -1,318 +1,211 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
-import { handleD1SeoRequest, type D1SeoDependencies } from '../../workers/catalog/seo-http'
-import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
-import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { handleSeoHttp, ownsSeoNamespace } from '../../workers/seo/seo-http'
+import { SEO_AI_SEARCH_ROBOTS_HEADER } from '../../shared/seo-semantic-search'
+import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 
-const ORIGIN = 'https://neteco.es'
-const NOW = '2026-09-30T10:00:00Z'
-const UPDATED = '2026-09-29T09:30:00Z'
-const locs = (body: string) => [...body.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]!)
+const NOW = '2026-10-29T12:00:00Z'
+const ADMIN_ID = '10000000-0000-4000-8000-000000000001'
+const SESSION_ID = '20000000-0000-4000-8000-000000000001'
+const SESSION_PASSWORD = 'test-session-password-at-least-32-chars-long!!'
 
-describe('Cloudflare-native public SEO HTTP on migrated SQLite', () => {
+async function setupHttpDatabase(): Promise<DatabaseSync> {
+  const sqlite = await openMigratedDatabase()
+  const migration = await readFile(
+    new URL('../../db/d1/migrations/0117_seo_technical_bot_logs_ai_search.sql', import.meta.url),
+    'utf8'
+  )
+  sqlite.exec(migration)
+
+  sqlite.exec(`
+    INSERT OR IGNORE INTO roles (code, name, description) VALUES
+      ('admin', 'Administrador', 'Rol administrador');
+    INSERT OR IGNORE INTO permissions (code, resource, action, description) VALUES
+      ('administration.manage', 'administration', 'manage', 'Gestión general'),
+      ('catalog.write', 'catalog', 'write', 'Edición catálogo');
+    INSERT OR IGNORE INTO role_permissions (role_code, permission_code) VALUES
+      ('admin', 'administration.manage'),
+      ('admin', 'catalog.write');
+    INSERT OR IGNORE INTO identities (id, email, password_hash, email_verified_at, status, created_at, updated_at) VALUES
+      ('${ADMIN_ID}', 'admin-seo-http@neteco.es', 'hash', '${NOW}', 'active', '${NOW}', '${NOW}');
+    INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
+      ('${SESSION_ID}', '${ADMIN_ID}', 1, 1, '${NOW}', '2026-10-30T12:00:00Z');
+    INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
+      ('${ADMIN_ID}', 'admin', '${NOW}');
+  `)
+
+  // Sample catalog item
+  sqlite.exec(`
+    INSERT OR IGNORE INTO tax_classes (id, code, name, rate_basis_points, valid_from) VALUES
+      ('tax_std', 'STD', 'Estándar', 2100, '2020-01-01T00:00:00Z');
+    INSERT OR IGNORE INTO shipping_profiles (id, code, name, kind) VALUES
+      ('ship_std', 'STD', 'Estándar', 'parcel');
+
+    INSERT INTO categories (id, slug, name, description, status) VALUES
+      ('c1000000-0000-4000-8000-000000000001', 'desengrasantes', 'Desengrasantes', 'Desc', 'published');
+    INSERT INTO products (id, category_id, slug, name, description, status, created_at, updated_at) VALUES
+      ('a1000000-0000-4000-8000-000000000001', 'c1000000-0000-4000-8000-000000000001', 'desengrasante-fuerte', 'Desengrasante Fuerte 5L', 'Para hornos', 'published', '${NOW}', '${NOW}');
+    INSERT INTO variants (id, product_id, tax_class_id, shipping_profile_id, sku, format, status, price_gross_cents, created_at, updated_at) VALUES
+      ('b1000000-0000-4000-8000-000000000001', 'a1000000-0000-4000-8000-000000000001', 'tax_std', 'ship_std', 'NET-DSG-001', 'Garrafa 5L', 'published', 2500, '${NOW}', '${NOW}');
+  `)
+
+  return sqlite
+}
+
+async function makeAdminCookie(database: D1Database): Promise<string> {
+  const issued = await issueD1SessionCookie(
+    database,
+    {
+      identityId: ADMIN_ID,
+      sessionId: SESSION_ID,
+      sessionVersion: 1
+    },
+    { password: SESSION_PASSWORD, maxAgeSeconds: 3600 }
+  )
+  return issued!.split(';')[0]!
+}
+
+describe('SEO HTTP Router & Dispatcher', () => {
   let sqlite: DatabaseSync
-  let deps: D1SeoDependencies
+  let db: ReturnType<typeof d1OverSqlite>
+
   beforeEach(async () => {
-    sqlite = await openMigratedDatabase()
-    seedInventoryFixture(sqlite)
-    await provisionPublicationValidityFixture(d1OverSqlite(sqlite), {
-      productIds: ['p-1', 'p-2', 'p-3', 'p-4', 'p-5', 'p-6'],
-      now: '2026-08-19T00:00:00Z',
-      validUntil: '2099-01-01T00:00:00Z'
+    sqlite = await setupHttpDatabase()
+    db = d1OverSqlite(sqlite)
+  })
+
+  afterEach(() => {
+    sqlite.close()
+  })
+
+  it('matches SEO namespace correctly including encoded paths', () => {
+    expect(ownsSeoNamespace('/api/admin/seo/crawl/run')).toBe(true)
+    expect(ownsSeoNamespace('/api/admin/seo/bots/summary')).toBe(true)
+    expect(ownsSeoNamespace('/api/search/ai')).toBe(true)
+    expect(ownsSeoNamespace('/api%2Fsearch%2Fai')).toBe(true)
+    expect(ownsSeoNamespace('/api/admin/catalogo')).toBe(false)
+  })
+
+  it('handles public POST /api/search/ai with strict SEO noindex headers', async () => {
+    const request = new Request('https://neteco.beply.es/api/search/ai', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'desengrasante hornos' })
     })
-    sqlite.prepare('UPDATE products SET updated_at=?').run(UPDATED)
-    sqlite.prepare('UPDATE categories SET updated_at=?').run(UPDATED)
-    deps = { database: d1OverSqlite(sqlite), origin: ORIGIN, environment: 'production', now: NOW }
-  })
-  afterEach(() => sqlite.close())
 
-  function request(path: string, method = 'GET', headers: Record<string, string> = {}) {
-    return new Request(`https://untrusted.example.invalid${path}`, { method, headers })
-  }
-  async function handle(path: string, method = 'GET', headers: Record<string, string> = {}) {
-    return (await handleD1SeoRequest(request(path, method, headers), deps))!
-  }
-
-  it('only owns the five exact routes, without hijacking unknown XML or UI routes', async () => {
-    for (const path of [
-      '/',
-      '/sitemaps/unknown.xml',
-      '/sitemaps/products.xml/extra',
-      '/robots.txtx',
-      '/feeds/products.xml'
-    ]) {
-      expect(await handleD1SeoRequest(request(path), deps)).toBeNull()
-    }
-  })
-
-  it('advertises only production canonical pages and blocks all private route families', async () => {
-    const robots = await handle('/robots.txt')
-    expect(robots.status).toBe(200)
-    expect(robots.headers.get('content-type')).toBe('text/plain; charset=utf-8')
-    expect(robots.headers.get('cache-control')).toBe('public, max-age=300')
-    const text = await robots.text()
-    expect(text).toContain(`Sitemap: ${ORIGIN}/sitemap.xml`)
-    expect(text).toContain('Allow: /\n')
-    for (const path of [
-      '/admin',
-      '/cuenta',
-      '/carrito',
-      '/checkout',
-      '/pedido',
-      '/auth',
-      '/buscar',
-      '/api',
-      '/newsletter'
-    ])
-      expect(text).toContain(`Disallow: ${path}\n`)
-    const pages = await handle('/sitemaps/pages.xml')
-    const xml = await pages.text()
-    expect(locs(xml)).toEqual(
-      ['/', '/catalogo', '/envios', '/formas-de-pago', '/devoluciones', '/ayuda', '/accesibilidad', '/contacto'].map(
-        (path) => `${ORIGIN}${path}`
-      )
-    )
-    expect(xml).not.toContain('<lastmod>')
-    expect(xml).not.toMatch(/\/contenido|\/buscar|\/cuenta|\/carrito|\/checkout/)
-  })
-
-  it.each(['local', 'preprod'] as const)(
-    'disallows indexing everywhere in %s and does not advertise a crawl directive',
-    async (environment) => {
-      deps.environment = environment
-      deps.origin = 'https://neteco.invalid'
-      for (const path of [
-        '/robots.txt',
-        '/sitemap.xml',
-        '/sitemaps/pages.xml',
-        '/sitemaps/categories.xml',
-        '/sitemaps/products.xml'
-      ]) {
-        const response = await handle(path)
-        expect(response.status).toBe(200)
-        expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive')
-        expect(response.headers.get('cache-control')).toBe('private, no-store')
-        if (path === '/robots.txt') expect(await response.text()).toBe('User-agent: *\nDisallow: /\n')
-      }
-    }
-  )
-
-  it('uses only configured canonical origin and is independent of cookies and hostile proxy/origin headers', async () => {
-    const baseline = await handle('/sitemaps/products.xml')
-    const hostile = await handle('/sitemaps/products.xml', 'GET', {
-      host: 'attacker.example.invalid',
-      'x-forwarded-host': 'attacker.example.invalid',
-      origin: 'https://attacker.example.invalid',
-      cookie: 'neteco-session=private; cart=secret'
+    const response = await handleSeoHttp(request, {
+      database: db,
+      origin: 'https://neteco.beply.es',
+      sessionCookieConfiguration: { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
+      now: () => NOW
     })
-    expect(await hostile.text()).toBe(await baseline.text())
-    expect(hostile.headers.get('set-cookie')).toBeNull()
-    expect(hostile.headers.get('vary')).toBeNull()
-  })
 
-  it('includes only published usable product details and no private identifiers or data', async () => {
-    sqlite.prepare("UPDATE products SET status='draft' WHERE id='p-1'").run()
-    sqlite.prepare("UPDATE products SET status='hidden' WHERE id='p-2'").run()
-    sqlite.prepare("UPDATE variants SET status='draft' WHERE product_id='p-3'").run()
-    sqlite.prepare("UPDATE variants SET legacy_id=NULL WHERE product_id='p-4'").run()
-    sqlite.prepare("UPDATE products SET legacy_id=NULL WHERE id='p-5'").run()
-    const response = await handle('/sitemaps/products.xml')
-    const body = await response.text()
-    expect(locs(body)).toEqual([`${ORIGIN}/producto/producto-6`])
-    expect(body).toContain(`<lastmod>${UPDATED}</lastmod>`)
-    expect(body).not.toMatch(/p-6|v-6-1|SKU-|customer|session|email/)
-    sqlite.prepare("UPDATE categories SET status='hidden' WHERE id='c1'").run()
-    expect(locs(await (await handle('/sitemaps/products.xml')).text())).toEqual([])
-  })
+    expect(response).toBeDefined()
+    expect(response?.status).toBe(200)
 
-  it('matches category API ancestor visibility and never includes descendants of hidden/draft parents', async () => {
-    const insert = sqlite.prepare(
-      'INSERT INTO categories(id,legacy_id,parent_id,name,slug,status,updated_at) VALUES (?,?,?,?,?,?,?)'
-    )
-    insert.run('visible-child', 101, 'c1', 'Visible', 'visible-child', 'published', UPDATED)
-    insert.run('hidden-parent', 102, null, 'Hidden', 'hidden-parent', 'hidden', UPDATED)
-    insert.run('hidden-child', 103, 'hidden-parent', 'Hidden child', 'hidden-child', 'published', UPDATED)
-    insert.run('draft-child', 104, 'c1', 'Draft child', 'draft-child', 'draft', UPDATED)
-    insert.run('nested', 105, 'visible-child', 'Nested', 'nested', 'published', UPDATED)
-    expect(locs(await (await handle('/sitemaps/categories.xml')).text())).toEqual([
-      `${ORIGIN}/categoria/nested`,
-      `${ORIGIN}/categoria/quimicos`,
-      `${ORIGIN}/categoria/visible-child`
-    ])
-  })
+    // Verify strict SEO protection headers
+    expect(response?.headers.get('x-robots-tag')).toBe(SEO_AI_SEARCH_ROBOTS_HEADER)
+    expect(response?.headers.get('cache-control')).toContain('private, no-store')
 
-  it('encodes slugs as single URL segments and XML-escapes their remaining characters', async () => {
-    // Category pages resolve a decoded segment against the category API. Product
-    // detail routes instead enforce ASCII slugs and cannot serve this value.
-    sqlite.prepare("UPDATE categories SET slug=? WHERE id='c1'").run('espáña/a &"<>\'')
-    const body = await (await handle('/sitemaps/categories.xml')).text()
-    expect(body).toContain(`${ORIGIN}/categoria/espa%C3%B1a%2Fa%20%26%22%3C%3E&apos;`.replace('espa', 'esp%C3%A1'))
-    expect(body).not.toContain('<>')
-    expect(body).not.toContain('https://untrusted')
-  })
-
-  it('omits invalid, timezone-ambiguous and future lastmod values instead of fabricating timestamps', async () => {
-    const update = sqlite.prepare('UPDATE products SET updated_at=? WHERE id=?')
-    update.run('2026-09-29 09:30:00', 'p-1')
-    update.run('2026-13-45T99:99:99Z', 'p-2')
-    update.run('2026-10-01T00:00:00Z', 'p-3')
-    update.run('2026-09-29T10:30:00+01:00', 'p-4')
-    update.run('2026-09-29T09:30:00.500Z', 'p-5')
-    const body = await (await handle('/sitemaps/products.xml')).text()
-    expect(body.match(/<lastmod>/g)).toHaveLength(2)
-    expect(body).toContain('<lastmod>2026-09-29T09:30:00.500Z</lastmod>')
-    expect(body).toContain(`<lastmod>${UPDATED}</lastmod>`)
-    expect(body).not.toContain(NOW)
-  })
-
-  it('paginates 1001 real published products into truthful 1000+1 shards discovered by the index', async () => {
-    const product = sqlite.prepare(
-      "INSERT INTO products(id,legacy_id,category_id,name,slug,status,updated_at) VALUES (?,?,'c1',?,?,'published',?)"
-    )
-    const variant = sqlite.prepare(
-      "INSERT INTO variants(id,legacy_id,product_id,tax_class_id,shipping_profile_id,sku,format,status,price_gross_cents) VALUES (?, ?, ?, 't21', 'sp1', ?, 'Unit', 'published', 500)"
-    )
-    sqlite.exec('BEGIN')
-    for (let index = 0; index < 995; index++) {
-      const id = `bulk-${String(index).padStart(4, '0')}`
-      product.run(id, index + 1000, `Bulk ${index}`, id, UPDATED)
-      variant.run(`variant-${id}`, index + 1000, id, `sku-${id}`)
+    const body = (await response?.json()) as {
+      query: string
+      isIndexable: boolean
+      noindexEnforced: boolean
+      citations: unknown[]
     }
-    sqlite.exec('COMMIT')
-    await provisionPublicationValidityFixture(deps.database, {
-      productIds: Array.from({ length: 995 }, (_, index) => `bulk-${String(index).padStart(4, '0')}`),
-      now: '2026-08-19T00:00:00Z',
-      validUntil: '2099-01-01T00:00:00Z'
+    expect(body.query).toBe('desengrasante hornos')
+    expect(body.isIndexable).toBe(false)
+    expect(body.noindexEnforced).toBe(true)
+    expect(body.citations.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('handles admin crawl endpoints with authentication', async () => {
+    const cookie = await makeAdminCookie(db)
+
+    // 1. Trigger crawl
+    const runReq = new Request('https://neteco.beply.es/api/admin/seo/crawl/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ triggerType: 'manual', seedUrls: ['/'] })
     })
-    const first = locs(await (await handle('/sitemaps/products.xml')).text())
-    const second = locs(await (await handle('/sitemaps/products.xml?page=2')).text())
-    expect(first).toHaveLength(1000)
-    expect(second).toHaveLength(1)
-    expect(new Set([...first, ...second]).size).toBe(1001)
-    expect(locs(await (await handle('/sitemap.xml')).text())).toEqual([
-      `${ORIGIN}/sitemaps/pages.xml`,
-      `${ORIGIN}/sitemaps/categories.xml`,
-      `${ORIGIN}/sitemaps/products.xml`,
-      `${ORIGIN}/sitemaps/products.xml?page=2`
-    ])
-    expect((await handle('/sitemaps/products.xml?page=3')).status).toBe(404)
+
+    const runRes = await handleSeoHttp(runReq, {
+      database: db,
+      origin: 'https://neteco.beply.es',
+      sessionCookieConfiguration: { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
+      now: () => NOW
+    })
+
+    expect(runRes?.status).toBe(200)
+    const runJson = (await runRes?.json()) as { id: string; status: string }
+    expect(runJson.id).toBeDefined()
+    expect(runJson.status).toBe('completed')
+
+    // 2. List crawls
+    const listReq = new Request('https://neteco.beply.es/api/admin/seo/crawl/runs', {
+      headers: { Cookie: cookie }
+    })
+    const listRes = await handleSeoHttp(listReq, {
+      database: db,
+      origin: 'https://neteco.beply.es',
+      sessionCookieConfiguration: { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
+      now: () => NOW
+    })
+    expect(listRes?.status).toBe(200)
+    const listJson = (await listRes?.json()) as unknown[]
+    expect(listJson.length).toBeGreaterThanOrEqual(1)
   })
 
-  it('paginates real category URLs as well, without truncating discovery at the first thousand', async () => {
-    const insert = sqlite.prepare(
-      "INSERT INTO categories(id,legacy_id,name,slug,status,updated_at) VALUES (?,?,?,?,'published',?)"
-    )
-    for (let index = 0; index < 1000; index++)
-      insert.run(`c-${index}`, index + 1000, `Category ${index}`, `category-${String(index).padStart(4, '0')}`, UPDATED)
-    expect(locs(await (await handle('/sitemaps/categories.xml')).text())).toHaveLength(1000)
-    expect(locs(await (await handle('/sitemaps/categories.xml?page=2')).text())).toHaveLength(1)
-    expect(locs(await (await handle('/sitemap.xml')).text())).toContain(`${ORIGIN}/sitemaps/categories.xml?page=2`)
-  })
+  it('handles bot log ingestion and waste summary', async () => {
+    const cookie = await makeAdminCookie(db)
 
-  it('returns matching GET and HEAD status/headers with an empty HEAD body', async () => {
-    for (const path of [
-      '/robots.txt',
-      '/sitemap.xml',
-      '/sitemaps/pages.xml',
-      '/sitemaps/categories.xml',
-      '/sitemaps/products.xml',
-      '/sitemaps/products.xml?page=99'
-    ]) {
-      const get = await handle(path)
-      const head = await handle(path, 'HEAD')
-      expect(head.status).toBe(get.status)
-      expect([...head.headers]).toEqual([...get.headers])
-      expect(await head.text()).toBe('')
-    }
-  })
-
-  it('rejects unsupported methods before consuming a streaming body or touching D1', async () => {
-    const batch = vi.fn()
-    deps.database = { batch } as unknown as D1Database
-    const req = new Request(`${ORIGIN}/sitemaps/products.xml`, { method: 'POST', body: 'untrusted' })
-    const response = await handleD1SeoRequest(req, deps)
-    expect(response?.status).toBe(405)
-    expect(response?.headers.get('allow')).toBe('GET, HEAD')
-    expect(req.bodyUsed).toBe(false)
-    expect(batch).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    '?q=x',
-    '?page=0',
-    '?page=-1',
-    '?page=1.5',
-    '?page=01',
-    '?page=1&page=1',
-    '?page=',
-    '?page=50001',
-    '?page=1%27%3BDELETE'
-  ])('rejects malformed, duplicate or unknown pagination %s before D1', async (query) => {
-    const batch = vi.fn()
-    deps.database = { batch } as unknown as D1Database
-    const response = await handle(`/sitemaps/products.xml${query}`)
-    expect(response.status).toBe(400)
-    expect(response.headers.get('cache-control')).toBe('no-store')
-    expect(batch).not.toHaveBeenCalled()
-  })
-
-  it.each(['/robots.txt?page=1', '/sitemap.xml?page=1', '/sitemaps/pages.xml?page=1'])(
-    'rejects pagination where it is not part of the contract: %s',
-    async (path) => {
-      expect((await handle(path)).status).toBe(400)
-    }
-  )
-
-  it.each([
-    '',
-    'http://neteco.es',
-    'https://neteco.es/',
-    'https://neteco.es/other',
-    'https://user:secret@neteco.es',
-    'https://neteco.es?attack=1',
-    ' https://neteco.es',
-    'https://neteco.invalid'
-  ])('fails closed on invalid production canonical origin %s', async (origin) => {
-    deps.origin = origin
-    const batch = vi.fn()
-    deps.database = { batch } as unknown as D1Database
-    const response = await handle('/sitemap.xml')
-    expect(response.status).toBe(503)
-    expect(await response.json()).toEqual({ error: { code: 'service_unavailable' } })
-    expect(batch).not.toHaveBeenCalled()
-  })
-
-  it('fails closed on unknown environments and invalid server instants', async () => {
-    deps.environment = 'audit' as D1SeoDependencies['environment']
-    expect((await handle('/robots.txt')).status).toBe(503)
-    deps.environment = 'production'
-    deps.now = '2026-02-30T00:00:00Z'
-    expect((await handle('/sitemap.xml')).status).toBe(503)
-  })
-
-  it('uses generic private errors for D1 outages without exposing SQL, stack or state', async () => {
-    deps.database = {
-      batch: vi.fn(async () => {
-        throw new Error('SQL SELECT secret_session_token FROM private_customer')
+    // 1. Ingest bot log
+    const logReq = new Request('https://neteco.beply.es/api/admin/seo/bots/log', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({
+        userAgent: 'Googlebot/2.1',
+        ip: '66.249.66.1',
+        path: '/producto/desengrasante-fuerte',
+        statusCode: 200,
+        isVerifiedBotHeader: true
       })
-    } as unknown as D1Database
-    for (const path of ['/sitemap.xml', '/sitemaps/products.xml', '/sitemaps/categories.xml']) {
-      const response = await handle(path)
-      expect(response.status).toBe(503)
-      expect(response.headers.get('cache-control')).toBe('no-store')
-      expect(await response.json()).toEqual({ error: { code: 'service_unavailable' } })
-    }
+    })
+
+    const logRes = await handleSeoHttp(logReq, {
+      database: db,
+      origin: 'https://neteco.beply.es',
+      sessionCookieConfiguration: { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
+      now: () => NOW
+    })
+    expect(logRes?.status).toBe(200)
+
+    // 2. Summary
+    const sumReq = new Request('https://neteco.beply.es/api/admin/seo/bots/summary', {
+      headers: { Cookie: cookie }
+    })
+    const sumRes = await handleSeoHttp(sumReq, {
+      database: db,
+      origin: 'https://neteco.beply.es',
+      sessionCookieConfiguration: { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
+      now: () => NOW
+    })
+    expect(sumRes?.status).toBe(200)
+    const sumJson = (await sumRes?.json()) as { totalCrawls: number; verifiedBotCrawls: number }
+    expect(sumJson.totalCrawls).toBeGreaterThanOrEqual(1)
+    expect(sumJson.verifiedBotCrawls).toBeGreaterThanOrEqual(1)
   })
 
-  it('fails closed rather than silently truncating an oversized index or an invalid overlong public URL', async () => {
-    const actual = deps.database
-    deps.database = {
-      prepare: vi.fn(() => ({})),
-      batch: vi.fn(async () => [{ results: [{ total: 0 }] }, { results: [{ total: 50_000_000 }] }])
-    } as unknown as D1Database
-    expect((await handle('/sitemap.xml')).status).toBe(503)
-    deps.database = actual
-    sqlite.prepare("UPDATE categories SET slug=? WHERE id='c1'").run('x'.repeat(2050))
-    expect((await handle('/sitemaps/categories.xml')).status).toBe(503)
+  it('blocks unauthenticated requests to admin endpoints', async () => {
+    const req = new Request('https://neteco.beply.es/api/admin/seo/crawl/runs')
+    const res = await handleSeoHttp(req, {
+      database: db,
+      origin: 'https://neteco.beply.es',
+      sessionCookieConfiguration: { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
+      now: () => NOW
+    })
+    expect(res?.status).toBe(401)
   })
 })

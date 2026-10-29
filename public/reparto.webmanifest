@@ -1,0 +1,13 @@
+{
+  "name": "Neteco Reparto",
+  "short_name": "Reparto",
+  "description": "Manifiesto, navegacion, incidencias y prueba de entrega del reparto propio.",
+  "start_url": "/reparto",
+  "scope": "/reparto",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f172a",
+  "lang": "es",
+  "icons": [{ "src": "/reparto-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -191,7 +191,9 @@ function safeCheckoutFailure(response: Response, result: unknown): Response {
     'version_conflict',
     'not_active',
     'empty_cart',
-    'out_of_stock'
+    'out_of_stock',
+    'credit_unavailable',
+    'credit_limit_exceeded'
   ]
   const safe = typeof code === 'string' && allowed.includes(code) ? code : 'internal'
   return json({ error: { code: safe } }, response.status >= 400 ? response.status : 500)
@@ -259,7 +261,7 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
   // Newsletter confirmation delivery is not wired in this lane yet. Never silently
   // accept and discard an opt-in supplied at checkout.
   if (body.marketingConsent) return json({ error: { code: 'marketing_unavailable' } }, 422)
-  if (body.paymentMethod !== 'tarjeta' && body.paymentMethod !== 'bizum')
+  if (body.paymentMethod !== 'tarjeta' && body.paymentMethod !== 'bizum' && body.paymentMethod !== 'transferencia')
     return json({ error: { code: 'method_unavailable' } }, 422)
   const customer = record(body.customer)
   const shippingAddress = address(body.shippingAddress)
@@ -280,6 +282,8 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
   if (hasSession && !deps.authenticationEnabled) return json({ error: { code: 'authentication_unavailable' } }, 503)
   const ownerSession = hasSession ? await deps.session(request) : null
   if (hasSession && !ownerSession) return unauthorized()
+  if (body.paymentMethod === 'transferencia' && !ownerSession)
+    return json({ error: { code: 'method_unavailable' } }, 422)
   const now = deps.now?.() ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   // Authentication comes before the DO's durable replay lookup.
   await getCart(deps.database, { ...identity, now })
@@ -293,7 +297,7 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
     .first<{ ready: number }>()
   // An already-committed order must remain recoverable if the first HTTP
   // response was lost and the payment integration subsequently goes offline.
-  if (!completed) {
+  if (!completed && body.paymentMethod !== 'transferencia') {
     const payment = deps.paymentConfiguration()
     if (!payment) return json({ error: { code: 'payments_unavailable' } }, 503)
     if (body.paymentMethod === 'bizum' && !payment.bizumEnabled)
@@ -326,7 +330,8 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
       consentPrivacy: true,
       correlationId: 'storefront-checkout',
       now,
-      ownerSession
+      ownerSession,
+      ...(body.paymentMethod === 'transferencia' ? { paymentMethod: 'credit' } : {})
     }
   })
   const result: unknown = await response.json().catch(() => null)
@@ -542,6 +547,12 @@ async function readOrder(request: Request, deps: StorefrontCheckoutDeps, orderId
   }
   const fulfillment = fulfillmentActionSchema.nullable().safeParse(confirmed.fulfillmentStatus)
   if (!fulfillment.success) return json({ error: { code: 'internal' } }, 500)
+  const creditContract = await deps.database
+    .prepare(
+      "SELECT json_extract(payload_json,'$.paymentMethod') AS method FROM order_events WHERE order_id=?1 AND event_type='order.created' LIMIT 1"
+    )
+    .bind(orderId)
+    .first<{ method: string | null }>()
   return json({
     source: 'cloudflare',
     ...(sealedGuest ? { accessMode: 'view_only' } : {}),
@@ -564,7 +575,14 @@ async function readOrder(request: Request, deps: StorefrontCheckoutDeps, orderId
     notes: shipping?.instructions ?? null,
     ...(typeof raw.purchaseOrderReference === 'string' ? { purchaseOrderReference: raw.purchaseOrderReference } : {}),
     shippingMethod,
-    paymentMethod: lastIntent?.method === 'card' ? 'tarjeta' : lastIntent?.method === 'bizum' ? 'bizum' : 'pendiente',
+    paymentMethod:
+      creditContract?.method === 'transferencia'
+        ? 'transferencia'
+        : lastIntent?.method === 'card'
+          ? 'tarjeta'
+          : lastIntent?.method === 'bizum'
+            ? 'bizum'
+            : 'pendiente',
     transferInstructions: null,
     subtotal: gross - shippingGross.gross,
     subtotalBaseGrossCents,

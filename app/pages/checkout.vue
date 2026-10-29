@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { z } from 'zod'
 import CartRecoverySection from '~/components/CartRecoverySection.vue'
 import { useCartStore } from '~/stores/cart'
 import CartReadFeedback from '~/components/CartReadFeedback.vue'
@@ -11,7 +12,7 @@ useSeoMeta({ title: 'Tramitar pedido' })
 const cart = useCartStore()
 const runtime = useRuntimeConfig()
 const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
-const { loggedIn, user } = useUserSession()
+const { ready, loggedIn, user, session } = useUserSession()
 const toast = useToast()
 const { track } = useAnalytics()
 const cartMutationNotice = 'Comprueba la adición en el carrito antes de continuar con el pedido.'
@@ -217,10 +218,72 @@ const eligibleShippingMethods = computed(() =>
 )
 const selectedShippingRate = computed(() => methodRate(shippingMethod.value))
 const cloudflareCheckout = computed(() => !!selectedShippingRate.value && isCloudflareRate(selectedShippingRate.value))
+const creditTermsSchema = z
+  .object({
+    terms: z
+      .object({
+        companyStatus: z.string(),
+        paymentDays: z.number().int().nullable(),
+        blocked: z.boolean(),
+        availableCents: z.number().int().safe().nonnegative()
+      })
+      .passthrough()
+      .nullable()
+  })
+  .strict()
+const creditTerms = ref<z.infer<typeof creditTermsSchema>['terms']>(null)
+let creditReadGeneration = 0
+const creditEligible = computed(
+  () =>
+    !!creditTerms.value &&
+    creditTerms.value.companyStatus === 'approved' &&
+    !creditTerms.value.blocked &&
+    [15, 30, 60].includes(creditTerms.value.paymentDays ?? 0) &&
+    creditTerms.value.availableCents > 0
+)
+watch(
+  () => [
+    runtime.public.serverRuntime,
+    ready?.value,
+    loggedIn.value,
+    user.value?.id,
+    user.value?.emailVerified,
+    session?.value?.sessionId,
+    session?.value?.sessionVersion
+  ],
+  async () => {
+    const generation = ++creditReadGeneration
+    creditTerms.value = null
+    if (
+      runtime.public.serverRuntime !== 'cloudflare' ||
+      ready?.value !== true ||
+      loggedIn.value !== true ||
+      user.value?.emailVerified !== true ||
+      !z.string().uuid().safeParse(user.value?.id).success ||
+      !z.string().uuid().safeParse(session?.value?.sessionId).success ||
+      !Number.isSafeInteger(session?.value?.sessionVersion) ||
+      Number(session?.value?.sessionVersion) < 1
+    )
+      return
+    try {
+      const parsed = creditTermsSchema.parse(
+        await $fetch('/api/account/b2b', { method: 'GET', retry: 0, cache: 'no-store' })
+      )
+      if (generation === creditReadGeneration) creditTerms.value = parsed.terms
+    } catch {
+      if (generation === creditReadGeneration) creditTerms.value = null
+    }
+  },
+  { immediate: true, flush: 'sync' }
+)
 watch(cloudflareCheckout, (enabled) => {
   if (!enabled) return
-  if (paymentMethod.value === 'transferencia') paymentMethod.value = 'tarjeta'
+  if (paymentMethod.value === 'transferencia' && !creditEligible.value) paymentMethod.value = 'tarjeta'
   marketingConsent.value = false
+})
+watch(creditEligible, (eligible) => {
+  if (!eligible && cloudflareCheckout.value && paymentMethod.value === 'transferencia' && !checkoutCommand.value)
+    paymentMethod.value = 'tarjeta'
 })
 const quotedShippingGross = computed(() => {
   const rate = selectedShippingRate.value
@@ -368,6 +431,7 @@ async function recoverSubmittedOrder() {
 onBeforeUnmount(() => {
   clearTimeout(rateTimer)
   shippingRateRequestId++
+  creditReadGeneration++
 })
 
 async function refreshShippingRates() {
@@ -689,20 +753,31 @@ async function submit() {
     // Other failures (including 401 after commit) must retain the original intent.
     const definitiveRejection =
       checkoutCommand.value?.cloudflare &&
-      ((status === 400 && code === 'invalid_input') ||
+      ((status === 409 && (code === 'credit_unavailable' || code === 'credit_limit_exceeded')) ||
+        (status === 400 && code === 'invalid_input') ||
         (status === 422 &&
           (code === 'method_unavailable' || code === 'marketing_unavailable' || code === 'payment_total_non_positive')))
-    if (definitiveRejection && !pendingOrder.value) checkoutCommand.value = null
+    if (definitiveRejection && !pendingOrder.value) {
+      checkoutCommand.value = null
+      resetUnsubmittedCheckoutKeys()
+    }
     if (quoteChanged && !pendingOrder.value) {
       checkoutCommand.value = null
       await refreshShippingRates()
     }
     errorMsg.value =
-      definitiveRejection && code === 'payment_total_non_positive' && !pendingOrder.value
-        ? 'El total a pagar debe ser mayor que cero. Quita o ajusta el cupón antes de continuar.'
-        : uncertainOrder.value
-          ? 'No hemos podido confirmar si se creó el pedido. Comprueba el pedido antes de volver a pagar; conservamos el intento original.'
-          : apiErrorMessage(error, 'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.')
+      definitiveRejection && code === 'credit_limit_exceeded' && !pendingOrder.value
+        ? 'El pedido supera tu límite de crédito disponible. Elige otro método de pago o contacta con nosotros.'
+        : definitiveRejection && code === 'credit_unavailable' && !pendingOrder.value
+          ? 'Tu crédito no está disponible. Elige otro método de pago o contacta con nosotros.'
+          : definitiveRejection && code === 'payment_total_non_positive' && !pendingOrder.value
+            ? 'El total a pagar debe ser mayor que cero. Quita o ajusta el cupón antes de continuar.'
+            : uncertainOrder.value
+              ? 'No hemos podido confirmar si se creó el pedido. Comprueba el pedido antes de volver a pagar; conservamos el intento original.'
+              : apiErrorMessage(
+                  error,
+                  'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.'
+                )
     scrollTo('checkout-alert', 'center')
   } finally {
     submitting.value = false
@@ -1019,7 +1094,9 @@ async function finish(order: { id: string; token?: string }) {
               </div>
 
               <label
-                v-if="runtime.public.bankTransferEnabled && !cloudflareCheckout"
+                v-if="
+                  (runtime.public.bankTransferEnabled && !cloudflareCheckout) || (cloudflareCheckout && creditEligible)
+                "
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
                 :class="
                   paymentMethod === 'transferencia'
@@ -1031,7 +1108,11 @@ async function finish(order: { id: string; token?: string }) {
                 <UIcon name="i-lucide-landmark" class="size-5 text-slate-500" />
                 <span>
                   <span class="block font-medium text-slate-800">Transferencia bancaria</span>
-                  <span class="block text-xs text-slate-500">El pedido se prepara al recibir el ingreso</span>
+                  <span class="block text-xs text-slate-500">{{
+                    cloudflareCheckout
+                      ? `Transferencia a ${creditTerms?.paymentDays} días`
+                      : 'El pedido se prepara al recibir el ingreso'
+                  }}</span>
                 </span>
               </label>
             </fieldset>
