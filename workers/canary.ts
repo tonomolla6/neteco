@@ -6,10 +6,12 @@ import { readD1B2BPricingAuthority } from './catalog/b2b-pricing'
 import { handleProductCompareHttp, ownsProductCompareNamespace } from './catalog/product-compare-http'
 import { handlePublicSearchHttp } from './catalog/search-http'
 import { handleSearchSynonymsHttp, ownsSearchSynonymsNamespace } from './catalog/search-synonyms-http'
+import { handleSearchGapHttp, ownsSearchGapNamespace } from './catalog/search-gap-programme-http'
 import { handleSearchMerchandisingHttp, ownsSearchMerchandisingNamespace } from './catalog/search-merchandising-http'
 import { handleSemanticSearchHttp, ownsSemanticSearchNamespace } from './catalog/semantic-search-http'
 import { handlePersonalizedRerankHttp, ownsPersonalizedRerankNamespace } from './catalog/personalized-rerank-http'
 import { handleCatalogRelationsHttp, ownsCatalogRelationsNamespace } from './catalog/catalog-relations-http'
+import { handleProductDetailExtrasHttp, ownsProductDetailExtrasNamespace } from './catalog/product-detail-extras-http'
 import { handleD1SeoRequest, ownsD1SeoNamespace } from './catalog/seo-http'
 import { handleEditorialImportHttp, ownsEditorialImportNamespace } from './catalog/editorial-import-http'
 import { handleNativeCatalogImportHttp, ownsNativeCatalogImportNamespace } from './catalog/native-import-http'
@@ -101,6 +103,7 @@ import {
 } from './catalog/admin-inventory-http'
 import { InventoryCommandError } from './catalog/admin-inventory'
 import { handleInventoryAlertsHttp, ownsInventoryAlertsNamespace } from './catalog/inventory-alerts-http'
+import { handleInventoryPlanningHttp, ownsInventoryPlanningNamespace } from './catalog/inventory-planning-http'
 import { sweepD1InventoryAlerts } from './catalog/inventory-alerts'
 import {
   handleInventoryCountImportHttp,
@@ -138,6 +141,7 @@ import { handleAiopsHttp, ownsAiopsNamespace } from './observability/aiops-http'
 import { handlePerformanceInsightsHttp, ownsPerformanceInsightsNamespace } from './performance/performance-http'
 import { handleSupportCopilotHttp, ownsSupportCopilotNamespace } from './support/copilot-http'
 import { handleSupportRcaHttp, ownsSupportRcaNamespace } from './support/rca-http'
+import { handleSupportInsightsAdminHttp, ownsSupportInsightsAdminNamespace } from './support/insights-http'
 import { handleAudiencesHttp, ownsAudiencesNamespace } from './marketing/audiences-http'
 import { handleBundlesHttp, ownsBundlesNamespace } from './marketing/bundles-http'
 import { handleEventsHttp, ownsEventsNamespace } from './marketing/events-http'
@@ -152,6 +156,7 @@ import {
   handleInventoryLotsCostingForecastHttp,
   ownsInventoryLotsCostingForecastNamespace
 } from './catalog/inventory-lots-costing-forecast-http'
+import { handleInventoryOpsHttp, ownsInventoryOpsNamespace } from './catalog/inventory-commitments-picking-purchasing-http'
 import {
   handleCustomerRecurringListsHttp,
   ownsCustomerRecurringListsNamespace
@@ -160,13 +165,18 @@ import { handleMarketCatalogHttp, ownsMarketCatalogNamespace } from './catalog/m
 import { handleProductMediaGuidesHttp, ownsProductMediaGuidesNamespace } from './catalog/product-media-guides-http'
 import { handleProductReviewsQaHttp, ownsProductReviewsQaNamespace } from './catalog/product-reviews-qa-http'
 import { handleProductRecallHttp } from './catalog/product-recall-http'
+import { handleCheckoutMarketHttp } from './catalog/market-checkout-http'
 import { handleB2BHttp } from './catalog/b2b-http'
 import { handleHighValueConsentHttp } from './communications/high-value-consent-http'
+import { handleHighValueMessagesHttp } from './communications/high-value-messages-http'
+import { handleWhatsAppBusinessHttp } from './communications/whatsapp-business-http'
+import { handleHighValueOptOutHttp } from './communications/high-value-optout-http'
 import { handleCustomerRiskScoringHttp, ownsCustomerRiskScoringNamespace } from './crm/risk-scoring-http'
 import { handleB2bEdiHttp, ownsB2bEdiNamespace } from './b2b/edi-gateway-http'
 import { handleB2bPublicAdmin, ownsB2bPublicAdminNamespace } from './developer-platform/b2b-public-admin'
+import { handleDeveloperOwnership, ownsDeveloperOwnershipNamespace } from './developer-platform/ownership-http'
 import { handleConnectorsHttp, ownsConnectorsNamespace } from './developer-platform/connector-marketplace'
-import { handleB2bPublicApi, ownsB2bPublicApiNamespace } from './developer-platform/b2b-public-api'
+import { handleB2bPublicApi, ownsB2bPublicApiNamespace, resetB2bSandbox } from './developer-platform/b2b-public-api'
 import {
   handleCompanyShippingConditionsHttp,
   ownsCompanyShippingConditionsNamespace
@@ -186,6 +196,9 @@ import {
   ownsWarehouseRouteTelemetryNamespace
 } from './observability/warehouse-route-telemetry-http'
 import { handlePaymentTokenRemovalHttp } from './payments/token-removal-http'
+import { handlePayGoldLinksHttp } from './payments/paygold-links-http'
+import { configuredPayGoldIssue, type PayGoldRuntime } from './payments/paygold-runtime'
+import { runConfiguredTokenRemovalRecovery, type TokenRemovalRuntime } from './payments/token-removal-runtime'
 import { handleSecurityControlsHttp, ownsSecurityControlsNamespace } from './security/security-controls-http'
 import { handleSeoHttp, ownsSeoNamespace } from './seo/seo-http'
 import { handleSeoContentDashboardHttp, ownsSeoContentDashboardNamespace } from './seo/content-dashboard-http'
@@ -201,7 +214,49 @@ import {
   ownsPredictivePersonalizationNamespace
 } from './marketing/predictive-personalization-http'
 import { handleModelEvaluationHttp, ownsModelEvaluationNamespace } from './analytics/model-evaluation-http'
+import {
+  handleCmsPreviewComparisonHttp,
+  ownsCmsPreviewComparisonNamespace
+} from './cms/preview-comparison-http'
+import {
+  handleRoleDashboardHttp,
+  ownsRoleDashboardNamespace
+} from './admin/role-dashboard-http'
+import {
+  handleCommercialCampaignsHttp,
+  ownsCommercialCampaignsNamespace
+} from './marketing/commercial-campaigns-http'
+import {
+  handleSupplierFeedHttp,
+  ownsSupplierFeedNamespace
+} from './catalog/supplier-feed-comparison-http'
+import {
+  handleEditorialContentHttp,
+  ownsEditorialContentNamespace
+} from './catalog/editorial-content-http'
+import {
+  handleSupplierSourcingHttp,
+  ownsSupplierSourcingNamespace
+} from './catalog/supplier-sourcing-http'
+import {
+  handleDraftOrdersHttp,
+  ownsDraftOrdersNamespace
+} from './b2b/draft-orders-http'
+import {
+  handleEditorialBriefingHttp,
+  ownsEditorialBriefingNamespace
+} from './cms/editorial-seo-briefing-http'
+import {
+  handleCommercialQuotesAccountsHttp,
+  ownsCommercialQuotesAccountsNamespace
+} from './catalog/commercial-quotes-accounts-http'
+import {
+  handleWarehouseScanHttp,
+  ownsWarehouseScanNamespace
+} from './fulfillment/warehouse-scan-operations-http'
 import { handleAccountPreferencesHttp } from './auth/account-preferences-http'
+import { handleAccountLifecycleHttp, ownsAccountLifecycleNamespace } from './auth/account-lifecycle-http'
+import { scheduleReplenishmentReminders } from './auth/replenishment-reminders'
 import { handleDeliveryPreferencesRequest, ownsDeliveryPreferencesNamespace } from './auth/delivery-preferences-http'
 import { handleIdentityLifecycleHttp } from './auth/lifecycle-http'
 import { checkAdministrativeEdgeLimit } from './auth/edge-limit'
@@ -309,7 +364,16 @@ async function mountGuard(
     const unavailable = authUnavailable(env)
     if (unavailable) return unavailable
   }
+  const crossOrigin = crossOriginMutation(request, env)
+  if (crossOrigin) return crossOrigin
   return mountEdgeLimit(request, env, administrative, scope)
+}
+
+/** Defence in depth beside SameSite=Lax: mutating requests from another origin never reach a module. */
+function crossOriginMutation(request: Request, env: CloudflareEnv): Response | null {
+  if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return null
+  const origin = request.headers.get('origin')
+  return origin && origin !== env.AUTH_ORIGIN ? privateJson({ error: { code: 'csrf_rejected' } }, 403) : null
 }
 
 function mountSession(env: CloudflareEnv) {
@@ -623,6 +687,11 @@ export default {
         console.log(JSON.stringify({ event: 'scheduled.stage.failed', stage: name }))
       }
     }
+    if (!b2bPublicUnavailable(env)) {
+      await stage('b2b.sandbox-reset', async () => {
+        await resetB2bSandbox(env.DB, now)
+      })
+    }
     if (env.AUTH_ENABLED === 'true') {
       await stage('auth.quotas', async () => {
         await pruneAuthenticationQuotas(env.DB)
@@ -638,11 +707,23 @@ export default {
         })
         console.log(JSON.stringify({ event: 'orders.bulk-fulfillment.dispatch', ...result }))
       })
+      // CUS-019: queue consented, capped replenishment reminders (no message is sent here).
+      await stage('replenishment.reminders', async () => {
+        const result = await scheduleReplenishmentReminders(env.DB, { now, limit: 100 })
+        console.log(JSON.stringify({ event: 'replenishment.reminders.schedule', ...result }))
+      })
     }
     await stage('payments.recovery', async () => {
       const result = await recoverAuthorisedPayments(env.DB, { now, limit: 25 }, paymentInventoryGateway(env))
       console.log(JSON.stringify({ event: 'payments.recovery', ...result }))
     })
+    if ((env as CloudflareEnv & TokenRemovalRuntime).PAYMENT_TOKEN_REMOVAL_ENABLED === 'true') {
+      await stage('payments.token-removal', async () => {
+        const result = await runConfiguredTokenRemovalRecovery(env as CloudflareEnv & TokenRemovalRuntime, now)
+        console.log(JSON.stringify({ event: 'payments.token-removal', ...result }))
+        if (result.enabled && result.failed > 0) throw new Error('payment_token_removal_recovery_failed')
+      })
+    }
     await stage('fiscal.outbox', async () => {
       const fiscalReceipts = await reconcileFiscalDelivery(env.DB, { now, limit: 25 })
       console.log(JSON.stringify({ event: 'fiscal.outbox.reconcile', ...fiscalReceipts }))
@@ -773,9 +854,14 @@ export default {
   async fetch(request: Request, env: CloudflareEnv): Promise<Response> {
     const demoLogin = await handleDemoLoginRequest(request, env)
     if (demoLogin) return demoLogin
-    const analytics = await handleConfiguredAnalyticsHttp(request, env)
-    if (analytics) return analytics
     const earlyPath = new URL(request.url).pathname
+    // The generic analytics namespace claims /api/admin/analytics/* and /api/analytics/*; these two
+    // modules live under it and are mounted further below, so they must not be shadowed.
+    const analytics =
+      ownsCostToServeNamespace(earlyPath) || ownsPredictivePersonalizationNamespace(earlyPath)
+        ? null
+        : await handleConfiguredAnalyticsHttp(request, env)
+    if (analytics) return analytics
     if (ownsSupportCopilotNamespace(earlyPath) || ownsSupportRcaNamespace(earlyPath)) {
       const blocked = await mountGuard(request, env, true, 'admin-support')
       if (blocked) return blocked
@@ -790,6 +876,19 @@ export default {
         (await handleSupportCopilotHttp(request, supportAi)) ??
         (await handleSupportRcaHttp(request, supportAi)) ??
         noStoreJson({ error: { code: 'not_found' } }, 404)
+      )
+    }
+    if (ownsSupportInsightsAdminNamespace(earlyPath)) {
+      // SUP-012/014/015/017 administrative surface; mountGuard already applied CSRF + the admin edge limit.
+      const blocked = await mountGuard(request, env, true, 'admin-support')
+      if (blocked) return blocked
+      return (
+        (await handleSupportInsightsAdminHttp(request, {
+          database: env.DB,
+          origin: env.AUTH_ORIGIN,
+          sessionCookieConfiguration: mountSession(env),
+          edgeGate: async () => 'allowed'
+        })) ?? noStoreJson({ error: { code: 'not_found' } }, 404)
       )
     }
     const customerOperations = await handleCustomerOperationsHttp(request, env)
@@ -989,6 +1088,24 @@ export default {
           rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
         })) ?? privateFailure('not_found', 404)
       )
+    }
+    if (ownsAccountLifecycleNamespace(path)) {
+      // CUS-015/016/019/028: preference centre, company documents, replenishment plans, support impersonation.
+      if (env.AUTH_ENABLED !== 'true') {
+        const denied = noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+        denied.headers.set('Cache-Control', 'private, no-store')
+        denied.headers.set('Vary', 'Cookie')
+        return denied
+      }
+      const lifecycle = await handleAccountLifecycleHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+        origin: env.AUTH_ORIGIN,
+        customerEdgeLimiter: env.AUTH_EDGE_LIMIT,
+        adminEdgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (lifecycle) return lifecycle
     }
     const privacyNamespace = path === '/api/account/privacy' || path.startsWith('/api/account/privacy/')
     const preferencesNamespace = path === '/api/account/preferences' || path.startsWith('/api/account/preferences/')
@@ -1193,6 +1310,15 @@ export default {
       })
       if (capabilities) return capabilities
     }
+    if (ownsProductDetailExtrasNamespace(path)) {
+      const extras = await handleProductDetailExtrasHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.CART_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      return extras ?? noStoreJson({ error: { code: 'not_found' } }, 404)
+    }
     if (ownsCatalogRelationsNamespace(path)) {
       const administrative = path.toLowerCase().startsWith('/api/admin/')
       if (administrative && env.AUTH_ENABLED !== 'true') {
@@ -1225,6 +1351,7 @@ export default {
       ownsCatalogExportNamespace(path) ||
       ownsCatalogTypedAttributesNamespace(path) ||
       ownsSearchSynonymsNamespace(path) ||
+      ownsSearchGapNamespace(path) ||
       ownsSearchMerchandisingNamespace(path) ||
       ownsSemanticSearchNamespace(path) ||
       ownsPersonalizedRerankNamespace(path)
@@ -1248,6 +1375,8 @@ export default {
         if (ownsCatalogTypedAttributesNamespace(path)) denied.headers.set('cache-control', 'private, no-store')
         return denied
       }
+      const searchGaps = await handleSearchGapHttp(request, env)
+      if (searchGaps) return searchGaps
       const synonyms = await handleSearchSynonymsHttp(request, env)
       if (synonyms) return synonyms
       const merchandising = await handleSearchMerchandisingHttp(request, env)
@@ -1429,6 +1558,18 @@ export default {
           }
         })) ?? unavailable()
       )
+    }
+    if (ownsInventoryOpsNamespace(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const inventoryOps = await handleInventoryOpsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (inventoryOps) return inventoryOps
     }
     if (ownsInventoryLotsCostingForecastNamespace(path)) {
       const unavailable = authUnavailable(env)
@@ -1718,6 +1859,8 @@ export default {
     }
     if (ownsAdminAiAssistantNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const csrf = crossOriginMutation(request, env)
+      if (csrf) return csrf
       const res = await handleAdminAiAssistantHttp(request, {
         database: env.DB,
         sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
@@ -1729,6 +1872,8 @@ export default {
     }
     if (ownsCatalogAiGenerationNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const csrf = crossOriginMutation(request, env)
+      if (csrf) return csrf
       const res = await handleCatalogAiGenerationHttp(request, {
         database: env.DB,
         sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
@@ -1740,6 +1885,8 @@ export default {
     }
     if (ownsMediaAiEnrichmentNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const csrf = crossOriginMutation(request, env)
+      if (csrf) return csrf
       const res = await handleMediaAiEnrichmentHttp(request, {
         database: env.DB,
         sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
@@ -2075,6 +2222,88 @@ export default {
       })
       if (evalResp) return evalResp
     }
+    if (ownsCmsPreviewComparisonNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-cms', { requireAuth: true })
+      if (blocked) return blocked
+      const previewComp = await handleCmsPreviewComparisonHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (previewComp) return previewComp
+    }
+    if (ownsRoleDashboardNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-dashboard', { requireAuth: true })
+      if (blocked) return blocked
+      const roleDash = await handleRoleDashboardHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (roleDash) return roleDash
+    }
+    if (ownsCommercialCampaignsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-marketing', { requireAuth: true })
+      if (blocked) return blocked
+      const commCamp = await handleCommercialCampaignsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (commCamp) return commCamp
+    }
+    if (ownsSupplierFeedNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-catalog', { requireAuth: true })
+      if (blocked) return blocked
+      const feedResp = await handleSupplierFeedHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (feedResp) return feedResp
+    }
+    if (ownsEditorialContentNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-catalog', { requireAuth: true })
+      if (blocked) return blocked
+      const editResp = await handleEditorialContentHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (editResp) return editResp
+    }
+    if (ownsSupplierSourcingNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-catalog', { requireAuth: true })
+      if (blocked) return blocked
+      const sourcResp = await handleSupplierSourcingHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (sourcResp) return sourcResp
+    }
+    if (ownsDraftOrdersNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-orders', { requireAuth: true })
+      if (blocked) return blocked
+      const draftResp = await handleDraftOrdersHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (draftResp) return draftResp
+    }
+    if (/^\/api\/admin\/checkout-markets\/[A-Z]{2}$/.test(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const markets = await handleCheckoutMarketHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (markets) return markets
+    }
     if (path.startsWith('/api/admin/product-recalls/')) {
       const unavailable = authUnavailable(env)
       if (unavailable) return unavailable
@@ -2086,6 +2315,47 @@ export default {
         rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
       })
       if (recall) return recall
+    }
+    if (/^\/api\/account\/high-value-consent\/(?:sms|whatsapp)$/.test(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const optOut = await handleHighValueOptOutHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.AUTH_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (optOut) return optOut
+    }
+    if (/^\/api\/admin\/customers\/[^/]+\/whatsapp-business\/(?:state|messages)$/.test(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const whatsapp = await handleWhatsAppBusinessHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER,
+        pricing: { whatsappCostMinor: 7, dailyBudgetMinor: 5000 },
+        transport: env.APP_ENV === 'local' ? 'official-fake' : 'disabled'
+      })
+      if (whatsapp) return whatsapp
+    }
+    if (/^\/api\/admin\/customers\/[^/]+\/high-value-messages$/.test(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const messages = await handleHighValueMessagesHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER,
+        // Synthetic test prices are used only by the local fake, never a real transport.
+        pricing: { smsCostMinor: 5, dailyBudgetMinor: 5000 },
+        transport: env.APP_ENV === 'local' ? 'local-fake' : 'disabled'
+      })
+      if (messages) return messages
     }
     if (/^\/api\/admin\/customers\/[^/]+\/high-value-consent\//.test(path)) {
       const unavailable = authUnavailable(env)
@@ -2157,6 +2427,16 @@ export default {
       })
       if (security) return security
     }
+    if (ownsDeveloperOwnershipNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-developer-platform')
+      if (blocked) return blocked
+      const ownership = await handleDeveloperOwnership(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (ownership) return ownership
+    }
     if (ownsB2bPublicAdminNamespace(path)) {
       const unavailable = b2bPublicUnavailable(env)
       if (unavailable) return unavailable
@@ -2184,6 +2464,8 @@ export default {
       // Keyed API: quota and authentication are enforced per key by the handler.
       const unavailable = b2bPublicUnavailable(env)
       if (unavailable) return unavailable
+      const blocked = await mountEdgeLimit(request, env, false, 'b2b-public')
+      if (blocked) return blocked
       const publicApi = await handleB2bPublicApi(request, { database: env.DB })
       if (publicApi) return publicApi
     }
@@ -2208,6 +2490,25 @@ export default {
         (await handleB2BContractSloHttp(request, observability)) ??
         (await handleWarehouseRouteTelemetryHttp(request, observability)) ??
         noStoreJson({ error: { code: 'not_found' } }, 404)
+      )
+    }
+    if (path === '/api/account/paygold-links' || path.startsWith('/api/account/paygold-links/')) {
+      const privateFailure = (code: string, status: number) => {
+        const response = noStoreJson({ error: { code } }, status)
+        response.headers.set('Cache-Control', 'private, no-store')
+        response.headers.set('Vary', 'Cookie')
+        return response
+      }
+      const issue = configuredPayGoldIssue(env as CloudflareEnv & PayGoldRuntime, paymentConfiguration(env), serverNow)
+      if (env.AUTH_ENABLED !== 'true' || !issue) return privateFailure('service_unavailable', 503)
+      return (
+        (await handlePayGoldLinksHttp(request, {
+          database: env.DB,
+          sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+          origin: env.AUTH_ORIGIN,
+          now: serverNow,
+          issue
+        })) ?? privateFailure('not_found', 404)
       )
     }
     if (path === '/api/account/payment-tokens' || path.startsWith('/api/account/payment-tokens/')) {
@@ -2271,6 +2572,46 @@ export default {
         sessionCookieConfiguration: mountSession(env)
       })
       if (costToServe) return costToServe
+    }
+    if (ownsEditorialBriefingNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-cms', { requireAuth: true })
+      if (blocked) return blocked
+      const briefingRes = await handleEditorialBriefingHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (briefingRes) return briefingRes
+    }
+    if (ownsCommercialQuotesAccountsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-commercial', { requireAuth: true })
+      if (blocked) return blocked
+      const commercialRes = await handleCommercialQuotesAccountsHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (commercialRes) return commercialRes
+    }
+    if (ownsInventoryPlanningNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-inventory-planning', { requireAuth: true })
+      if (blocked) return blocked
+      const planningRes = await handleInventoryPlanningHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (planningRes) return planningRes
+    }
+    if (ownsWarehouseScanNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-warehouse', { requireAuth: true })
+      if (blocked) return blocked
+      const warehouseRes = await handleWarehouseScanHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (warehouseRes) return warehouseRes
     }
     if (
       ['/api/admin/orders', '/api/admin/stats', '/api/admin/operations'].includes(path) ||

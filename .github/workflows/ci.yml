@@ -84,6 +84,7 @@ jobs:
       - run: npm run build
       - run: npx playwright install chromium firefox webkit
       - run: npm run test:performance
+      - run: npx tsx scripts/performance-gate.ts --report test-results/performance.json --diff-out test-results/performance-diff.md
       - run: npm run test:e2e -- --project=chromium --grep-invert accessibility
       - run: npm run test:a11y
       - run: npm run test:browser-matrix

@@ -78,6 +78,30 @@ const sections: Array<{
         icon: 'i-lucide-map-pin',
         permission: 'administration.manage'
       },
+      {
+        to: '/admin/reparto-app',
+        label: 'App de reparto',
+        icon: 'i-lucide-smartphone',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/manifiestos-transportista',
+        label: 'Manifiestos de transportista',
+        icon: 'i-lucide-clipboard-list',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/optimizacion-embalaje',
+        label: 'Optimización de embalaje',
+        icon: 'i-lucide-package-check',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/alertas-operativas',
+        label: 'Alertas operativas',
+        icon: 'i-lucide-bell-ring',
+        permission: 'administration.manage'
+      },
       { to: '/admin/soporte', label: 'Soporte', icon: 'i-lucide-life-buoy', permission: 'support.manage' },
       {
         to: '/admin/soporte-chat',
@@ -109,7 +133,19 @@ const sections: Array<{
         icon: 'i-lucide-message-square',
         permission: 'support.manage'
       },
-      { to: '/admin/inventario', label: 'Inventario', icon: 'i-lucide-warehouse', permission: 'inventory.read' }
+      { to: '/admin/inventario', label: 'Inventario', icon: 'i-lucide-warehouse', permission: 'inventory.read' },
+      {
+        to: '/admin/inventario-planificacion',
+        label: 'Reposición, escaneo y conteos',
+        icon: 'i-lucide-scan-barcode',
+        permission: 'inventory.read'
+      },
+      {
+        to: '/admin/suplantacion-soporte',
+        label: 'Suplantación de soporte',
+        icon: 'i-lucide-user-cog',
+        permission: 'support.manage'
+      }
     ]
   },
   {
@@ -147,6 +183,36 @@ const sections: Array<{
         to: '/admin/promociones',
         label: 'Promociones',
         icon: 'i-lucide-ticket-percent',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/asistente-ia',
+        label: 'Asistente IA y enriquecimiento',
+        icon: 'i-lucide-sparkles',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/catalogo-mercados',
+        label: 'Mercados e internacional',
+        icon: 'i-lucide-globe',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/retiradas',
+        label: 'Retiradas de producto',
+        icon: 'i-lucide-triangle-alert',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/ugc-moderacion',
+        label: 'Moderación UGC',
+        icon: 'i-lucide-camera',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/casos-cliente',
+        label: 'Casos de éxito',
+        icon: 'i-lucide-award',
         permission: 'administration.manage'
       },
       {
@@ -195,6 +261,24 @@ const sections: Array<{
         to: '/admin/newsletter',
         label: 'Newsletter editorial',
         icon: 'i-lucide-mails',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/optimizacion-envios',
+        label: 'Optimización de envíos',
+        icon: 'i-lucide-send',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/campanas-segmentadas',
+        label: 'Campañas segmentadas',
+        icon: 'i-lucide-target',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/personalizacion-campanas',
+        label: 'Personalización y guardrails',
+        icon: 'i-lucide-sliders-horizontal',
         permission: 'administration.manage'
       },
       {
@@ -250,6 +334,18 @@ const sections: Array<{
         to: '/admin/observabilidad',
         label: 'Observabilidad y SRE',
         icon: 'i-lucide-activity',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/rendimiento',
+        label: 'Rendimiento por valor',
+        icon: 'i-lucide-gauge',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/evaluacion-modelos',
+        label: 'Evaluación IA y Quality Gate',
+        icon: 'i-lucide-shield-check',
         permission: 'administration.manage'
       },
       {

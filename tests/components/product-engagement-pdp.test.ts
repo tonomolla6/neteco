@@ -88,7 +88,12 @@ beforeEach(() => {
   loggedIn.value = false
   user.value = null
   session.value = null
-  fetchData.mockReturnValue({ data: ref(fixture()), error: ref(null), pending: ref(false) })
+  // The product fetch returns the fixture; the aggregate-review summary (SEO-026) is a separate resource with no data.
+  fetchData.mockImplementation((source: string | (() => string)) => {
+    const url = typeof source === 'function' ? source() : source
+    const data = url.endsWith('/reviews/summary') ? null : fixture()
+    return { data: ref(data), error: ref(null), pending: ref(false) }
+  })
 })
 afterEach(() => {
   for (const wrapper of roots.splice(0)) wrapper.unmount()
@@ -132,12 +137,33 @@ function customer() {
   user.value = { id: '90000000-0000-4000-8000-000000000001', email: 'synthetic@example.invalid', emailVerified: true }
   session.value = { sessionId: '90000000-0000-4000-8000-000000000002', sessionVersion: 1 }
 }
+// Other PDP sections issue their own public, read-only GETs. They are listed exactly so that any request made by the
+// engagement/participation controls (contributions, watch, private reads, writes) still fails these tests.
+const OTHER_PDP_SECTION_READS = [
+  '/api/product-detail-extras',
+  '/api/products/1/media-guides',
+  '/api/products/1/reviews',
+  '/api/products/1/questions'
+]
+function engagementRequests() {
+  return request.mock.calls.filter(([url]) => !OTHER_PDP_SECTION_READS.includes(String(url)))
+}
+function otherSectionReads() {
+  return request.mock.calls.filter(([url]) => OTHER_PDP_SECTION_READS.includes(String(url)))
+}
 describe('PDP real product engagement authority and coordination', () => {
   it('connects confirmed PDP product and variant facts while keeping anonymous writes disabled', async () => {
     const wrapper = await pdp()
     const engagement = wrapper.getComponent(ProductEngagementPanel)
     expect(engagement.props()).toMatchObject({ productId: 1, variantId: 11, enabled: true, customerEnabled: false })
-    expect(request).not.toHaveBeenCalled()
+    expect(engagementRequests()).toEqual([])
+    // The curated alternatives/complements block is an expected anonymous GET, bound to this product slug only.
+    const extras = request.mock.calls.filter(([url]) => url === '/api/product-detail-extras')
+    expect(extras).toHaveLength(1)
+    expect(extras[0]![1]).toMatchObject({ query: { slug: 'producto-1' } })
+    expect(
+      otherSectionReads().every(([, options]) => !options || !('method' in options) || options.method === 'GET')
+    ).toBe(true)
   })
   it('permits anonymous explicit public reading without POST or private reads', async () => {
     const wrapper = await panel()
@@ -207,6 +233,8 @@ describe('PDP real product engagement authority and coordination', () => {
     runtime.public.serverRuntime = 'node'
     const wrapper = await pdp()
     expect(wrapper.findComponent(ProductEngagementPanel).exists()).toBe(false)
-    expect(request).not.toHaveBeenCalled()
+    expect(engagementRequests()).toEqual([])
+    // The Cloudflare-only extras block must not load in Node either.
+    expect(request.mock.calls.some(([url]) => url === '/api/product-detail-extras')).toBe(false)
   })
 })

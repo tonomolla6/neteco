@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
 import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
+import ProductDetailExtras from '~/components/ProductDetailExtras.vue'
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
 import ProductImageLightbox from '~/components/ProductImageLightbox.vue'
 import ProductEngagementPanel from '~/components/ProductEngagementPanel.vue'
 import ProductVideoMediaGuide from '~/components/ProductVideoMediaGuide.vue'
+import { buildAggregateRatingJsonLd, type ProductReviewSeoSummary } from '~~/shared/review-aggregate'
 import ProductVerifiedReviewsQa from '~/components/ProductVerifiedReviewsQa.vue'
 import { z } from 'zod'
 import { splitGross } from '~~/server/domain/money'
@@ -86,6 +88,12 @@ if (error.value || !productData.value || !productData.value.variants.length) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
 const product = computed(() => productData.value!)
+// SEO-026: la valoración agregada sale solo de opiniones propias verificadas y se muestra tal cual en la ficha
+const { data: reviewSeo } = await useFetch<ProductReviewSeoSummary>(
+  () => `/api/products/${product.value.id}/reviews/summary`,
+  { key: `review-seo-${route.params.slug}`, default: () => null }
+)
+const aggregateRating = computed(() => (reviewSeo.value ? buildAggregateRatingJsonLd(reviewSeo.value) : null))
 const runtime = useRuntimeConfig()
 const governedMedia = Boolean(runtime.public.mediaGoverned)
 const technicalDocuments = computed(() =>
@@ -378,6 +386,7 @@ useHead(() => ({
         ...(selected.value.gtin?.length === 14 ? { gtin14: selected.value.gtin } : {}),
         ...(selected.value.mpn ? { mpn: selected.value.mpn } : {}),
         brand: product.value.brand ? { '@type': 'Brand', name: product.value.brand } : undefined,
+        ...(aggregateRating.value ? { aggregateRating: aggregateRating.value } : {}),
         offers: {
           '@type': 'Offer',
           url: `${canonicalUrl}?sku=${encodeURIComponent(selected.value.sku)}`,
@@ -1107,7 +1116,17 @@ async function addToCart(goToCart = false) {
     />
 
     <!-- Reviews verificadas y Q&A moderado (PDP-016) -->
+    <section v-if="reviewSeo" class="mt-8" aria-label="Valoración de clientes" data-testid="review-aggregate">
+      <p v-if="aggregateRating" class="text-sm">
+        <strong>{{ reviewSeo.averageRating.toFixed(1).replace('.', ',') }} / 5</strong>
+        · {{ reviewSeo.eligibleCount }} opiniones de compradores verificados
+      </p>
+      <p class="text-xs text-gray-600">{{ reviewSeo.policy.text }}</p>
+    </section>
     <ProductVerifiedReviewsQa :product-id="product.id" :product-name="product.name" class="mt-8" />
+
+    <!-- Disponibilidad en el almacén único, alternativas revisadas y complementos (PDP-014/015/020) -->
+    <ProductDetailExtras :product-slug="String(route.params.slug)" :variant-id="selected.id" class="mt-8" />
 
     <PublishedProductRelations :product-slugs="[String(route.params.slug)]" class="mt-8" />
 

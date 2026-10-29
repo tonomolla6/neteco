@@ -12,6 +12,7 @@ import { useAdminNavigation } from '~/composables/useAdminNavigation'
 import InventoryAlertsPanel from '~/components/InventoryAlertsPanel.vue'
 import InventoryCountImportPanel from '~/components/InventoryCountImportPanel.vue'
 import InventoryLotsCostingForecastPanel from '~/components/InventoryLotsCostingForecastPanel.vue'
+import InventoryOperationsPanel from '~/components/InventoryOperationsPanel.vue'
 definePageMeta({ layout: 'default', middleware: 'auth' })
 useSeoMeta({ title: 'Inventario operativo · NETECO', robots: 'noindex, nofollow, noarchive' })
 const { ready, loggedIn, user, session } = useUserSession(),
@@ -315,6 +316,13 @@ watch(
       :pending="busy || operationPending || alertsPending || countImportPending"
       :selected-variant-uuid="data.variant.uuid"
       :selected-variant-id="data.variant.id"
+    />
+    <InventoryOperationsPanel
+      v-if="runtime === 'cloudflare' && data"
+      :scope-key="scopeKey"
+      :enabled="authorize()"
+      :pending="busy || operationPending || alertsPending || countImportPending"
+      :selected-variant-uuid="data.variant.uuid"
     />
     <p v-if="runtime !== 'cloudflare'" role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
       Este flujo gobernado está disponible únicamente en el adaptador Cloudflare.

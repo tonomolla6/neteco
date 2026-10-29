@@ -349,7 +349,8 @@ describe('permission-based staff navigation', () => {
       '/admin/soporte-chat',
       '/admin/soporte-rca',
       '/admin/gestor-cuentas',
-      '/admin/aportaciones-productos'
+      '/admin/aportaciones-productos',
+      '/admin/suplantacion-soporte'
     ])
     const originalScope = context.props('scopeKey')
     request.mockRejectedValueOnce(new Error('unavailable'))
@@ -380,7 +381,8 @@ describe('permission-based staff navigation', () => {
       '/admin/soporte-chat',
       '/admin/soporte-rca',
       '/admin/gestor-cuentas',
-      '/admin/aportaciones-productos'
+      '/admin/aportaciones-productos',
+      '/admin/suplantacion-soporte'
     ])
     request.mockRejectedValueOnce(new Error('permissions_unavailable'))
     actor.session.value.sessionVersion = 2

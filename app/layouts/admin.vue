@@ -83,6 +83,7 @@ async function logout() {
 
 <template>
   <div class="min-h-screen bg-[var(--canvas)]">
+    <SupportImpersonationBanner v-if="runtime.public.serverRuntime === 'cloudflare'" />
     <a
       href="#panel-principal"
       class="fixed left-3 top-3 z-[100] -translate-y-20 rounded-[var(--radius-control)] bg-slate-950 px-4 py-2 font-semibold text-white shadow-lg transition focus:translate-y-0"

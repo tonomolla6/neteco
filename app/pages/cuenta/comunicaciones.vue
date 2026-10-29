@@ -190,6 +190,9 @@ async function requestAnonymize() {
         <NuxtLink to="/cuenta/newsletter" class="mt-4 inline-block underline"
           >Gestionar temas y frecuencia newsletter</NuxtLink
         >
+        <NuxtLink to="/cuenta/centro-preferencias" class="mt-4 block underline"
+          >Centro de preferencias y recordatorios de reposición</NuxtLink
+        >
         <p class="mt-3 text-sm">Guardar preferencias newsletter no crea consentimiento ni sustituye el doble opt-in.</p>
       </UiSurface>
       <template v-if="settingsEnabled">
