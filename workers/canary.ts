@@ -2,6 +2,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import { listPublishedCategories } from './catalog/categories'
 import { listPublishedProducts, type ProductSort } from './catalog/products'
 import { getPublishedProductDetail } from './catalog/product-detail'
+import { handleProductCompareHttp, ownsProductCompareNamespace } from './catalog/product-compare-http'
 import { handlePublicSearchHttp } from './catalog/search-http'
 import { handleSearchSynonymsHttp, ownsSearchSynonymsNamespace } from './catalog/search-synonyms-http'
 import { handleSearchMerchandisingHttp, ownsSearchMerchandisingNamespace } from './catalog/search-merchandising-http'
@@ -1621,6 +1622,10 @@ export default {
           { status: 503, headers: { 'cache-control': 'no-store' } }
         )
       }
+    }
+    if (ownsProductCompareNamespace(url.pathname)) {
+      const compareResponse = await handleProductCompareHttp(request, { database: env.DB })
+      if (compareResponse) return compareResponse
     }
     const productDetailPath = /^\/api\/products\/([a-z0-9][a-z0-9-]{0,179})$/.exec(url.pathname)
     if (request.method === 'GET' && productDetailPath) {

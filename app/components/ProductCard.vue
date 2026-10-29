@@ -23,6 +23,67 @@ const discount = computed(() => {
   const percent = Math.round(((before - now) / before) * 100)
   return percent >= 5 ? { before, percent } : null
 })
+
+const COMPARE_STORAGE_KEY = 'neteco_compare_slugs'
+const isCompared = ref(false)
+
+function readStoredCompareSlugs(): string[] {
+  try {
+    const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(COMPARE_STORAGE_KEY) : null
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function writeStoredCompareSlugs(slugs: string[]) {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(COMPARE_STORAGE_KEY, JSON.stringify(slugs))
+      window.dispatchEvent(new Event('neteco_compare_updated'))
+    }
+  } catch {
+    // Quota or access error handling
+  }
+}
+
+function syncCompare() {
+  const current = readStoredCompareSlugs()
+  isCompared.value = current.includes(props.product.slug)
+}
+
+onMounted(() => {
+  syncCompare()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('neteco_compare_updated', syncCompare)
+    window.addEventListener('storage', syncCompare)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('neteco_compare_updated', syncCompare)
+    window.removeEventListener('storage', syncCompare)
+  }
+})
+
+function toggleCompare(event: Event) {
+  event.preventDefault()
+  event.stopPropagation()
+  const current = readStoredCompareSlugs()
+  if (current.includes(props.product.slug)) {
+    writeStoredCompareSlugs(current.filter((s) => s !== props.product.slug))
+    isCompared.value = false
+  } else {
+    if (current.length >= 4) {
+      return
+    }
+    writeStoredCompareSlugs([...current, props.product.slug])
+    isCompared.value = true
+  }
+}
 </script>
 
 <template>
@@ -45,6 +106,24 @@ const discount = computed(() => {
         >
           {{ BADGES[b]?.label ?? b }}
         </UBadge>
+      </div>
+      <div class="absolute right-2 top-2 z-10">
+        <button
+          type="button"
+          :aria-pressed="isCompared"
+          :aria-label="isCompared ? `Quitar ${product.name} de comparar` : `Comparar ${product.name}`"
+          :title="isCompared ? 'Quitar de comparar' : 'Añadir a comparar (máx. 4)'"
+          :class="[
+            'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold shadow-sm transition border',
+            isCompared
+              ? 'bg-neteco-600 border-neteco-700 text-white shadow-neteco-500/20'
+              : 'bg-white/95 border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-neteco-600'
+          ]"
+          @click.stop.prevent="toggleCompare"
+        >
+          <UIcon :name="isCompared ? 'i-lucide-check' : 'i-lucide-columns-2'" class="size-3.5" />
+          <span>{{ isCompared ? 'Comparando' : 'Comparar' }}</span>
+        </button>
       </div>
     </div>
 
