@@ -113,7 +113,7 @@ export async function handleExperimentsHttp(
     try {
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'JSON body required')
-      const result = await assignD1ExperimentVariant(deps.database, body, nowIso)
+      const result = await assignD1ExperimentVariant(deps.database, body as never, nowIso)
       return jsonResponse(result, 200)
     } catch (err) {
       return mapErrorToResponse(err)
@@ -124,7 +124,7 @@ export async function handleExperimentsHttp(
     try {
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'JSON body required')
-      const result = await recordD1ExperimentEvent(deps.database, body, nowIso)
+      const result = await recordD1ExperimentEvent(deps.database, body as never, nowIso)
       return jsonResponse(result, 200)
     } catch (err) {
       return mapErrorToResponse(err)
@@ -175,7 +175,7 @@ export async function handleExperimentsHttp(
         const body = await request.json().catch(() => null)
         if (!body) return errorResponse('invalid_input', 400, 'JSON body required')
 
-        const result = await createD1Experiment(deps.database, claims, body, {
+        const result = await createD1Experiment(deps.database, claims, body as never, {
           idempotencyKey,
           now: deps.now
         })
@@ -206,7 +206,7 @@ export async function handleExperimentsHttp(
           const body = await request.json().catch(() => null)
           if (!body) return errorResponse('invalid_input', 400, 'JSON body required')
 
-          const result = await updateD1Experiment(deps.database, claims, idOrKey, body, {
+          const result = await updateD1Experiment(deps.database, claims, idOrKey, body as never, {
             idempotencyKey,
             now: deps.now
           })
@@ -245,7 +245,7 @@ export async function handleExperimentsHttp(
           const body = await request.json().catch(() => null)
           if (!body) return errorResponse('invalid_input', 400, 'JSON body required')
 
-          const result = await recordD1ExperimentDecision(deps.database, claims, idOrKey, body, {
+          const result = await recordD1ExperimentDecision(deps.database, claims, idOrKey, body as never, {
             idempotencyKey,
             now: deps.now
           })

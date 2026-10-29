@@ -4,11 +4,12 @@ import AdminErrorBudgetReleaseGate from '~/components/AdminErrorBudgetReleaseGat
 import AdminCapacityPlanningPanel from '~/components/AdminCapacityPlanningPanel.vue'
 import AdminB2BContractSloPanel from '~/components/AdminB2BContractSloPanel.vue'
 import AdminAiopsPanel from '~/components/AdminAiopsPanel.vue'
+import AdminWarehouseRouteTelemetryPanel from '~/components/AdminWarehouseRouteTelemetryPanel.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Observabilidad, SRE y Capacidad · Admin' })
 
-const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops'>('error_budget')
+const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops' | 'telemetry'>('error_budget')
 </script>
 
 <template>
@@ -64,6 +65,17 @@ const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops'>('error_
         >
           AIOps
         </button>
+        <button
+          class="rounded-md px-3 py-1.5 transition-colors"
+          :class="
+            activeTab === 'telemetry'
+              ? 'bg-white text-neutral-900 shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-900'
+          "
+          @click="activeTab = 'telemetry'"
+        >
+          Telemetría Almacén
+        </button>
       </div>
     </div>
 
@@ -73,6 +85,7 @@ const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops'>('error_
       <AdminCapacityPlanningPanel v-else-if="activeTab === 'capacity'" />
       <AdminB2BContractSloPanel v-else-if="activeTab === 'b2b_slo'" />
       <AdminAiopsPanel v-else-if="activeTab === 'aiops'" />
+      <AdminWarehouseRouteTelemetryPanel v-else-if="activeTab === 'telemetry'" />
     </div>
   </div>
 </template>
