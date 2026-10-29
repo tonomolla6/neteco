@@ -343,7 +343,7 @@ describe('permission-based staff navigation', () => {
     expect(context.props('pending')).toBe(false)
     expect(
       context.props('groups').flatMap((group: { links: Array<{ to: string }> }) => group.links.map((link) => link.to))
-    ).toEqual(['/admin/soporte'])
+    ).toEqual(['/admin/clientes/contexto', '/admin/soporte', '/admin/aportaciones-productos'])
     const originalScope = context.props('scopeKey')
     request.mockRejectedValueOnce(new Error('unavailable'))
     actor.session.value.sessionVersion = 2
@@ -367,7 +367,7 @@ describe('permission-based staff navigation', () => {
     expect(palette.props('enabled')).toBe(true)
     expect(
       palette.props('groups').flatMap((group: { links: Array<{ to: string }> }) => group.links.map((link) => link.to))
-    ).toEqual(['/admin/soporte'])
+    ).toEqual(['/admin/clientes/contexto', '/admin/soporte', '/admin/aportaciones-productos'])
     request.mockRejectedValueOnce(new Error('permissions_unavailable'))
     actor.session.value.sessionVersion = 2
     await flushPromises()

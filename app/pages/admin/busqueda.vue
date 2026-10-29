@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AdminSearchMerchandisingRules from '../../components/AdminSearchMerchandisingRules.vue'
 import SearchSynonymsPanel from '../../components/SearchSynonymsPanel.vue'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Relevancia de búsqueda' })
@@ -105,7 +106,10 @@ async function confirmRemove() {
 </script>
 
 <template>
-  <SearchSynonymsPanel v-if="runtime === 'cloudflare'" :runtime="runtime" />
+  <div v-if="runtime === 'cloudflare'" class="space-y-8">
+    <SearchSynonymsPanel :runtime="runtime" />
+    <AdminSearchMerchandisingRules :runtime="runtime" />
+  </div>
   <div v-else-if="runtime === 'node'" class="mx-auto max-w-4xl">
     <UiPageHeader
       title="Relevancia de búsqueda"
