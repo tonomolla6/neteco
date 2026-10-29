@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { inventoryAndRedactArtifacts } from './lib/ci-artifacts'
+import { flakeObservationCommands, FLAKE_PROJECTS } from './lib/flake-monitor'
 
 interface ArtifactPolicy {
   schemaVersion: number
@@ -9,14 +10,15 @@ interface ArtifactPolicy {
   evidence: Record<string, string[]>
 }
 
-const [workflow, packageSource, playwright, accessibility, matrix, visual, policySource] = await Promise.all([
+const [workflow, packageSource, playwright, accessibility, matrix, visual, policySource, monitor] = await Promise.all([
   readFile(resolve('.github/workflows/ci.yml'), 'utf8'),
   readFile(resolve('package.json'), 'utf8'),
   readFile(resolve('playwright.config.ts'), 'utf8'),
   readFile(resolve('playwright.a11y.config.ts'), 'utf8'),
   readFile(resolve('playwright.matrix.config.ts'), 'utf8'),
   readFile(resolve('playwright.visual.config.ts'), 'utf8'),
-  readFile(resolve('docs/testing/ci-artifacts.json'), 'utf8')
+  readFile(resolve('docs/testing/ci-artifacts.json'), 'utf8'),
+  readFile(resolve('scripts/run-flake-monitor.ts'), 'utf8')
 ])
 const packageJson = JSON.parse(packageSource) as { scripts: Record<string, string> }
 const policy = JSON.parse(policySource) as ArtifactPolicy
@@ -47,6 +49,38 @@ for (const [script, report] of Object.entries({
   const command = packageJson.scripts[script] ?? ''
   requireText(command, '--reporter=junit', `${script} does not publish JUnit`)
   requireText(command, report, `${script} does not target ${report}`)
+}
+// Inspect the same effective command plan used by the monitor, not only the
+// standalone developer scripts that CI no longer executes a third time.
+const observations = flakeObservationCommands('/fresh-monitor')
+if (observations.length !== 5)
+  failures.push('monitor must run four first projects and one independent second observation')
+for (const [index, project] of FLAKE_PROJECTS.entries()) {
+  const observation = observations[index]!
+  for (const token of [
+    '--reporter=junit',
+    '--reporter=json',
+    '--maxWorkers=1',
+    '--no-file-parallelism',
+    '--project',
+    project,
+    `--outputFile.junit=/fresh-monitor/${project}.xml`
+  ])
+    if (!observation.args.includes(token)) failures.push(`monitor first ${project} command missing ${token}`)
+}
+for (const token of ['--coverage', 'vitest.node.config.ts', '--coverage.reportsDirectory=/fresh-monitor/coverage'])
+  if (!observations[0]!.args.includes(token)) failures.push(`monitor unit coverage missing ${token}`)
+if (observations[4]!.args.includes('--project') || !observations[4]!.args.includes('--reporter=json'))
+  failures.push('monitor second observation must include all projects and JSON evidence')
+requireText(monitor, 'runFlakeObservations(', 'monitor does not execute audited observation plan')
+requireText(workflow, 'npm run test:flake-monitor', 'CI does not run evidence-producing monitor')
+for (const script of ['coverage', 'test:nuxt', 'test:component', 'test:integration'])
+  if (workflow.split('\n').some((line) => line.trim() === `- run: npm run ${script}`))
+    failures.push(`CI redundantly runs third ${script} observation`)
+for (const prerequisite of ['db:migrate', 'db:seed']) {
+  const index = workflow.indexOf(`- run: npm run ${prerequisite}`)
+  if (index < 0 || index > workflow.indexOf('- run: npm run test:flake-monitor'))
+    failures.push(`${prerequisite} must precede integration observations`)
 }
 requireText(
   packageJson.scripts['test:a11y'] ?? '',

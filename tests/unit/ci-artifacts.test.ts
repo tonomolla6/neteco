@@ -9,6 +9,10 @@ import { inventoryAndRedactArtifacts, redactArtifactText } from '../../scripts/l
 const execFileAsync = promisify(execFile)
 
 describe('CI artifact redaction', () => {
+  it('audits the effective monitor coverage/JUnit commands and CI integration prerequisites', async () => {
+    const result = await execFileAsync('node_modules/.bin/tsx', ['scripts/audit-ci-artifacts.ts'])
+    expect(result.stdout).toContain('ci-artifacts=PASS policy=TST-036')
+  })
   it('redacts credentials, authorization, private keys and non-test email addresses', () => {
     const source = [
       'DATABASE_URL=postgres://neteco:private@db.example.invalid/app',

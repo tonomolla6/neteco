@@ -3,10 +3,4 @@ title = "NETECO secret scanning policy"
 [extend]
 useDefault = true
 
-[[allowlists]]
-description = "Documented placeholders and public deterministic test fixtures"
-paths = [
-  '''(^|/)\.env\.example$''',
-  '''(^|/)scripts/screenshots\.mjs$''',
-  '''(^|/)tests/unit/redsys\.test\.ts$''',
-]
+# All files including examples/test fixtures are scanned; do not add whole-path exclusions.

@@ -24,6 +24,7 @@ interface ProductRow {
   categoryId: number
   minPrice: number
   minNetPrice: number
+  compareAtPrice: number | null
   formats: number
 }
 
@@ -241,7 +242,10 @@ export default defineEventHandler(async (event) => {
            COALESCE(p.attributes -> 'visual', '{"type":"botella","color":"#64748b"}'::jsonb) AS visual,
            p.attributes ->> 'image' AS image, p.featured, p.short_description AS "shortDesc",
            c.legacy_id AS "categoryId", summary.min_price AS "minPrice",
-           summary.min_net_price AS "minNetPrice", summary.formats
+           summary.min_net_price AS "minNetPrice", summary.formats,
+           -- Precio anterior de la variante más barata: permite que el escaparate marque
+           -- una oferta con su ahorro real en vez de tener que inventarlo.
+           summary.compare_at_price AS "compareAtPrice"
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id
@@ -249,6 +253,7 @@ export default defineEventHandler(async (event) => {
       SELECT min(price.gross_cents)::int AS min_price,
              min(round((price.gross_cents::numeric * 10000) /
                        (10000 + tax.rate_basis_points)))::int AS min_net_price,
+             max(price.compare_at_gross_cents)::int AS compare_at_price,
              count(*)::int AS formats
       FROM variants variant
       JOIN effective_variant_prices price ON price.variant_id = variant.id

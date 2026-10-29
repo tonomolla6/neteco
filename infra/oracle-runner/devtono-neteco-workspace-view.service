@@ -1,0 +1,36 @@
+# Operator-only mount, never invoked by an Actions job. This is the only shared
+# tree: credentials/home/runner installation are not part of the source.
+[Unit]
+Description=Neteco rootless builder idmapped workspace only
+RequiresMountsFor=/var/lib/neteco-ci-runtime
+Before=user@11080.service
+AssertPathIsDirectory=/var/lib/neteco-ci-runtime/work
+AssertPathIsDirectory=/var/lib/neteco-ci-runtime/builder/workspace
+AssertFileIsExecutable=/var/lib/neteco-ci-runtime/rootfs/usr/bin/mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Group=root
+Environment=PATH=/usr/bin:/bin
+UnsetEnvironment=BASH_ENV ENV LD_PRELOAD LD_LIBRARY_PATH LIBMOUNT_FORCE_MOUNT2 LIBMOUNT_DEBUG
+ExecStartPre=/usr/bin/bash -c 'test "$(stat -c %%u:%%g:%%a /var/lib/neteco-ci-runtime/work)" = 980:979:700 && test "$(stat -c %%u:%%g:%%a /var/lib/neteco-ci-runtime/builder/workspace)" = 0:0:755 && ! mountpoint -q /var/lib/neteco-ci-runtime/builder/workspace && test -z "$(find /var/lib/neteco-ci-runtime/builder/workspace -mindepth 1 -maxdepth 1 -print -quit)"'
+# util-linux 2.39.3 tuple direction is established by the real UID proof, not
+# inferred from documentation: physical 980/979 is visible as 11080/11080.
+ExecStart=/var/lib/neteco-ci-runtime/rootfs/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1 --library-path /var/lib/neteco-ci-runtime/rootfs/usr/lib/aarch64-linux-gnu /var/lib/neteco-ci-runtime/rootfs/usr/bin/mount --internal-only --no-mtab --bind -o "X-mount.idmap=u:980:11080:1 g:979:11080:1" /var/lib/neteco-ci-runtime/work /var/lib/neteco-ci-runtime/builder/workspace
+ExecStop=/usr/bin/umount -- /var/lib/neteco-ci-runtime/builder/workspace
+# Do not add a private mount namespace: the dedicated user manager binds this
+# already mapped view into its own sealed root. No workload runs in this unit.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SETUID CAP_SETGID CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+CPUQuota=10%
+MemoryMax=64M
+TasksMax=8
+LimitCORE=0
+TimeoutStartSec=15
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

@@ -88,7 +88,7 @@ const emit = defineEmits<{
               @click="emit('createShipment', order)"
               >Crear</UButton
             >
-            <span v-else class="text-slate-400">—</span>
+            <span v-else class="text-slate-500">—</span>
           </td>
           <td class="px-4 py-2.5 text-right">
             <UButton

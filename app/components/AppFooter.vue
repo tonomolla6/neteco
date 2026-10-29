@@ -36,7 +36,7 @@ function configureCookies() {
 
 <template>
   <footer class="mt-16 bg-neteco-950 text-slate-300">
-    <div class="mx-auto grid max-w-[1600px] gap-10 px-4 py-12 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="mx-auto grid max-w-[1600px] gap-10 px-4 py-12 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       <div>
         <div class="flex items-center gap-2">
           <img src="/logo-figura.png" alt="" class="h-9 w-auto" />
@@ -83,6 +83,9 @@ function configureCookies() {
           <li><NuxtLink to="/categoria/menaje-y-hosteleria" class="hover:text-white">Menaje y hostelería</NuxtLink></li>
           <li><NuxtLink to="/carrito" class="hover:text-white">Mi carrito</NuxtLink></li>
           <li><NuxtLink to="/cuenta" class="hover:text-white">Mi cuenta</NuxtLink></li>
+          <li v-if="runtime.public.serverRuntime === 'cloudflare'">
+            <NuxtLink to="/recursos" class="hover:text-white">Guías y recursos profesionales</NuxtLink>
+          </li>
         </ul>
       </div>
 

@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import type { CategoryResponse } from '~~/shared/types/catalog'
+import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
+import {
+  readCatalogTypedRouteValue,
+  catalogTypedQuery,
+  countCatalogTypedSelections,
+  catalogTypedPills,
+  removeCatalogTypedSelection
+} from '../utils/catalog-typed-filters'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,6 +44,7 @@ function numFromQuery(v: unknown): number | null {
 const selectedCategory = ref(knownSlugs.value.has(String(route.query.familia ?? '')) ? String(route.query.familia) : '')
 const sort = ref(String(route.query.sort ?? 'featured'))
 const filters = reactive({
+  typed: readCatalogTypedRouteValue(route.query.typed),
   brands: multiFromQuery(route.query.brand),
   badges: multiFromQuery(route.query.badge),
   envases: multiFromQuery(route.query.envase),
@@ -54,7 +63,15 @@ function replaceValues(target: string[], values: string[]) {
 
 let applyingRoute = false
 function applyRouteFilters() {
+  let typed
+  try {
+    typed = readCatalogTypedRouteValue(route.query.typed)
+  } catch {
+    showError(createError({ statusCode: 400, statusMessage: 'Filtros de atributos no válidos', fatal: true }))
+    return
+  }
   applyingRoute = true
+  filters.typed = typed
   selectedCategory.value = knownSlugs.value.has(String(route.query.familia ?? '')) ? String(route.query.familia) : ''
   sort.value = String(route.query.sort ?? 'featured')
   replaceValues(filters.brands, multiFromQuery(route.query.brand))
@@ -72,6 +89,7 @@ function applyRouteFilters() {
 }
 
 function resetFilters() {
+  filters.typed = []
   filters.brands = []
   filters.badges = []
   filters.envases = []
@@ -92,6 +110,8 @@ watch(
   () => {
     if (applyingRoute) return
     const query: Record<string, string> = {}
+    const typed = catalogTypedQuery(filters.typed)
+    if (typed) query.typed = typed
     if (selectedCategory.value) query.familia = selectedCategory.value
     if (filters.brands.length) query.brand = filters.brands.join(',')
     if (filters.badges.length) query.badge = filters.badges.join(',')
@@ -112,6 +132,7 @@ watch(
 const { items, total, page, pages, facets, status, loadingMore, canLoadMore, loadMore, sentinel } =
   await useInfiniteProducts(
     computed(() => ({
+      typed: catalogTypedQuery(filters.typed),
       category: selectedCategory.value || undefined,
       sort: sort.value,
       brand: filters.brands.join(',') || undefined,
@@ -168,6 +189,7 @@ watch(
 
 const activeCount = computed(
   () =>
+    countCatalogTypedSelections(filters.typed) +
     filters.brands.length +
     filters.badges.length +
     filters.envases.length +
@@ -181,6 +203,8 @@ const activeCount = computed(
 )
 
 interface Pill {
+  key?: string
+  typed?: boolean
   label: string
   remove: () => void
 }
@@ -199,6 +223,14 @@ const activeGroupItems = computed(
 )
 
 const pills = computed<Pill[]>(() => [
+  ...catalogTypedPills(filters.typed, facets.value?.typed).map((pill) => ({
+    key: `typed:${pill.definitionId}:${JSON.stringify(pill.value)}`,
+    typed: true,
+    label: pill.label,
+    remove: () => {
+      filters.typed = removeCatalogTypedSelection(filters.typed, pill.definitionId, pill.value)
+    }
+  })),
   ...filters.brands.map((v) => ({ label: v, remove: () => filters.brands.splice(filters.brands.indexOf(v), 1) })),
   ...filters.badges.map((v) => ({
     label: BADGES[v]?.label ?? v,
@@ -260,7 +292,8 @@ watch(() => route.fullPath, applyRouteFilters)
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1600px] px-4 py-8">
+  <div v-if="filters" class="mx-auto max-w-[1600px] px-4 py-8">
+    <PromotionalBlocks :context="{ placement: 'catalog', path: '/catalogo' }" class="mb-6" />
     <!-- cabecera -->
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -272,7 +305,7 @@ watch(() => route.fullPath, applyRouteFilters)
         </h1>
         <p aria-live="polite" class="mt-1 text-sm text-slate-500">{{ total }} producto{{ total === 1 ? '' : 's' }}</p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-2">
         <button
           class="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 lg:hidden"
           @click="drawerOpen = true"
@@ -287,12 +320,12 @@ watch(() => route.fullPath, applyRouteFilters)
           </span>
         </button>
         <ViewToggle />
-        <label class="flex items-center gap-2 text-sm text-slate-500">
+        <label class="flex min-w-0 items-center gap-2 text-sm text-slate-500">
           <span class="hidden sm:inline">Ordenar por</span>
           <select
             v-model="sort"
             aria-label="Ordenar productos"
-            class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+            class="min-w-0 max-w-[11rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           >
             <option value="featured">Relevancia</option>
             <option value="price_asc">Precio: menor a mayor</option>
@@ -366,7 +399,9 @@ watch(() => route.fullPath, applyRouteFilters)
     <div v-if="pills.length" class="mt-4 flex flex-wrap items-center gap-2">
       <button
         v-for="pill in pills"
-        :key="pill.label"
+        :key="pill.key ?? pill.label"
+        :data-typed-pill="pill.typed ? '' : undefined"
+        :aria-label="`Quitar ${pill.label}`"
         class="flex items-center gap-1.5 rounded-full bg-neteco-600 px-3 py-1.5 text-sm text-white transition hover:bg-neteco-700"
         @click="pill.remove()"
       >
@@ -378,7 +413,7 @@ watch(() => route.fullPath, applyRouteFilters)
       </button>
     </div>
 
-    <div class="mt-6 grid items-start gap-8 lg:grid-cols-[260px_1fr]">
+    <div class="mt-6 grid grid-cols-1 items-start gap-8 lg:grid-cols-[260px_1fr]">
       <!-- barra lateral (escritorio): solo filtros; las familias van en chips arriba -->
       <aside
         class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
@@ -420,9 +455,34 @@ watch(() => route.fullPath, applyRouteFilters)
         <div v-else-if="canLoadMore" class="py-6 text-center">
           <UButton variant="soft" @click="loadMore">Cargar más</UButton>
         </div>
-        <nav v-if="pages > 1" aria-label="Paginación del catálogo" class="flex justify-center gap-3 py-4">
-          <NuxtLink v-if="page > 1" :to="{ query: paginationQuery(page - 1) }">Página anterior</NuxtLink>
-          <NuxtLink v-if="page < pages" :to="{ query: paginationQuery(page + 1) }">Página siguiente</NuxtLink>
+        <!-- Eran dos enlaces de texto sueltos, sin indicar en qué página estás ni cuántas hay.
+             Se mantienen como enlaces reales para que sigan siendo rastreables e indexables. -->
+        <nav
+          v-if="pages > 1"
+          aria-label="Paginación del catálogo"
+          class="flex flex-wrap items-center justify-center gap-3 py-6"
+        >
+          <UButton
+            v-if="page > 1"
+            :to="{ query: paginationQuery(page - 1) }"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-chevron-left"
+          >
+            Anterior
+          </UButton>
+          <span v-else />
+          <span class="tabular text-sm text-[var(--text-muted)]">Página {{ page }} de {{ pages }}</span>
+          <UButton
+            v-if="page < pages"
+            :to="{ query: paginationQuery(page + 1) }"
+            color="neutral"
+            variant="outline"
+            trailing-icon="i-lucide-chevron-right"
+          >
+            Siguiente
+          </UButton>
+          <span v-else />
         </nav>
         <p v-else-if="items.length > 24" class="py-6 text-center text-sm text-slate-500">
           Has visto los {{ total }} productos

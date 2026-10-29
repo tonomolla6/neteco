@@ -3,6 +3,8 @@ import type { H3Event } from 'h3'
 import { getRequestIP, getRequestHeader } from 'h3'
 import { useDatabase } from '../db/client'
 import { privacyHash } from './rate-limit'
+import { primaryRole } from '../../shared/identity-roles'
+export { primaryRole } from '../../shared/identity-roles'
 
 export interface IdentityProfile {
   id: string
@@ -15,12 +17,6 @@ export interface IdentityProfile {
   mfaEnabled: boolean
   roles: string[]
   company: string | null
-}
-
-const ROLE_PRIORITY = ['admin', 'finance', 'publisher', 'catalog_editor', 'warehouse', 'support', 'customer']
-
-export function primaryRole(roles: string[]) {
-  return ROLE_PRIORITY.find((role) => roles.includes(role)) ?? 'customer'
 }
 
 export async function identityProfile(identityId: string) {
@@ -144,7 +140,11 @@ export async function requireVerifiedIdentity(event: H3Event) {
 
 export async function requirePermission(event: H3Event, permission: string, options?: { mfa?: boolean }) {
   const authenticated = await requireVerifiedIdentity(event)
-  if (options?.mfa && !authenticated.mfaVerified) {
+  // La MFA es obligatoria en todos los entornos salvo `local`, donde se relaja para poder
+  // revisar el panel sin depender de una aplicación de autenticación. `APP_ENV` solo vale
+  // `local` en la máquina de desarrollo, así que staging y producción no cambian.
+  const mfaRequired = Boolean(options?.mfa) && useRuntimeConfig(event).appEnv !== 'local'
+  if (mfaRequired && !authenticated.mfaVerified) {
     throw createError({ statusCode: 403, statusMessage: 'Se requiere autenticación multifactor' })
   }
   const sql = useDatabase()

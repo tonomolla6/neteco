@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
-import type { ProductCardData, ProductVisualData } from '~~/shared/types/catalog'
+import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
+import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
+import ProductImageLightbox from '~/components/ProductImageLightbox.vue'
+import ProductEngagementPanel from '~/components/ProductEngagementPanel.vue'
+import { z } from 'zod'
+import { splitGross } from '~~/server/domain/money'
+import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
+import type { ProductCardData, ProductVisualData, TypedAttributeDetail } from '~~/shared/types/catalog'
 
 interface ProductVariant {
   uuid: string
@@ -30,6 +37,7 @@ interface ProductVariant {
   leadTimeDays: number | null
   color: string | null
   image: string | null
+  imageAlt?: string | null
 }
 
 interface ProductDetail {
@@ -43,8 +51,10 @@ interface ProductDetail {
   badges: string[]
   visual: ProductVisualData
   image: string | null
+  imageAlt?: string | null
   datasheet: string | null
   attrs: Array<{ k: string; v: string }>
+  typedAttrs?: TypedAttributeDetail[]
   regulatory: {
     signalWord?: string
     ufi?: string
@@ -68,13 +78,20 @@ interface ProductDetail {
 }
 
 const route = useRoute()
-const { loggedIn } = useUserSession()
+const { ready, loggedIn, user, session } = useUserSession()
 const { data: productData, error } = await useFetch<ProductDetail>(`/api/products/${route.params.slug}`)
 if (error.value || !productData.value || !productData.value.variants.length) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
 const product = computed(() => productData.value!)
 const runtime = useRuntimeConfig()
+const governedMedia = Boolean(runtime.public.mediaGoverned)
+const technicalDocuments = computed(() =>
+  product.value.documents.filter((document) => !governedMedia || publishedDocumentUrl(document.url))
+)
+const datasheet = computed(() =>
+  governedMedia ? publishedDocumentUrl(product.value.datasheet) : product.value.datasheet
+)
 const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
@@ -91,6 +108,30 @@ const selectedId = ref(initialVariant?.id ?? firstVariant.id)
 const selected = computed(
   () => product.value.variants.find((variant) => variant.id === selectedId.value) ?? firstVariant
 )
+const engagementEnabled = computed(() => runtime.public.serverRuntime === 'cloudflare')
+const engagementCustomerEnabled = computed(
+  () =>
+    engagementEnabled.value &&
+    ready.value === true &&
+    loggedIn.value === true &&
+    user.value?.emailVerified === true &&
+    z.string().uuid().safeParse(user.value?.id).success &&
+    z.string().uuid().safeParse(session.value?.sessionId).success &&
+    Number.isSafeInteger(session.value?.sessionVersion) &&
+    Number(session.value?.sessionVersion) > 0
+)
+const engagementScope = computed(() =>
+  JSON.stringify([
+    ready.value,
+    loggedIn.value,
+    user.value?.id,
+    user.value?.emailVerified,
+    session.value?.sessionId,
+    session.value?.sessionVersion,
+    product.value.id,
+    selected.value.id
+  ])
+)
 const { track } = useAnalytics()
 onMounted(() => {
   void track('product_viewed', { productId: product.value.id, variantId: selected.value.id })
@@ -102,19 +143,27 @@ function priceForQuantity(variant: ProductVariant, quantity: number) {
   return price
 }
 const selectedUnitGrossPrice = computed(() => priceForQuantity(selected.value, qty.value))
-const selectedUnitNetPrice = computed(() =>
-  Math.round((selectedUnitGrossPrice.value * 10_000) / (10_000 + selected.value.taxRateBasisPoints))
+const selectedUnitNetPrice = computed(
+  () => splitGross(selectedUnitGrossPrice.value, selected.value.taxRateBasisPoints).netCents
+)
+const selectedLineNetPrice = computed(
+  () => splitGross(selectedUnitGrossPrice.value * qty.value, selected.value.taxRateBasisPoints).netCents
 )
 const maximumQuantity = computed(() =>
   Math.min(
+    MAX_CART_QUANTITY,
     selected.value.maximumQuantity ?? Infinity,
     selected.value.backorderAllowed ? Infinity : selected.value.stock
   )
 )
 const outOfStock = computed(
-  () => selected.value.stock < selected.value.minimumQuantity && !selected.value.backorderAllowed
+  () =>
+    selected.value.minimumQuantity > MAX_CART_QUANTITY ||
+    (selected.value.stock < selected.value.minimumQuantity && !selected.value.backorderAllowed)
 )
 const availability = computed(() => {
+  if (selected.value.minimumQuantity > MAX_CART_QUANTITY)
+    return { label: 'No disponible para compra online', tone: 'unavailable' }
   if (selected.value.stock >= selected.value.minimumQuantity) {
     const lowThreshold = Math.max(selected.value.minimumQuantity * 3, 5)
     return selected.value.stock <= lowThreshold
@@ -286,10 +335,12 @@ const colorOptions = computed(() => {
 // en productos por colores, una variante sin foto propia enseña la ilustración neutra:
 // nunca la foto de otro color/producto. Y si la foto FALLA al cargar, también cae a la ilustración.
 const mainImage = computed(() =>
-  colorMode.value ? (selected.value?.image ?? null) : (selected.value?.image ?? product.value.image ?? null)
+  colorMode.value
+    ? catalogImageSource(selected.value?.image, governedMedia)
+    : (catalogImageSource(selected.value?.image, governedMedia) ??
+      catalogImageSource(product.value.image, governedMedia))
 )
-// la imagen visible solo cambia cuando la nueva ya está comprobada (precarga en segundo plano):
-// sin fogonazos en blanco ni saltos al pasar a un color cuya foto aún no existe
+// Mientras se comprueba la nueva foto se muestra el estado neutro, nunca el SKU anterior.
 const shownImage = ref<string | null>(mainImage.value)
 // esqueleto pulsante bajo la imagen grande mientras baja el derivado optimizado
 const fichaImgLoaded = ref(false)
@@ -298,7 +349,14 @@ watch(shownImage, () => (fichaImgLoaded.value = false))
 // así al confirmar la carga el navegador ya la tiene en caché y el cambio es inmediato
 // (antes se comprobaba la original y luego se descargaba el derivado: doble descarga)
 const imgApi = useImage()
-const fichaUrl = (src: string) => imgApi(src, { format: 'webp', quality: 80, width: 1120 })
+const fichaUrl = (src: string) =>
+  publishedImageUrl(src, 1200, 'jpeg') ??
+  (governedMedia ? '' : imgApi(src, { format: 'webp', quality: 80, width: 1120 }))
+const imageAlt = computed(() =>
+  selected.value.image && selected.value.image === shownImage.value
+    ? selected.value.imageAlt || `${product.value.name} · ${selected.value.format}`
+    : product.value.imageAlt || product.value.name
+)
 useHead(() => ({
   script: [
     {
@@ -359,6 +417,9 @@ watch(
       shownImage.value = src
       return
     }
+    // Selection has already changed: never present the previous SKU's image
+    // beside the new SKU while its own approved derivative is being checked.
+    shownImage.value = null
     const im = new Image()
     im.onload = () => {
       if (mainImage.value === src) shownImage.value = src
@@ -377,29 +438,52 @@ useHead({
 // pre-descarga en segundo plano (en ratos libres del navegador) de todos los colores
 // de la rama activa: pasar de un color a otro queda instantáneo, ya están en caché
 const prefetched = new Set<string>()
+const colorImageUrls = computed(() =>
+  colorOptions.value
+    .map((parsed) => catalogImageSource(parsed.v.image, governedMedia))
+    .filter((source): source is string => Boolean(source))
+    .map((source) => fichaUrl(source))
+)
 watch(
-  colorOptions,
-  (opts) => {
+  colorImageUrls,
+  (opts, _previous, onCleanup) => {
     if (!import.meta.client) return
-    const urls = opts
-      .map((parsed) => parsed.v.image)
-      .filter((source): source is string => Boolean(source))
-      .map((source) => fichaUrl(source))
-      .filter((url) => !prefetched.has(url))
+    const urls = opts.filter((url) => !prefetched.has(url))
     if (!urls.length) return
-    urls.forEach((u: string) => prefetched.add(u))
     const go = () =>
       urls.forEach((u: string) => {
+        prefetched.add(u)
         const im = new Image()
         im.src = u
       })
-    if ('requestIdleCallback' in window) requestIdleCallback(go, { timeout: 2000 })
-    else setTimeout(go, 400)
+    if (typeof window.requestIdleCallback === 'function' && typeof window.cancelIdleCallback === 'function') {
+      const id = window.requestIdleCallback(go, { timeout: 2000 })
+      onCleanup(() => window.cancelIdleCallback(id))
+    } else {
+      const id = window.setTimeout(go, 400)
+      onCleanup(() => window.clearTimeout(id))
+    }
   },
   { immediate: true }
 )
 
 // precio informativo por unidad/litro/kilo del envase (estilo mayorista)
+/**
+ * Disponibilidad por fila del selector, para poder descartar un formato agotado sin
+ * tener que seleccionarlo primero. El indicador detallado de la variante elegida sigue
+ * estando debajo; esto es la versión corta para comparar en vertical.
+ */
+function rowAvailability(variant: ProductVariant) {
+  if (variant.stock >= variant.minimumQuantity) {
+    const low = Math.max(variant.minimumQuantity * 3, 5)
+    return variant.stock <= low
+      ? { label: 'Pocas uds.', class: 'text-amber-700' }
+      : { label: 'Disponible', class: 'text-emerald-700' }
+  }
+  if (variant.backorderAllowed) return { label: 'Bajo pedido', class: 'text-amber-700' }
+  return { label: 'Agotado', class: 'text-red-700' }
+}
+
 function perUnit(variant: ProductVariant, grossCents = variant.price): string | null {
   if (!variant.units || !variant.unitLabel) return null
   const per = grossCents / 100 / variant.units
@@ -407,42 +491,23 @@ function perUnit(variant: ProductVariant, grossCents = variant.price): string | 
   return `${per.toLocaleString('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits })} €/${variant.unitLabel}`
 }
 
-// lupa: la imagen se abre a pantalla completa (como el lightbox de Karme).
-// Dos tamaños por convención (como Karme): la pequeña en la carpeta y la grande en big/;
-// si la grande no existe (la imagen da error), la lupa cae a la normal.
+// High-resolution selection stays behind the existing governed-media boundary
+// and is evaluated only while the viewer is open.
 const lightbox = ref(false)
-const lightboxSrc = computed(() =>
-  shownImage.value ? imgApi(shownImage.value, { format: 'webp', quality: 85, width: 1800 }) : null
+const imageTrigger = ref<HTMLButtonElement | null>(null)
+watch(
+  [shownImage, selectedId],
+  () => {
+    lightbox.value = false
+  },
+  { flush: 'sync' }
 )
-watch(lightbox, (open) => {
-  if (!open) zoomed.value = false
-})
-
-// zoom dentro de la lupa: clic amplía ×2,5 sobre el punto pulsado y el ratón recorre la imagen
-const zoomed = ref(false)
-const zoomOrigin = ref('50% 50%')
-function setZoomOrigin(e: MouseEvent) {
-  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  zoomOrigin.value = `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}% ${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`
-}
-function toggleZoom(e: MouseEvent) {
-  setZoomOrigin(e)
-  zoomed.value = !zoomed.value
-}
-function onZoomMove(e: MouseEvent) {
-  if (zoomed.value) setZoomOrigin(e)
-}
-function onLightboxKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') lightbox.value = false
-}
-watch(lightbox, (v) => {
-  if (import.meta.client) document.body.style.overflow = v ? 'hidden' : ''
-})
-onMounted(() => window.addEventListener('keydown', onLightboxKey))
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onLightboxKey)
-  if (import.meta.client) document.body.style.overflow = ''
-})
+const lightboxSrc = computed(() =>
+  lightbox.value && shownImage.value
+    ? (publishedImageUrl(shownImage.value, 1600, 'jpeg') ??
+      (governedMedia ? null : imgApi(shownImage.value, { format: 'webp', quality: 85, width: 1800 })))
+    : null
+)
 
 const cart = useCartStore()
 const toast = useToast()
@@ -510,6 +575,15 @@ async function addToCart(goToCart = false) {
 
 <template>
   <div class="mx-auto max-w-[1600px] px-4 py-8 pb-24 lg:pb-8">
+    <PromotionalBlocks
+      :context="{
+        placement: 'product',
+        path: `/producto/${product.slug}`,
+        productSlug: product.slug,
+        categorySlug: product.breadcrumb.at(-1)?.slug
+      }"
+      class="mb-6"
+    />
     <!-- migas -->
     <nav aria-label="Migas de pan" class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
       <NuxtLink to="/" class="hover:text-neteco-600">Inicio</NuxtLink>
@@ -519,11 +593,14 @@ async function addToCart(goToCart = false) {
       </template>
     </nav>
 
-    <div class="mt-6 grid gap-8 lg:grid-cols-5">
+    <div class="mt-6 grid items-start gap-8 grid-cols-1 lg:grid-cols-2 xl:grid-cols-12">
       <!-- imagen -->
-      <div class="relative self-start rounded-2xl border border-slate-200 bg-white p-6 sm:p-10 lg:col-span-2">
+      <div
+        class="relative self-start rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-10 xl:col-span-4"
+      >
         <button
           v-if="shownImage"
+          ref="imageTrigger"
           type="button"
           class="group relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
           aria-label="Ver la imagen a pantalla completa"
@@ -534,11 +611,23 @@ async function addToCart(goToCart = false) {
             class="absolute inset-0 animate-pulse rounded-xl bg-slate-100"
             aria-hidden="true"
           />
+          <PublishedProductImage
+            v-if="publishedImageSources(shownImage)"
+            :src="shownImage"
+            :alt="imageAlt"
+            sizes="(min-width: 1280px) 33vw, (min-width: 1024px) 50vw, 100vw"
+            loading="eager"
+            image-class="relative mx-auto aspect-square w-full rounded-xl bg-white object-contain"
+            @load="fichaImgLoaded = true"
+            @error="shownImage = null"
+          />
           <img
+            v-else
             :src="fichaUrl(shownImage)"
-            :alt="colorMode ? `${product.name} · ${selected.format}` : product.name"
+            :alt="imageAlt"
             class="relative mx-auto aspect-square w-full rounded-xl bg-white object-contain"
             @load="fichaImgLoaded = true"
+            @error="shownImage = null"
           />
           <span
             class="absolute bottom-3 right-3 rounded-full bg-white/95 p-2.5 text-slate-600 opacity-0 shadow-md transition group-hover:opacity-100 group-focus-visible:opacity-100"
@@ -546,8 +635,28 @@ async function addToCart(goToCart = false) {
             <UIcon name="i-lucide-zoom-in" class="block size-5" />
           </span>
         </button>
-        <div v-else class="flex aspect-square w-full items-center justify-center">
-          <ProductVisual :visual="product.visual" class="w-full max-w-[260px]" />
+        <!--
+          Sin foto, la ilustración de familia dice el formato y el color, que ya es
+          información. Lo que faltaba era la salida: en B2B, quien duda por no ver el
+          producto llama y pregunta, así que se lo ofrecemos aquí en vez de dejarle
+          con la duda.
+        -->
+        <div v-else class="flex aspect-square w-full flex-col items-center justify-center px-6">
+          <ProductVisual :visual="product.visual" class="w-full max-w-[220px]" />
+          <p class="mt-3 max-w-xs text-center text-sm text-[var(--text-muted)]">
+            Todavía no tenemos foto de esta referencia.
+            <NuxtLink
+              :to="
+                runtime.public.serverRuntime === 'cloudflare'
+                  ? { path: '/contacto', query: { producto: product.slug } }
+                  : '/contacto'
+              "
+              class="font-medium text-neteco-700 underline underline-offset-2"
+            >
+              Pídenosla
+            </NuxtLink>
+            y te la mandamos.
+          </p>
         </div>
         <div class="absolute left-6 top-6 flex flex-col items-start gap-1.5">
           <UBadge
@@ -563,7 +672,7 @@ async function addToCart(goToCart = false) {
       </div>
 
       <!-- info y compra -->
-      <div class="lg:col-span-3">
+      <div class="xl:col-span-5">
         <p
           v-if="product.brand && !product.name.toUpperCase().startsWith(product.brand.toUpperCase())"
           class="text-xs font-semibold uppercase tracking-widest text-neteco-600"
@@ -571,6 +680,12 @@ async function addToCart(goToCart = false) {
           {{ product.brand }}
         </p>
         <h1 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{{ product.name }}</h1>
+        <NuxtLink
+          v-if="runtime.public.serverRuntime === 'cloudflare'"
+          :to="{ path: '/contacto', query: { producto: product.slug } }"
+          class="mt-2 inline-block text-sm font-medium text-neteco-700 underline underline-offset-2"
+          >Consultar sobre este producto</NuxtLink
+        >
         <p v-if="product.shortDesc" class="mt-3 text-slate-600">{{ product.shortDesc }}</p>
 
         <!-- selector de color (variantes con color propio; eje opcional de acabado) -->
@@ -619,20 +734,24 @@ async function addToCart(goToCart = false) {
 
         <!-- formatos -->
         <div v-else class="mt-6">
-          <VariantSelector v-model="selectedId" :variants="product.variants">
+          <VariantSelector
+            v-model="selectedId"
+            :variants="product.variants"
+            :columns="['Formato', 'Disponibilidad', showNetPrices ? 'Precio sin IVA' : 'Precio']"
+          >
             <template #default="{ variant: v }">
-              <span>
-                <span class="block font-medium text-slate-800">{{ v.format }}</span>
-                <span class="block font-mono text-xs text-slate-500">Ref. {{ v.sku }}</span>
+              <span class="min-w-0">
+                <span class="block truncate font-medium text-[var(--text-strong)]">{{ v.format }}</span>
+                <span class="block font-mono text-xs text-[var(--text-muted)]">Ref. {{ v.sku }}</span>
+              </span>
+              <span class="text-right text-xs" :class="rowAvailability(v).class">
+                {{ rowAvailability(v).label }}
               </span>
               <span class="text-right">
-                <span class="block font-display text-lg font-bold text-slate-900">
+                <span class="tabular block font-display font-bold text-[var(--text-strong)]">
                   {{ formatPrice(showNetPrices ? v.netPrice : v.price) }}
                 </span>
-                <span v-if="showNetPrices" class="block text-xs text-slate-500">
-                  sin IVA · {{ formatPrice(v.price) }} con IVA
-                </span>
-                <span v-if="perUnit(v)" class="block text-xs text-slate-500">{{ perUnit(v) }}</span>
+                <span v-if="perUnit(v)" class="tabular block text-xs text-[var(--text-muted)]">{{ perUnit(v) }}</span>
               </span>
             </template>
           </VariantSelector>
@@ -657,177 +776,195 @@ async function addToCart(goToCart = false) {
           </div>
         </div>
 
-        <!-- cantidad + precio -->
-        <div class="mt-6 flex flex-wrap items-center gap-4">
-          <QuantityStepper
-            v-model="qty"
-            :minimum="selected.minimumQuantity"
-            :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
-            :step="selected.quantityIncrement"
-            label="Cantidad"
-          />
-          <div>
-            <p class="font-display text-2xl font-bold text-slate-900">
-              {{ formatPrice((showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) * qty) }}
-            </p>
-            <p class="text-xs text-slate-500">
-              <template v-if="showNetPrices">
-                sin IVA · {{ formatPrice(selectedUnitGrossPrice * qty) }} con IVA ({{
-                  selected.taxRateBasisPoints / 100
-                }}
-                %)
-              </template>
-              <template v-else>IVA incluido ({{ selected.taxRateBasisPoints / 100 }} %)</template>
-              <template v-if="perUnit(selected, selectedUnitGrossPrice)">
-                · {{ perUnit(selected, selectedUnitGrossPrice) }}</template
-              >
-            </p>
-          </div>
-          <p
-            class="flex items-center gap-1.5 text-sm"
-            :class="
-              availability.tone === 'unavailable'
-                ? 'text-red-700'
-                : availability.tone === 'warning' || availability.tone === 'backorder'
-                  ? 'text-amber-700'
-                  : 'text-emerald-700'
-            "
-          >
-            <span
-              class="size-2 rounded-full"
+        <section v-if="product.description || product.usage" class="mt-8 border-t border-[var(--border)] pt-6">
+          <h2 class="text-lg font-bold text-[var(--text-strong)]">Descripción</h2>
+          <p class="mt-3 whitespace-pre-line leading-relaxed text-[var(--text)]">{{ product.description }}</p>
+          <template v-if="product.usage">
+            <h3 class="mt-6 flex items-center gap-2 font-semibold text-[var(--text-strong)]">
+              <UIcon name="i-lucide-beaker" class="size-4 text-neteco-600" /> Modo de empleo y dosificación
+            </h3>
+            <p class="mt-2 leading-relaxed text-[var(--text)]">{{ product.usage }}</p>
+          </template>
+        </section>
+      </div>
+
+      <!-- Caja de compra fija, al estilo de las fichas de Amazon: precio, disponibilidad,
+           cantidad y acción viven juntos y siguen visibles al bajar por la ficha. Antes
+           estaban repartidos por la columna central y quedaban fuera de pantalla en cuanto
+           se leía la descripción. -->
+      <aside class="xl:col-span-3">
+        <div
+          class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 xl:sticky xl:top-24"
+        >
+          <div class="flex flex-wrap items-center gap-4">
+            <QuantityStepper
+              v-model="qty"
+              :minimum="selected.minimumQuantity"
+              :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
+              :step="selected.quantityIncrement"
+              label="Cantidad"
+            />
+            <div>
+              <p class="font-display text-2xl font-bold text-slate-900">
+                {{ formatPrice(showNetPrices ? selectedLineNetPrice : selectedUnitGrossPrice * qty) }}
+              </p>
+              <p class="text-xs text-slate-500">
+                <template v-if="showNetPrices">
+                  sin IVA · {{ formatPrice(selectedUnitGrossPrice * qty) }} con IVA ({{
+                    selected.taxRateBasisPoints / 100
+                  }}
+                  %)
+                </template>
+                <template v-else>IVA incluido ({{ selected.taxRateBasisPoints / 100 }} %)</template>
+                <template v-if="perUnit(selected, selectedUnitGrossPrice)">
+                  · {{ perUnit(selected, selectedUnitGrossPrice) }}</template
+                >
+              </p>
+            </div>
+            <p
+              class="flex items-center gap-1.5 text-sm"
               :class="
                 availability.tone === 'unavailable'
-                  ? 'bg-red-600'
+                  ? 'text-red-700'
                   : availability.tone === 'warning' || availability.tone === 'backorder'
-                    ? 'bg-amber-500'
-                    : 'bg-emerald-600'
+                    ? 'text-amber-700'
+                    : 'text-emerald-700'
               "
+            >
+              <span
+                class="size-2 rounded-full"
+                :class="
+                  availability.tone === 'unavailable'
+                    ? 'bg-red-600'
+                    : availability.tone === 'warning' || availability.tone === 'backorder'
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-600'
+                "
+              />
+              {{ availability.label }}
+            </p>
+          </div>
+
+          <section
+            v-if="selected.priceTiers.length"
+            class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+          >
+            <h2 class="text-sm font-semibold text-emerald-950">Ahorro por volumen</h2>
+            <ul class="mt-2 grid gap-2 text-sm grid-cols-1 sm:grid-cols-2">
+              <li v-for="tier in selected.priceTiers" :key="tier.minimumQuantity" class="flex justify-between gap-3">
+                <span>Desde {{ tier.minimumQuantity }} unidades</span>
+                <strong>{{ formatPrice(tier.unitGrossCents) }}/ud IVA incl.</strong>
+              </li>
+            </ul>
+          </section>
+          <p v-if="selected.compareAtPrice && selected.referencePrice30d" class="mt-3 text-xs text-slate-500">
+            Precio anterior: <s>{{ formatPrice(selected.compareAtPrice) }}</s> · Precio más bajo de los 30 días
+            anteriores: {{ formatPrice(selected.referencePrice30d) }}.
+          </p>
+
+          <div class="mt-5 flex flex-col gap-2">
+            <UButton
+              size="xl"
+              icon="i-lucide-shopping-cart"
+              class="justify-center"
+              :disabled="outOfStock || adding"
+              :loading="adding"
+              @click="addToCart(false)"
+            >
+              Añadir al carrito
+            </UButton>
+            <!-- «Comprar ahora» baja a secundario y «Favorito» a icono: antes los tres competían
+                 por ser la acción principal, con «Comprar ahora» en gris oscuro pesando incluso más
+                 que el azul de marca. Una sola acción principal por región. -->
+            <UButton
+              size="xl"
+              color="neutral"
+              variant="outline"
+              class="justify-center"
+              :disabled="outOfStock || adding"
+              @click="addToCart(true)"
+            >
+              Comprar ahora
+            </UButton>
+            <UButton
+              size="xl"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-heart"
+              aria-label="Guardar en mi lista de compra"
+              class="justify-center"
+              @click="addFavorite"
             />
-            {{ availability.label }}
-          </p>
+          </div>
+
+          <section class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="delivery-title">
+            <h2 id="delivery-title" class="text-sm font-semibold text-slate-800">¿Cuándo me llega?</h2>
+            <p class="mt-1 text-xs text-slate-500">
+              Dinos dónde y te damos la fecha estimada. La confirmamos al pagar.
+            </p>
+            <form class="mt-3 flex flex-col gap-2" @submit.prevent="calculateDelivery">
+              <label class="sr-only" for="delivery-postal-code">Código postal</label>
+              <UInput
+                id="delivery-postal-code"
+                v-model="deliveryPostalCode"
+                inputmode="numeric"
+                autocomplete="postal-code"
+                maxlength="5"
+                placeholder="Código postal"
+                class="w-full"
+              />
+              <label class="sr-only" for="delivery-city">Población</label>
+              <UInput
+                id="delivery-city"
+                v-model="deliveryCity"
+                autocomplete="address-level2"
+                placeholder="Población"
+                class="w-full"
+              />
+              <UButton type="submit" variant="outline" block :loading="deliveryLoading">Ver fecha estimada</UButton>
+            </form>
+            <p v-if="deliveryError" class="mt-2 text-sm text-amber-800" role="alert">{{ deliveryError }}</p>
+            <ul v-else-if="deliveryQuote?.rates.length" class="mt-3 space-y-2" aria-live="polite">
+              <li v-for="rate in deliveryQuote.rates" :key="rate.serviceCode" class="text-sm text-slate-700">
+                <span class="font-semibold">{{ rate.label }}:</span>
+                {{ deliveryDate(rate.estimatedDeliveryFrom) }}–{{ deliveryDate(rate.estimatedDeliveryTo) }}
+                <span v-if="deliveryQuote.stockCondition === 'backorder'" class="text-amber-700">
+                  · bajo pedido<template v-if="deliveryQuote.leadTimeDays">
+                    (preparación estimada {{ deliveryQuote.leadTimeDays }} días)</template
+                  >
+                </span>
+              </li>
+            </ul>
+          </section>
+
+          <div class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-sm text-[var(--text-muted)]">
+            <p class="flex items-center gap-2">
+              <UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio cuando el destino y la ruta
+              estén habilitados
+            </p>
+            <p class="flex items-center gap-2">
+              <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Fecha y método calculados con tu
+              código postal en checkout
+            </p>
+            <p class="flex items-center gap-2">
+              <UIcon name="i-lucide-phone" class="size-4 text-neteco-600" /> Asesoramiento: 600 861 334
+            </p>
+            <p class="flex items-center gap-2">
+              <UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Tarifa y posibles bonificaciones
+              calculadas con el destino y la mercancía
+            </p>
+          </div>
         </div>
-
-        <section v-if="selected.priceTiers.length" class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <h2 class="text-sm font-semibold text-emerald-950">Ahorro por volumen</h2>
-          <ul class="mt-2 grid gap-2 text-sm sm:grid-cols-2">
-            <li v-for="tier in selected.priceTiers" :key="tier.minimumQuantity" class="flex justify-between gap-3">
-              <span>Desde {{ tier.minimumQuantity }} unidades</span>
-              <strong>{{ formatPrice(tier.unitGrossCents) }}/ud IVA incl.</strong>
-            </li>
-          </ul>
-        </section>
-        <p v-if="selected.compareAtPrice && selected.referencePrice30d" class="mt-3 text-xs text-slate-500">
-          Precio anterior: <s>{{ formatPrice(selected.compareAtPrice) }}</s> · Precio más bajo de los 30 días
-          anteriores: {{ formatPrice(selected.referencePrice30d) }}.
-        </p>
-
-        <section class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="delivery-title">
-          <h2 id="delivery-title" class="text-sm font-semibold text-slate-800">
-            Calcula la entrega para esta variante
-          </h2>
-          <p class="mt-1 text-xs text-slate-500">
-            La fecha depende del stock, la cantidad, la zona y un servicio de transporte elegible. Se revalidará al
-            pagar.
-          </p>
-          <form class="mt-3 flex flex-col gap-2 sm:flex-row" @submit.prevent="calculateDelivery">
-            <label class="sr-only" for="delivery-postal-code">Código postal</label>
-            <UInput
-              id="delivery-postal-code"
-              v-model="deliveryPostalCode"
-              inputmode="numeric"
-              autocomplete="postal-code"
-              maxlength="5"
-              placeholder="Código postal"
-            />
-            <label class="sr-only" for="delivery-city">Población</label>
-            <UInput id="delivery-city" v-model="deliveryCity" autocomplete="address-level2" placeholder="Población" />
-            <UButton type="submit" variant="outline" :loading="deliveryLoading">Calcular</UButton>
-          </form>
-          <p v-if="deliveryError" class="mt-2 text-sm text-amber-800" role="alert">{{ deliveryError }}</p>
-          <ul v-else-if="deliveryQuote?.rates.length" class="mt-3 space-y-2" aria-live="polite">
-            <li v-for="rate in deliveryQuote.rates" :key="rate.serviceCode" class="text-sm text-slate-700">
-              <span class="font-semibold">{{ rate.label }}:</span>
-              {{ deliveryDate(rate.estimatedDeliveryFrom) }}–{{ deliveryDate(rate.estimatedDeliveryTo) }}
-              <span v-if="deliveryQuote.stockCondition === 'backorder'" class="text-amber-700">
-                · bajo pedido<template v-if="deliveryQuote.leadTimeDays">
-                  (preparación estimada {{ deliveryQuote.leadTimeDays }} días)</template
-                >
-              </span>
-            </li>
-          </ul>
-        </section>
-
-        <div class="mt-5 flex flex-col gap-3 sm:flex-row">
-          <UButton
-            size="xl"
-            icon="i-lucide-shopping-cart"
-            class="justify-center sm:flex-1"
-            :disabled="outOfStock || adding"
-            :loading="adding"
-            @click="addToCart(false)"
-          >
-            Añadir al carrito
-          </UButton>
-          <UButton
-            size="xl"
-            variant="soft"
-            icon="i-lucide-zap"
-            class="justify-center"
-            :disabled="outOfStock || adding"
-            @click="addToCart(true)"
-          >
-            Comprar ahora
-          </UButton>
-          <UButton
-            size="xl"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-heart"
-            class="justify-center"
-            @click="addFavorite"
-          >
-            Favorito
-          </UButton>
-        </div>
-
-        <div class="mt-6 grid gap-2 rounded-xl bg-slate-100 p-4 text-sm text-slate-600 sm:grid-cols-2">
-          <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio cuando el destino y la ruta
-            estén habilitados
-          </p>
-          <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Fecha y método calculados con tu
-            código postal en checkout
-          </p>
-          <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-phone" class="size-4 text-neteco-600" /> Asesoramiento: 600 861 334
-          </p>
-          <p class="flex items-center gap-2">
-            <UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Tarifa y posibles bonificaciones
-            calculadas con el destino y la mercancía
-          </p>
-        </div>
-      </div>
+      </aside>
     </div>
 
-    <!-- descripción y detalles -->
-    <div class="mt-10 grid items-start gap-8 lg:grid-cols-3">
-      <div
-        v-if="product.description || product.usage"
-        class="rounded-2xl border border-slate-200 bg-white p-6 lg:col-span-2"
-      >
-        <h2 class="text-lg font-bold text-slate-900">Descripción</h2>
-        <p class="mt-3 whitespace-pre-line leading-relaxed text-slate-600">{{ product.description }}</p>
-        <template v-if="product.usage">
-          <h3 class="mt-6 flex items-center gap-2 font-semibold text-slate-900">
-            <UIcon name="i-lucide-beaker" class="size-4 text-neteco-600" /> Modo de empleo y dosificación
-          </h3>
-          <p class="mt-2 leading-relaxed text-slate-600">{{ product.usage }}</p>
-        </template>
-      </div>
-      <div class="h-fit rounded-2xl border border-slate-200 bg-white p-6">
+    <!-- ficha técnica -->
+    <div class="mt-10">
+      <div class="rounded-2xl border border-slate-200 bg-white p-6">
         <h2 class="text-lg font-bold text-slate-900">Características</h2>
-        <dl class="mt-3 divide-y divide-slate-100 text-sm">
+        <dl
+          class="mt-3 text-sm sm:columns-2 sm:gap-x-10 [&>div]:break-inside-avoid [&>div]:border-b [&>div]:border-slate-100"
+        >
           <div v-if="product.brand" class="flex justify-between py-2">
             <dt class="text-slate-500">Marca</dt>
             <dd class="font-medium text-slate-700">{{ product.brand }}</dd>
@@ -881,21 +1018,30 @@ async function addToCart(goToCart = false) {
             <dt class="shrink-0 text-slate-500">{{ attribute.k }}</dt>
             <dd class="text-right font-medium text-slate-700">{{ attribute.v }}</dd>
           </div>
+          <div
+            v-for="attribute in product.typedAttrs ?? []"
+            :key="`${attribute.definitionId}:${attribute.revision}`"
+            :data-typed-detail="attribute.definitionId"
+            class="flex min-w-0 justify-between gap-4 py-2"
+          >
+            <dt class="min-w-0 break-words text-slate-500">{{ attribute.label }}</dt>
+            <dd class="min-w-0 break-words text-right font-medium text-slate-700">{{ attribute.displayValue }}</dd>
+          </div>
           <div class="flex justify-between py-2">
             <dt class="text-slate-500">Categoría</dt>
             <dd class="font-medium text-slate-700">{{ product.breadcrumb.at(-1)?.name }}</dd>
           </div>
         </dl>
         <div
-          v-if="product.documents.length || runtime.public.appEnv !== 'production'"
+          v-if="technicalDocuments.length || runtime.public.appEnv !== 'production'"
           class="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500"
         >
           <p class="flex items-center gap-1.5 font-medium text-slate-600">
             <UIcon name="i-lucide-file-text" class="size-4" /> Fichas técnicas y de seguridad
           </p>
           <UButton
-            v-if="product.datasheet && runtime.public.appEnv !== 'production'"
-            :href="product.datasheet"
+            v-if="datasheet && runtime.public.appEnv !== 'production'"
+            :href="datasheet"
             target="_blank"
             variant="soft"
             size="sm"
@@ -904,8 +1050,8 @@ async function addToCart(goToCart = false) {
           >
             Descargar ficha técnica (PDF)
           </UButton>
-          <ul v-if="product.documents.length" class="mt-2 space-y-2">
-            <li v-for="document in product.documents" :key="`${document.id}-${document.role}-${document.version}`">
+          <ul v-if="technicalDocuments.length" class="mt-2 space-y-2">
+            <li v-for="document in technicalDocuments" :key="`${document.id}-${document.role}-${document.version}`">
               <UButton :href="document.url" target="_blank" variant="soft" size="sm" icon="i-lucide-file-down">
                 {{
                   document.role === 'sds'
@@ -920,7 +1066,7 @@ async function addToCart(goToCart = false) {
               </UButton>
             </li>
           </ul>
-          <p v-else-if="!product.datasheet && runtime.public.appEnv !== 'production'" class="mt-1">
+          <p v-else-if="!datasheet && runtime.public.appEnv !== 'production'" class="mt-1">
             Sin documentos asociados en el catálogo de demostración.
           </p>
         </div>
@@ -945,6 +1091,17 @@ async function addToCart(goToCart = false) {
       </div>
     </div>
 
+    <ProductEngagementPanel
+      v-if="engagementEnabled"
+      :product-id="product.id"
+      :variant-id="selected.id"
+      :scope-key="engagementScope"
+      :enabled="engagementEnabled"
+      :customer-enabled="engagementCustomerEnabled"
+      class="mt-8"
+    />
+    <PublishedProductRelations :product-slugs="[String(route.params.slug)]" class="mt-8" />
+
     <!-- relacionados -->
     <section v-if="product.related?.length" class="mt-12">
       <h2 class="mb-4 text-xl font-bold text-slate-900">También te puede interesar</h2>
@@ -953,40 +1110,14 @@ async function addToCart(goToCart = false) {
       </div>
     </section>
 
-    <!-- lupa: imagen a pantalla completa -->
-    <Teleport to="body">
-      <div
-        v-if="lightbox && shownImage"
-        class="fixed inset-0 z-[60] flex items-center justify-center overflow-hidden bg-slate-900/85 p-4"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="`Imagen de ${product.name}`"
-        @click="lightbox = false"
-      >
-        <img
-          :src="lightboxSrc ?? shownImage"
-          :alt="colorMode ? `${product.name} · ${selected.format}` : product.name"
-          class="max-h-[92vh] max-w-[94vw] select-none rounded-xl bg-white object-contain shadow-2xl transition-transform duration-200 ease-out"
-          :class="zoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'"
-          :style="{ transform: zoomed ? 'scale(2.5)' : 'none', transformOrigin: zoomOrigin }"
-          draggable="false"
-          @click.stop="toggleZoom"
-          @mousemove="onZoomMove"
-        />
-        <button
-          class="absolute right-4 top-4 z-10 rounded-full bg-white/95 p-2.5 text-slate-700 shadow-md transition hover:bg-white"
-          aria-label="Cerrar la imagen"
-          @click="lightbox = false"
-        >
-          <UIcon name="i-lucide-x" class="block size-5" />
-        </button>
-        <p
-          class="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-900/70 px-4 py-1.5 text-xs text-white"
-        >
-          {{ zoomed ? 'Mueve el ratón para recorrer · clic para alejar' : 'Haz clic sobre la imagen para ampliar' }}
-        </p>
-      </div>
-    </Teleport>
+    <ProductImageLightbox
+      v-model:open="lightbox"
+      :src="lightboxSrc"
+      :alt="imageAlt"
+      :name="product.name"
+      :trigger="imageTrigger"
+      :context-key="selectedId"
+    />
 
     <!-- barra de compra fija (móvil) -->
     <div
@@ -995,7 +1126,7 @@ async function addToCart(goToCart = false) {
       <div class="min-w-0">
         <p class="truncate text-xs text-slate-500">{{ selected.format }}</p>
         <p class="font-display text-lg font-bold text-slate-900">
-          {{ formatPrice((showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) * qty) }}
+          {{ formatPrice(showNetPrices ? selectedLineNetPrice : selectedUnitGrossPrice * qty) }}
         </p>
       </div>
       <UButton

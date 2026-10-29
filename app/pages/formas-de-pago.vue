@@ -8,23 +8,28 @@ useSeoMeta({
     : 'Paga tus pedidos NETECO con tarjeta o Bizum mediante el flujo alojado y validado de Redsys.'
 })
 
+/**
+ * La copia venía del lado del sistema: «no recibe PAN ni CVC», «flujo alojado», «referencia
+ * trazable», «conciliar el ingreso». Todo es cierto y todo importa, pero dicho así no
+ * tranquiliza a nadie: se explica el mecanismo en vez de la consecuencia para quien paga.
+ */
 const methods = computed(() => [
   {
     icon: 'i-lucide-credit-card',
-    title: 'Tarjeta de crédito o débito',
-    desc: 'Redirección al TPV alojado: NETECO no recibe PAN ni CVC. Solo la notificación bancaria validada confirma el pago.'
+    title: 'Tarjeta',
+    desc: 'Pagas en la pasarela de tu banco, no aquí. NETECO nunca ve ni guarda el número de tu tarjeta. El pedido se confirma cuando el banco nos avisa de que el cobro ha salido bien.'
   },
   {
     icon: 'i-lucide-smartphone',
     title: 'Bizum',
-    desc: 'Autorización en el flujo alojado de Redsys. Volver al navegador no basta: el pedido espera la confirmación bancaria.'
+    desc: 'Igual que con tarjeta: autorizas el pago en tu banco. Si cierras el navegador a mitad, no pasa nada: el pedido espera a la confirmación del banco, nunca se cobra dos veces.'
   },
   ...(runtime.public.bankTransferEnabled
     ? [
         {
           icon: 'i-lucide-landmark',
-          title: 'Transferencia bancaria',
-          desc: 'El pedido queda pendiente con una referencia trazable y la reserva tiene caducidad. La preparación comienza tras conciliar el ingreso.'
+          title: 'Transferencia',
+          desc: 'Te damos una referencia para poner en el concepto. Guardamos tu pedido y el stock mientras llega el ingreso; en cuanto lo vemos en cuenta, empezamos a prepararlo.'
         }
       ]
     : [])
@@ -35,11 +40,10 @@ const methods = computed(() => [
   <div class="mx-auto max-w-4xl px-4 py-10">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Formas de pago</h1>
     <p class="mt-2 text-slate-600">
-      Los documentos fiscales se emiten con los datos validados del pedido cuando el estado de pago y la regla fiscal lo
-      permiten.
+      Elige cómo pagar. Recibirás la factura con los datos fiscales de tu empresa en cuanto el pedido esté cobrado.
     </p>
 
-    <div class="mt-8 grid gap-4 sm:grid-cols-3">
+    <div class="mt-8 grid gap-4 grid-cols-1 sm:grid-cols-3">
       <div v-for="m in methods" :key="m.title" class="rounded-2xl border border-slate-200 bg-white p-6">
         <span class="inline-block rounded-xl bg-neteco-50 p-3 text-neteco-600">
           <UIcon :name="m.icon" class="block size-6" />

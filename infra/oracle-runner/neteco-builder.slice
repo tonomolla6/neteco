@@ -1,0 +1,13 @@
+# Install as user-11080.slice, after verifying the dedicated identity is free.
+[Unit]
+Description=Aggregate limit for Neteco rootless container user only
+
+[Slice]
+CPUQuota=100%
+MemoryHigh=1536M
+MemoryMax=2G
+MemorySwapMax=256M
+TasksMax=512
+CPUAccounting=yes
+MemoryAccounting=yes
+TasksAccounting=yes

@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "types": ["node"] },
+  "include": ["worker-configuration.d.ts", "workers/**/*.ts"],
+  "exclude": ["node_modules", ".output", "tests"]
+}

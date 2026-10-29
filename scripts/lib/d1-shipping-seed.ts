@@ -32,7 +32,7 @@ const RATES: RateSeed[] = [
     etaMin: 1,
     id: 'rate-own-parcel',
     method: 'own_delivery',
-    netCents: 350,
+    netCents: 0,
     profile: 'parcel',
     zone: 'own-delivery'
   },

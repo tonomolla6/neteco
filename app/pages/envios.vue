@@ -5,30 +5,37 @@ useSeoMeta({
     "Zonas, plazos y costes de entrega de NETECO: reparto propio en Ontinyent y la Vall d'Albaida, envío por agencia a península y recogida en almacén."
 })
 
+/**
+ * La copia anterior estaba escrita desde dentro del sistema: «tarifa server-side antes del
+ * pago», «ventana calculada por carrier», «modalidad autorizada». Un hostelero que quiere
+ * saber cuándo le llega el pedido no habla así. Los hechos son los mismos; cambia quién es
+ * el sujeto de la frase.
+ */
+const freeShipping = useFreeShipping()
 const methods = [
   {
     icon: 'i-lucide-truck',
-    title: 'Reparto propio NETECO',
-    zone: 'Códigos postales y rutas configurados',
-    time: 'Fecha calculada en checkout',
-    cost: 'Según destino y mercancía',
-    note: 'El checkout valida si existe ruta propia para el código postal y calcula una fecha real. Las instrucciones de muelle o acceso se revisan antes de confirmar la expedición.'
+    title: 'Te lo llevamos nosotros',
+    zone: 'Ontinyent y la Vall d’Albaida',
+    time: 'Plazo según disponibilidad, destino y método',
+    cost: 'Según destino y pedido',
+    note: 'Al seleccionar el envío se confirma la cobertura y se muestra el plazo estimado cuando hay un calendario operativo disponible. Si todavía no hay fecha estimada, consúltanos antes de contar con un día concreto. Indica cualquier dificultad de acceso en las instrucciones del pedido.'
   },
   {
     icon: 'i-lucide-package',
     title: 'Envío por agencia',
-    zone: 'Destinos aceptados por el servicio contratado',
-    time: 'Ventana calculada por carrier',
-    cost: 'Tarifa server-side antes del pago',
-    note: 'Peso, volumen, bultos y restricciones determinan los servicios elegibles. Mercancía ADR o palé solo se ofrece cuando existe una modalidad autorizada.'
+    zone: 'Península',
+    time: 'Plazo estimado al seleccionar el envío',
+    cost: freeShipping.label.value || 'Según destino y peso',
+    note: 'Verás el coste antes de pagar y, cuando esté disponible, el plazo estimado al seleccionar el envío. No es una fecha garantizada. Los productos voluminosos o los que viajan como mercancía peligrosa conservan sus condiciones, que se comprueban al calcular el envío.'
   },
   {
     icon: 'i-lucide-store',
-    title: 'Recogida en almacén',
-    zone: 'Ontinyent',
-    time: 'Te avisamos cuando esté listo',
+    title: 'Lo recoges tú',
+    zone: 'Nuestro almacén en Ontinyent',
+    time: 'Consulta cuándo está preparado',
     cost: 'Gratis',
-    note: 'Te avisamos por teléfono o email cuando tu pedido esté preparado.'
+    note: 'Consulta el estado del pedido y las instrucciones de recogida antes de desplazarte. Trae el número de pedido.'
   }
 ]
 </script>
@@ -48,7 +55,7 @@ const methods = [
           </span>
           <div class="flex-1">
             <h2 class="text-lg font-bold text-slate-900">{{ m.title }}</h2>
-            <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm sm:grid-cols-3">
+            <dl class="mt-3 grid gap-x-8 gap-y-2 text-sm grid-cols-1 sm:grid-cols-3">
               <div>
                 <dt class="text-slate-500">Zona</dt>
                 <dd class="mt-0.5 font-medium text-slate-800">{{ m.zone }}</dd>

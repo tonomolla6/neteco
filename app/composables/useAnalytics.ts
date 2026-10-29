@@ -1,28 +1,47 @@
-type AnalyticsEventName =
-  | 'page_view'
-  | 'catalog_viewed'
-  | 'search_completed'
-  | 'product_viewed'
-  | 'cart_item_added'
-  | 'cart_item_removed'
-  | 'checkout_started'
-  | 'web_vital'
+import { dispatchClientAnalytics, type ClientAnalyticsEventName } from '~~/shared/analytics-client'
+import { isPrivateAnalyticsRoute } from '~~/shared/analytics-privacy'
 
 export function useAnalytics() {
   const { preferences } = useConsent()
+  const route = useRoute()
 
-  async function track(name: AnalyticsEventName, properties: Record<string, string | number | boolean | null>) {
-    if (!import.meta.client || !preferences.value?.analytics) return
+  async function track(name: ClientAnalyticsEventName, properties: Record<string, string | number | boolean | null>) {
+    if (!import.meta.client || preferences.value?.analytics !== true) return
+    if (isPrivateAnalyticsRoute(route.path, route.query)) return
     const event = {
-      eventId: crypto.randomUUID(),
+      eventId: randomId(),
       taxonomyVersion: 'v1' as const,
       name,
       occurredAt: new Date().toISOString(),
       properties
     }
     const dataLayer = (window as typeof window & { dataLayer?: unknown[] }).dataLayer
-    if (Array.isArray(dataLayer)) dataLayer.push({ event: name, ...properties })
-    await $fetch('/api/analytics/events', { method: 'POST', body: event }).catch(() => undefined)
+    let submitted = false
+    await dispatchClientAnalytics(
+      { consent: preferences.value.analytics, path: route.path, query: route.query, event },
+      (body) => {
+        submitted = true
+        return $fetch('/api/analytics/events', {
+          method: 'POST',
+          body,
+          retry: 0,
+          credentials: 'same-origin',
+          referrerPolicy: 'no-referrer'
+        })
+      },
+      dataLayer
+    )
+    // CMP already clears immediately. A previously accepted POST may settle
+    // later with Set-Cookie, so clear once more after that request completes.
+    // This is an in-page defense, not a guarantee across unload/navigation.
+    if (submitted && preferences.value?.analytics !== true) {
+      await $fetch('/api/analytics/session', {
+        method: 'DELETE',
+        retry: 0,
+        credentials: 'same-origin',
+        referrerPolicy: 'no-referrer'
+      }).catch(() => undefined)
+    }
   }
 
   return { track }

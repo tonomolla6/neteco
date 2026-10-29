@@ -1,8 +1,14 @@
 <script setup lang="ts">
+import DemoLoginShortcuts from '../components/DemoLoginShortcuts.vue'
+
 useSeoMeta({ title: 'Iniciar sesión' })
 
 const route = useRoute()
 const { fetch: refreshSession } = useUserSession()
+const runtime = useRuntimeConfig()
+const demoShortcuts = computed(
+  () => runtime.public.serverRuntime === 'cloudflare' && runtime.public.demoEnabled === true
+)
 
 const form = reactive({ email: '', password: '' })
 const mfa = reactive({ challenge: '', code: '' })
@@ -43,7 +49,7 @@ async function submit() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-md px-4 py-14">
+  <div class="mx-auto max-w-md px-4" :class="demoShortcuts ? 'pt-14 pb-56' : 'py-14'">
     <div class="rounded-2xl border border-slate-200 bg-white p-8">
       <img src="/logo-figura.png" alt="" class="mx-auto h-12 w-auto" />
       <h1 class="mt-4 text-center text-2xl font-bold text-slate-900">Inicia sesión</h1>
@@ -75,5 +81,6 @@ async function submit() {
         </NuxtLink>
       </p>
     </div>
+    <DemoLoginShortcuts :runtime="runtime.public.serverRuntime" :enabled="runtime.public.demoEnabled" />
   </div>
 </template>

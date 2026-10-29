@@ -5,7 +5,9 @@ export default withNuxt(
     ignores: [
       '.cache/**',
       '.nuxt/**',
+      '.nuxt-cloudflare/**',
       '.output/**',
+      '.output-cloudflare/**',
       'coverage/**',
       'node_modules/**',
       'public/**',

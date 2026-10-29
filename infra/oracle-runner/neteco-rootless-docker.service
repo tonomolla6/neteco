@@ -1,0 +1,37 @@
+# Install root-owned as /etc/neteco-ci/builder-user/docker.service. This is a
+# USER unit inside the dedicated, constrained user@11080.service manager.
+[Unit]
+Description=Neteco private rootless Docker (operator acceptance only)
+Requires=dbus.socket
+After=dbus.socket
+
+[Service]
+Type=notify
+NotifyAccess=all
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SANDBOX=true
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SECCOMP=true
+# Explicit sandbox is incompatible with RootlessKit's detached-netns fast path.
+# Retain sandbox/seccomp rather than disabling them to make bootstrap succeed.
+Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=false
+# Supported runc drop-in. Acceptance must still prove real cgroup enforcement;
+# selecting another runtime is not a waiver for resource or namespace checks.
+ExecStart=/usr/bin/dockerd-rootless.sh --host=unix:///var/lib/neteco-ci-runtime/builder/socket/docker.sock --group=0 --data-root=/var/lib/neteco-ci-runtime/builder/data --exec-root=/run/user/11080/docker-exec --pidfile=/run/user/11080/docker.pid --log-driver=local --log-opt=max-size=10m --log-opt=max-file=2 --add-runtime=crun=/usr/bin/crun --default-runtime=crun
+Delegate=yes
+# Private operator-visible log in the physically bounded Neteco volume. No host
+# journal/system-bus/control socket is exposed. Retention remains an admission
+# prerequisite; this unit is not enabled for unattended CI yet.
+StandardOutput=append:/var/lib/neteco-ci-runtime/builder/tmp/docker.log
+StandardError=inherit
+KillMode=mixed
+TimeoutStartSec=90
+TimeoutStopSec=30
+Restart=no
+LimitNOFILE=65536
+LimitNPROC=512
+LimitCORE=0
+
+[Install]
+WantedBy=default.target

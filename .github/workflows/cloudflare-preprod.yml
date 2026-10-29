@@ -1,0 +1,50 @@
+name: Cloudflare preproduction configuration
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-preprod-configuration
+  cancel-in-progress: false
+
+env:
+  NETECO_GITHUB_REPOSITORY: ${{ vars.NETECO_GITHUB_REPOSITORY }}
+
+jobs:
+  validate:
+    if: github.ref == 'refs/heads/main'
+    environment: preprod
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
+    timeout-minutes: 15
+    steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: node scripts/storage-preflight.ts
+      - run: npm ci
+      - name: Resolve existing isolated resources (read-only)
+        run: npm run cloudflare:preprod:prepare
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - run: npm run typecheck:worker
+      - run: npm run test:worker
+      - name: Build only, without upload or deployment
+        run: npx wrangler deploy --config .wrangler/preprod/wrangler.json --dry-run --outdir .wrangler/preprod-build

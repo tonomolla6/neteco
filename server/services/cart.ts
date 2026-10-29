@@ -30,6 +30,7 @@ export interface ServerCartItem {
   priceTiers: VolumePriceTier[]
   pricingVersion: string
   netPrice: number
+  lineNet: number
   taxRateBasisPoints: number
   qty: number
   visual: { type: string; color: string }
@@ -145,7 +146,7 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
     SELECT id, version, status, expires_at FROM carts WHERE id = ${cart.id}
   `
   if (!header) throw createError({ statusCode: 404, statusMessage: 'Carrito no encontrado' })
-  const rawItems = await sql<Array<Omit<ServerCartItem, 'netPrice' | 'price'>>>`
+  const rawItems = await sql<Array<Omit<ServerCartItem, 'netPrice' | 'lineNet' | 'price'>>>`
     SELECT p.legacy_id AS "productId", p.slug, p.name, COALESCE(b.name, '') AS brand,
            v.legacy_id AS "variantId", v.format, v.sku, price.gross_cents AS "basePrice",
            price.compare_at_gross_cents AS "compareAtPrice",
@@ -180,10 +181,15 @@ async function readCart(cart: CartReference): Promise<ServerCart> {
   `
   const items = rawItems.map((item) => {
     const price = selectVolumeUnitPrice(item.basePrice, item.qty, item.priceTiers)
-    return { ...item, price, netPrice: splitGross(price, item.taxRateBasisPoints).netCents }
+    return {
+      ...item,
+      price,
+      netPrice: splitGross(price, item.taxRateBasisPoints).netCents,
+      lineNet: splitGross(price * item.qty, item.taxRateBasisPoints).netCents
+    }
   })
   const subtotal = items.reduce((total, item) => total + item.price * item.qty, 0)
-  const subtotalNet = items.reduce((total, item) => total + item.netPrice * item.qty, 0)
+  const subtotalNet = items.reduce((total, item) => total + item.lineNet, 0)
   return {
     id: header.id,
     version: header.version,

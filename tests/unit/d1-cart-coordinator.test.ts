@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
 import { CartCoordinator, cartDoName } from '../../workers/cart-coordinator'
+import { issueD1SessionCookie, verifySessionCookie } from '../../workers/auth/session-cookie'
+import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { createCart as createD1Cart } from '../../workers/catalog/cart'
 
 class FakeStorage {
   private readonly values = new Map<string, unknown>()
@@ -80,6 +84,10 @@ async function world(options: WorldOptions = {}) {
   `)
 
   let database = d1OverSqlite(sqlite)
+  await provisionPublicationValidityFixture(database, {
+    productIds: ['p-1', 'p-2', 'p-3', 'p-4', 'p-5', 'p-6', 'p-uuid-a', 'p-uuid-b'],
+    now: '2026-01-01T00:00:00Z'
+  })
   let inFlight = 0
   let maxInFlight = 0
   if (options.delayMs || options.failDatabase) {
@@ -129,6 +137,8 @@ async function world(options: WorldOptions = {}) {
   const env = {
     APP_ENV: 'canary',
     DB: database,
+    CART_EDGE_LIMIT: { limit: async () => ({ success: true }) },
+    AUTH_RATE_LIMIT_PEPPER: 'test-cart-edge-pepper-0123456789abcdef',
     CARTS: {
       idFromName: (name: string) => ({ name }),
       get: (stub: { name: string }) => ({
@@ -153,6 +163,8 @@ async function world(options: WorldOptions = {}) {
 
   return {
     env,
+    sqlite,
+    database,
     maxInFlight: () => maxInFlight,
     entryCount: () => entries.size,
     storageOfName: (name: string) => entries.get(name)?.storage
@@ -165,7 +177,11 @@ function json(response: Response) {
 
 async function createCart(env: CloudflareEnv): Promise<{ cartId: string; token: string }> {
   const response = await worker.fetch!(
-    new Request('https://canary.neteco.invalid/api/carts', { method: 'POST', body: '{}' }),
+    new Request('https://canary.neteco.invalid/api/carts', {
+      method: 'POST',
+      headers: { 'cf-connecting-ip': '192.0.2.22' },
+      body: '{}'
+    }),
     env
   )
   expect(response.status).toBe(201)
@@ -189,7 +205,313 @@ const mutateViaApi = (
     env
   )
 
+async function authenticatedStorefrontWorld() {
+  const fixture = await world()
+  const origin = 'https://shop.neteco.test'
+  const password = 'synthetic-coordinator-session-password-0123456789abcdef'
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const expires = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const customerId = crypto.randomUUID(),
+    identityId = crypto.randomUUID(),
+    sessionId = crypto.randomUUID()
+  fixture.sqlite
+    .prepare('INSERT INTO customers(id,name,status,created_at,updated_at) VALUES (?, ?, ?, ?, ?)')
+    .run(customerId, 'Synthetic verified buyer', 'active', now, now)
+  fixture.sqlite
+    .prepare(
+      `INSERT INTO identities(id,email,password_hash,email_verified_at,status,session_version,customer_id,created_at,updated_at)
+       VALUES (?, ?, ?, ?, 'active', 1, ?, ?, ?)`
+    )
+    .run(identityId, 'synthetic-owner@example.test', 'unusable-test-fixture', now, customerId, now, now)
+  fixture.sqlite
+    .prepare(
+      'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at,last_seen_at) VALUES (?, ?, 1, 0, ?, ?, ?)'
+    )
+    .run(sessionId, identityId, now, expires, now)
+  const sealed = await issueD1SessionCookie(
+    fixture.database,
+    { identityId, sessionId, sessionVersion: 1 },
+    { password, maxAgeSeconds: 3600 }
+  )
+  expect(sealed).toBeTruthy()
+  const sessionCookie = sealed!.split(';')[0]!
+  const env: CloudflareEnv = {
+    ...fixture.env,
+    AUTH_ENABLED: 'true',
+    AUTH_ORIGIN: origin,
+    NUXT_SESSION_PASSWORD: password,
+    REDSYS_ENABLED: 'true',
+    REDSYS_ENVIRONMENT: 'sandbox',
+    REDSYS_MERCHANT_CODE: REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode,
+    REDSYS_TERMINAL: REDSYS_OFFICIAL_CONTRACT.sandbox.terminal,
+    REDSYS_SECRET_KEY: REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey,
+    PAYMENT_PUBLIC_BASE_URL: origin
+  }
+  const request = (path: string, method = 'GET', body?: unknown, cookie = sessionCookie, key = crypto.randomUUID()) =>
+    worker.fetch!(
+      new Request(`${origin}${path}`, {
+        method,
+        headers: {
+          origin,
+          cookie,
+          'cf-connecting-ip': '192.0.2.22',
+          ...(body === undefined ? {} : { 'content-type': 'application/json', 'idempotency-key': key })
+        },
+        body: body === undefined ? undefined : JSON.stringify(body)
+      }),
+      env
+    )
+  const created = await request('/api/cart')
+  expect(created.status).toBe(200)
+  const cart = (await created.json()) as { version: number }
+  const cartCookie = created.headers.get('set-cookie')!.split(';')[0]!
+  const cookie = `${cartCookie}; ${sessionCookie}`
+  const added = await request(
+    '/api/cart/items',
+    'POST',
+    { variantId: 2001, quantity: 2, expectedVersion: cart.version, idempotencyKey: crypto.randomUUID() },
+    cookie
+  )
+  expect(added.status).toBe(200)
+  const quoted = await request('/api/shipping/rates', 'POST', { postalCode: '46870', city: 'Ontinyent' }, cookie)
+  expect(quoted.status).toBe(200)
+  const shipping = (await quoted.json()) as {
+    cartVersion: number
+    rates: Array<{
+      quoteId: string
+      shippingQuoteId: string
+      optionIndex: number
+      optionHash: string
+      totalGrossCents: number
+    }>
+  }
+  const rate = shipping.rates[0]!
+  const cartId = cartCookie.match(/v1\.([0-9a-f-]{36})\./)![1]!
+  const address = {
+    recipientName: 'Synthetic verified buyer',
+    line1: 'Carrer Major 1',
+    postalCode: '46870',
+    city: 'Ontinyent',
+    region: 'Valencia',
+    countryCode: 'ES',
+    phone: '600000000'
+  }
+  const body = {
+    cartId,
+    cartVersion: shipping.cartVersion,
+    quoteId: rate.quoteId,
+    shippingQuoteId: rate.shippingQuoteId,
+    optionIndex: rate.optionIndex,
+    optionHash: rate.optionHash,
+    expectedTotalGrossCents: rate.totalGrossCents,
+    // Contact data is not the ownership proof, even if the email differs.
+    customer: { name: address.recipientName, email: 'synthetic-contact@example.test', phone: address.phone },
+    shippingAddress: address,
+    billingAddress: address,
+    paymentMethod: 'tarjeta',
+    termsAccepted: true,
+    privacyNoticePresented: true,
+    marketingConsent: false
+  }
+  const effects = () =>
+    fixture.sqlite
+      .prepare(
+        `SELECT (SELECT count(*) FROM orders) AS orders,
+          (SELECT count(*) FROM inventory_reservations) AS reservations,
+          (SELECT count(*) FROM inventory_movements) AS movements,
+          (SELECT count(*) FROM checkout_attempts) AS attempts,
+          (SELECT count(*) FROM cart_commands WHERE kind='checkout') AS commands,
+          (SELECT count(*) FROM email_outbox_events) AS emails`
+      )
+      .get()
+  return { ...fixture, origin, password, request, cookie, sessionCookie, customerId, sessionId, body, effects }
+}
+
+describe('authenticated storefront checkout through CartCoordinator', () => {
+  it('accepts real sealed-session UUIDs and establishes current D1 ownership with exact replay', async () => {
+    const fixture = await authenticatedStorefrontWorld()
+    try {
+      const key = crypto.randomUUID()
+      const first = await fixture.request('/api/orders', 'POST', fixture.body, fixture.cookie, key)
+      expect(first.status).toBe(201)
+      const receipt = await first.text()
+      const orderId = (JSON.parse(receipt) as { id: string }).id
+      expect(fixture.sqlite.prepare('SELECT customer_id FROM orders WHERE id=?').get(orderId)).toEqual({
+        customer_id: fixture.customerId
+      })
+      expect(
+        fixture.sqlite
+          .prepare('SELECT r.status FROM orders o JOIN inventory_reservations r ON r.id=o.reservation_id WHERE o.id=?')
+          .get(orderId)
+      ).toEqual({ status: 'reserved' })
+      const effects = fixture.effects()
+      const replay = await fixture.request('/api/orders', 'POST', fixture.body, fixture.cookie, key)
+      expect(replay.status).toBe(201)
+      expect(await replay.text()).toBe(receipt)
+      expect(fixture.effects()).toEqual(effects)
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+
+  it('rejects truncated UUID claims at the coordinator boundary without creating any effects', async () => {
+    const fixture = await authenticatedStorefrontWorld()
+    try {
+      const claims = await verifySessionCookie(
+        new Request(fixture.origin, { headers: { cookie: fixture.sessionCookie } }),
+        { password: fixture.password, maxAgeSeconds: 3600 }
+      )
+      expect(claims).toBeTruthy()
+      const cartToken = fixture.cookie.match(/neteco-cart-v2=v1\.[0-9a-f-]{36}\.([A-Za-z0-9_-]{43})/)![1]!
+      const address = { ...fixture.body.shippingAddress, province: fixture.body.shippingAddress.region }
+      const before = fixture.effects()
+      for (const field of ['identityId', 'sessionId'] as const) {
+        const malformed = { ...claims!, [field]: claims![field].replace(/-[0-9a-f]{4}(?=-[0-9a-f]{12}$)/, '') }
+        const response = await fixture.env.CARTS.get(
+          fixture.env.CARTS.idFromName(cartDoName(fixture.body.cartId))
+        ).fetch(
+          new Request('https://cart.internal/command', {
+            method: 'POST',
+            body: JSON.stringify({
+              type: 'checkout',
+              cartId: fixture.body.cartId,
+              commandId: crypto.randomUUID(),
+              payload: {
+                cartId: fixture.body.cartId,
+                token: cartToken,
+                idempotencyKey: crypto.randomUUID(),
+                correlationId: 'synthetic-invalid-session-contract',
+                now: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+                contactEmail: fixture.body.customer.email,
+                expectedVersion: fixture.body.cartVersion,
+                quoteId: fixture.body.quoteId,
+                shippingQuoteId: fixture.body.shippingQuoteId,
+                selectedOptionIndex: fixture.body.optionIndex,
+                selectedOptionHash: fixture.body.optionHash,
+                expectedTotalGrossCents: fixture.body.expectedTotalGrossCents,
+                consentTos: true,
+                consentPrivacy: true,
+                shippingAddress: address,
+                billingAddress: address,
+                ownerSession: malformed
+              }
+            })
+          })
+        )
+        expect(response.status).toBe(400)
+        await expect(response.json()).resolves.toEqual({ error: { code: 'invalid_input' } })
+        expect(fixture.effects()).toEqual(before)
+      }
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+
+  it('rejects a sealed but currently revoked session before any checkout effects', async () => {
+    const fixture = await authenticatedStorefrontWorld()
+    try {
+      const before = fixture.effects()
+      fixture.sqlite
+        .prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?')
+        .run(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), fixture.sessionId)
+      const response = await fixture.request('/api/orders', 'POST', fixture.body, fixture.cookie)
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toEqual({ error: { code: 'unauthorized' } })
+      expect(fixture.effects()).toEqual(before)
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+
+  it('never accepts customer-supplied ownerSession claims in the storefront body', async () => {
+    const fixture = await authenticatedStorefrontWorld()
+    try {
+      const before = fixture.effects()
+      const response = await fixture.request(
+        '/api/orders',
+        'POST',
+        { ...fixture.body, ownerSession: { identityId: UUID_A, sessionId: UUID_B, sessionVersion: 1 } },
+        fixture.cookie
+      )
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: { code: 'invalid_input' } })
+      expect(fixture.effects()).toEqual(before)
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+})
+
 describe('CartCoordinator partitioning and serialization', () => {
+  it('expires its due cart when getAlarm is null inside the real alarm-handler contract, leaving other carts intact', async () => {
+    const fixture = await world()
+    try {
+      const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const historical = new Date(Date.parse(instant) - 4 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const due = await createD1Cart(fixture.database, { now: historical, correlationId: 'alarm-due' })
+      const other = await createD1Cart(fixture.database, { now: instant, correlationId: 'alarm-other' })
+      const otherBefore = fixture.sqlite.prepare('SELECT * FROM carts WHERE id=?').get(other.cartId)
+      const storage = new FakeStorage()
+      await storage.put('alarmCartId', due.cartId)
+      // Scope the official runtime behaviour to THIS test, not FakeStorage globally.
+      vi.spyOn(storage, 'getAlarm').mockResolvedValue(null)
+      const clear = vi.spyOn(storage, 'deleteAlarm')
+      const coordinator = new CartCoordinator(
+        { storage, waitUntil: vi.fn() } as unknown as DurableObjectState,
+        fixture.env
+      )
+      await coordinator.alarm()
+      expect(fixture.sqlite.prepare('SELECT status,version FROM carts WHERE id=?').get(due.cartId)).toEqual({
+        status: 'expired',
+        version: 2
+      })
+      expect(fixture.sqlite.prepare('SELECT * FROM carts WHERE id=?').get(other.cartId)).toEqual(otherBefore)
+      expect(clear).toHaveBeenCalledOnce()
+      // An obsolete/redelivered wake-up must not advance the version twice.
+      await coordinator.alarm()
+      expect(fixture.sqlite.prepare('SELECT status,version FROM carts WHERE id=?').get(due.cartId)).toEqual({
+        status: 'expired',
+        version: 2
+      })
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+
+  it.each(['early', 'rearmed'] as const)(
+    'does not expire a %s cart and rearms from live D1 when getAlarm is null',
+    async (kind) => {
+      const fixture = await world()
+      try {
+        const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+        const historical = new Date(Date.parse(instant) - 4 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .replace(/\.\d{3}Z$/, 'Z')
+        const cart = await createD1Cart(fixture.database, {
+          now: kind === 'early' ? instant : historical,
+          correlationId: 'alarm-' + kind
+        })
+        const future = new Date(Date.parse(instant) + 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+        if (kind === 'rearmed')
+          fixture.sqlite.prepare('UPDATE carts SET expires_at=? WHERE id=?').run(future, cart.cartId)
+        const before = fixture.sqlite.prepare('SELECT * FROM carts WHERE id=?').get(cart.cartId)
+        const storage = new FakeStorage()
+        await storage.put('alarmCartId', cart.cartId)
+        vi.spyOn(storage, 'getAlarm').mockResolvedValue(null)
+        const rearm = vi.spyOn(storage, 'setAlarm')
+        const coordinator = new CartCoordinator(
+          { storage, waitUntil: vi.fn() } as unknown as DurableObjectState,
+          fixture.env
+        )
+        await coordinator.alarm()
+        expect(fixture.sqlite.prepare('SELECT * FROM carts WHERE id=?').get(cart.cartId)).toEqual(before)
+        expect(rearm).toHaveBeenCalledExactlyOnceWith(Date.parse(kind === 'rearmed' ? future : cart.expiresAt))
+      } finally {
+        fixture.sqlite.close()
+      }
+    }
+  )
+
   it('serializes concurrent commands for the same cart (maxInFlight=1)', async () => {
     const { env, maxInFlight } = await world({ delayMs: 25 })
     const cart = await createCart(env)
@@ -321,7 +643,11 @@ describe('CartCoordinator partitioning and serialization', () => {
   it('reports infrastructure outages as internal errors, not business outcomes', async () => {
     const { env } = await world({ failDatabase: true })
     const response = await worker.fetch!(
-      new Request('https://canary.neteco.invalid/api/carts', { method: 'POST', body: '{}' }),
+      new Request('https://canary.neteco.invalid/api/carts', {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '192.0.2.22' },
+        body: '{}'
+      }),
       env
     )
     expect(response.status).toBe(500)
@@ -425,7 +751,11 @@ describe('cart HTTP contract', () => {
     const logSpy = vi.spyOn(console, 'log')
     const { env } = await world()
     const createResponse = await worker.fetch!(
-      new Request('https://canary.neteco.invalid/api/carts', { method: 'POST', body: '{}' }),
+      new Request('https://canary.neteco.invalid/api/carts', {
+        method: 'POST',
+        headers: { 'cf-connecting-ip': '192.0.2.22' },
+        body: '{}'
+      }),
       env
     )
     expect(createResponse.headers.get('cache-control')).toBe('no-store')
@@ -455,6 +785,7 @@ describe('cart HTTP contract', () => {
     const oversized = await worker.fetch!(
       new Request('https://canary.neteco.invalid/api/carts', {
         method: 'POST',
+        headers: { 'cf-connecting-ip': '192.0.2.22' },
         body: JSON.stringify({ blob: 'x'.repeat(8192) })
       }),
       env

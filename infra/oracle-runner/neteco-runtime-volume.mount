@@ -1,0 +1,14 @@
+[Unit]
+Description=Neteco CI supported userspace and bounded job storage (16 GiB)
+RequiresMountsFor=/var/lib/neteco-ci-host
+Before=devtono-neteco-actions-runner.service
+
+[Mount]
+What=/var/lib/neteco-ci-host/neteco-runtime-volume.img
+Where=/var/lib/neteco-ci-runtime
+Type=ext4
+Options=loop,nodev,nosuid,noatime
+TimeoutSec=30
+
+[Install]
+WantedBy=multi-user.target

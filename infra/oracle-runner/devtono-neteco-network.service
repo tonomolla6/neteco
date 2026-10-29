@@ -1,0 +1,43 @@
+[Unit]
+Description=Neteco CI private network namespace anchor (no jobs)
+Before=devtono-neteco-egress.service devtono-neteco-actions-runner.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=root
+Group=root
+RuntimeDirectory=neteco-ci-network
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=no
+ExecStart=/usr/bin/bash /usr/local/libexec/neteco-ci/network-anchor.sh
+PrivateNetwork=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+TemporaryFileSystem=/tmp:ro /var/tmp:ro
+InaccessiblePaths=-/root -/home -/var/lib/docker -/var/lib/containers -/var/lib/neteco-ci -/etc/devtono -/etc/finko
+CPUQuota=5%
+MemoryMax=16M
+TasksMax=8
+LimitCORE=0
+KillMode=control-group
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

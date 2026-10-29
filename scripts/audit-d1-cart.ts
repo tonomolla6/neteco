@@ -60,6 +60,7 @@ try {
   interface AuditStatement {
     sql: string
     bound: () => unknown[]
+    bind(...parameters: unknown[]): AuditStatement
     first<T>(...parameters: unknown[]): Promise<T | null>
     all<T>(...parameters: unknown[]): Promise<{ results: T[] }>
     run(...parameters: unknown[]): Promise<{ success: true }>
@@ -118,7 +119,7 @@ try {
   const database = ephemeralD1()
 
   // Seeds generated from current code into the ephemeral directory only.
-  const seedFiles: Array<[string, () => string]> = [
+  const seedFiles: Array<[string, () => string | Promise<string>]> = [
     ['categories.sql', () => import('./lib/d1-category-seed').then((module) => module.renderD1CategorySeed())],
     ['products.sql', () => import('./lib/d1-product-seed').then((module) => module.renderD1ProductSeed())],
     ['inventory.sql', () => renderD1InventorySeed()]

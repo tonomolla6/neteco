@@ -10,7 +10,7 @@ import postgres from 'postgres'
 import { chromium } from 'playwright'
 import { closeDatabase } from '../server/db/client'
 import { encodeMerchantParameters, signMerchantParameters } from '../server/integrations/redsys'
-import { createOrder } from '../server/services/orders'
+import { createOrder, type CheckoutAddress } from '../server/services/orders'
 import integrationGlobalSetup from '../tests/support/integration-global-setup'
 import { isolatedPostgresDatabase } from '../tests/fixtures/postgres'
 import { REDSYS_OFFICIAL_CONTRACT } from '../tests/fixtures/redsys-official'
@@ -19,6 +19,7 @@ import {
   compressedAssetBytes,
   initialAssetUrls,
   percentile,
+  performanceObserverDatabaseOptions,
   readPerformanceBudgets,
   runBoundedLoad,
   type LoadProfile
@@ -26,6 +27,18 @@ import {
 
 const reportPath = resolve('test-results/performance.json')
 const allowedDatabaseNames = /^(neteco|neteco_test|neteco_it_[a-z0-9_]+)$/
+
+declare global {
+  interface Window {
+    __netecoPerformance?: {
+      lcpMs: number
+      lcpUrl: string
+      cls: number
+      inpMs: number
+      interactions: number
+    }
+  }
+}
 
 interface CheckResult {
   name: string
@@ -163,7 +176,7 @@ async function createCallbackOrder(sql: postgres.Sql) {
     RETURNING id, version
   `
   await sql`INSERT INTO cart_items (cart_id, variant_id, quantity) VALUES (${cart!.id}, ${stock.variantId}, 1)`
-  const address = {
+  const address: CheckoutAddress = {
     recipientName: 'Performance callback',
     companyName: '',
     taxId: '',
@@ -380,6 +393,13 @@ async function main() {
                     if (!shift.hadRecentInput) state.cls += shift.value
                   }
                 }).observe({ type: 'layout-shift', buffered: true })
+                // Event Timing supports this option; lib.dom's shared observer
+                // dictionary does not yet declare the event-specific field.
+                const eventOptions: PerformanceObserverInit & { durationThreshold: number } = {
+                  type: 'event',
+                  buffered: true,
+                  durationThreshold: 16
+                }
                 new PerformanceObserver((list) => {
                   for (const entry of list.getEntries()) {
                     const event = entry as PerformanceEntry & { duration: number; interactionId: number }
@@ -388,7 +408,7 @@ async function main() {
                       state.inpMs = Math.max(state.inpMs, event.duration)
                     }
                   }
-                }).observe({ type: 'event', buffered: true, durationThreshold: 16 })
+                }).observe(eventOptions)
               })
               const response = await page.goto(`${baseUrl}${route}`, { waitUntil: 'load', timeout: 10_000 })
               if (!response?.ok()) throw new Error(`${device}/${template} browser navigation failed`)
@@ -398,17 +418,8 @@ async function main() {
               await page.keyboard.press('Space')
               await page.waitForTimeout(100)
               const metrics = await page.evaluate(() => {
-                const state = (
-                  window as Window & {
-                    __netecoPerformance: {
-                      lcpMs: number
-                      lcpUrl: string
-                      cls: number
-                      inpMs: number
-                      interactions: number
-                    }
-                  }
-                ).__netecoPerformance
+                const state = window.__netecoPerformance
+                if (!state) throw new Error('Performance observer state was not initialized')
                 const navigation = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming
                 return { ...state, ttfbMs: navigation.responseStart - navigation.requestStart }
               })
@@ -592,7 +603,7 @@ async function main() {
           PGAPPNAME: `${workerApplicationPrefix}${index}`
         })
       )
-      const observer = postgres(database!.connection, { max: 1, application_name: 'neteco-performance-observer' })
+      const observer = postgres(database!.connection, performanceObserverDatabaseOptions())
       const started = performance.now()
       let maximumConnections = 0
       const observedWorkers = new Set<string>()

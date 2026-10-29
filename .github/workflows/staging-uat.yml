@@ -19,9 +19,19 @@ concurrency:
   group: staging-uat-${{ inputs.expected_commit }}
   cancel-in-progress: false
 
+env:
+  NETECO_GITHUB_REPOSITORY: ${{ vars.NETECO_GITHUB_REPOSITORY }}
+
 jobs:
   gate:
-    runs-on: ubuntu-24.04
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
     timeout-minutes: 10
     environment: staging
     env:
@@ -31,6 +41,24 @@ jobs:
       UAT_EVIDENCE_PATH: uat-evidence-source/${{ inputs.evidence_path }}
       UAT_EVIDENCE_REPOSITORY_ROOT: uat-evidence-source
     steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Admit only an existing commit in trusted main history
+        id: validate-commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$UAT_EXPECTED_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]]
+          git cat-file -e "$UAT_EXPECTED_COMMIT^{commit}"
+          git merge-base --is-ancestor "$UAT_EXPECTED_COMMIT" "$GITHUB_SHA"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -44,6 +72,7 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
+      - run: node scripts/storage-preflight.ts
       - run: npm ci
       - run: npm run audit:uat:policy
       - run: npm run uat:preflight

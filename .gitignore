@@ -1,6 +1,8 @@
 node_modules
 .nuxt
+.nuxt-cloudflare
 .output
+.output-cloudflare
 .wrangler
 .data
 .env*
@@ -21,3 +23,10 @@ backups
 *.log
 
 .cache
+
+# Cloudflare IaC generated state/plans can contain provider-computed secrets.
+infra/cloudflare/.terraform/
+infra/cloudflare/*.tfstate*
+infra/cloudflare/*.tfplan
+infra/cloudflare/*.tfvars
+infra/cloudflare/*.tfvars.json

@@ -52,14 +52,29 @@ for (const file of files) {
   }
 }
 
-const vitestConfig = await readFile(resolve('vitest.config.ts'), 'utf8')
-if ((vitestConfig.match(/setupFiles:\s*\['tests\/support\/no-external-network\.ts'\]/g) ?? []).length !== 4) {
+const vitestSource = await readFile(resolve('vitest.config.ts'), 'utf8')
+const vitestConfig = (await import('../vitest.config')).default
+const nodeConfig = (await import('../vitest.node.config')).default
+const projects = vitestConfig.test?.projects as Array<{
+  test?: { name?: string; setupFiles?: string | string[] }
+}>
+const guarded = (project: (typeof projects)[number]) => {
+  const setup = project.test?.setupFiles
+  return (Array.isArray(setup) ? setup : [setup]).includes('tests/support/no-external-network.ts')
+}
+if (
+  projects.length !== 4 ||
+  projects.map((project) => project.test?.name).join(',') !== 'unit,nuxt,component,integration' ||
+  !projects.every(guarded) ||
+  nodeConfig.test?.projects?.length !== 1 ||
+  !guarded(nodeConfig.test.projects[0] as (typeof projects)[number])
+) {
   violations.push({ file: 'vitest.config.ts', rule: 'external network guard must cover every Vitest project' })
 }
-if (!vitestConfig.includes('sequence: { concurrent: false }')) {
+if (!vitestSource.includes('sequence: { concurrent: false }')) {
   violations.push({ file: 'vitest.config.ts', rule: 'integration tests must not share state concurrently' })
 }
-if (!vitestConfig.includes("globalSetup: ['tests/support/integration-global-setup.ts']")) {
+if (!vitestSource.includes("globalSetup: ['tests/support/integration-global-setup.ts']")) {
   violations.push({ file: 'vitest.config.ts', rule: 'integration database template setup is required' })
 }
 const playwrightConfig = await readFile(resolve('playwright.config.ts'), 'utf8')

@@ -1,0 +1,76 @@
+[Unit]
+Description=Neteco isolated Oracle ARM64 Actions runner (quarantined)
+After=network-online.target devtono-neteco-network.service devtono-neteco-egress.service
+Wants=network-online.target
+Requires=devtono-neteco-network.service devtono-neteco-egress.service
+BindsTo=devtono-neteco-network.service devtono-neteco-egress.service
+JoinsNamespaceOf=devtono-neteco-network.service
+RequiresMountsFor=/var/lib/neteco-ci
+ConditionPathIsMountPoint=/var/lib/neteco-ci
+ConditionFileIsExecutable=/var/lib/neteco-ci/runner/bin/runsvc.sh
+
+[Service]
+User=neteco-actions
+Group=neteco-actions
+WorkingDirectory=/var/lib/neteco-ci/runner
+ExecStart=/usr/bin/bash /var/lib/neteco-ci/runner/bin/runsvc.sh
+Environment=HOME=/var/lib/neteco-ci/home
+Environment=PATH=/opt/devtono/toolchains/node-v24.18.1-linux-arm64/bin:/usr/bin:/bin
+Environment=TMPDIR=/var/lib/neteco-ci/tmp
+Environment=XDG_CACHE_HOME=/var/lib/neteco-ci/cache
+Environment=npm_config_cache=/var/lib/neteco-ci/cache/npm
+Environment=PLAYWRIGHT_BROWSERS_PATH=/var/lib/neteco-ci/cache/ms-playwright
+Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=/usr/local/libexec/neteco-ci/job-started.sh
+Environment=CI=true
+Environment=NUXT_TELEMETRY_DISABLED=1
+Environment=WRANGLER_SEND_METRICS=false
+Environment=NODE_OPTIONS=--max-old-space-size=2048
+UnsetEnvironment=BASH_ENV ENV CDPATH LD_PRELOAD LD_LIBRARY_PATH NODE_PATH NODE_EXTRA_CA_CERTS DOCKER_CONTEXT SSH_AUTH_SOCK GITHUB_TOKEN GH_TOKEN CLOUDFLARE_API_TOKEN
+UMask=0077
+CPUQuota=100%
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=512M
+TasksMax=512
+LimitNOFILE=65536
+LimitCORE=0
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateDevices=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+KeyringMode=private
+RemoveIPC=yes
+DevicePolicy=closed
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/neteco-ci
+ReadOnlyPaths=/usr/local/libexec/neteco-ci
+BindReadOnlyPaths=/etc/neteco-ci/resolv.conf:/etc/resolv.conf
+TemporaryFileSystem=/run:ro /tmp:rw,nodev,nosuid,size=64M /var/tmp:rw,nodev,nosuid,size=64M
+InaccessiblePaths=-/root -/home -/var/lib/docker -/var/lib/containers -/var/lib/sabea-actions-runner -/var/oled/devtono-ci/notifestival -/etc/devtono -/etc/finko -/usr/bin/sudo -/usr/bin/docker -/usr/bin/podman -/usr/bin/nerdctl -/usr/bin/ctr -/usr/local/bin -/usr/local/sbin
+# Own loopback/abstract sockets are isolated by the network namespace. Only the
+# separate, root-managed egress helper can reach the host namespace; its cgroup
+# denies private, metadata and this host's public addresses. No forwarding API.
+KillMode=control-group
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,44 +1,51 @@
 <script setup lang="ts">
+import SupportKnowledgePanel from '../components/SupportKnowledgePanel.vue'
+const runtime = useRuntimeConfig().public.serverRuntime
 useSeoMeta({
   title: 'Centro de ayuda',
   description: 'Ayuda para comprar, pagar, recibir, facturar y devolver pedidos NETECO.'
 })
 
+/**
+ * Los textos hablaban del sistema —«RMA», «Redsys alojado», «Beply termina la emisión»— en
+ * vez de la pregunta que trae aquí a la gente. Un centro de ayuda se escribe con las
+ * preguntas del cliente, no con los nombres de los módulos.
+ */
 const topics = [
   {
     icon: 'i-lucide-truck',
-    title: 'Envíos y recogida',
-    text: 'Cómo se calculan métodos, coste y fecha con el destino y la mercancía.',
+    title: '¿Cuándo me llega?',
+    text: 'Zonas, plazos y coste del reparto propio, del envío por agencia y de la recogida en almacén.',
     to: '/envios'
   },
   {
     icon: 'i-lucide-credit-card',
-    title: 'Pago',
-    text: 'Redsys alojado, Bizum, transferencia y estados pendientes.',
+    title: '¿Cómo puedo pagar?',
+    text: 'Tarjeta, Bizum y transferencia. Qué pasa si el pago se queda a medias.',
     to: '/formas-de-pago'
   },
   {
     icon: 'i-lucide-rotate-ccw',
-    title: 'Devoluciones',
-    text: 'Solicita una RMA desde el enlace seguro de tu pedido y sigue su estado.',
+    title: 'Quiero devolver algo',
+    text: 'Plazos, qué se puede devolver y cómo pedir la recogida desde tu pedido.',
     to: '/devoluciones'
   },
   {
     icon: 'i-lucide-user-round',
-    title: 'Cuenta y privacidad',
-    text: 'Direcciones, sesiones, MFA, preferencias, descarga y solicitudes de privacidad.',
+    title: 'Mi cuenta',
+    text: 'Direcciones de entrega, contraseña, dispositivos conectados y qué correos recibes.',
     to: '/cuenta'
   },
   {
     icon: 'i-lucide-receipt-text',
-    title: 'Factura',
-    text: 'El PDF aparece en el pedido cuando Beply termina la emisión; una incidencia fiscal no borra el pedido.',
-    to: '/cuenta'
+    title: 'Mis facturas',
+    text: 'Dónde descargarlas y qué hacer si falta alguna o los datos fiscales no son correctos.',
+    to: '/cuenta/pedidos'
   },
   {
     icon: 'i-lucide-life-buoy',
-    title: 'Contacto',
-    text: 'Abre un ticket con producto o pedido contextual y recibe una referencia de seguimiento.',
+    title: 'Hablar con alguien',
+    text: 'Escríbenos indicando el pedido o el producto y te damos una referencia para seguirlo.',
     to: '/contacto'
   }
 ]
@@ -48,10 +55,12 @@ const topics = [
   <div class="mx-auto max-w-5xl px-4 py-10">
     <h1 class="text-3xl font-bold text-slate-950">Centro de ayuda</h1>
     <p class="mt-2 max-w-2xl text-slate-600">
-      Respuestas sobre el ciclo completo del pedido. Si necesitas que revisemos datos privados, usa el acceso seguro del
-      pedido o inicia sesión; una referencia por sí sola no autoriza cambios.
+      Lo que más nos preguntáis. Si no encuentras tu caso, llámanos al
+      <a href="tel:600861334" class="font-medium text-neteco-700 hover:underline">600 861 334</a>: hablas con una
+      persona que conoce tu pedido.
     </p>
-    <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <SupportKnowledgePanel v-if="runtime === 'cloudflare'" :runtime="runtime" class="mt-8" />
+    <div class="mt-8 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
       <NuxtLink
         v-for="topic in topics"
         :key="topic.title"

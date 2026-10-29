@@ -1,5 +1,7 @@
 .nuxt
+.nuxt-cloudflare
 .output
+.output-cloudflare
 .cache
 coverage
 node_modules

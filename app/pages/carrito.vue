@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
+import CartReadFeedback from '~/components/CartReadFeedback.vue'
+import CartSnapshotsPanel from '~/components/CartSnapshotsPanel.vue'
+import CartRecoverySection from '~/components/CartRecoverySection.vue'
+import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
+import type { OrderSummary } from '~/composables/useAccount'
 
 useSeoMeta({ title: 'Carrito' })
 const cart = useCartStore()
@@ -9,6 +14,42 @@ const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-an
 
 const tax = computed(() => cart.tax)
 const lineErrors = reactive<Record<number, string>>({})
+
+// The shared threshold is informational; only a shipping quote confirms eligibility.
+const freeShipping = useFreeShipping()
+const freeShippingThreshold = freeShipping.thresholdCents
+const missingForFreeShipping = computed(() => freeShipping.missingFor(cart.subtotal))
+const freeShippingProgress = computed(() => freeShipping.progressFor(cart.subtotal))
+const retryingRead = ref(false)
+let readPending = false
+const cartReadLoading = computed(() => retryingRead.value || cart.loading || (!cart.ready && !cart.error))
+const cartReadable = computed(() => cart.ready && !cart.loading && !cart.error && !retryingRead.value)
+async function retryCartRead() {
+  if (readPending || cart.loading) return
+  readPending = true
+  retryingRead.value = true
+  try {
+    await cart.load({ restoreCachedItems: false })
+  } finally {
+    readPending = false
+    retryingRead.value = false
+  }
+}
+
+/**
+ * Carrito vacío para un cliente identificado.
+ *
+ * Un mensaje de «explora el catálogo» sirve para un consumidor que descubre. Aquí el cliente
+ * repone: si ya ha pedido antes, lo que necesita es repetir, no explorar. Se ofrece su último
+ * pedido directamente.
+ */
+const { loggedIn } = useUserSession()
+const { data: orderData } = await useLazyFetch<{ orders: OrderSummary[] }>('/api/orders', {
+  immediate: loggedIn.value,
+  default: () => ({ orders: [] })
+})
+const lastOrder = computed(() => orderData.value?.orders?.[0])
+const dialog = useTemplateRef('dialog')
 
 async function updateQuantity(item: (typeof cart.items)[number], quantity: number) {
   lineErrors[item.variantId] = ''
@@ -40,14 +81,59 @@ async function confirmClear() {
     toast.add({ title: apiErrorMessage(error, 'No se ha podido vaciar el carrito'), color: 'error' })
   }
 }
+async function retryOriginalAdd() {
+  try {
+    await cart.retryAdd()
+  } catch {
+    /* The original intention and its visible recovery notice remain. */
+  }
+}
 </script>
 
 <template>
   <div class="mx-auto max-w-[1600px] px-4 py-8">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Tu carrito</h1>
+    <ClientOnly>
+      <CartRecoverySection stage="cart" />
+      <CartSnapshotsPanel v-if="runtime.public.serverRuntime === 'cloudflare'" />
+    </ClientOnly>
+
+    <PublishedProductRelations
+      v-if="runtime.public.serverRuntime === 'cloudflare' && cartReadable"
+      :product-slugs="cart.items.map((item) => item.slug)"
+      class="mt-6"
+    />
 
     <ClientOnly>
-      <div v-if="cart.items.length" class="mt-6 grid gap-8 lg:grid-cols-3">
+      <section
+        v-if="cart.addRecoveryMessage || cart.checkingAddJournal"
+        role="alert"
+        class="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4"
+      >
+        <p>
+          {{
+            cart.addRecoveryMessage ||
+            'Comprobando la recuperación del carrito. No se enviará ninguna adición automáticamente.'
+          }}
+        </p>
+        <div v-if="cart.addRecovery" class="mt-3 flex flex-wrap gap-3">
+          <UButton v-if="cart.addReceiptAvailable" :disabled="!cart.canRecoverAdd" @click="cart.recoverAdd()"
+            >Comprobar adición</UButton
+          >
+          <UButton
+            v-if="!cart.addRecoveryConfirmed"
+            :disabled="!cart.canRetryAdd"
+            variant="outline"
+            @click="retryOriginalAdd"
+            >Reintentar la misma adición</UButton
+          >
+        </div>
+        <p class="mt-2 text-sm">
+          El reintento conserva el producto y la cantidad originales. No enviamos otra adición automáticamente.
+        </p>
+      </section>
+      <CartReadFeedback v-if="!cartReadable" :loading="cartReadLoading" @retry="retryCartRead" />
+      <div v-else-if="cart.items.length" class="mt-6 grid gap-8 grid-cols-1 lg:grid-cols-3">
         <!-- líneas -->
         <div class="space-y-3 lg:col-span-2">
           <div
@@ -75,18 +161,20 @@ async function confirmClear() {
               </p>
             </div>
             <div class="flex w-full items-center justify-between gap-3 sm:w-auto">
-              <CartLineControls
-                :quantity="item.qty"
-                :minimum="item.minimumQuantity ?? 1"
-                :maximum="item.maximumQuantity"
-                :step="item.quantityIncrement ?? 1"
-                :label="item.name"
-                :error="lineErrors[item.variantId]"
-                @quantity="updateQuantity(item, $event)"
-                @remove="removeItem(item)"
-              />
+              <fieldset :disabled="cart.blockedMutations">
+                <CartLineControls
+                  :quantity="item.qty"
+                  :minimum="item.minimumQuantity ?? 1"
+                  :maximum="item.maximumQuantity"
+                  :step="item.quantityIncrement ?? 1"
+                  :label="item.name"
+                  :error="lineErrors[item.variantId]"
+                  @quantity="updateQuantity(item, $event)"
+                  @remove="removeItem(item)"
+                />
+              </fieldset>
               <p class="w-28 text-right font-semibold text-slate-800">
-                {{ formatPrice((showNetPrices ? item.netPrice : item.price) * item.qty) }}
+                {{ formatPrice(showNetPrices ? (item.lineNet ?? item.netPrice * item.qty) : item.price * item.qty) }}
                 <span v-if="showNetPrices" class="block text-xs font-normal text-slate-500">
                   {{ formatPrice(item.price * item.qty) }} con IVA
                 </span>
@@ -96,7 +184,13 @@ async function confirmClear() {
 
           <div class="flex justify-between pt-2">
             <UButton to="/catalogo" variant="ghost" icon="i-lucide-arrow-left">Seguir comprando</UButton>
-            <UButton color="neutral" variant="ghost" icon="i-lucide-trash-2" @click="confirmClear">
+            <UButton
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-trash-2"
+              :disabled="cart.blockedMutations"
+              @click="confirmClear"
+            >
               Vaciar carrito
             </UButton>
           </div>
@@ -111,10 +205,6 @@ async function confirmClear() {
               <dd class="font-medium">{{ formatPrice(showNetPrices ? cart.subtotalNet : cart.subtotal) }}</dd>
             </div>
             <div class="flex justify-between">
-              <dt class="text-slate-500">IVA según producto</dt>
-              <dd class="text-slate-500">{{ formatPrice(tax) }}</dd>
-            </div>
-            <div class="flex justify-between">
               <dt class="text-slate-500">Envío</dt>
               <dd class="text-slate-500">Se calcula al tramitar</dd>
             </div>
@@ -122,28 +212,117 @@ async function confirmClear() {
               <dt class="font-semibold text-slate-900">Total</dt>
               <dd class="text-xl font-bold text-slate-900">{{ formatPrice(cart.subtotal) }}</dd>
             </div>
+            <div class="flex justify-between text-xs">
+              <dt class="text-slate-500">IVA incluido</dt>
+              <dd class="text-slate-500">{{ formatPrice(tax) }}</dd>
+            </div>
           </dl>
-          <UButton to="/checkout" size="xl" block class="mt-5" trailing-icon="i-lucide-arrow-right">
+          <div v-if="freeShippingThreshold" class="mt-4 rounded-xl bg-slate-50 p-3">
+            <p v-if="missingForFreeShipping" class="text-sm text-slate-700">
+              Te faltan
+              <span class="font-semibold text-neteco-700">{{ formatPrice(missingForFreeShipping) }}</span>
+              para alcanzar el umbral de paquetería estándar elegible.
+            </p>
+            <p v-else class="flex items-center gap-1.5 text-sm font-medium text-green-800">
+              <UIcon name="i-lucide-check-circle-2" class="size-4 shrink-0" />
+              Has alcanzado el umbral de paquetería estándar elegible.
+            </p>
+            <p class="mt-1 text-xs text-slate-600">
+              Sujeto a cotización según destino y mercancía. Palés y mercancías peligrosas no están incluidos.
+            </p>
+            <div
+              class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"
+              role="progressbar"
+              :aria-valuenow="freeShippingProgress"
+              :aria-valuemin="0"
+              :aria-valuemax="100"
+              :aria-label="`Progreso hacia el umbral de paquetería estándar elegible: ${freeShippingProgress} %`"
+            >
+              <div
+                class="h-full rounded-full transition-all"
+                :class="missingForFreeShipping ? 'bg-neteco-500' : 'bg-green-600'"
+                :style="{ width: freeShippingProgress + '%' }"
+              />
+            </div>
+          </div>
+
+          <UButton
+            v-if="!cart.blockedMutations"
+            to="/checkout"
+            size="xl"
+            block
+            class="mt-5"
+            trailing-icon="i-lucide-arrow-right"
+          >
             Tramitar pedido
           </UButton>
+          <p v-else role="status" class="mt-5 text-sm text-amber-900">
+            Comprueba la adición pendiente antes de tramitar el pedido.
+          </p>
           <p class="mt-3 text-center text-xs text-slate-500">
             Los métodos elegibles, el coste y la fecha se calculan con el código postal y el perfil real de la
             mercancía.
           </p>
+
+          <!-- Las señales de confianza van donde aparece la duda: justo antes del clic, no
+               repartidas por la página. -->
+          <ul class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-xs text-[var(--text-muted)]">
+            <li class="flex items-start gap-2">
+              <UIcon name="i-lucide-shield-check" class="mt-px size-4 shrink-0 text-neteco-600" />
+              Pago seguro con Redsys. No guardamos los datos de tu tarjeta.
+            </li>
+            <li class="flex items-start gap-2">
+              <UIcon name="i-lucide-file-text" class="mt-px size-4 shrink-0 text-neteco-600" />
+              Factura con tus datos fiscales en cada pedido.
+            </li>
+            <li class="flex items-start gap-2">
+              <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0 text-neteco-600" />
+              ¿Dudas antes de pedir? 600 861 334, hablas con una persona.
+            </li>
+          </ul>
         </div>
       </div>
 
       <!-- vacío -->
-      <div v-else class="py-20 text-center">
-        <UIcon name="i-lucide-shopping-cart" class="mx-auto size-14 text-slate-300" />
-        <p class="mt-4 text-lg font-medium text-slate-600">Tu carrito está vacío</p>
-        <p class="mt-1 text-sm text-slate-500">Explora el catálogo y añade lo que necesite tu negocio.</p>
-        <UButton to="/catalogo" size="lg" class="mt-6" icon="i-lucide-layout-grid">Ver catálogo</UButton>
+      <div v-else class="py-16 text-center">
+        <UIcon name="i-lucide-shopping-cart" class="mx-auto size-12 text-slate-300" />
+        <p class="mt-4 text-lg font-semibold text-[var(--text-strong)]">Tu carrito está vacío</p>
+
+        <template v-if="lastOrder">
+          <p class="mx-auto mt-1.5 max-w-md text-sm text-[var(--text-muted)]">
+            Tu último pedido fue el {{ formatAccountDate(lastOrder.createdAt) }}, con {{ lastOrder.lines }}
+            {{ lastOrder.lines === 1 ? 'referencia' : 'referencias' }}.
+          </p>
+          <div class="mt-6 flex flex-wrap justify-center gap-2">
+            <UButton size="lg" icon="i-lucide-rotate-cw" @click="dialog?.start(lastOrder.id)">
+              Repetir ese pedido
+            </UButton>
+            <UButton to="/catalogo" size="lg" color="neutral" variant="outline" icon="i-lucide-layout-grid">
+              Ver catálogo
+            </UButton>
+          </div>
+        </template>
+
+        <template v-else>
+          <p class="mt-1.5 text-sm text-[var(--text-muted)]">Explora el catálogo y añade lo que necesite tu negocio.</p>
+          <UButton to="/catalogo" size="lg" class="mt-6" icon="i-lucide-layout-grid">Ver catálogo</UButton>
+        </template>
       </div>
 
       <template #fallback>
-        <div class="py-20 text-center text-slate-400">Cargando carrito…</div>
+        <div class="mt-6 grid gap-8 grid-cols-1 lg:grid-cols-3">
+          <div class="space-y-3 lg:col-span-2">
+            <div
+              v-for="n in 2"
+              :key="n"
+              class="h-24 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+            />
+          </div>
+          <div class="h-64 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)]" />
+        </div>
       </template>
     </ClientOnly>
+
+    <ReorderDialog ref="dialog" />
   </div>
 </template>

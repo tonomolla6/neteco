@@ -19,6 +19,7 @@ const form = reactive({
 })
 const loading = ref(false)
 const errorMsg = ref('')
+const registrationRequested = ref(false)
 
 async function submit() {
   errorMsg.value = ''
@@ -40,7 +41,7 @@ async function submit() {
   }
   loading.value = true
   try {
-    await $fetch('/api/auth/register', {
+    const response = await $fetch<{ user?: unknown }>('/api/auth/register', {
       method: 'POST',
       body: {
         name: form.name,
@@ -52,8 +53,14 @@ async function submit() {
         newsletter: form.newsletter
       }
     })
-    await refreshSession()
-    navigateTo(String(route.query.redirect ?? '/cuenta'))
+    if (response.user) {
+      await refreshSession()
+      navigateTo(String(route.query.redirect ?? '/cuenta'))
+    } else {
+      registrationRequested.value = true
+      form.password = ''
+      form.password2 = ''
+    }
   } catch (error) {
     errorMsg.value = apiErrorMessage(error, 'No se ha podido crear la cuenta.')
   } finally {
@@ -67,13 +74,27 @@ async function submit() {
     <div class="rounded-2xl border border-slate-200 bg-white p-8">
       <img src="/logo-figura.png" alt="" class="mx-auto h-12 w-auto" />
       <h1 class="mt-4 text-center text-2xl font-bold text-slate-900">Crea tu cuenta</h1>
-      <p class="mt-1 text-center text-sm text-slate-500">Guarda tus datos, repite pedidos y consulta tu historial.</p>
+      <p class="mt-1 text-center text-sm text-slate-500">
+        Repite un pedido en dos clics, guarda tus direcciones de entrega y descarga tus facturas.
+      </p>
 
-      <form class="mt-6 space-y-4" @submit.prevent="submit">
+      <div v-if="registrationRequested" class="mt-6 space-y-4" role="status" aria-live="polite">
+        <UAlert
+          color="info"
+          variant="subtle"
+          icon="i-lucide-mail"
+          title="Revisa tu correo"
+          description="Si la dirección puede utilizarse, recibirás un enlace para verificarla. Después podrás iniciar sesión."
+        />
+        <NuxtLink to="/recuperar-clave" class="text-sm font-semibold text-neteco-600 underline">
+          Si ya tienes cuenta y no recuerdas la contraseña, puedes recuperarla.
+        </NuxtLink>
+      </div>
+      <form v-else class="mt-6 space-y-4" @submit.prevent="submit">
         <UFormField label="Nombre y apellidos" required>
           <UInput v-model="form.name" autocomplete="name" class="w-full" icon="i-lucide-user" />
         </UFormField>
-        <div class="grid gap-4 sm:grid-cols-2">
+        <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
           <UFormField label="Empresa" hint="opcional">
             <UInput v-model="form.company" autocomplete="organization" class="w-full" />
           </UFormField>
@@ -84,24 +105,8 @@ async function submit() {
         <UFormField label="Email" required>
           <UInput v-model="form.email" type="email" autocomplete="email" class="w-full" icon="i-lucide-mail" />
         </UFormField>
-        <UFormField label="Contraseña" required hint="mínimo 12 caracteres, con letras y números">
-          <UInput
-            v-model="form.password"
-            type="password"
-            autocomplete="new-password"
-            class="w-full"
-            icon="i-lucide-lock"
-          />
-        </UFormField>
-        <UFormField label="Repite la contraseña" required>
-          <UInput
-            v-model="form.password2"
-            type="password"
-            autocomplete="new-password"
-            class="w-full"
-            icon="i-lucide-lock"
-          />
-        </UFormField>
+        <PasswordField v-model="form.password" label="Contraseña" required show-rules />
+        <PasswordField v-model="form.password2" label="Repite la contraseña" required :matches="form.password" />
 
         <UCheckbox v-model="form.termsAccepted" required label="Acepto las condiciones de la cuenta" />
         <p class="text-xs leading-relaxed text-slate-500">

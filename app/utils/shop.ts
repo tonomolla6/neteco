@@ -12,6 +12,9 @@ export const BADGES: Record<string, { label: string; color: UiColor; icon: strin
 
 export const ORDER_STATUS: Record<string, { label: string; color: UiColor; icon: string }> = {
   pendiente_pago: { label: 'Pago pendiente', color: 'warning', icon: 'i-lucide-clock' },
+  procesando_pago: { label: 'Procesando pago', color: 'info', icon: 'i-lucide-loader-circle' },
+  pago_fallido: { label: 'Pago no completado', color: 'error', icon: 'i-lucide-circle-alert' },
+  incidencia_stock: { label: 'Incidencia de stock', color: 'warning', icon: 'i-lucide-triangle-alert' },
   pendiente_transferencia: { label: 'Esperando transferencia', color: 'info', icon: 'i-lucide-landmark' },
   pagado: { label: 'Pagado', color: 'success', icon: 'i-lucide-circle-check' },
   reembolso_parcial: { label: 'Reembolso parcial', color: 'warning', icon: 'i-lucide-undo-2' },
@@ -33,7 +36,7 @@ export const SHIPPING_METHODS = [
   {
     value: 'envio',
     label: 'Envío por agencia',
-    desc: 'Península · 48-72 h · gratis a partir de 150 €',
+    desc: 'Península · 48-72 h',
     price: 590
   },
   {

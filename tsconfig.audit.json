@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "strict": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "esnext",
+    "lib": ["esnext", "dom", "dom.iterable"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "worker-configuration.d.ts",
+    "scripts/audit-*.ts",
+    "scripts/run-*.ts",
+    "scripts/test-*.ts",
+    "scripts/storage-preflight.ts",
+    "scripts/emit-cloudflare-artifacts.ts",
+    "scripts/cloudflare-demo-remote.ts",
+    "scripts/lib/**/*.ts",
+    "scripts/functional-delivery.ts",
+    "scripts/provision-d1-admin.ts"
+  ]
+}

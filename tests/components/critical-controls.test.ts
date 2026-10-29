@@ -144,15 +144,33 @@ describe('critical catalog controls', () => {
     expect(wrapper.emitted('remove')).toHaveLength(1)
   })
 
-  it('selects exactly one variant with accessible pressed state', async () => {
+  it('selects exactly one variant with accessible radio state and roving focus', async () => {
     const variants = [
       { id: 1, format: '1 litro', sku: 'ONE' },
       { id: 2, format: '5 litros', sku: 'FIVE' }
     ]
-    const wrapper = await mountSuspended(VariantSelector, { props: { variants, modelValue: 1 } })
-    const buttons = wrapper.findAll('button')
-    expect(buttons.map((button) => button.attributes('aria-pressed'))).toEqual(['true', 'false'])
-    await buttons[1]!.trigger('keydown', { key: 'Enter' })
+    const wrapper = await mountSuspended(VariantSelector, {
+      props: { variants, modelValue: 1 },
+      attachTo: document.body
+    })
+    const buttons = wrapper.findAll('[role="radio"]')
+    expect(wrapper.get('[role="radiogroup"]').attributes('aria-label')).toBe('Formato')
+    expect(buttons.map((button) => button.attributes('aria-checked'))).toEqual(['true', 'false'])
+    expect(buttons.map((button) => button.attributes('tabindex'))).toEqual(['0', '-1'])
+    await buttons[0]!.trigger('keydown', { key: 'ArrowDown' })
     expect(wrapper.emitted('update:modelValue')).toEqual([[2]])
+    expect(document.activeElement).toBe(buttons[1]!.element)
+    await wrapper.setProps({ modelValue: 2 })
+    expect(buttons.map((button) => button.attributes('aria-checked'))).toEqual(['false', 'true'])
+    await buttons[1]!.trigger('keydown', { key: 'ArrowRight' })
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([1])
+    expect(document.activeElement).toBe(buttons[0]!.element)
+    await buttons[0]!.trigger('keydown', { key: 'End' })
+    expect(document.activeElement).toBe(buttons[1]!.element)
+    await buttons[1]!.trigger('keydown', { key: 'Home' })
+    expect(document.activeElement).toBe(buttons[0]!.element)
+    await buttons[1]!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([2])
+    wrapper.unmount()
   })
 })

@@ -5,18 +5,54 @@ import {
   getCart,
   markConverted,
   quoteCart,
+  readCartAddOperation,
   setCartLine,
   type CreatedCart
 } from '../../workers/catalog/cart'
 import { splitGross } from '../../server/domain/money'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { stableUuid as stableUuidLike } from '../../scripts/lib/d1-category-seed'
+import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 
 const NOW = '2026-08-25T09:00:00Z'
 
+function withdrawSyntheticPolicy(sqlite: Awaited<ReturnType<typeof openMigratedDatabase>>) {
+  sqlite
+    .prepare(
+      `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
+    SELECT ?,id,actor_id,'Synthetic policy withdrawal for temporal regression',?
+    FROM catalog_publication_policies WHERE code='local_fixture' ORDER BY version DESC LIMIT 1`
+    )
+    .run(crypto.randomUUID(), NOW)
+}
+
+function beforeBatch(database: D1Database, action: () => void): D1Database {
+  let fired = false
+  return new Proxy(database, {
+    get(target, property) {
+      if (property === 'batch')
+        return async (statements: D1PreparedStatement[]) => {
+          if (!fired) {
+            fired = true
+            action()
+          }
+          return target.batch(statements)
+        }
+      const value: unknown = Reflect.get(target, property)
+      return typeof value === 'function' ? value.bind(target) : value
+    }
+  })
+}
+
 async function world() {
   const sqlite = await openMigratedDatabase()
+  // Match D1's runtime expression limit on complete caller SQL envelopes.
+  sqlite.limits.exprDepth = 100
   const fixture = seedInventoryFixture(sqlite)
+  await provisionPublicationValidityFixture(d1OverSqlite(sqlite), {
+    productIds: ['p-1', 'p-2', 'p-3', 'p-4', 'p-5', 'p-6'],
+    now: '2026-01-01T00:00:00Z'
+  })
   // A governed price version for v-2-1 (effective 300 cents vs base 500).
   sqlite
     .prepare(
@@ -45,6 +81,341 @@ async function world() {
 async function newCart(database: D1Database): Promise<CreatedCart> {
   return createCart(database, { correlationId: 'test', now: NOW })
 }
+
+describe('current publication authority for cart writes and quotes', () => {
+  it('recovers only the exact authorized ADD receipt without touching an expired cart or retired SKU', async () => {
+    const { sqlite, database } = await world()
+    try {
+      const cart = await newCart(database)
+      const input = {
+        cartId: cart.cartId,
+        token: cart.token,
+        idempotencyKey: 'lost-add',
+        expectedVersion: 1,
+        variantId: 'v-1-1',
+        quantity: 2,
+        mode: 'add' as const,
+        correlationId: 'test',
+        now: NOW
+      }
+      await setCartLine(database, input)
+      sqlite.exec(
+        "UPDATE variants SET status='draft' WHERE id='v-1-1'; UPDATE carts SET status='expired',expired_at=expires_at"
+      )
+      const before = sqlite.prepare('SELECT * FROM carts').all()
+      const lines = sqlite.prepare('SELECT * FROM cart_lines').all()
+      const commands = sqlite.prepare('SELECT * FROM cart_commands').all()
+      expect(await readCartAddOperation(database, input)).toEqual({
+        source: 'cloudflare',
+        cartId: cart.cartId,
+        commandId: 'lost-add',
+        outcome: 'applied',
+        appliedVersion: 2
+      })
+      expect(await readCartAddOperation(database, { ...input, idempotencyKey: 'absent' })).toMatchObject({
+        outcome: 'unknown',
+        appliedVersion: null
+      })
+      await expect(readCartAddOperation(database, { ...input, quantity: 3 })).rejects.toMatchObject({
+        code: 'conflict'
+      })
+      await expect(readCartAddOperation(database, { ...input, token: 'wrong' })).rejects.toMatchObject({
+        code: 'unauthorized'
+      })
+      const forbiddenLedger = new Proxy(database, {
+        get(target, property) {
+          if (property === 'prepare')
+            return (sql: string) => {
+              if (sql.includes('FROM cart_commands')) throw new Error('unauthorized ledger lookup')
+              return target.prepare(sql)
+            }
+          const value: unknown = Reflect.get(target, property)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+      })
+      await expect(readCartAddOperation(forbiddenLedger, { ...input, token: 'wrong' })).rejects.toMatchObject({
+        code: 'unauthorized'
+      })
+      expect(sqlite.prepare('SELECT * FROM carts').all()).toEqual(before)
+      expect(sqlite.prepare('SELECT * FROM cart_lines').all()).toEqual(lines)
+      expect(sqlite.prepare('SELECT * FROM cart_commands').all()).toEqual(commands)
+    } finally {
+      sqlite.close()
+    }
+  })
+  it('fails closed on malformed receipt metadata and token rotation during ledger lookup', async () => {
+    const { sqlite, database } = await world()
+    try {
+      const cart = await newCart(database)
+      const input = {
+        ...cart,
+        idempotencyKey: 'recover-proof',
+        expectedVersion: 1,
+        variantId: 'v-1-1',
+        quantity: 2,
+        mode: 'add' as const,
+        correlationId: 'test',
+        now: NOW
+      }
+      await setCartLine(database, input)
+      const original = sqlite.prepare('SELECT response_body FROM cart_commands').get() as { response_body: string }
+      for (const fault of [
+        { kind: 'quote', status: 200, body: original.response_body },
+        { kind: 'mutate', status: 201, body: original.response_body },
+        { kind: 'mutate', status: 200, body: '{}' },
+        { kind: 'mutate', status: 200, body: '{"outcome":"applied","body":{"cartVersion":999}}' }
+      ]) {
+        sqlite
+          .prepare('UPDATE cart_commands SET kind=?,response_status=?,response_body=?')
+          .run(fault.kind, fault.status, fault.body)
+        await expect(readCartAddOperation(database, input)).rejects.toMatchObject({ name: 'CartInfrastructureError' })
+      }
+      sqlite
+        .prepare("UPDATE cart_commands SET kind='mutate',response_status=200,response_body=?")
+        .run(original.response_body)
+      const rotating = new Proxy(database, {
+        get(target, property) {
+          if (property === 'prepare')
+            return (sql: string) => {
+              const statement = target.prepare(sql)
+              if (!sql.includes('FROM cart_commands')) return statement
+              return {
+                bind(...parameters: unknown[]) {
+                  const bound = statement.bind(...parameters)
+                  return {
+                    async first() {
+                      const row = await bound.first()
+                      sqlite.prepare('UPDATE carts SET token_hash=? WHERE id=?').run('f'.repeat(64), cart.cartId)
+                      return row
+                    }
+                  }
+                }
+              }
+            }
+          const value: unknown = Reflect.get(target, property)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+      }) as D1Database
+      await expect(readCartAddOperation(rotating, input)).rejects.toMatchObject({ code: 'unauthorized' })
+    } finally {
+      sqlite.close()
+    }
+  })
+  it('never grandfathers a published product without a reviewed policy', async () => {
+    const { sqlite, database } = await world()
+    const cart = await newCart(database)
+    sqlite.exec(
+      "UPDATE products SET status='published' WHERE id='p-hidden'; UPDATE variants SET status='published' WHERE id='v-hidden'"
+    )
+    await expect(
+      setCartLine(database, {
+        cartId: cart.cartId,
+        token: cart.token,
+        variantId: 'v-hidden',
+        expectedVersion: 1,
+        idempotencyKey: 'missing-policy',
+        correlationId: 'validity',
+        now: NOW,
+        quantity: 1
+      })
+    ).rejects.toMatchObject({ code: 'variant_not_available' })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM cart_commands').get()).toMatchObject({ n: 0 })
+  })
+
+  it('denies a withdrawn policy but still allows removing the saved line', async () => {
+    const { sqlite, database } = await world()
+    const cart = await newCart(database)
+    const command = {
+      cartId: cart.cartId,
+      token: cart.token,
+      variantId: 'v-1-1',
+      expectedVersion: 1,
+      idempotencyKey: 'before-withdrawal',
+      correlationId: 'validity',
+      now: NOW,
+      quantity: 2
+    }
+    await setCartLine(database, command)
+    withdrawSyntheticPolicy(sqlite)
+    await expect(
+      setCartLine(database, { ...command, expectedVersion: 2, idempotencyKey: 'after-withdrawal' })
+    ).rejects.toMatchObject({ code: 'variant_not_available' })
+    expect(
+      await setCartLine(database, { ...command, quantity: 0, expectedVersion: 2, idempotencyKey: 'remove-invalid' })
+    ).toMatchObject({ outcome: 'applied', body: { removed: true, cartVersion: 3 } })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM cart_lines').get()).toMatchObject({ n: 0 })
+  })
+
+  it('keeps a historical quote replay but denies new quotes after withdrawal', async () => {
+    const { sqlite, database } = await world()
+    const cart = await newCart(database)
+    await setCartLine(database, {
+      cartId: cart.cartId,
+      token: cart.token,
+      variantId: 'v-1-1',
+      expectedVersion: 1,
+      idempotencyKey: 'line',
+      correlationId: 'validity',
+      now: NOW,
+      quantity: 1
+    })
+    const command = {
+      cartId: cart.cartId,
+      token: cart.token,
+      expectedVersion: 2,
+      idempotencyKey: 'historical-quote',
+      correlationId: 'validity',
+      now: NOW
+    }
+    const historical = await quoteCart(database, command)
+    withdrawSyntheticPolicy(sqlite)
+    expect(await quoteCart(database, command)).toEqual(historical)
+    await expect(quoteCart(database, { ...command, idempotencyKey: 'new-quote' })).rejects.toMatchObject({
+      code: 'variant_not_available'
+    })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM checkout_quotes').get()).toMatchObject({ n: 1 })
+  })
+
+  it('rolls back a mutation if governing evidence changes after the preflight', async () => {
+    const { sqlite, database } = await world()
+    const cart = await newCart(database)
+    const drifting = beforeBatch(database, () => withdrawSyntheticPolicy(sqlite))
+    await expect(
+      setCartLine(drifting, {
+        cartId: cart.cartId,
+        token: cart.token,
+        variantId: 'v-1-1',
+        expectedVersion: 1,
+        idempotencyKey: 'late-drift',
+        correlationId: 'validity',
+        now: NOW,
+        quantity: 1
+      })
+    ).rejects.toMatchObject({ code: 'variant_not_available' })
+    expect(sqlite.prepare('SELECT version FROM carts WHERE id=?').get(cart.cartId)).toMatchObject({ version: 1 })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM cart_lines').get()).toMatchObject({ n: 0 })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM cart_commands').get()).toMatchObject({ n: 0 })
+  })
+
+  it('rolls back every quote row if its evidence changes before the batch commits', async () => {
+    const { sqlite, database } = await world()
+    const cart = await newCart(database)
+    await setCartLine(database, {
+      cartId: cart.cartId,
+      token: cart.token,
+      variantId: 'v-1-1',
+      expectedVersion: 1,
+      idempotencyKey: 'line',
+      correlationId: 'validity',
+      now: NOW,
+      quantity: 1
+    })
+    await expect(
+      quoteCart(
+        beforeBatch(database, () => withdrawSyntheticPolicy(sqlite)),
+        {
+          cartId: cart.cartId,
+          token: cart.token,
+          expectedVersion: 2,
+          idempotencyKey: 'late-quote',
+          correlationId: 'validity',
+          now: NOW
+        }
+      )
+    ).rejects.toMatchObject({ code: 'variant_not_available' })
+    for (const table of ['checkout_quotes', 'checkout_quote_lines'])
+      expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toMatchObject({ n: 0 })
+    expect(sqlite.prepare("SELECT count(*) AS n FROM cart_commands WHERE command_id='late-quote'").get()).toMatchObject(
+      { n: 0 }
+    )
+  })
+
+  it('does not turn a D1 outage into a publication business error', async () => {
+    const { database } = await world()
+    const cart = await newCart(database)
+    const broken = new Proxy(database, {
+      get(target, property) {
+        if (property === 'batch')
+          return async () => {
+            throw new Error('D1 unavailable')
+          }
+        const value: unknown = Reflect.get(target, property)
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+    })
+    await expect(
+      setCartLine(broken, {
+        cartId: cart.cartId,
+        token: cart.token,
+        variantId: 'v-1-1',
+        expectedVersion: 1,
+        idempotencyKey: 'outage',
+        correlationId: 'validity',
+        now: NOW,
+        quantity: 1
+      })
+    ).rejects.toMatchObject({ name: 'CartInfrastructureError' })
+  })
+
+  it.each(['mutation', 'quote'] as const)(
+    'preserves infrastructure classification when policy withdrawal coincides with a %s batch outage mentioning CHECK',
+    async (operation) => {
+      const { sqlite, database } = await world()
+      const cart = await newCart(database)
+      if (operation === 'quote')
+        await setCartLine(database, {
+          cartId: cart.cartId,
+          token: cart.token,
+          variantId: 'v-1-1',
+          expectedVersion: 1,
+          idempotencyKey: 'line-before-outage',
+          correlationId: 'validity',
+          now: NOW,
+          quantity: 1
+        })
+      const beforeCart = sqlite.prepare('SELECT * FROM carts WHERE id=?').get(cart.cartId)
+      const beforeLines = sqlite.prepare('SELECT * FROM cart_lines ORDER BY cart_id,variant_id').all()
+      const beforeCommands = sqlite.prepare('SELECT * FROM cart_commands ORDER BY command_id').all()
+      let batches = 0
+      const unavailable = new Proxy(database, {
+        get(target, property) {
+          if (property === 'batch')
+            return async () => {
+              batches += 1
+              withdrawSyntheticPolicy(sqlite)
+              // No batch statements execute: this is infrastructure failure,
+              // not an atomic guard reporting the independently committed drift.
+              throw new Error('D1_ERROR: provider unavailable; CHECK constraint failed private_table')
+            }
+          const value: unknown = Reflect.get(target, property)
+          return typeof value === 'function' ? value.bind(target) : value
+        }
+      })
+      const command = {
+        cartId: cart.cartId,
+        token: cart.token,
+        expectedVersion: operation === 'quote' ? 2 : 1,
+        idempotencyKey: 'outage-with-drift',
+        correlationId: 'validity',
+        now: NOW
+      }
+      await expect(
+        operation === 'quote'
+          ? quoteCart(unavailable, command)
+          : setCartLine(unavailable, { ...command, variantId: 'v-1-1', quantity: 1 })
+      ).rejects.toMatchObject({ name: 'CartInfrastructureError' })
+      expect(batches).toBe(1)
+      expect(sqlite.prepare('SELECT * FROM carts WHERE id=?').get(cart.cartId)).toEqual(beforeCart)
+      expect(sqlite.prepare('SELECT * FROM cart_lines ORDER BY cart_id,variant_id').all()).toEqual(beforeLines)
+      expect(sqlite.prepare('SELECT * FROM cart_commands ORDER BY command_id').all()).toEqual(beforeCommands)
+      for (const table of ['checkout_quotes', 'checkout_quote_lines', 'inventory_reservations'])
+        expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toMatchObject({ n: 0 })
+      expect(sqlite.prepare('SELECT count(*) AS n FROM catalog_publication_policy_withdrawals').get()).toMatchObject({
+        n: 1
+      })
+    }
+  )
+})
 
 describe('cart identity and authorization', () => {
   it('creates a cart whose token works exactly once and never reappears', async () => {
@@ -497,6 +868,46 @@ describe('pre-checkout quotes', () => {
     expect(quote.totals.grossCents).toBe(quote.lines.reduce((sum, line) => sum + line.grossCents, 0))
   })
 
+  it('selects the winning volume tier at the cart quantity and rounds VAT on the whole line', async () => {
+    const { created, database, fixture, sqlite } = await quotedCart()
+    sqlite
+      .prepare(
+        `INSERT INTO variant_price_versions (
+           id, variant_id, gross_cents, volume_tiers, valid_from, status, reason, created_at
+         ) VALUES ('pv-tier-quote', ?, 500,
+           '[{"minimumQuantity":2,"unitGrossCents":3}]', '${NOW}', 'approved',
+           'Tier fiscal test', '${NOW}')`
+      )
+      .run(fixture.variantId(1, 1))
+    const result = await quoteCart(database, {
+      cartId: created.cartId,
+      correlationId: 't',
+      expectedVersion: 3,
+      idempotencyKey: 'tier-quote',
+      now: NOW,
+      token: created.token
+    })
+    expect(result.outcome).toBe('quoted')
+    if (result.outcome !== 'quoted') return
+    const line = result.quote.lines.find((item) => item.variantId === fixture.variantId(1, 1))!
+    expect(line).toMatchObject({
+      priceVersionId: 'pv-tier-quote',
+      quantity: 2,
+      unitGrossCents: 3,
+      grossCents: 6,
+      netCents: 5,
+      taxCents: 1
+    })
+    expect(splitGross(3, line.taxRateBasisPoints).netCents * 2).toBe(4)
+    expect(
+      (
+        sqlite
+          .prepare('SELECT unit_gross_cents FROM checkout_quote_lines WHERE quote_id = ? AND variant_id = ?')
+          .get(result.quote.quoteId, fixture.variantId(1, 1)) as { unit_gross_cents: number }
+      ).unit_gross_cents
+    ).toBe(3)
+  })
+
   it('never reserves stock nor mutates balances while quoting', async () => {
     const { created, database, fixture, sqlite } = await quotedCart()
     const balancesBefore = sqlite
@@ -696,7 +1107,7 @@ describe('pre-checkout quotes', () => {
       taxRateBasisPoints: 0,
       token: created.token,
       unitPriceOverride: 1
-    } as Parameters<typeof quoteCart>[0]
+    }
     const result = await quoteCart(database, hostile)
     if (result.outcome !== 'quoted') throw new Error('expected quote')
     expect(result.quote.currency).toBe('EUR')
@@ -707,6 +1118,7 @@ describe('pre-checkout quotes', () => {
 
   it('reseeding demo data does not overwrite live stock or ledger entries', async () => {
     const sqlite = await openMigratedDatabase()
+    sqlite.limits.exprDepth = 100
     const { applyGeneratedSeed } = await import('../support/d1-sqlite')
     const { renderD1CategorySeed } = await import('../../scripts/lib/d1-category-seed')
     const { renderD1ProductSeed } = await import('../../scripts/lib/d1-product-seed')

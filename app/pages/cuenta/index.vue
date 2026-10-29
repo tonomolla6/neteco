@@ -1,583 +1,580 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'auth' })
+import type { AccountProfile, Address, FavoriteList, OrderDetailLines, OrderSummary } from '~/composables/useAccount'
+import { z } from 'zod'
+import { catalogPolicyOwnJson } from '~~/shared/catalog-publication-policy'
+import { readOrderDetail } from '~/utils/orderDetail'
+
+definePageMeta({ middleware: 'auth', layout: 'cuenta' })
 useSeoMeta({ title: 'Mi cuenta', robots: 'noindex, nofollow' })
 
-interface OrderSummary {
-  id: string
-  status: string
-  total: number
-  createdAt: string
-  lines: number
-}
-
-interface AccountProfile {
-  name: string | null
-  phone: string | null
-  email: string
-  company: string | null
-  tradeName: string | null
-  taxId: string | null
-  countryCode: string | null
-  companyStatus: string | null
-  companyRole: string | null
-}
-
-interface Address {
-  id: string
-  kind: 'shipping' | 'billing' | 'both'
-  label: string
-  recipientName: string
-  companyName: string | null
-  taxId: string | null
-  line1: string
-  line2: string | null
-  postalCode: string
-  city: string
-  region: string
-  countryCode: string
-  phone: string | null
-  instructions: string | null
-  isDefault: boolean
-}
-
-interface AccountSession {
-  id: string
-  mfaVerified: boolean
-  createdAt: string
-  lastSeenAt: string
-  expiresAt: string
-  current: boolean
-}
-
-interface Preference {
-  purpose: 'newsletter' | 'product_updates' | 'replenishment' | 'transactional'
-  channel: 'email' | 'sms' | 'whatsapp'
-  enabled: boolean
-  frequency: 'immediate' | 'weekly' | 'monthly'
-  topics: string[]
-}
-
-interface PrivacyRequest {
-  id: string
-  requestType: 'export' | 'anonymize'
-  status: string
-  requestedAt: string
-  dueAt: string
-  completedAt: string | null
-}
-
-interface FavoriteList {
-  id: string
-  name: string
-  items: Array<{ variantId: string; sku: string; quantity: string; name: string; slug: string; available: boolean }>
-}
-
-const { user, clear, fetch: refreshUser } = useUserSession()
-const { data: accountData, refresh: refreshAccount } = await useFetch<{ profile: AccountProfile }>('/api/account')
-const { data: orderData } = await useFetch<{ orders: OrderSummary[] }>('/api/orders')
-const { data: addressData, refresh: refreshAddresses } = await useFetch<{ addresses: Address[] }>(
-  '/api/account/addresses'
+/**
+ * Resumen del área de cliente.
+ *
+ * La pantalla anterior ponía «Mis pedidos» en la posición once, por debajo de la
+ * configuración de privacidad. Aquí el último pedido va primero y con su acción
+ * principal a la vista, porque es lo que viene a hacer el cliente de un proveedor
+ * de reposición. Todo lo demás son accesos, no formularios.
+ */
+const cloudflare = useRuntimeConfig().public.serverRuntime === 'cloudflare'
+const { ready, loggedIn, user, session } = useUserSession()
+const requestFetch = useRequestFetch()
+const orderData = cloudflare
+  ? shallowRef<{ orders: OrderSummary[] } | null>(null)
+  : (await useFetch<{ orders: OrderSummary[] }>('/api/orders')).data
+const accountData = cloudflare
+  ? shallowRef<{ profile: AccountProfile } | null>(null)
+  : (await useFetch<{ profile: AccountProfile }>('/api/account')).data
+const addressData = cloudflare
+  ? shallowRef<{ addresses: Address[] } | null>(null)
+  : (await useFetch<{ addresses: Address[] }>('/api/account/addresses')).data
+const favoriteData = cloudflare
+  ? shallowRef<{ lists: FavoriteList[] } | null>(null)
+  : (await useFetch<{ lists: FavoriteList[] }>('/api/account/favorites')).data
+const scopeKey = computed(() =>
+  JSON.stringify([
+    loggedIn.value,
+    user.value?.id,
+    user.value?.emailVerified,
+    session.value?.sessionId,
+    session.value?.sessionVersion
+  ])
 )
-const { data: sessionData, refresh: refreshSessions } = await useFetch<{ sessions: AccountSession[] }>(
-  '/api/account/sessions'
-)
-const { data: preferenceData, refresh: refreshPreferences } = await useFetch<{ preferences: Preference[] }>(
-  '/api/account/preferences'
-)
-const { data: privacyData, refresh: refreshPrivacy } = await useFetch<{ requests: PrivacyRequest[] }>(
-  '/api/account/privacy'
-)
-const { data: favoriteData, refresh: refreshFavorites } = await useFetch<{ lists: FavoriteList[] }>(
-  '/api/account/favorites'
-)
-
-const profileForm = reactive({
-  name: accountData.value?.profile.name ?? '',
-  phone: accountData.value?.profile.phone ?? ''
+type Resource = 'orders' | 'profile' | 'addresses' | 'favorites'
+type ReadState = 'idle' | 'pending' | 'success' | 'error'
+const readState = reactive<Record<Resource | 'lines', ReadState>>({
+  orders: 'idle',
+  profile: 'idle',
+  addresses: 'idle',
+  favorites: 'idle',
+  lines: 'idle'
 })
-const addressForm = reactive({
-  kind: 'both' as Address['kind'],
-  label: '',
-  recipientName: accountData.value?.profile.name ?? '',
-  companyName: accountData.value?.profile.company ?? '',
-  taxId: accountData.value?.profile.taxId ?? '',
-  line1: '',
-  line2: '',
-  postalCode: '',
-  city: '',
-  region: '',
-  countryCode: 'ES',
-  phone: accountData.value?.profile.phone ?? '',
-  instructions: '',
-  isDefault: false
-})
-const communication = reactive<Record<'newsletter' | 'product_updates' | 'replenishment', boolean>>({
-  newsletter: preferenceData.value?.preferences.some((item) => item.purpose === 'newsletter' && item.enabled) ?? false,
-  product_updates:
-    preferenceData.value?.preferences.some((item) => item.purpose === 'product_updates' && item.enabled) ?? false,
-  replenishment:
-    preferenceData.value?.preferences.some((item) => item.purpose === 'replenishment' && item.enabled) ?? false
-})
-const notice = ref('')
-const errorMessage = ref('')
-const busy = ref(false)
-const mfaEnrollment = ref<{ manualKey: string; recoveryCodes: string[] } | null>(null)
-const mfaCode = ref('')
-const emailChangeForm = reactive({ email: '', currentPassword: '' })
-const passwordForm = reactive({ currentPassword: '', newPassword: '', confirmation: '' })
-const companyForm = reactive({
-  legalName: accountData.value?.profile.company ?? '',
-  tradeName: accountData.value?.profile.tradeName ?? '',
-  taxId: accountData.value?.profile.taxId ?? '',
-  countryCode: accountData.value?.profile.countryCode ?? 'ES',
-  currentPassword: ''
-})
-
-function showError(error: unknown, fallback: string) {
-  const candidate = error as { data?: { statusMessage?: string } }
-  errorMessage.value = candidate.data?.statusMessage ?? fallback
+const resourceLabels: Record<Resource, string> = {
+  orders: 'pedidos',
+  profile: 'datos de cuenta',
+  addresses: 'direcciones',
+  favorites: 'listas de compra'
+}
+const text = z.string().max(4096),
+  nullableText = text.nullable()
+const ordersSchema = z
+  .object({
+    orders: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            status: z.string().refine((value) => Object.hasOwn(ORDER_STATUS, value)),
+            total: z.number().int().safe().nonnegative(),
+            createdAt: z.string().datetime(),
+            lines: z.number().int().safe().nonnegative(),
+            invoiceAvailable: z.boolean(),
+            fullDetailAvailable: z.boolean()
+          })
+          .strict()
+      )
+      .max(200)
+  })
+  .strict()
+  .refine(({ orders }) => new Set(orders.map((order) => order.id)).size === orders.length)
+const profileSchema = z
+  .object({
+    profile: z
+      .object({
+        name: nullableText,
+        phone: nullableText,
+        email: text.min(1),
+        companyId: z.string().uuid().nullable().optional(),
+        company: nullableText,
+        tradeName: nullableText,
+        taxId: nullableText,
+        countryCode: nullableText,
+        companyStatus: nullableText,
+        companyRole: nullableText
+      })
+      .strict()
+  })
+  .strict()
+const addressesSchema = z
+  .object({
+    addresses: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            kind: z.enum(['shipping', 'billing', 'both']),
+            label: text,
+            recipientName: text,
+            companyName: nullableText,
+            taxId: nullableText,
+            line1: text,
+            line2: nullableText,
+            postalCode: text,
+            city: text,
+            region: text,
+            countryCode: z.string().regex(/^[A-Z]{2}$/),
+            phone: nullableText,
+            instructions: nullableText,
+            isDefault: z.boolean(),
+            createdAt: z.string().datetime(),
+            updatedAt: z.string().datetime()
+          })
+          .strict()
+      )
+      .max(50)
+  })
+  .strict()
+  .refine(({ addresses }) => new Set(addresses.map((address) => address.id)).size === addresses.length)
+const positive = z.number().int().safe().positive()
+const favoriteItemSchema = z
+  .object({
+    variantId: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+      .max(128),
+    cartVariantId: positive.nullable(),
+    sku: text.min(1),
+    quantity: z.string().regex(/^[1-9][0-9]{0,2}$/),
+    name: text.min(1),
+    slug: text.min(1),
+    format: text.min(1),
+    unitLabel: text.min(1),
+    minimumQuantity: positive,
+    maximumQuantity: positive.nullable(),
+    quantityIncrement: positive,
+    available: z.boolean(),
+    reason: z.enum(['unpublished', 'quantity_changed', 'out_of_stock', 'cart_unmapped']).nullable()
+  })
+  .strict()
+  .refine((item) => item.available === (item.reason === null) && (!item.available || item.cartVariantId !== null))
+const favoritesSchema = z
+  .object({
+    lists: z
+      .array(
+        z
+          .object({
+            id: z
+              .string()
+              .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+              .max(128),
+            name: z.string().min(1).max(80),
+            isDefault: z.boolean(),
+            items: z.array(favoriteItemSchema).max(100)
+          })
+          .strict()
+          .refine((list) => new Set(list.items.map((item) => item.variantId)).size === list.items.length)
+      )
+      .max(21)
+  })
+  .strict()
+  .refine(
+    ({ lists }) =>
+      new Set(lists.map((list) => list.id)).size === lists.length &&
+      lists.filter((list) => list.isDefault).length <= 1 &&
+      lists.filter((list) => !list.isDefault).length <= 20
+  )
+const readers = {
+  orders: {
+    path: '/api/orders',
+    accept: (raw: unknown) => {
+      orderData.value = ordersSchema.parse(raw)
+    }
+  },
+  profile: {
+    path: '/api/account',
+    accept: (raw: unknown) => {
+      accountData.value = profileSchema.parse(raw)
+    }
+  },
+  addresses: {
+    path: '/api/account/addresses',
+    accept: (raw: unknown) => {
+      addressData.value = addressesSchema.parse(raw)
+    }
+  },
+  favorites: {
+    path: '/api/account/favorites',
+    accept: (raw: unknown) => {
+      favoriteData.value = favoritesSchema.parse(raw)
+    }
+  }
+}
+const sources = { orders: orderData, profile: accountData, addresses: addressData, favorites: favoriteData }
+let active = true,
+  mounted = false,
+  started = false,
+  generation = 0
+const flights = new Set<Resource | 'lines'>()
+function authorized() {
+  return (
+    active &&
+    ready.value === true &&
+    loggedIn.value === true &&
+    user.value?.emailVerified === true &&
+    z.string().uuid().safeParse(user.value?.id).success &&
+    z.string().uuid().safeParse(session.value?.sessionId).success &&
+    typeof session.value?.sessionVersion === 'number' &&
+    Number.isSafeInteger(session.value.sessionVersion) &&
+    session.value.sessionVersion >= 1
+  )
+}
+function purge() {
+  generation++
+  for (const name of Object.keys(readers) as Resource[]) {
+    sources[name].value = null
+    readState[name] = 'idle'
+  }
+  lastOrderLines.value = null
+  readState.lines = 'idle'
+  flights.clear()
   notice.value = ''
 }
-
-async function saveProfile() {
-  busy.value = true
-  errorMessage.value = ''
+async function readResource(name: Resource) {
+  if (!cloudflare || !authorized() || flights.has(name)) return
+  const epoch = generation,
+    scope = scopeKey.value
+  const current = () => active && generation === epoch && scopeKey.value === scope && authorized()
+  flights.add(name)
+  readState[name] = 'pending'
+  sources[name].value = null
+  if (name === 'orders') {
+    lastOrderLines.value = null
+    readState.lines = 'idle'
+  }
   try {
-    await $fetch('/api/account/profile', { method: 'PUT', body: profileForm })
-    await Promise.all([refreshAccount(), refreshUser()])
-    notice.value = 'Perfil actualizado.'
-  } catch (error) {
-    showError(error, 'No se ha podido actualizar el perfil.')
+    const raw: unknown = await requestFetch(readers[name].path, { method: 'GET', retry: 0, cache: 'no-store' })
+    if (!current()) return
+    readers[name].accept(catalogPolicyOwnJson(raw))
+    readState[name] = 'success'
+    if (name === 'orders' && lastOrder.value) await readLines()
+  } catch {
+    if (current()) {
+      sources[name].value = null
+      readState[name] = 'error'
+    }
   } finally {
-    busy.value = false
+    if (current()) flights.delete(name)
   }
 }
-
-async function requestEmailChange() {
-  busy.value = true
-  errorMessage.value = ''
+async function readLines() {
+  const id = lastOrder.value?.id
+  if (!cloudflare || !authorized() || !id || readState.orders !== 'success' || flights.has('lines')) return
+  const epoch = generation,
+    scope = scopeKey.value
+  const current = () =>
+    active && generation === epoch && scopeKey.value === scope && authorized() && lastOrder.value?.id === id
+  flights.add('lines')
+  readState.lines = 'pending'
+  lastOrderLines.value = null
   try {
-    const result = await $fetch<{ message: string }>('/api/account/email-change', {
-      method: 'POST',
-      body: emailChangeForm
-    })
-    emailChangeForm.currentPassword = ''
-    notice.value = result.message
-  } catch (error) {
-    showError(error, 'No se ha podido solicitar el cambio de email.')
+    const raw: unknown = await requestFetch(`/api/orders/${id}/lines`, { method: 'GET', retry: 0, cache: 'no-store' })
+    if (!current()) return
+    const parsed = readOrderDetail(raw, id)
+    if (!parsed || parsed.lines.some((line) => line.reorderOffer === undefined))
+      throw new Error('unconfirmed_order_lines')
+    lastOrderLines.value = parsed
+    readState.lines = 'success'
+  } catch {
+    if (current()) {
+      lastOrderLines.value = null
+      readState.lines = 'error'
+    }
   } finally {
-    busy.value = false
+    if (current()) flights.delete('lines')
   }
 }
+function readAll() {
+  if (!authorized() || Object.values(readState).includes('pending')) return
+  started = true
+  void Promise.all((Object.keys(readers) as Resource[]).map(readResource))
+}
 
-async function changePassword() {
-  if (passwordForm.newPassword !== passwordForm.confirmation) {
-    errorMessage.value = 'Las contraseñas nuevas no coinciden.'
+const dialog = useTemplateRef('dialog')
+const notice = ref('')
+
+const orders = computed(() =>
+  !cloudflare || (authorized() && readState.orders === 'success') ? (orderData.value?.orders ?? []) : []
+)
+const lastOrder = computed(() => orders.value[0])
+
+// Qué llevaba el último pedido: sin esto la tarjeta dice «vuelve a pedir» sin enseñar qué.
+const lastOrderLines = cloudflare
+  ? shallowRef<OrderDetailLines | null>(null)
+  : (
+      await useLazyFetch<OrderDetailLines>(() => `/api/orders/${lastOrder.value?.id}/lines`, {
+        immediate: Boolean(orders.value.length),
+        key: 'last-order-lines'
+      })
+    ).data
+const lastOrderItems = computed(() => lastOrderLines.value?.lines ?? [])
+const recentOrders = computed(() => orders.value.slice(1, 4))
+const openOrders = computed(
+  () => orders.value.filter((order) => !['entregado', 'cancelado', 'reembolsado'].includes(order.status)).length
+)
+const favoriteCount = computed(
+  () => favoriteData.value?.lists.reduce((total, list) => total + list.items.length, 0) ?? 0
+)
+const defaultAddress = computed(
+  () => addressData.value?.addresses.find((address) => address.isDefault) ?? addressData.value?.addresses[0]
+)
+const companyStatus = computed(() => {
+  const raw = accountData.value?.profile.companyStatus
+  return raw ? (COMPANY_STATUS[raw] ?? { label: raw, color: 'neutral' as const }) : null
+})
+
+const shortcuts = computed(() => [
+  {
+    to: '/cuenta/pedidos',
+    icon: 'i-lucide-package',
+    label: 'Pedidos',
+    hint: cloudflare
+      ? readState.orders === 'success' && authorized()
+        ? `${orders.value.length} consultados`
+        : 'Pedidos no confirmados'
+      : `${orders.value.length} en total`
+  },
+  {
+    to: '/cuenta/favoritos',
+    icon: 'i-lucide-list-checks',
+    label: 'Listas de compra',
+    hint:
+      cloudflare && (readState.favorites !== 'success' || !authorized())
+        ? 'Listas no confirmadas'
+        : favoriteCount.value
+          ? `${favoriteCount.value} referencias`
+          : 'Sin referencias guardadas'
+  },
+  {
+    to: '/cuenta/direcciones',
+    icon: 'i-lucide-map-pin',
+    label: 'Direcciones',
+    hint:
+      cloudflare && (readState.addresses !== 'success' || !authorized())
+        ? 'Direcciones no confirmadas'
+        : defaultAddress.value
+          ? cloudflare
+            ? `${defaultAddress.value.city}${(addressData.value?.addresses.length ?? 0) > 1 ? ` y ${addressData.value!.addresses.length - 1} más` : ''}`
+            : `${defaultAddress.value.city} y ${addressData?.value?.addresses.length ?? 0} más`
+          : 'Sin direcciones'
+  },
+  {
+    to: '/cuenta/seguridad',
+    icon: 'i-lucide-shield-check',
+    label: 'Acceso y seguridad',
+    hint: 'Contraseña, MFA y sesiones'
+  }
+])
+
+function onAdded(count: number) {
+  if (cloudflare && (!authorized() || readState.orders !== 'success' || !Number.isSafeInteger(count) || count < 1))
     return
-  }
-  busy.value = true
-  errorMessage.value = ''
-  try {
-    await $fetch('/api/account/password', {
-      method: 'PUT',
-      body: { currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }
-    })
-    Object.assign(passwordForm, { currentPassword: '', newPassword: '', confirmation: '' })
-    await refreshSessions()
-    notice.value = 'Contraseña actualizada y demás sesiones revocadas.'
-  } catch (error) {
-    showError(error, 'No se ha podido cambiar la contraseña.')
-  } finally {
-    busy.value = false
-  }
+  notice.value = `${count} ${count === 1 ? 'referencia añadida' : 'referencias añadidas'} al carrito.`
 }
-
-async function saveCompany() {
-  busy.value = true
-  errorMessage.value = ''
-  try {
-    await $fetch('/api/account/company', { method: 'PUT', body: companyForm })
-    companyForm.currentPassword = ''
-    await Promise.all([refreshAccount(), refreshUser()])
-    notice.value = 'Datos profesionales enviados a revisión.'
-  } catch (error) {
-    showError(error, 'No se han podido guardar los datos profesionales.')
-  } finally {
-    busy.value = false
-  }
-}
-
-async function addAddress() {
-  busy.value = true
-  errorMessage.value = ''
-  try {
-    await $fetch('/api/account/addresses', { method: 'POST', body: addressForm })
-    await refreshAddresses()
-    Object.assign(addressForm, {
-      label: '',
-      line1: '',
-      line2: '',
-      postalCode: '',
-      city: '',
-      region: '',
-      instructions: '',
-      isDefault: false
-    })
-    notice.value = 'Dirección guardada.'
-  } catch (error) {
-    showError(error, 'No se ha podido guardar la dirección.')
-  } finally {
-    busy.value = false
-  }
-}
-
-async function deleteAddress(id: string) {
-  if (!confirm('¿Eliminar esta dirección? Los pedidos históricos conservarán su copia.')) return
-  await $fetch(`/api/account/addresses/${id}`, { method: 'DELETE' })
-  await refreshAddresses()
-}
-
-async function savePreferences() {
-  const preferences = (Object.keys(communication) as Array<keyof typeof communication>).map((purpose) => ({
-    purpose,
-    channel: 'email' as const,
-    enabled: communication[purpose],
-    frequency: 'immediate' as const,
-    topics: []
-  }))
-  await $fetch('/api/account/preferences', { method: 'PUT', body: { preferences } })
-  await refreshPreferences()
-  notice.value = communication.newsletter
-    ? 'Preferencias actualizadas. Revisa tu email para confirmar la newsletter si todavía no estaba activa.'
-    : 'Preferencias actualizadas. La baja de la newsletter tiene efecto inmediato.'
-}
-
-async function revokeSession(id: string) {
-  await $fetch(`/api/account/sessions/${id}`, { method: 'DELETE' })
-  await refreshSessions()
-}
-
-async function requestPrivacy(requestType: 'export' | 'anonymize') {
+function startReorder(id: string) {
   if (
-    requestType === 'anonymize' &&
-    !confirm('¿Solicitar la anonimización? Se revisarán las obligaciones fiscales vigentes.')
-  ) {
+    cloudflare &&
+    (!authorized() ||
+      readState.orders !== 'success' ||
+      !orders.value.some((order) => order.id === id) ||
+      (id === lastOrder.value?.id && readState.lines !== 'success'))
+  )
     return
-  }
-  const request = await $fetch<PrivacyRequest>('/api/account/privacy', {
-    method: 'POST',
-    body: { requestType, idempotencyKey: crypto.randomUUID() }
-  })
-  await refreshPrivacy()
-  if (requestType === 'export') {
-    window.location.assign(`/api/account/privacy/${request.id}/download`)
-  } else {
-    notice.value = 'Solicitud registrada. El plazo y estado aparecen en esta página.'
-  }
+  dialog.value?.start(id)
 }
-
-async function removeFavorite(variantId: string) {
-  await $fetch(`/api/account/favorites/${variantId}`, { method: 'DELETE' })
-  await refreshFavorites()
+if (cloudflare) {
+  watch(scopeKey, purge, { flush: 'sync' })
+  watch(
+    () => authorized(),
+    (value) => {
+      if (mounted && value && !started) readAll()
+    },
+    { flush: 'sync' }
+  )
+  watch(
+    ready,
+    (value) => {
+      if (!value) purge()
+    },
+    { flush: 'sync' }
+  )
 }
-
-async function beginMfa() {
-  mfaEnrollment.value = await $fetch('/api/auth/mfa/setup', { method: 'POST' })
-}
-
-async function verifyMfa() {
-  await $fetch('/api/auth/mfa/verify-setup', { method: 'POST', body: { code: mfaCode.value } })
-  await refreshUser()
-  mfaEnrollment.value = null
-  mfaCode.value = ''
-  notice.value = 'Autenticación multifactor activada.'
-}
-
-async function logout() {
-  await $fetch('/api/auth/logout', { method: 'POST' })
-  await clear()
-  await navigateTo('/')
-}
+onMounted(() => {
+  mounted = true
+  if (cloudflare) readAll()
+})
+onBeforeUnmount(() => {
+  active = false
+  if (cloudflare) purge()
+})
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl px-4 py-8">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Hola, {{ user?.name }}</h1>
-        <p class="mt-1 text-sm text-slate-500">
-          {{ user?.email }}<template v-if="user?.company"> · {{ user.company }}</template>
-        </p>
-      </div>
-      <UButton color="neutral" variant="soft" icon="i-lucide-log-out" @click="logout">Cerrar sesión</UButton>
+  <div class="space-y-6">
+    <UiPageHeader title="Resumen" description="Tu último pedido, tus datos y los accesos rápidos a cada sección." />
+
+    <AccountFeedback :notice="notice" />
+    <div v-if="cloudflare" class="space-y-3">
+      <p v-if="!authorized()" role="status">
+        Confirma tu sesión y correo verificado para consultar el resumen privado.
+      </p>
+      <UButton :disabled="!authorized() || Object.values(readState).includes('pending')" @click="readAll"
+        >Actualizar resumen</UButton
+      >
+      <template v-for="(label, name) in resourceLabels" :key="name">
+        <section v-if="readState[name] !== 'success'" class="rounded-lg border p-3 text-sm">
+          <p v-if="readState[name] === 'pending'" :data-overview-loading="name" role="status">
+            Consultando {{ label }}…
+          </p>
+          <p v-else-if="readState[name] === 'error'" :data-overview-error="name" role="alert">
+            No se han podido confirmar {{ label }}. No se interpreta como datos vacíos.
+          </p>
+          <p v-else role="status">{{ label }} sin confirmar.</p>
+          <UButton
+            :data-overview-retry="name"
+            :disabled="!authorized() || readState[name] === 'pending'"
+            @click="readResource(name)"
+            >Volver a consultar {{ label }}</UButton
+          >
+        </section>
+      </template>
     </div>
 
-    <UAlert v-if="notice" class="mt-5" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
-    <UAlert
-      v-if="errorMessage"
-      class="mt-5"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-alert-circle"
-      :title="errorMessage"
+    <!-- Lo primero de la página es la acción principal, no un formulario de perfil -->
+    <UiSurface v-if="lastOrder" tone="accent" padding="lg">
+      <div class="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+        <div class="min-w-0">
+          <p class="text-sm font-semibold uppercase tracking-wide text-neteco-800">Tu último pedido</p>
+          <p class="tabular mt-1 text-2xl font-bold text-[var(--text-strong)]">{{ lastOrder.id }}</p>
+          <p class="mt-1 text-[var(--text-muted)]">
+            {{ formatAccountDate(lastOrder.createdAt) }} · {{ lastOrder.lines }}
+            {{ lastOrder.lines === 1 ? 'referencia' : 'referencias' }} ·
+            <span class="tabular font-semibold text-[var(--text-strong)]">{{ formatPrice(lastOrder.total) }}</span>
+          </p>
+          <UBadge
+            class="mt-3"
+            variant="subtle"
+            :color="(ORDER_STATUS[lastOrder.status] ?? ORDER_STATUS.pendiente_pago!).color"
+            :icon="(ORDER_STATUS[lastOrder.status] ?? ORDER_STATUS.pendiente_pago!).icon"
+          >
+            {{ (ORDER_STATUS[lastOrder.status] ?? ORDER_STATUS.pendiente_pago!).label }}
+          </UBadge>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            size="lg"
+            icon="i-lucide-rotate-cw"
+            :disabled="cloudflare && readState.lines !== 'success'"
+            @click="startReorder(lastOrder.id)"
+          >
+            Volver a pedir
+          </UButton>
+          <UButton size="lg" color="neutral" variant="outline" to="/cuenta/pedidos">Ver mis pedidos</UButton>
+        </div>
+      </div>
+      <div v-if="cloudflare && readState.lines !== 'success'" class="mt-4 rounded-lg border p-3 text-sm">
+        <p v-if="readState.lines === 'pending'" data-overview-loading="lines" role="status">
+          Consultando las referencias del último pedido…
+        </p>
+        <p v-else data-overview-error="lines" role="alert">
+          No se han podido confirmar las referencias. La recompra permanece deshabilitada.
+        </p>
+        <UButton
+          data-overview-retry="lines"
+          :disabled="!authorized() || readState.lines === 'pending'"
+          @click="readLines"
+          >Consultar referencias</UButton
+        >
+      </div>
+
+      <!-- Qué llevaba: «volver a pedir» sin enseñar el qué obliga a salir de la página -->
+      <ul v-if="lastOrderItems.length" class="mt-5 space-y-2 border-t border-neteco-200 pt-4">
+        <li v-for="line in lastOrderItems.slice(0, 4)" :key="line.sku" class="flex items-center gap-3">
+          <OrderLineThumb :line="line" size="sm" />
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-medium text-[var(--text-strong)]">{{ line.name }}</p>
+            <p class="truncate text-xs text-[var(--text-muted)]">{{ line.format }} · Ref. {{ line.sku }}</p>
+          </div>
+          <span class="tabular shrink-0 text-sm text-[var(--text-muted)]">× {{ line.quantity }}</span>
+        </li>
+        <li v-if="lastOrderItems.length > 4" class="pl-13 text-sm text-[var(--text-muted)]">
+          y {{ lastOrderItems.length - 4 }}
+          {{ lastOrderItems.length - 4 === 1 ? 'referencia más' : 'referencias más' }}
+        </li>
+      </ul>
+    </UiSurface>
+
+    <UiSurface v-else-if="!cloudflare || (authorized() && readState.orders === 'success')" padding="none">
+      <UiEmptyState
+        icon="i-lucide-package"
+        title="Aún no has hecho ningún pedido"
+        description="Cuando hagas el primero, podrás repetirlo desde aquí en un par de clics."
+      >
+        <UButton to="/catalogo" icon="i-lucide-arrow-right" trailing>Ver el catálogo</UButton>
+      </UiEmptyState>
+    </UiSurface>
+
+    <!-- Estado de la cuenta profesional: antes se leía «Estado: pending · company_admin» -->
+    <UiSurface v-if="companyStatus" padding="sm">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2 text-sm">
+          <UIcon name="i-lucide-building-2" class="size-4 text-[var(--text-muted)]" />
+          <span class="font-medium text-[var(--text-strong)]">
+            {{ accountData?.profile.company || 'Cuenta profesional' }}
+          </span>
+          <UBadge :color="companyStatus.color" variant="subtle">{{ companyStatus.label }}</UBadge>
+          <span v-if="accountData?.profile.companyRole" class="text-[var(--text-muted)]">
+            {{ COMPANY_ROLE[accountData.profile.companyRole] ?? accountData.profile.companyRole }}
+          </span>
+        </div>
+        <UButton size="sm" color="neutral" variant="ghost" to="/cuenta/datos" trailing icon="i-lucide-chevron-right">
+          Gestionar
+        </UButton>
+      </div>
+    </UiSurface>
+
+    <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <NuxtLink
+        v-for="shortcut in shortcuts"
+        :key="shortcut.to"
+        :to="shortcut.to"
+        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-neteco-300"
+      >
+        <UIcon :name="shortcut.icon" class="size-5 text-neteco-700" />
+        <p class="mt-2.5 font-semibold text-[var(--text-strong)]">{{ shortcut.label }}</p>
+        <p class="mt-0.5 text-sm text-[var(--text-muted)]">{{ shortcut.hint }}</p>
+      </NuxtLink>
+    </div>
+
+    <section v-if="recentOrders.length">
+      <div class="flex items-center justify-between pb-3">
+        <h2 class="text-lg font-bold text-[var(--text-strong)]">Pedidos anteriores</h2>
+        <UButton size="sm" color="neutral" variant="ghost" to="/cuenta/pedidos" trailing icon="i-lucide-chevron-right">
+          Ver todos
+        </UButton>
+      </div>
+      <div class="space-y-3">
+        <AccountOrderRow v-for="order in recentOrders" :key="order.id" :order="order" @reorder="startReorder" />
+      </div>
+    </section>
+
+    <p v-if="openOrders" class="text-sm text-[var(--text-muted)]">
+      <template v-if="cloudflare"
+        >Entre los pedidos consultados hay {{ openOrders }}
+        {{ openOrders === 1 ? 'pedido en curso' : 'pedidos en curso' }}.</template
+      >
+      <template v-else
+        >Tienes {{ openOrders }} {{ openOrders === 1 ? 'pedido en curso' : 'pedidos en curso' }}.</template
+      >
+      <NuxtLink to="/cuenta/pedidos" class="font-medium text-neteco-700 underline">Seguir su estado</NuxtLink>
+    </p>
+
+    <p v-if="cloudflare && orders.length === 200" role="status" class="text-sm text-[var(--text-muted)]">
+      Esta consulta muestra como máximo los 200 más recientes; no confirma el total histórico de la cuenta.
+    </p>
+    <ReorderDialog
+      v-if="!cloudflare || (authorized() && readState.orders === 'success')"
+      :key="cloudflare ? scopeKey : 'node'"
+      ref="dialog"
+      @added="onAdded"
     />
-
-    <div class="mt-8 grid gap-6 lg:grid-cols-2">
-      <section class="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 class="text-lg font-bold text-slate-900">Datos personales</h2>
-        <form class="mt-4 space-y-4" @submit.prevent="saveProfile">
-          <UFormField label="Nombre y apellidos" required
-            ><UInput v-model="profileForm.name" class="w-full"
-          /></UFormField>
-          <UFormField label="Email"
-            ><UInput :model-value="accountData?.profile.email" class="w-full" disabled
-          /></UFormField>
-          <UFormField label="Teléfono"><UInput v-model="profileForm.phone" class="w-full" type="tel" /></UFormField>
-          <UButton type="submit" :loading="busy">Guardar perfil</UButton>
-        </form>
-        <form class="mt-6 space-y-3 border-t border-slate-100 pt-5" @submit.prevent="requestEmailChange">
-          <h3 class="font-semibold text-slate-800">Cambiar email</h3>
-          <UFormField label="Nuevo email" required
-            ><UInput v-model="emailChangeForm.email" class="w-full" type="email" autocomplete="email"
-          /></UFormField>
-          <UFormField label="Contraseña actual" required
-            ><UInput
-              v-model="emailChangeForm.currentPassword"
-              class="w-full"
-              type="password"
-              autocomplete="current-password"
-          /></UFormField>
-          <UButton type="submit" variant="soft" :loading="busy">Enviar confirmación</UButton>
-        </form>
-        <form class="mt-6 space-y-3 border-t border-slate-100 pt-5" @submit.prevent="saveCompany">
-          <h3 class="font-semibold text-slate-800">
-            {{ accountData?.profile.company ? 'Datos profesionales' : 'Solicitar cuenta profesional' }}
-          </h3>
-          <p v-if="accountData?.profile.companyStatus" class="text-sm text-slate-500">
-            Estado: {{ accountData.profile.companyStatus }} · {{ accountData.profile.companyRole }}
-          </p>
-          <UFormField label="Razón social" required
-            ><UInput v-model="companyForm.legalName" class="w-full" autocomplete="organization"
-          /></UFormField>
-          <UFormField label="Nombre comercial"><UInput v-model="companyForm.tradeName" class="w-full" /></UFormField>
-          <div class="grid grid-cols-3 gap-3">
-            <UFormField label="País" required
-              ><UInput v-model="companyForm.countryCode" maxlength="2" class="w-full"
-            /></UFormField>
-            <UFormField label="NIF/CIF/VAT" required class="col-span-2"
-              ><UInput v-model="companyForm.taxId" class="w-full"
-            /></UFormField>
-          </div>
-          <UFormField label="Contraseña actual" required
-            ><UInput
-              v-model="companyForm.currentPassword"
-              type="password"
-              autocomplete="current-password"
-              class="w-full"
-          /></UFormField>
-          <UButton type="submit" variant="soft" :loading="busy">Enviar a revisión</UButton>
-        </form>
-      </section>
-
-      <section class="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 class="text-lg font-bold text-slate-900">Seguridad</h2>
-        <p class="mt-2 text-sm text-slate-500">MFA protege tu cuenta con un segundo código de acceso.</p>
-        <UBadge v-if="user?.mfaVerified" class="mt-3" color="success" variant="subtle"
-          >MFA activo en esta sesión</UBadge
-        >
-        <UButton v-else-if="!mfaEnrollment" class="mt-4" variant="soft" @click="beginMfa">Activar MFA</UButton>
-        <div v-else class="mt-4 space-y-3">
-          <p class="text-sm">
-            Clave manual: <code class="break-all">{{ mfaEnrollment.manualKey }}</code>
-          </p>
-          <p class="text-xs text-amber-700">
-            Guarda estos códigos una sola vez: {{ mfaEnrollment.recoveryCodes.join(' · ') }}
-          </p>
-          <div class="flex gap-2">
-            <UInput v-model="mfaCode" maxlength="6" inputmode="numeric" placeholder="Código de 6 cifras" />
-            <UButton @click="verifyMfa">Confirmar</UButton>
-          </div>
-        </div>
-        <h3 class="mt-6 font-semibold text-slate-800">Sesiones activas</h3>
-        <div
-          v-for="session in sessionData?.sessions"
-          :key="session.id"
-          class="mt-3 flex items-center justify-between gap-3 text-sm"
-        >
-          <span>{{ formatDate(session.lastSeenAt) }} <strong v-if="session.current">(actual)</strong></span>
-          <UButton v-if="!session.current" size="xs" color="error" variant="ghost" @click="revokeSession(session.id)"
-            >Revocar</UButton
-          >
-        </div>
-        <form class="mt-6 space-y-3 border-t border-slate-100 pt-5" @submit.prevent="changePassword">
-          <h3 class="font-semibold text-slate-800">Cambiar contraseña</h3>
-          <UFormField label="Contraseña actual" required
-            ><UInput
-              v-model="passwordForm.currentPassword"
-              class="w-full"
-              type="password"
-              autocomplete="current-password"
-          /></UFormField>
-          <UFormField label="Nueva contraseña" required hint="mínimo 12 caracteres, con letras y números"
-            ><UInput v-model="passwordForm.newPassword" class="w-full" type="password" autocomplete="new-password"
-          /></UFormField>
-          <UFormField label="Repite la nueva contraseña" required
-            ><UInput v-model="passwordForm.confirmation" class="w-full" type="password" autocomplete="new-password"
-          /></UFormField>
-          <UButton type="submit" variant="soft" :loading="busy">Cambiar contraseña</UButton>
-        </form>
-      </section>
-    </div>
-
-    <section class="mt-6 rounded-2xl border border-slate-200 bg-white p-6">
-      <h2 class="text-lg font-bold text-slate-900">Agenda de direcciones</h2>
-      <div v-if="addressData?.addresses.length" class="mt-4 grid gap-3 md:grid-cols-2">
-        <article
-          v-for="address in addressData.addresses"
-          :key="address.id"
-          class="rounded-xl border border-slate-200 p-4 text-sm"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <strong>{{ address.label }}</strong> <UBadge v-if="address.isDefault" size="xs">Predeterminada</UBadge>
-            </div>
-            <UButton
-              size="xs"
-              color="error"
-              variant="ghost"
-              icon="i-lucide-trash-2"
-              aria-label="Eliminar dirección"
-              @click="deleteAddress(address.id)"
-            />
-          </div>
-          <p class="mt-2">{{ address.recipientName }} · {{ address.line1 }}</p>
-          <p>{{ address.postalCode }} {{ address.city }}, {{ address.region }} ({{ address.countryCode }})</p>
-        </article>
-      </div>
-      <form class="mt-6 grid gap-4 md:grid-cols-3" @submit.prevent="addAddress">
-        <UFormField label="Etiqueta" required
-          ><UInput v-model="addressForm.label" class="w-full" placeholder="Casa, oficina…"
-        /></UFormField>
-        <UFormField label="Uso" required>
-          <USelect
-            v-model="addressForm.kind"
-            class="w-full"
-            :items="[
-              { label: 'Envío y facturación', value: 'both' },
-              { label: 'Envío', value: 'shipping' },
-              { label: 'Facturación', value: 'billing' }
-            ]"
-          />
-        </UFormField>
-        <UFormField label="Destinatario" required
-          ><UInput v-model="addressForm.recipientName" class="w-full"
-        /></UFormField>
-        <UFormField label="Empresa"><UInput v-model="addressForm.companyName" class="w-full" /></UFormField>
-        <UFormField label="NIF/CIF/VAT"><UInput v-model="addressForm.taxId" class="w-full" /></UFormField>
-        <UFormField label="Teléfono"><UInput v-model="addressForm.phone" class="w-full" type="tel" /></UFormField>
-        <UFormField class="md:col-span-2" label="Dirección" required
-          ><UInput v-model="addressForm.line1" class="w-full"
-        /></UFormField>
-        <UFormField label="Complemento"><UInput v-model="addressForm.line2" class="w-full" /></UFormField>
-        <UFormField label="Código postal" required
-          ><UInput v-model="addressForm.postalCode" class="w-full"
-        /></UFormField>
-        <UFormField label="Ciudad" required><UInput v-model="addressForm.city" class="w-full" /></UFormField>
-        <UFormField label="Provincia/región" required
-          ><UInput v-model="addressForm.region" class="w-full"
-        /></UFormField>
-        <UFormField label="País ISO" required
-          ><UInput v-model="addressForm.countryCode" class="w-full" maxlength="2"
-        /></UFormField>
-        <UFormField class="md:col-span-2" label="Instrucciones"
-          ><UInput v-model="addressForm.instructions" class="w-full"
-        /></UFormField>
-        <div class="flex items-end"><UCheckbox v-model="addressForm.isDefault" label="Predeterminada" /></div>
-        <UButton type="submit" class="md:col-span-3 md:w-fit" :loading="busy">Añadir dirección</UButton>
-      </form>
-    </section>
-
-    <div class="mt-6 grid gap-6 lg:grid-cols-2">
-      <section class="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 class="text-lg font-bold text-slate-900">Comunicaciones</h2>
-        <p class="mt-1 text-sm text-slate-500">
-          Los mensajes operativos de pedidos y seguridad siempre permanecen activos.
-        </p>
-        <div class="mt-4 space-y-3">
-          <UCheckbox
-            v-model="communication.newsletter"
-            label="Quiero recibir por email novedades y contenidos comerciales de NETECO. Puedo darme de baja en cualquier momento."
-          />
-          <p class="text-xs text-slate-500">
-            Si la activas, te enviaremos un email de confirmación y no recibirás marketing hasta que lo confirmes.
-          </p>
-          <UCheckbox v-model="communication.product_updates" label="Novedades de producto por email" />
-          <UCheckbox v-model="communication.replenishment" label="Recordatorios de reposición por email" />
-        </div>
-        <UButton class="mt-4" variant="soft" @click="savePreferences">Guardar preferencias</UButton>
-      </section>
-
-      <section class="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 class="text-lg font-bold text-slate-900">Privacidad</h2>
-        <p class="mt-1 text-sm text-slate-500">
-          Exporta tus datos o solicita anonimización con seguimiento y plazo registrado.
-        </p>
-        <div class="mt-4 flex flex-wrap gap-2">
-          <UButton variant="soft" icon="i-lucide-download" @click="requestPrivacy('export')"
-            >Exportar mis datos</UButton
-          >
-          <UButton color="error" variant="soft" @click="requestPrivacy('anonymize')">Solicitar anonimización</UButton>
-        </div>
-        <p v-for="request in privacyData?.requests" :key="request.id" class="mt-3 text-xs text-slate-500">
-          {{ request.requestType }} · {{ request.status }} · solicitada {{ formatDate(request.requestedAt) }}
-        </p>
-      </section>
-    </div>
-
-    <section
-      v-if="favoriteData?.lists.some((list) => list.items.length)"
-      class="mt-6 rounded-2xl border border-slate-200 bg-white p-6"
-    >
-      <h2 class="text-lg font-bold text-slate-900">Favoritos</h2>
-      <div v-for="list in favoriteData.lists" :key="list.id" class="mt-3 space-y-2">
-        <div
-          v-for="item in list.items"
-          :key="item.variantId"
-          class="flex items-center justify-between gap-3 rounded-lg bg-slate-50 p-3"
-        >
-          <NuxtLink :to="`/producto/${item.slug}?sku=${encodeURIComponent(item.sku)}`" class="font-medium">
-            {{ item.name }} · {{ item.sku }}
-          </NuxtLink>
-          <UButton size="xs" color="error" variant="ghost" @click="removeFavorite(item.variantId)">Quitar</UButton>
-        </div>
-      </div>
-    </section>
-
-    <section class="mt-6">
-      <h2 class="text-lg font-bold text-slate-900">Mis pedidos</h2>
-      <div v-if="orderData?.orders.length" class="mt-4 space-y-3">
-        <NuxtLink
-          v-for="order in orderData.orders"
-          :key="order.id"
-          :to="`/pedido/${order.id}`"
-          class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 transition hover:border-neteco-300 hover:shadow-md"
-        >
-          <div>
-            <p class="font-semibold text-slate-800">{{ order.id }}</p>
-            <p class="text-xs text-slate-400">{{ formatDate(order.createdAt) }} · {{ order.lines }} artículos</p>
-          </div>
-          <div class="flex items-center gap-4">
-            <UBadge :color="(ORDER_STATUS[order.status] ?? ORDER_STATUS.pendiente_pago!).color" variant="subtle">{{
-              (ORDER_STATUS[order.status] ?? ORDER_STATUS.pendiente_pago!).label
-            }}</UBadge>
-            <p class="font-bold text-slate-900">{{ formatPrice(order.total) }}</p>
-          </div>
-        </NuxtLink>
-      </div>
-      <div v-else class="mt-4 rounded-2xl border border-dashed border-slate-300 py-10 text-center">
-        <p class="font-medium text-slate-600">Todavía no tienes pedidos</p>
-        <UButton to="/catalogo" class="mt-4">Empezar a comprar</UButton>
-      </div>
-    </section>
   </div>
 </template>

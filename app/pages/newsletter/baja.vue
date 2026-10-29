@@ -1,24 +1,13 @@
 <script setup lang="ts">
-useSeoMeta({ title: 'Baja de newsletter · NETECO', robots: 'noindex, nofollow' })
-const route = useRoute()
-const token = computed(() => String(route.query.token ?? ''))
-const status = ref<'ready' | 'loading' | 'success' | 'error'>(token.value.length >= 32 ? 'ready' : 'error')
-const message = ref(token.value.length >= 32 ? '' : 'El enlace está incompleto.')
+import { useNewsletterLinkAction } from '~/composables/useNewsletterLinkAction'
 
-async function unsubscribe() {
-  status.value = 'loading'
-  try {
-    await $fetch('/api/newsletter/unsubscribe', { method: 'POST', body: { token: token.value } })
-    status.value = 'success'
-  } catch (error) {
-    status.value = 'error'
-    message.value = apiErrorMessage(error, 'El enlace no es válido o ha caducado.')
-  }
-}
+useSeoMeta({ title: 'Baja de newsletter · NETECO', robots: 'noindex, nofollow' })
+useHead({ meta: [{ name: 'referrer', content: 'no-referrer' }] })
+const { status, message, submit: unsubscribe } = useNewsletterLinkAction('unsubscribe')
 </script>
 
 <template>
-  <main class="mx-auto max-w-xl px-4 py-20 text-center">
+  <main class="mx-auto max-w-xl px-4 py-20 text-center" :aria-busy="status === 'loading'">
     <UIcon name="i-lucide-mail-x" class="mx-auto size-12 text-neteco-600" />
     <h1 class="mt-4 text-3xl font-bold text-slate-900">Dejar de recibir la newsletter</h1>
     <p class="mt-3 text-slate-600">
@@ -27,14 +16,26 @@ async function unsubscribe() {
     <UButton v-if="status === 'ready'" class="mt-6" size="lg" color="error" @click="unsubscribe"
       >Confirmar baja</UButton
     >
-    <UButton v-else-if="status === 'loading'" class="mt-6" size="lg" loading disabled>Procesando</UButton>
+    <UButton v-else-if="status === 'loading'" class="mt-6" size="lg" loading disabled role="status">Procesando</UButton>
     <UAlert
       v-else-if="status === 'success'"
       class="mt-6 text-left"
       color="success"
-      title="Baja completada"
-      description="No recibirás más comunicaciones comerciales de esta suscripción."
+      role="status"
+      title="Solicitud procesada"
+      description="Si el enlace era válido, la baja ya se ha aplicado. Si sigues recibiendo correos, usa el enlace del último mensaje o contacta con soporte."
     />
-    <UAlert v-else class="mt-6 text-left" color="error" title="No se ha podido tramitar" :description="message" />
+    <template v-else>
+      <UAlert
+        class="mt-6 text-left"
+        color="error"
+        role="alert"
+        title="No se ha podido tramitar"
+        :description="message"
+      />
+      <UButton v-if="status === 'error'" class="mt-6" size="lg" color="error" @click="unsubscribe"
+        >Reintentar baja</UButton
+      >
+    </template>
   </main>
 </template>

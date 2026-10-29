@@ -1,7 +1,7 @@
 name: Cloudflare compatibility
 
 on:
-  pull_request:
+  workflow_dispatch:
   push:
     branches: [main]
 
@@ -12,15 +12,138 @@ concurrency:
   group: cloudflare-compat-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  NETECO_GITHUB_REPOSITORY: ${{ vars.NETECO_GITHUB_REPOSITORY }}
+
 jobs:
-  worker-canary:
-    runs-on: ubuntu-24.04
+  iac-validate:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
     timeout-minutes: 10
     steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+      - run: node scripts/storage-preflight.ts
+      - run: node scripts/cloudflare-iac-check.mjs
+
+  shop-runtime:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
+    timeout-minutes: 20
+    steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version-file: .node-version
           cache: npm
+      - run: node scripts/storage-preflight.ts
       - run: npm ci
-      - run: npm run cloudflare:check
+      - run: npm run typecheck:audit
+      - run: npm run build:shop:cloudflare
+      - run: npm run test:compiled
+      - run: npx playwright install chromium
+      - run: npm run audit:shop:ci
+      - run: npm run artifacts:cloudflare:verify
+        id: verified-cloudflare-artifacts
+      - name: Assess verified Cloudflare lock vulnerabilities
+        id: assessed-cloudflare-vulnerabilities
+        run: node scripts/audit-cloudflare-vulnerabilities.mjs --root=. --output=.wrangler/shop-evidence/vulnerabilities.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: success() && steps.verified-cloudflare-artifacts.outcome == 'success' && steps.assessed-cloudflare-vulnerabilities.outcome == 'success'
+        with:
+          name: cloudflare-shop-evidence
+          path: |
+            .wrangler/shop-evidence/manifest.json
+            .wrangler/shop-evidence/sbom.cdx.json
+            .wrangler/shop-evidence/vulnerabilities.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  worker-canary:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
+    timeout-minutes: 15
+    steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: node scripts/storage-preflight.ts
+      - run: npm ci
+      - run: npm run cloudflare:typegen -- --check
+      - run: npm run typecheck:worker
+      - run: npm run test:worker
+      - run: npm run build:worker-canary
+      - run: npm run audit:worker-bundle
+
+  d1-audits:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        audit: [catalog, inventory, cart, checkout, media]
+    steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: node scripts/storage-preflight.ts
+      - run: npm ci
+      - if: matrix.audit == 'catalog'
+        run: npm run d1:seed:canary:generate && npm run d1:seed:products:generate
+      - run: npx tsx scripts/audit-d1-${{ matrix.audit }}.ts

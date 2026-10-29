@@ -356,8 +356,17 @@ export async function assignReservation(database: D1Database, input: OperationIn
   assertCanonicalInstant(input.now, 'now')
   assertReason(input.reason)
 
-  const existing = await findReservationByKey(database, input.idempotencyKey)
+  let existing = await findReservationByKey(database, input.idempotencyKey)
   if (!existing) throw new InventoryError('not_found', 'Reservation not found')
+  if (existing.status === 'reserved' && existing.expires_at <= input.now) {
+    await expireExpiredReservations(database, {
+      at: input.now,
+      correlationId: input.correlationId,
+      reservationKey: input.idempotencyKey
+    })
+    existing = await findReservationByKey(database, input.idempotencyKey)
+    if (!existing) throw new InventoryError('not_found', 'Reservation not found')
+  }
   if (existing.status === 'assigned')
     return { outcome: 'replayed', reservationId: existing.id, status: existing.status }
   if (existing.status !== 'reserved') return { outcome: 'expired', reservationId: existing.id, status: existing.status }
@@ -399,7 +408,7 @@ export async function assignReservation(database: D1Database, input: OperationIn
                id, variant_id, location_id, movement_type, physical_delta, reserved_delta,
                reference_type, reference_id, idempotency_key, correlation_id, reason, created_at
              )
-             SELECT ?7, ?2, ?3, 'allocate', -?4, -?4, 'reservation', ?1, ?7, ?5, ?9, ?6
+             SELECT ?7, ?2, ?3, 'allocate', -?4, -?4, 'reservation', ?1, ?7, ?5, ?8, ?6
              WHERE EXISTS (
                SELECT 1 FROM inventory_reservations
                WHERE idempotency_key = ?1 AND status = 'assigned'
@@ -475,7 +484,21 @@ export async function releaseReservation(database: D1Database, input: OperationI
   if (existing.status !== 'reserved')
     return { outcome: 'not_active', reservationId: existing.id, status: existing.status }
 
-  await database.batch([
+  await database.batch(reservationReleaseStatements(database, input))
+
+  const stored = await findReservationByKey(database, input.idempotencyKey)
+  if (stored?.status !== 'released') throw new InventoryError('not_active', 'Release could not be applied atomically')
+  return { outcome: 'applied', reservationId: stored.id }
+}
+
+/** Compose the existing release into a caller's single guarded transaction.
+ * The caller must authorize and guard its own command and reservation state. */
+export function reservationReleaseStatements(database: D1Database, input: OperationInput): D1PreparedStatement[] {
+  assertKey(input.idempotencyKey, 'idempotencyKey')
+  assertKey(input.correlationId, 'correlationId')
+  assertCanonicalInstant(input.now, 'now')
+  assertReason(input.reason)
+  return [
     database
       .prepare(
         `UPDATE inventory_reservations
@@ -525,11 +548,7 @@ export async function releaseReservation(database: D1Database, input: OperationI
         )
       )
       .bind(input.idempotencyKey, input.correlationId, input.now)
-  ])
-
-  const stored = await findReservationByKey(database, input.idempotencyKey)
-  if (stored?.status !== 'released') throw new InventoryError('not_active', 'Release could not be applied atomically')
-  return { outcome: 'applied', reservationId: stored.id }
+  ]
 }
 
 export async function renewReservation(
@@ -579,10 +598,12 @@ export interface ExpireReport {
  */
 export async function expireExpiredReservations(
   database: D1Database,
-  input: { at: string; correlationId: string }
+  input: { at: string; correlationId: string; reservationKey?: string }
 ): Promise<ExpireReport> {
   assertCanonicalInstant(input.at, 'at')
   assertKey(input.correlationId, 'correlationId')
+  if (input.reservationKey !== undefined) assertKey(input.reservationKey, 'reservationKey')
+  const reservationKey = input.reservationKey ?? null
 
   const before = await database
     .prepare("SELECT count(*) AS total FROM inventory_reservations WHERE status = 'expired'")
@@ -593,9 +614,10 @@ export async function expireExpiredReservations(
       .prepare(
         `UPDATE inventory_reservations
          SET status = 'expired', expired_at = ?1, updated_at = ?1
-         WHERE status = 'reserved' AND expires_at <= ?1`
+         WHERE status = 'reserved' AND expires_at <= ?1
+           AND (?2 IS NULL OR idempotency_key = ?2)`
       )
-      .bind(input.at),
+      .bind(input.at, reservationKey),
     database
       .prepare(
         `INSERT INTO inventory_movements (
@@ -609,10 +631,10 @@ export async function expireExpiredReservations(
                 ?2, 'Reservation TTL expired', ?1
          FROM inventory_reservations r
          JOIN inventory_reservation_lines l ON l.reservation_id = r.id
-         WHERE r.status = 'expired'
+         WHERE r.status = 'expired' AND (?3 IS NULL OR r.idempotency_key = ?3)
          ON CONFLICT (idempotency_key) DO NOTHING`
       )
-      .bind(input.at, input.correlationId),
+      .bind(input.at, input.correlationId, reservationKey),
     database
       .prepare(
         guardStatement(
@@ -621,6 +643,7 @@ export async function expireExpiredReservations(
              FROM inventory_reservations r
              JOIN inventory_reservation_lines l ON l.reservation_id = r.id
              WHERE r.status = 'expired' AND r.expired_at = ?3
+               AND (?4 IS NULL OR r.idempotency_key = ?4)
                AND NOT EXISTS (
                  SELECT 1 FROM inventory_movements movement
                  WHERE movement.idempotency_key = r.idempotency_key || ':expiry:' || l.variant_id || ':' || l.location_id
@@ -631,13 +654,12 @@ export async function expireExpiredReservations(
                    AND movement.location_id = l.location_id
                    AND movement.physical_delta = 0
                    AND movement.reserved_delta = -l.quantity
-                   AND movement.correlation_id = ?2
                    AND movement.created_at = ?3
                )
            )`
         )
       )
-      .bind(`expiry:${input.at}`, input.correlationId, input.at)
+      .bind(`expiry:${input.at}`, input.correlationId, input.at, reservationKey)
   ])
 
   const after = await database

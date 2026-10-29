@@ -1,0 +1,52 @@
+[Unit]
+Description=Neteco CI filtered user-mode network egress (no jobs)
+After=network-online.target devtono-neteco-network.service
+Wants=network-online.target
+Requires=devtono-neteco-network.service
+BindsTo=devtono-neteco-network.service
+Before=devtono-neteco-actions-runner.service
+
+[Service]
+Type=exec
+User=root
+Group=root
+ExecStart=/usr/bin/unshare --mount --propagation private /usr/local/libexec/neteco-ci/egress-seccomp
+UnsetEnvironment=BASH_ENV ENV CDPATH LD_PRELOAD LD_LIBRARY_PATH
+# These bootstrap capabilities are required only to attach/configure TAP in the
+# anchor's namespace. The upstream sandbox drops ADMIN/SETPCAP
+# before serving; only NET_BIND_SERVICE remains (no forwarding API is enabled).
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_NET_ADMIN CAP_SETPCAP CAP_NET_BIND_SERVICE
+AmbientCapabilities=
+NoNewPrivileges=yes
+DevicePolicy=closed
+DeviceAllow=/dev/net/tun rw
+# Do not add systemd filesystem/chroot sandboxing here: it prevents the upstream
+# pivot_root. The wrapper starts in its own private mount namespace, hides /etc
+# and /run, then slirp pivots into a read-only root and drops bootstrap caps.
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# The launcher permits only AF_UNIX STREAM socketpair() for upstream TAP
+# bootstrap; no DGRAM/SEQPACKET route to host abstract sockets. Journal FDs are
+# inherited. Deny io_uring too: it otherwise bypasses the socket() family gate.
+# https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html#RestrictAddressFamilies=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register
+IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4 240.0.0.0/4 ::/128 ::1/128 fc00::/7 fe80::/10 ff00::/8 92.5.3.72/32
+CPUQuota=25%
+MemoryHigh=96M
+MemoryMax=128M
+MemorySwapMax=0
+TasksMax=16
+LimitNOFILE=4096
+LimitCORE=0
+KillMode=control-group
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -2,6 +2,15 @@ import { gzipSync } from 'node:zlib'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { z } from 'zod'
+import type postgres from 'postgres'
+
+/** Connection startup parameters belong to connection, not client options. */
+export function performanceObserverDatabaseOptions(): Pick<
+  postgres.Options<Record<string, never>>,
+  'max' | 'connection'
+> {
+  return { max: 1, connection: { application_name: 'neteco-performance-observer' } }
+}
 
 const loadProfileSchema = z.object({
   requests: z.number().int().positive(),

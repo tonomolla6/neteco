@@ -33,7 +33,6 @@ const showBrand = computed(
           :color="BADGES[b]?.color ?? 'neutral'"
           :icon="BADGES[b]?.icon"
           variant="subtle"
-          size="sm"
         >
           {{ BADGES[b]?.label ?? b }}
         </UBadge>
@@ -41,7 +40,7 @@ const showBrand = computed(
     </div>
 
     <div class="shrink-0 text-right">
-      <p class="text-[11px] text-slate-400">
+      <p class="text-[11px] text-slate-500">
         {{ product.formats > 1 ? `${product.formats} formatos · desde` : 'IVA incluido' }}
       </p>
       <p class="font-display text-lg font-bold text-slate-900">{{ formatPrice(product.minPrice) }}</p>

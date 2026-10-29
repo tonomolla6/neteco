@@ -1,0 +1,14 @@
+[Unit]
+Description=Neteco CI dedicated bounded storage (6 GiB)
+RequiresMountsFor=/var/oled/devtono-ci
+Before=devtono-neteco-actions-runner.service
+
+[Mount]
+What=/var/oled/devtono-ci/neteco-volume.img
+Where=/var/lib/neteco-ci
+Type=ext4
+Options=loop,nodev,nosuid,noatime
+TimeoutSec=30
+
+[Install]
+WantedBy=multi-user.target

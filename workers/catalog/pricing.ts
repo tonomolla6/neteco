@@ -13,7 +13,9 @@
  * the variant itself.
  *
  * The instant is never taken from request input. The Worker binds the server
- * clock value as a parameter; tests may pin it explicitly.
+ * clock value as a parameter; tests may pin it explicitly. D1 stores canonical
+ * seconds OR milliseconds, so every comparison/order normalizes to milliseconds
+ * first. Plain text comparison would misorder `...00Z` versus `...00.123Z`.
  */
 
 export const PRICE_INSTANT_TOKEN = '__NETECO_PRICING_INSTANT__'
@@ -39,18 +41,35 @@ export function resolvePricingInstant(options?: EffectivePricingOptions): string
   return instant
 }
 
-/** Scalar subquery returning the effective gross cents for one variant row. */
-export function effectiveGrossCentsExpression(variantRef: string): string {
-  return `COALESCE((
-    SELECT price.gross_cents
+/** One indexed winner-selection rule for all public price fields. */
+function selectedPriceExpression(variantRef: string, field: 'gross_cents' | 'id'): string {
+  return `(
+    SELECT price.${field}
     FROM variant_price_versions price
     WHERE price.variant_id = ${variantRef}.id
       AND price.status = 'approved'
-      AND price.valid_from <= ${PRICE_INSTANT_TOKEN}
-      AND (price.valid_until IS NULL OR price.valid_until > ${PRICE_INSTANT_TOKEN})
-    ORDER BY price.valid_from DESC, price.created_at DESC, price.id DESC
+      AND strftime('%Y-%m-%dT%H:%M:%fZ', price.valid_from) <= ${PRICE_INSTANT_TOKEN}
+      AND (price.valid_until IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ', price.valid_until) > ${PRICE_INSTANT_TOKEN})
+    ORDER BY strftime('%Y-%m-%dT%H:%M:%fZ', price.valid_from) DESC,
+             strftime('%Y-%m-%dT%H:%M:%fZ', price.created_at) DESC, price.id DESC
     LIMIT 1
-  ), ${variantRef}.price_gross_cents)`
+  )`
+}
+
+/** Scalar subquery returning the effective gross cents for one variant row. */
+export function effectiveGrossCentsExpression(variantRef: string): string {
+  return `COALESCE(${selectedPriceExpression(variantRef, 'gross_cents')}, ${variantRef}.price_gross_cents)`
+}
+
+/** Nullable database identity for JOINs. Never join on the legacy DTO marker:
+ * stored IDs are arbitrary text, so an inactive/foreign row can share it. */
+export function effectiveGovernedVersionIdExpression(variantRef: string): string {
+  return selectedPriceExpression(variantRef, 'id')
+}
+
+/** Public snapshot marker; only for projection, not database JOINs. */
+export function effectiveVersionIdExpression(variantRef: string): string {
+  return `COALESCE(${effectiveGovernedVersionIdExpression(variantRef)}, 'legacy:' || ${variantRef}.id)`
 }
 
 /** Parameterized form used by the Worker: every instant becomes a bound value. */
@@ -58,7 +77,12 @@ export function parameterizeEffectivePricingSql(
   fragment: string,
   instant: string
 ): { sql: string; instantParameters: string[] } {
-  return { sql: fragment.replaceAll(PRICE_INSTANT_TOKEN, '?'), instantParameters: [instant, instant] }
+  const comparableInstant = resolvePricingInstant({ instant })
+  const count = fragment.split(PRICE_INSTANT_TOKEN).length - 1
+  return {
+    sql: fragment.replaceAll(PRICE_INSTANT_TOKEN, '?'),
+    instantParameters: Array(count).fill(new Date(comparableInstant).toISOString())
+  }
 }
 
 /**
@@ -67,5 +91,5 @@ export function parameterizeEffectivePricingSql(
  */
 export function inlineEffectivePricingSql(fragment: string, instant: string): string {
   if (!isCanonicalUtcInstant(instant)) throw new Error(`Invalid pricing instant: ${instant}`)
-  return fragment.replaceAll(PRICE_INSTANT_TOKEN, `'${instant}'`)
+  return fragment.replaceAll(PRICE_INSTANT_TOKEN, `'${new Date(instant).toISOString()}'`)
 }

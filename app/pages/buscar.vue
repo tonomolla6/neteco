@@ -1,4 +1,12 @@
 <script setup lang="ts">
+import {
+  readCatalogTypedRouteValue,
+  catalogTypedQuery,
+  countCatalogTypedSelections,
+  catalogTypedPills,
+  removeCatalogTypedSelection,
+  hasCatalogTypedFacets
+} from '../utils/catalog-typed-filters'
 const route = useRoute()
 const router = useRouter()
 const q = computed(() => String(route.query.q ?? '').trim())
@@ -8,6 +16,7 @@ useSeoMeta({ title: () => (q.value ? `Resultados para «${q.value}»` : 'Buscar'
 const sort = ref('featured')
 const selectedCategory = ref('')
 const filters = reactive({
+  typed: readCatalogTypedRouteValue(route.query.typed),
   brands: [] as string[],
   badges: [] as string[],
   envases: [] as string[],
@@ -35,7 +44,15 @@ function replaceValues(target: string[], values: string[]) {
 
 let applyingRoute = false
 function applyRouteFilters() {
+  let typed
+  try {
+    typed = readCatalogTypedRouteValue(route.query.typed)
+  } catch {
+    showError(createError({ statusCode: 400, statusMessage: 'Filtros de atributos no válidos', fatal: true }))
+    return
+  }
   applyingRoute = true
+  filters.typed = typed
   sort.value = String(route.query.sort ?? 'featured')
   selectedCategory.value = String(route.query.familia ?? '')
   replaceValues(filters.brands, multiFromQuery(route.query.brand))
@@ -53,6 +70,7 @@ function applyRouteFilters() {
 applyRouteFilters()
 
 function resetFilters() {
+  filters.typed = []
   filters.brands = []
   filters.badges = []
   filters.envases = []
@@ -71,6 +89,8 @@ watch(
   () => {
     if (applyingRoute) return
     const query: Record<string, string> = {}
+    const typed = catalogTypedQuery(filters.typed)
+    if (typed) query.typed = typed
     if (q.value) query.q = q.value
     if (selectedCategory.value) query.familia = selectedCategory.value
     if (filters.brands.length) query.brand = filters.brands.join(',')
@@ -91,26 +111,44 @@ watch(
 
 watch(() => route.fullPath, applyRouteFilters)
 
-const { items, total, facets, status, loadingMore, canLoadMore, loadMore, sentinel } = await useInfiniteProducts(
-  computed(() => ({
-    q: q.value || undefined,
-    category: selectedCategory.value || undefined,
-    sort: sort.value,
-    brand: filters.brands.join(',') || undefined,
-    badge: filters.badges.join(',') || undefined,
-    envase: filters.envases.join(',') || undefined,
-    talla: filters.tallas.join(',') || undefined,
-    capacidad: filters.capacidades.join(',') || undefined,
-    color: filters.colors.join(',') || undefined,
-    medida: filters.medidas.join('|') || undefined,
-    acabado: filters.acabados.join(',') || undefined,
-    price_min: filters.priceMin ?? undefined,
-    price_max: filters.priceMax ?? undefined
-  }))
+const { items, total, page, pages, facets, status, retrying, retry, loadingMore, canLoadMore, loadMore, sentinel } =
+  await useInfiniteProducts(
+    computed(() => ({
+      typed: catalogTypedQuery(filters.typed),
+      q: q.value || undefined,
+      category: selectedCategory.value || undefined,
+      sort: sort.value,
+      brand: filters.brands.join(',') || undefined,
+      badge: filters.badges.join(',') || undefined,
+      envase: filters.envases.join(',') || undefined,
+      talla: filters.tallas.join(',') || undefined,
+      capacidad: filters.capacidades.join(',') || undefined,
+      color: filters.colors.join(',') || undefined,
+      medida: filters.medidas.join('|') || undefined,
+      acabado: filters.acabados.join(',') || undefined,
+      price_min: filters.priceMin ?? undefined,
+      price_max: filters.priceMax ?? undefined
+    }))
+  )
+
+const paginationQuery = (target: number) => ({ ...route.query, page: target > 1 ? String(target) : undefined })
+
+/** ¿Hay algo que filtrar? Si la búsqueda no devuelve nada, tampoco hay facetas. */
+const hasFacets = computed(() =>
+  Boolean(
+    facets.value &&
+    (hasCatalogTypedFacets(facets.value.typed) ||
+      (facets.value.brands?.length ?? 0) > 1 ||
+      facets.value.badges?.length ||
+      (facets.value.envases?.length ?? 0) > 1 ||
+      (facets.value.capacidades?.length ?? 0) > 1 ||
+      facets.value.tallas?.length)
+  )
 )
 
 const activeCount = computed(
   () =>
+    countCatalogTypedSelections(filters.typed) +
     filters.brands.length +
     filters.badges.length +
     filters.envases.length +
@@ -124,6 +162,15 @@ const activeCount = computed(
 )
 
 const categoryFacet = computed(() => (facets.value?.categories ?? []).slice(0, 10))
+const typedPills = computed(() => catalogTypedPills(filters.typed, facets.value?.typed))
+
+/**
+ * La barra lateral solo aparece si tiene algo que ofrecer. Sin resultados no hay
+ * facetas, y se quedaba como una caja blanca de 250 px junto al «no hemos encontrado
+ * nada». Se mantiene si hay filtros puestos: pueden ser justamente la razón de que no
+ * salga nada, y hay que poder quitarlos desde ahí.
+ */
+const showSidebar = computed(() => Boolean(categoryFacet.value.length || hasFacets.value || activeCount.value))
 const selectedCategoryName = computed(
   () => categoryFacet.value.find((category) => category.slug === selectedCategory.value)?.name ?? selectedCategory.value
 )
@@ -153,10 +200,10 @@ watch(
       <template v-else>Buscar</template>
     </h1>
     <div class="mt-1 flex flex-wrap items-center justify-between gap-3">
-      <p v-if="q" aria-live="polite" class="text-sm text-slate-500">
+      <p v-if="q && status === 'success' && !retrying" aria-live="polite" class="text-sm text-slate-500">
         {{ total }} producto{{ total === 1 ? '' : 's' }} encontrado{{ total === 1 ? '' : 's' }}
       </p>
-      <div v-if="q" class="flex items-center gap-2">
+      <div v-if="q" class="flex min-w-0 flex-wrap items-center gap-2">
         <button
           class="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 lg:hidden"
           @click="drawerOpen = true"
@@ -174,7 +221,7 @@ watch(
         <select
           v-model="sort"
           aria-label="Ordenar por"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          class="min-w-0 max-w-[11rem] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
         >
           <option value="featured">Relevancia</option>
           <option value="price_asc">Precio: menor a mayor</option>
@@ -191,6 +238,17 @@ watch(
     <!-- filtros activos -->
     <div v-if="activeCount" class="mt-4 flex flex-wrap items-center gap-2">
       <button
+        v-for="pill in typedPills"
+        :key="`typed:${pill.definitionId}:${JSON.stringify(pill.value)}`"
+        data-typed-pill
+        type="button"
+        :aria-label="`Quitar ${pill.label}`"
+        class="flex items-center gap-1.5 rounded-full bg-neteco-600 px-3 py-1.5 text-sm text-white transition hover:bg-neteco-700"
+        @click="filters.typed = removeCatalogTypedSelection(filters.typed, pill.definitionId, pill.value)"
+      >
+        {{ pill.label }} <UIcon name="i-lucide-x" class="size-3.5" />
+      </button>
+      <button
         v-if="selectedCategory"
         class="flex items-center gap-1.5 rounded-full bg-neteco-600 px-3 py-1.5 text-sm text-white transition hover:bg-neteco-700"
         @click="selectedCategory = ''"
@@ -202,9 +260,47 @@ watch(
       </button>
     </div>
 
-    <div v-if="q" class="mt-6 grid items-start gap-8 lg:grid-cols-[250px_1fr]">
+    <!-- Sin consulta, la página quedaba en blanco salvo el titular. Quien llega aquí sin
+         escribir nada necesita una salida, y en un mayorista lo más útil son los términos
+         con los que la gente pide de verdad por teléfono. -->
+    <div v-if="!q" class="mt-8 max-w-2xl">
+      <p class="text-[var(--text-muted)]">
+        Escribe el nombre del producto o la referencia del albarán. Si no lo encuentras, llámanos al
+        <a href="tel:600861334" class="font-medium text-neteco-700 hover:underline">600 861 334</a> y te lo buscamos.
+      </p>
+      <p class="mt-6 text-sm font-semibold text-[var(--text-strong)]">Búsquedas frecuentes</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <NuxtLink
+          v-for="term in [
+            'guantes',
+            'lejía',
+            'desengrasante',
+            'papel higiénico',
+            'bolsas de basura',
+            'lavavajillas',
+            'fregasuelos',
+            'servilletas'
+          ]"
+          :key="term"
+          :to="{ path: '/buscar', query: { q: term } }"
+          class="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3.5 py-1.5 text-sm text-[var(--text)] transition hover:border-neteco-300 hover:text-neteco-700"
+        >
+          {{ term }}
+        </NuxtLink>
+      </div>
+      <UButton class="mt-6" color="neutral" variant="outline" to="/catalogo" icon="i-lucide-layout-grid">
+        Ver todo el catálogo
+      </UButton>
+    </div>
+
+    <div
+      v-if="q"
+      class="mt-6 grid grid-cols-1 items-start gap-8"
+      :class="showSidebar ? 'lg:grid-cols-[250px_1fr]' : ''"
+    >
       <!-- barra lateral -->
       <aside
+        v-if="showSidebar"
         class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
       >
         <div v-if="categoryFacet.length" class="border-b border-slate-100 pb-4">
@@ -230,22 +326,58 @@ watch(
       </aside>
 
       <!-- resultados -->
-      <div :aria-busy="status === 'pending'">
-        <ProductGrid v-if="items.length" :items="items" :pending="status === 'pending'" />
+      <div :aria-busy="status === 'pending' || retrying">
+        <p v-if="status === 'pending' || retrying" role="status" class="py-8 text-center text-sm text-slate-600">
+          Buscando productos…
+        </p>
+        <div v-else-if="status === 'error'" role="alert" class="py-16 text-center">
+          <p class="font-medium text-slate-700">No se han podido cargar los resultados.</p>
+          <p class="mt-1 text-sm text-slate-500">La consulta y los filtros se conservan. Puedes volver a intentarlo.</p>
+          <UButton class="mt-5" variant="soft" @click="retry">Reintentar búsqueda</UButton>
+        </div>
+        <ProductGrid v-if="status === 'success' && !retrying && items.length" :items="items" :pending="false" />
 
-        <div v-if="items.length" ref="sentinel" class="h-px" aria-hidden="true" />
+        <div v-if="status === 'success' && !retrying && items.length" ref="sentinel" class="h-px" aria-hidden="true" />
         <div
-          v-if="loadingMore"
+          v-if="status === 'success' && !retrying && loadingMore"
           role="status"
           class="flex items-center justify-center gap-2 py-8 text-sm text-slate-500"
         >
           <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" /> Cargando más productos…
         </div>
-        <div v-else-if="canLoadMore" class="py-6 text-center">
+        <div v-else-if="status === 'success' && !retrying && canLoadMore" class="py-6 text-center">
           <UButton variant="soft" @click="loadMore">Cargar más</UButton>
         </div>
 
-        <div v-if="status !== 'pending' && !items.length" role="status" class="py-20 text-center">
+        <nav
+          v-if="status === 'success' && !retrying && pages > 1"
+          aria-label="Páginas de resultados de búsqueda"
+          class="flex items-center justify-between gap-3 py-6"
+        >
+          <UButton
+            v-if="page > 1"
+            :to="{ query: paginationQuery(page - 1) }"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-chevron-left"
+          >
+            Anterior
+          </UButton>
+          <span v-else />
+          <span class="tabular text-sm text-[var(--text-muted)]">Página {{ page }} de {{ pages }}</span>
+          <UButton
+            v-if="page < pages"
+            :to="{ query: paginationQuery(page + 1) }"
+            color="neutral"
+            variant="outline"
+            trailing-icon="i-lucide-chevron-right"
+          >
+            Siguiente
+          </UButton>
+          <span v-else />
+        </nav>
+
+        <div v-if="status === 'success' && !retrying && !items.length" role="status" class="py-20 text-center">
           <UIcon name="i-lucide-search-x" class="mx-auto size-12 text-slate-300" />
           <p class="mt-3 font-medium text-slate-600">No hemos encontrado nada con «{{ q }}»</p>
           <p class="mt-1 text-sm text-slate-500">

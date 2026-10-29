@@ -122,4 +122,16 @@ describe('security boundaries', () => {
     expect(production['content-security-policy']).toContain("frame-ancestors 'none'")
     expect(applicationSecurityHeaders('test')).not.toHaveProperty('strict-transport-security')
   })
+
+  it('permits only the explicit Turnstile script/frame origin without widening network or payment policies', () => {
+    const ordinary = applicationSecurityHeaders('production')['content-security-policy']
+    expect(ordinary).not.toContain('challenges.cloudflare.com')
+    const policy = applicationSecurityHeaders('production', { turnstile: true })['content-security-policy']
+    expect(policy).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com")
+    expect(policy).toContain("frame-src 'self' https://challenges.cloudflare.com")
+    expect(policy).toContain("connect-src 'self'")
+    expect(policy).toContain("frame-ancestors 'none'")
+    expect(policy).toContain("form-action 'self' https://sis-t.redsys.es:25443 https://sis.redsys.es")
+    expect(policy).not.toContain('*')
+  })
 })

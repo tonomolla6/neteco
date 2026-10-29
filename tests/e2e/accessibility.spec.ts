@@ -69,6 +69,35 @@ async function responseOk(response: Awaited<ReturnType<APIRequestContext['post']
   return response
 }
 
+/** Cliente identificado y verificado, sin MFA: es el perfil que usa el área de cliente. */
+async function signInAsCustomer(request: APIRequestContext, deterministic: DeterministicTestData) {
+  const email = deterministic.email('accessible-customer')
+  await responseOk(
+    await request.post('/api/auth/register', {
+      data: {
+        name: 'Clienta accesible',
+        email,
+        password: PASSWORD,
+        phone: '600000001',
+        company: 'Hostelería accesible',
+        termsAccepted: true,
+        newsletter: false
+      },
+      headers: { origin: ORIGIN }
+    }),
+    201,
+    'registro cliente'
+  )
+  await responseOk(
+    await request.post('/api/auth/verify-email', {
+      data: { token: await verificationToken(email) },
+      headers: { origin: ORIGIN }
+    }),
+    200,
+    'verificación cliente'
+  )
+}
+
 async function provisionAdministrator(request: APIRequestContext, deterministic: DeterministicTestData) {
   const email = deterministic.email('accessible-administrator')
   await responseOk(
@@ -242,7 +271,7 @@ test('blocks serious accessibility regressions in the authenticated administrati
   await provisionAdministrator(page.context().request, deterministic)
   await page.goto('/admin')
   await expect(page).toHaveURL(/\/admin$/)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Panel de administración')
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Hoy')
   await expectNoBlockingAccessibilityViolations(page, 'admin-dashboard')
 
   await page.goto('/admin/productos')
@@ -252,4 +281,55 @@ test('blocks serious accessibility regressions in the authenticated administrati
   await page.goto('/cuenta')
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   await expectNoBlockingAccessibilityViolations(page, 'authenticated-account-template')
+})
+
+/**
+ * El área de cliente pasó de una ruta a siete y el panel se rehizo pantalla a pantalla; sin
+ * cubrirlas aquí, la comprobación automática dejaba de mirar justo donde más cambió la
+ * interfaz. La ronda manual que encontró estas rutas detectó cuatro incidencias reales:
+ * contraste 1,78:1 en los distintivos de estado, dos controles sin nombre accesible y los
+ * puntos del carrusel por debajo del tamaño mínimo de destino táctil de WCAG 2.2.
+ */
+const ACCOUNT_ROUTES = [
+  ['/cuenta', 'account-summary'],
+  ['/cuenta/pedidos', 'account-orders'],
+  ['/cuenta/direcciones', 'account-addresses'],
+  ['/cuenta/datos', 'account-profile'],
+  ['/cuenta/seguridad', 'account-security'],
+  ['/cuenta/comunicaciones', 'account-communications'],
+  ['/cuenta/favoritos', 'account-lists']
+] as const
+
+const ADMIN_ROUTES = [
+  ['/admin/pedidos', 'admin-orders'],
+  ['/admin/categorias', 'admin-families'],
+  ['/admin/precios', 'admin-prices'],
+  ['/admin/clientes', 'admin-companies'],
+  ['/admin/devoluciones', 'admin-returns'],
+  ['/admin/medios', 'admin-media'],
+  // Un número que no existe: la ficha tiene que seguir teniendo su h1 y su salida.
+  ['/admin/pedidos/NE00000000AA', 'admin-order-detail-missing']
+] as const
+
+test('blocks serious accessibility regressions across the customer account area', async ({ page, deterministic }) => {
+  test.setTimeout(90_000)
+  await signInAsCustomer(page.context().request, deterministic)
+  for (const [route, surface] of ACCOUNT_ROUTES) {
+    await page.goto(route)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expectNoBlockingAccessibilityViolations(page, surface)
+  }
+})
+
+test('blocks serious accessibility regressions across the rebuilt administration screens', async ({
+  page,
+  deterministic
+}) => {
+  test.setTimeout(90_000)
+  await provisionAdministrator(page.context().request, deterministic)
+  for (const [route, surface] of ADMIN_ROUTES) {
+    await page.goto(route)
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
+    await expectNoBlockingAccessibilityViolations(page, surface)
+  }
 })

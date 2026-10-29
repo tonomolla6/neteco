@@ -310,8 +310,15 @@ describe('D1 atomic reservations', () => {
   })
 
   it('expired reservations cannot be assigned', async () => {
-    const { database, fixture } = await world()
+    const { database, fixture, sqlite } = await world()
     const key = 'k-ttl'
+    await reserveInventory(database, {
+      correlationId: 'other',
+      expiresAt: '2026-08-25T10:00:00Z',
+      idempotencyKey: 'other-expired-reservation',
+      lines: lines(fixture, [[1, 1]], 1),
+      now: NOW
+    })
     await reserveInventory(database, {
       correlationId: 't',
       expiresAt: '2026-08-25T10:00:00Z',
@@ -325,7 +332,18 @@ describe('D1 atomic reservations', () => {
       now: '2026-08-25T11:00:00Z'
     })
     expect(lateAssign.outcome).toBe('expired')
-    // Expiry job formalises it; afterwards the state is terminal.
+    expect(lateAssign.status).toBe('expired')
+    expect(
+      sqlite
+        .prepare('SELECT status FROM inventory_reservations WHERE idempotency_key = ?')
+        .get('other-expired-reservation')!.status
+    ).toBe('reserved')
+    const staleAssign = await assignReservation(database, { correlationId: 'stale', idempotencyKey: key, now: NOW })
+    expect(staleAssign).toMatchObject({ outcome: 'expired', status: 'expired' })
+    expect(
+      sqlite.prepare("SELECT count(*) AS n FROM inventory_movements WHERE movement_type = 'allocate'").get()!.n
+    ).toBe(0)
+    // A later sweep at the same instant is idempotent even with another caller.
     await expireExpiredReservations(database, { at: '2026-08-25T11:00:00Z', correlationId: 'due' })
     const afterExpiry = await assignReservation(database, {
       correlationId: 't',

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import * as envelope from '../../shared/media-envelope'
+import { imageDimensions as sharedDimensions } from '../../shared/media-dimensions'
+import { stripMediaMetadata as stripMetadataBytes } from '../../shared/media-metadata'
 import {
   detectMediaType,
   imageDimensions,
@@ -34,6 +37,56 @@ function jpeg() {
 }
 
 describe('secure media normalization', () => {
+  it('normalizes owned byte arrays while retaining the legacy Buffer contract', () => {
+    for (const [source, type] of [
+      [png(), 'image/png'],
+      [jpeg(), 'image/jpeg'],
+      [Buffer.from('%PDF-1.7'), 'application/pdf']
+    ] as const) {
+      const container = new Uint8Array(source.length + 20).fill(0x77)
+      container.set(source, 7)
+      const input = container.subarray(7, 7 + source.length)
+      const before = new Uint8Array(input)
+      const output = stripMetadataBytes(input, type)
+      const legacy = stripMediaMetadata(input, type)
+      expect(Buffer.isBuffer(output)).toBe(false)
+      expect(Buffer.isBuffer(legacy)).toBe(true)
+      expect(output).toEqual(new Uint8Array(legacy))
+      expect(input).toEqual(before)
+      output.fill(0)
+      expect(input).toEqual(before)
+    }
+  })
+
+  it('rejects incomplete chunk envelopes rather than returning partial normalized files', () => {
+    for (const source of [png().subarray(0, 8), png().subarray(0, -1), png().subarray(0, -12)]) {
+      expect(() => stripMetadataBytes(source, 'image/png')).toThrow('PNG incompleto')
+    }
+    for (const source of [new Uint8Array([0xff, 0xd8, 0xff, 0xe1]), jpeg().subarray(0, 23)]) {
+      expect(() => stripMetadataBytes(source, 'image/jpeg')).toThrow('JPEG incompleto')
+    }
+    expect(() => stripMetadataBytes(png(), 'image/jpeg')).toThrow('MIME')
+  })
+
+  it('removes every supported PNG metadata chunk and preserves the image chunks', () => {
+    const base = png()
+    const extra = ['tEXt', 'zTXt', 'iTXt', 'eXIf'].map((type) => pngChunk(type, Buffer.from('private')))
+    const source = Buffer.concat([base.subarray(0, 33), ...extra, base.subarray(-24)])
+    const output = stripMetadataBytes(source, 'image/png')
+    expect(output).toEqual(new Uint8Array(Buffer.concat([base.subarray(0, 33), base.subarray(-24)])))
+    expect(stripMetadataBytes(output, 'image/png')).toEqual(output)
+  })
+
+  it('shares runtime-neutral envelope validation with the legacy upload endpoint', () => {
+    expect(detectMediaType).toBe(envelope.detectMediaType)
+    expect(validateMediaUploadEnvelope).toBe(envelope.validateMediaUploadEnvelope)
+    expect(safeMediaFilename).toBe(envelope.safeMediaFilename)
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37])
+    expect(envelope.validateMediaUploadEnvelope({ bytes, maximumBytes: 8, declaredType: 'application/pdf' })).toBe(
+      'application/pdf'
+    )
+  })
+
   it('detects only allowlisted magic bytes', () => {
     expect(detectMediaType(png())).toBe('image/png')
     expect(detectMediaType(jpeg())).toBe('image/jpeg')
@@ -61,6 +114,46 @@ describe('secure media normalization', () => {
   it('rejects truncated raster inputs', () => {
     expect(() => imageDimensions(Buffer.from([0x89]), 'image/png')).toThrow('PNG incompleto')
     expect(() => imageDimensions(Buffer.from([0xff, 0xd8, 0xff, 0xd9]), 'image/jpeg')).toThrow('JPEG sin dimensiones')
+  })
+
+  it('reads dimensions from bounded Uint8Array views without Node buffers', () => {
+    expect(imageDimensions).toBe(sharedDimensions)
+    for (const [source, type] of [
+      [png(), 'image/png'],
+      [jpeg(), 'image/jpeg']
+    ] as const) {
+      const container = new Uint8Array(source.length + 16).fill(0xff)
+      container.set(source, 7)
+      expect(sharedDimensions(container.subarray(7, 7 + source.length), type)).toEqual({ width: 800, height: 600 })
+      expect(() => sharedDimensions(container.subarray(7, 10), type)).toThrow()
+    }
+  })
+
+  it('rejects fake PNG headers and zero dimensions', () => {
+    const wrongChunk = png()
+    wrongChunk[12] = 0x58
+    expect(() => imageDimensions(wrongChunk, 'image/png')).toThrow('IHDR')
+    const wrongLength = png()
+    wrongLength.writeUInt32BE(12, 8)
+    expect(() => imageDimensions(wrongLength, 'image/png')).toThrow('IHDR')
+    expect(() => imageDimensions(png(0, 600), 'image/png')).toThrow('dimensiones')
+    expect(() => imageDimensions(png(800, 0), 'image/png')).toThrow('dimensiones')
+    expect(() => imageDimensions(png().subarray(0, 24), 'image/png')).toThrow('IHDR')
+    expect(() => imageDimensions(png(), 'image/jpeg')).toThrow('MIME')
+  })
+
+  it('rejects JPEG frames that borrow dimensions from outside their segment', () => {
+    const shortFrame = jpeg()
+    shortFrame[13] = 2
+    expect(() => imageDimensions(shortFrame, 'image/jpeg')).toThrow('dimensiones')
+    const badComponents = jpeg()
+    badComponents[19] = 2
+    expect(() => imageDimensions(badComponents, 'image/jpeg')).toThrow('dimensiones')
+    const zeroHeight = jpeg()
+    zeroHeight[15] = 0
+    zeroHeight[16] = 0
+    expect(() => imageDimensions(zeroHeight, 'image/jpeg')).toThrow('dimensiones')
+    expect(() => imageDimensions(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0]), 'image/jpeg')).toThrow('incompleto')
   })
 
   it('enforces upload size and declared MIME before storage', () => {

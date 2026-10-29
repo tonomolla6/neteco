@@ -138,7 +138,19 @@ try {
     },
     { name: 'tie-a', grossCents: 111111, validFrom: '2026-09-01T00:00:00Z' },
     { name: 'tie-b', grossCents: 222222, validFrom: '2026-09-01T00:00:00Z' },
-    { name: 'boundary-start', grossCents: 333333, validFrom: '2026-10-01T00:00:00Z' }
+    { name: 'boundary-start', grossCents: 333333, validFrom: '2026-10-01T00:00:00Z' },
+    {
+      name: 'mixed-precision-first',
+      grossCents: 444444,
+      validFrom: '2026-10-02T00:00:00Z',
+      validUntil: '2026-10-02T00:00:00.500Z'
+    },
+    {
+      name: 'mixed-precision-second',
+      grossCents: 555555,
+      validFrom: '2026-10-02T00:00:00.500Z',
+      validUntil: '2026-10-02T00:00:00.750Z'
+    }
   ]
   const auditVersionIds = new Map(
     auditVersions.map((version) => [version.name, stableUuid(`price-version-audit:${version.name}`)])
@@ -249,7 +261,29 @@ try {
     await removeAuditVersions(['boundary-start'])
   }
 
-  // S7: without any governed version the legacy base price takes over, and the
+  // S7: seconds and milliseconds within the same second keep chronological,
+  // inclusive-start/exclusive-end semantics on the actual workerd D1 binding.
+  await insertAuditVersion(auditVersions[6]!)
+  await insertAuditVersion(auditVersions[7]!)
+  try {
+    for (const [instant, expected] of [
+      ['2026-10-02T00:00:00Z', 444444],
+      ['2026-10-02T00:00:00.499Z', 444444],
+      ['2026-10-02T00:00:00.500Z', 555555],
+      ['2026-10-02T00:00:00.749Z', 555555],
+      ['2026-10-02T00:00:00.750Z', probeBaseCents]
+    ] as const) {
+      expectEqual(
+        Number((await effectivePrice(instant, probeVariantId))[0][0].effective),
+        expected,
+        `precisión mixta ${instant}`
+      )
+    }
+  } finally {
+    await removeAuditVersions(['mixed-precision-first', 'mixed-precision-second'])
+  }
+
+  // S8: without any governed version the legacy base price takes over, and the
   // seed restores the initial version deterministically.
   await query(`DELETE FROM variant_price_versions WHERE id = '${stableUuid('price-version:2:1')}'`)
   try {

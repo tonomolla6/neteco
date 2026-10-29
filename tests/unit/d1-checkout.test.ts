@@ -10,6 +10,7 @@ import { createCart, quoteCart, setCartLine } from '../../workers/catalog/cart'
 import { releaseReservation, reserveInventory } from '../../workers/catalog/inventory'
 import { handleCartCommand } from '../../workers/cart-coordinator'
 import { applyGeneratedSeed, d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 
 const NOW = '2026-08-25T09:00:00Z'
 const UUID_A = '11111111-1111-4111-8111-111111111111'
@@ -36,6 +37,8 @@ INSERT INTO shipping_rates (
 
 async function world() {
   const sqlite = await openMigratedDatabase()
+  // Match D1's runtime expression limit on complete caller SQL envelopes.
+  sqlite.limits.exprDepth = 100
   seedInventoryFixture(sqlite)
   sqlite.exec(
     "INSERT INTO products (id, legacy_id, category_id, name, slug, status) VALUES ('p-uuid-a', 201, 'c1', 'Producto UUID A', 'producto-uuid-a', 'published')"
@@ -66,6 +69,10 @@ async function world() {
       .run(`mv-${variantId}`, variantId, `mv-${variantId}`)
   }
   applyGeneratedSeed(sqlite, shippingSeed())
+  await provisionPublicationValidityFixture(d1OverSqlite(sqlite), {
+    productIds: ['p-1', 'p-2', 'p-3', 'p-4', 'p-5', 'p-6', 'p-uuid-a'],
+    now: '2026-01-01T00:00:00Z'
+  })
 
   sqlite
     .prepare(
@@ -170,6 +177,151 @@ function checkoutInput(ctx: CheckoutContext, overrides: Partial<PlaceOrderInput>
   }
 }
 
+describe('current publication authority throughout checkout recovery', () => {
+  function withdraw(sqlite: Awaited<ReturnType<typeof openMigratedDatabase>>) {
+    sqlite
+      .prepare(
+        `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
+      SELECT ?,id,actor_id,'Synthetic evidence withdrawal during checkout',?
+      FROM catalog_publication_policies WHERE code='local_fixture' ORDER BY version DESC LIMIT 1`
+      )
+      .run(crypto.randomUUID(), NOW)
+  }
+
+  it('revalidates publication before creating any reservation or attempt', async () => {
+    const { sqlite, database } = await world()
+    const context = await buildCheckout(database)
+    withdraw(sqlite)
+    expect(await placeOrder(database, checkoutInput(context))).toEqual({
+      outcome: 'revalidation_required',
+      reason: 'publication_changed'
+    })
+    for (const table of ['orders', 'checkout_attempts', 'inventory_reservations', 'email_outbox_events'])
+      expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toMatchObject({ n: 0 })
+  })
+
+  it('does not let an old request instant prolong an expired publication policy', async () => {
+    const { sqlite, database } = await world()
+    const context = await buildCheckout(database)
+    await provisionPublicationValidityFixture(database, {
+      productIds: ['p-uuid-a'],
+      now: '2026-01-01T00:00:00Z',
+      validUntil: '2026-08-26T00:00:00Z'
+    })
+    expect(await placeOrder(database, checkoutInput(context))).toEqual({
+      outcome: 'revalidation_required',
+      reason: 'publication_changed'
+    })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM inventory_reservations').get()).toMatchObject({ n: 0 })
+  })
+
+  it('compensates once if evidence is withdrawn while the reservation is being awaited', async () => {
+    const { sqlite, database } = await world()
+    const context = await buildCheckout(database)
+    const gateway = {
+      reserve: async (input: Parameters<typeof reserveInventory>[1]) => {
+        const result = await reserveInventory(database, input)
+        withdraw(sqlite)
+        return result
+      },
+      release: (input: Parameters<typeof releaseReservation>[1]) => releaseReservation(database, input)
+    }
+    expect(await placeOrder(database, checkoutInput(context), gateway)).toEqual({
+      outcome: 'revalidation_required',
+      reason: 'publication_changed'
+    })
+    for (const table of ['orders', 'order_lines', 'order_events', 'email_outbox_events', 'checkout_commands']) {
+      const where = table === 'checkout_commands' ? " WHERE kind='checkout'" : ''
+      expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}${where}`).get()).toMatchObject({ n: 0 })
+    }
+    expect(sqlite.prepare('SELECT status FROM carts WHERE id=?').get(context.cartId)).toMatchObject({
+      status: 'active'
+    })
+    expect(sqlite.prepare('SELECT state FROM checkout_attempts').get()).toMatchObject({ state: 'compensated' })
+    expect(sqlite.prepare('SELECT status FROM inventory_reservations').get()).toMatchObject({ status: 'released' })
+    expect(sqlite.prepare('SELECT SUM(reserved_delta) AS n FROM inventory_movements').get()).toMatchObject({ n: 0 })
+    const movements = sqlite.prepare('SELECT count(*) AS n FROM inventory_movements').get()
+    await placeOrder(database, checkoutInput(context))
+    expect(sqlite.prepare('SELECT count(*) AS n FROM inventory_movements').get()).toEqual(movements)
+  })
+
+  it('rechecks publication and compensates a reserved W2 recovery rather than finishing it', async () => {
+    const { sqlite, database } = await world()
+    const context = await buildCheckout(database)
+    sqlite.exec(
+      "CREATE TRIGGER fail_finalization BEFORE INSERT ON order_lines BEGIN SELECT RAISE(ABORT,'synthetic W2 crash'); END;"
+    )
+    await expect(placeOrder(database, checkoutInput(context))).rejects.toThrow()
+    sqlite.exec('DROP TRIGGER fail_finalization')
+    withdraw(sqlite)
+    expect(await placeOrder(database, checkoutInput(context))).toEqual({
+      outcome: 'revalidation_required',
+      reason: 'publication_changed'
+    })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM inventory_reservations').get()).toMatchObject({ n: 1 })
+    expect(sqlite.prepare('SELECT status FROM inventory_reservations').get()).toMatchObject({ status: 'released' })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM orders').get()).toMatchObject({ n: 0 })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM email_outbox_events').get()).toMatchObject({ n: 0 })
+  })
+
+  it('preserves completed contractual order replays without creating new financial effects', async () => {
+    const { sqlite, database } = await world()
+    const context = await buildCheckout(database)
+    const order = await placeOrder(database, checkoutInput(context))
+    expect(order.outcome).toBe('order_created')
+    withdraw(sqlite)
+    expect(await placeOrder(database, checkoutInput(context))).toEqual(order)
+    expect(sqlite.prepare('SELECT count(*) AS n FROM orders').get()).toMatchObject({ n: 1 })
+    expect(sqlite.prepare('SELECT count(*) AS n FROM inventory_reservations').get()).toMatchObject({ n: 1 })
+  })
+
+  it('keeps a recoverable reservation when withdrawal coincides with a finalization outage merely mentioning CHECK', async () => {
+    const { sqlite, database } = await world()
+    const context = await buildCheckout(database)
+    const release = vi.fn((input: Parameters<typeof releaseReservation>[1]) => releaseReservation(database, input))
+    const reserve = vi.fn((input: Parameters<typeof reserveInventory>[1]) => reserveInventory(database, input))
+    let batches = 0
+    const unavailable = new Proxy(database, {
+      get(target, property) {
+        if (property === 'batch')
+          return async (statements: Parameters<D1Database['batch']>[0]) => {
+            if (!sqlite.prepare("SELECT 1 FROM checkout_attempts WHERE state='reserved'").get())
+              return target.batch(statements)
+            batches += 1
+            withdraw(sqlite)
+            // Inventory already committed through the native gateway. The
+            // order batch never ran, so an outage cannot justify compensation.
+            throw new Error('D1_ERROR: provider unavailable; CHECK constraint failed private_table')
+          }
+        const value: unknown = Reflect.get(target, property)
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+    })
+    await expect(placeOrder(unavailable, checkoutInput(context), { reserve, release })).rejects.toMatchObject({
+      name: 'CartInfrastructureError'
+    })
+    expect(batches).toBe(1)
+    expect(reserve).toHaveBeenCalledOnce()
+    expect(release).not.toHaveBeenCalled()
+    expect(sqlite.prepare('SELECT state FROM checkout_attempts').all()).toEqual([{ state: 'reserved' }])
+    expect(sqlite.prepare('SELECT status FROM inventory_reservations').all()).toEqual([{ status: 'reserved' }])
+    expect(sqlite.prepare('SELECT SUM(reserved_delta) AS n FROM inventory_movements').get()).toMatchObject({ n: 2 })
+    expect(
+      sqlite.prepare("SELECT count(*) AS n FROM inventory_movements WHERE movement_type='release'").get()
+    ).toMatchObject({
+      n: 0
+    })
+    expect(sqlite.prepare('SELECT status FROM carts WHERE id=?').get(context.cartId)).toMatchObject({
+      status: 'active'
+    })
+    for (const table of ['orders', 'order_lines', 'order_events', 'email_outbox_events'])
+      expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toMatchObject({ n: 0 })
+    expect(sqlite.prepare("SELECT count(*) AS n FROM checkout_commands WHERE kind='checkout'").get()).toMatchObject({
+      n: 0
+    })
+  })
+})
+
 describe('checkout acceptance saga', () => {
   it('prices shipping rates from net plus VAT and replays the exact response', async () => {
     const { database } = await world()
@@ -214,6 +366,121 @@ describe('checkout acceptance saga', () => {
     })
   })
 
+  it('requires a new shipping snapshot when the server free-shipping threshold changes', async () => {
+    const { database, sqlite } = await world()
+    const created = await createCart(database, { correlationId: 't', now: NOW })
+    await setCartLine(database, {
+      cartId: created.cartId,
+      correlationId: 't',
+      expectedVersion: 1,
+      idempotencyKey: 'threshold-add',
+      now: NOW,
+      quantity: 1,
+      token: created.token,
+      variantId: UUID_A
+    })
+    const quote = await quoteCart(database, {
+      cartId: created.cartId,
+      correlationId: 't',
+      expectedVersion: 2,
+      idempotencyKey: 'threshold-quote',
+      now: NOW,
+      token: created.token
+    })
+    if (quote.outcome !== 'quoted') throw new Error('quote required')
+    const shipping = await requestShippingOptions(database, {
+      cartId: created.cartId,
+      correlationId: 't',
+      destination: { city: 'Ontinyent', postalCode: '46870' },
+      expectedVersion: 2,
+      freeShippingThresholdCents: 400,
+      idempotencyKey: 'threshold-shipping',
+      now: NOW,
+      token: created.token
+    })
+    if (shipping.outcome !== 'options') throw new Error('shipping required')
+    const options = shipping.body.options as Array<{
+      methodCode: string
+      netCents: number
+      optionHash: string
+      optionIndex: number
+    }>
+    const parcel = options.find((option) => option.methodCode === 'parcel')!
+    expect(parcel.netCents).toBe(0)
+    const input = checkoutInput({
+      cartId: created.cartId,
+      expectedVersion: 2,
+      optionHash: parcel.optionHash,
+      quoteId: quote.quote.quoteId,
+      selectedOptionIndex: parcel.optionIndex,
+      shippingQuoteId: shipping.body.shippingQuoteId as string,
+      token: created.token
+    })
+    const changedPolicy = await placeOrder(database, input, undefined, 401)
+    expect(changedPolicy).toMatchObject({ outcome: 'revalidation_required', reason: 'shipping_option_changed' })
+    expect((sqlite.prepare('SELECT count(*) AS count FROM checkout_attempts').get() as { count: number }).count).toBe(0)
+  })
+
+  it('never reserves stock when the browser-acknowledged total differs from the server total', async () => {
+    const { database, sqlite } = await world()
+    const checkout = await buildCheckout(database)
+    const before = (sqlite.prepare('SELECT count(*) AS n FROM inventory_reservations').get() as { n: number }).n
+    const mismatch = await placeOrder(database, checkoutInput(checkout, { expectedTotalGrossCents: 1 }))
+    expect(mismatch).toMatchObject({ outcome: 'revalidation_required', reason: 'display_total_changed' })
+    expect((sqlite.prepare('SELECT count(*) AS n FROM checkout_attempts').get() as { n: number }).n).toBe(0)
+    expect((sqlite.prepare('SELECT count(*) AS n FROM inventory_reservations').get() as { n: number }).n).toBe(before)
+
+    const accepted = await placeOrder(
+      database,
+      checkoutInput(checkout, { expectedTotalGrossCents: 800, idempotencyKey: 'accepted-displayed-total' })
+    )
+    expect(accepted.outcome).toBe('order_created')
+  })
+
+  it('uses the governed volume-tier gross, not the base gross, for the parcel-free threshold', async () => {
+    const { database, sqlite } = await world()
+    sqlite
+      .prepare(
+        `UPDATE variant_price_versions SET volume_tiers = '[{"minimumQuantity":2,"unitGrossCents":350}]' WHERE id = 'pv-checkout-a'`
+      )
+      .run()
+    const cart = await createCart(database, { correlationId: 't', now: NOW })
+    await setCartLine(database, {
+      cartId: cart.cartId,
+      correlationId: 't',
+      expectedVersion: 1,
+      idempotencyKey: 'tier-shipping-add',
+      now: NOW,
+      quantity: 2,
+      token: cart.token,
+      variantId: UUID_A
+    })
+    const input = {
+      cartId: cart.cartId,
+      correlationId: 't',
+      destination: { city: 'Ontinyent', postalCode: '46870' },
+      expectedVersion: 2,
+      now: NOW,
+      token: cart.token
+    }
+    const paid = await requestShippingOptions(database, {
+      ...input,
+      freeShippingThresholdCents: 701,
+      idempotencyKey: 'tier-shipping-paid'
+    })
+    const free = await requestShippingOptions(database, {
+      ...input,
+      freeShippingThresholdCents: 700,
+      idempotencyKey: 'tier-shipping-free'
+    })
+    if (paid.outcome !== 'options' || free.outcome !== 'options') throw new Error('shipping options required')
+    const parcelNet = (options: unknown) =>
+      (options as Array<{ methodCode: string; netCents: number }>).find((option) => option.methodCode === 'parcel')
+        ?.netCents
+    expect(parcelNet(paid.body.options)).toBe(495)
+    expect(parcelNet(free.body.options)).toBe(0)
+  })
+
   it('rejects mutation of both checkout and shipping snapshots at the schema boundary', async () => {
     const { database, sqlite } = await world()
     const ctx = await buildCheckout(database)
@@ -249,14 +516,97 @@ describe('checkout acceptance saga', () => {
     const cartStatus = (sqlite.prepare('SELECT status FROM carts WHERE id = ?').get(ctx.cartId) as { status: string })
       .status
     expect(cartStatus).toBe('converted')
+    expect(sqlite.prepare('SELECT event_type, source_kind, source_id FROM email_outbox_events').get()).toEqual({
+      event_type: 'order.created',
+      source_kind: 'order',
+      source_id: orderRow.id
+    })
+    expect((sqlite.prepare('SELECT count(*) AS c FROM email_outbox_events').get() as { c: number }).c).toBe(1)
 
     const replayed = await placeOrder(database, checkoutInput(ctx))
     if (result.outcome !== 'order_created') throw new Error('expected created body')
     expect(replayed).toEqual(result)
+    expect((sqlite.prepare('SELECT count(*) AS c FROM email_outbox_events').get() as { c: number }).c).toBe(1)
     expect(result.body.orderToken).toMatch(/^[0-9a-f]{64}$/)
     expect(JSON.stringify(sqlite.prepare('SELECT * FROM checkout_commands').all())).not.toContain(
       result.body.orderToken as string
     )
+  })
+
+  it('persists contact, company, fiscal and delivery instructions as immutable contractual data', async () => {
+    const { database, sqlite } = await world()
+    const ctx = await buildCheckout(database)
+    const input = checkoutInput(ctx)
+    input.contactName = 'Ada Compradora'
+    input.contactPhone = '+34 600 000 000'
+    input.buyerCompanyName = 'Empresa Ejemplo'
+    input.buyerTaxId = '12345678Z'
+    input.shippingAddress = {
+      ...input.shippingAddress,
+      companyName: 'Empresa Ejemplo',
+      taxId: '12345678Z',
+      instructions: 'Entregar en recepción'
+    }
+    input.billingAddress = {
+      ...input.shippingAddress,
+      recipientName: 'Empresa Ejemplo',
+      companyName: 'Empresa Ejemplo',
+      nif: '12345678Z',
+      instructions: 'Referencia fiscal interna'
+    }
+    const result = await placeOrder(database, input)
+    expect(result.outcome).toBe('order_created')
+    if (result.outcome !== 'order_created') return
+    const authorizedView = await getOrderView(database, {
+      orderId: result.body.id as string,
+      token: result.body.orderToken as string,
+      now: NOW
+    })
+    expect(authorizedView).toMatchObject({
+      contactEmail: 'comprador@ejemplo.es',
+      contactName: 'Ada Compradora',
+      buyerCompanyName: 'Empresa Ejemplo',
+      shippingAddress: { instructions: 'Entregar en recepción' },
+      billingAddress: { nif: '12345678Z' }
+    })
+    expect(
+      await getOrderView(database, { orderId: result.body.id as string, token: 'wrong-token', now: NOW })
+    ).toBeNull()
+    expect(
+      sqlite.prepare('SELECT contact_name, contact_phone, buyer_company_name, buyer_tax_id FROM orders').get()
+    ).toEqual({
+      contact_name: 'Ada Compradora',
+      contact_phone: '+34 600 000 000',
+      buyer_company_name: 'Empresa Ejemplo',
+      buyer_tax_id: '12345678Z'
+    })
+    expect(sqlite.prepare('SELECT company_name, tax_id, instructions FROM order_shipping_address').get()).toEqual({
+      company_name: 'Empresa Ejemplo',
+      tax_id: '12345678Z',
+      instructions: 'Entregar en recepción'
+    })
+    expect(sqlite.prepare('SELECT company_name, nif, instructions FROM order_billing_address').get()).toEqual({
+      company_name: 'Empresa Ejemplo',
+      nif: '12345678Z',
+      instructions: 'Referencia fiscal interna'
+    })
+    expect(() => sqlite.exec("UPDATE orders SET contact_name = 'Otro' ")).toThrow('immutable')
+    expect(() => sqlite.exec("UPDATE order_shipping_address SET instructions = 'Otra' ")).toThrow(
+      'contractual snapshot'
+    )
+    await expect(placeOrder(database, { ...input, contactPhone: '+34 600 000 001' })).rejects.toMatchObject({
+      code: 'conflict'
+    })
+  })
+
+  it('rejects invalid fiscal IDs before creating an attempt or reserving stock', async () => {
+    const { database, sqlite } = await world()
+    const ctx = await buildCheckout(database)
+    await expect(placeOrder(database, checkoutInput(ctx, { buyerTaxId: '12345678A' }))).rejects.toMatchObject({
+      code: 'invalid_input'
+    })
+    expect((sqlite.prepare('SELECT count(*) AS c FROM checkout_attempts').get() as { c: number }).c).toBe(0)
+    expect((sqlite.prepare('SELECT count(*) AS c FROM inventory_reservations').get() as { c: number }).c).toBe(0)
   })
 
   it('never serves a replay to a wrong token; keys stay isolated per cart', async () => {
@@ -308,6 +658,48 @@ describe('checkout acceptance saga', () => {
     )
   })
 
+  it('accepts a tier-priced order and revalidates when that tier changes after quoting', async () => {
+    const acceptedWorld = await world()
+    acceptedWorld.sqlite.exec(
+      `UPDATE variant_price_versions SET volume_tiers = '[{"minimumQuantity":2,"unitGrossCents":350}]' WHERE id = 'pv-checkout-a'`
+    )
+    const acceptedContext = await buildCheckout(acceptedWorld.database)
+    const quotedLine = acceptedWorld.sqlite
+      .prepare(
+        'SELECT unit_gross_cents, gross_cents, net_cents, tax_cents FROM checkout_quote_lines WHERE quote_id = ?'
+      )
+      .get(acceptedContext.quoteId)
+    const accepted = await placeOrder(acceptedWorld.database, checkoutInput(acceptedContext))
+    expect(accepted.outcome).toBe('order_created')
+    const orderLine = acceptedWorld.sqlite
+      .prepare('SELECT unit_gross_cents, gross_cents, net_cents, tax_cents FROM order_lines LIMIT 1')
+      .get()
+    expect(orderLine).toEqual(quotedLine)
+    expect(orderLine).toMatchObject({ unit_gross_cents: 350, gross_cents: 700 })
+    expect(
+      acceptedWorld.sqlite.prepare('SELECT total_gross_cents, total_net_cents, total_tax_cents FROM orders').get()
+    ).toMatchObject({
+      total_gross_cents: 700,
+      total_net_cents: (quotedLine as { net_cents: number }).net_cents,
+      total_tax_cents: (quotedLine as { tax_cents: number }).tax_cents
+    })
+
+    const driftWorld = await world()
+    const driftContext = await buildCheckout(driftWorld.database)
+    driftWorld.sqlite.exec(
+      `UPDATE variant_price_versions SET volume_tiers = '[{"minimumQuantity":2,"unitGrossCents":350}]' WHERE id = 'pv-checkout-a'`
+    )
+    const drifted = await placeOrder(driftWorld.database, checkoutInput(driftContext))
+    expect(drifted.outcome).toBe('revalidation_required')
+    if (drifted.outcome === 'revalidation_required') {
+      expect(drifted.freshQuote?.lines[0]).toMatchObject({ unitGrossCents: 350, priceVersionId: 'pv-checkout-a' })
+    }
+    expect((driftWorld.sqlite.prepare('SELECT count(*) AS c FROM orders').get() as { c: number }).c).toBe(0)
+    expect(
+      (driftWorld.sqlite.prepare('SELECT count(*) AS c FROM inventory_reservations').get() as { c: number }).c
+    ).toBe(0)
+  })
+
   it('recovers the saga after failing between reservation and order creation', async () => {
     const { database, sqlite } = await world()
     const ctx = await buildCheckout(database)
@@ -318,6 +710,7 @@ describe('checkout acceptance saga', () => {
       END;
     `)
     await expect(placeOrder(database, checkoutInput(ctx))).rejects.toThrow()
+    expect((sqlite.prepare('SELECT count(*) AS c FROM email_outbox_events').get() as { c: number }).c).toBe(0)
 
     const attempt = sqlite
       .prepare("SELECT id, reservation_id FROM checkout_attempts WHERE state = 'reserved' LIMIT 1")
@@ -330,6 +723,7 @@ describe('checkout acceptance saga', () => {
     sqlite.exec('DROP TRIGGER abort_order_lines')
     const retry = await placeOrder(database, checkoutInput(ctx))
     expect(retry.outcome).toBe('order_created')
+    expect((sqlite.prepare('SELECT count(*) AS c FROM email_outbox_events').get() as { c: number }).c).toBe(1)
     expect((sqlite.prepare('SELECT count(*) AS c FROM orders').get() as { c: number }).c).toBe(1)
     expect(
       (
@@ -495,11 +889,15 @@ describe('checkout acceptance saga', () => {
     const orderId = created.body.id as string
     const orderToken = created.body.orderToken as string
 
-    await expect(getOrderView(database, { orderId, token: orderToken })).resolves.toMatchObject({ id: orderId })
+    await expect(getOrderView(database, { orderId, token: orderToken, now: NOW })).resolves.toMatchObject({
+      id: orderId
+    })
 
-    await expect(getOrderView(database, { orderId, token: ctx.token.replaceAll(/./g, 'x') })).resolves.toBeNull()
     await expect(
-      getOrderView(database, { orderId: '00000000-0000-4000-8000-000000000000', token: ctx.token })
+      getOrderView(database, { orderId, token: ctx.token.replaceAll(/./g, 'x'), now: NOW })
+    ).resolves.toBeNull()
+    await expect(
+      getOrderView(database, { orderId: '00000000-0000-4000-8000-000000000000', token: ctx.token, now: NOW })
     ).resolves.toBeNull()
 
     await expect(

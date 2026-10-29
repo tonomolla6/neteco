@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
 import type { CategoryResponse } from '~~/shared/types/catalog'
+import { useAdminNavigation } from '~/composables/useAdminNavigation'
 
 const cart = useCartStore()
 const { loggedIn, user, clear } = useUserSession()
+const adminNavigation = useAdminNavigation()
+const quickOrderEnabled = adminNavigation.cloudflare
+const panelEntry = computed(() =>
+  adminNavigation.cloudflare.value ? adminNavigation.staffEntry.value : user.value?.role === 'admin'
+)
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 const roots = computed(() => catData.value?.roots ?? [])
@@ -28,11 +34,21 @@ watch(
   }
 )
 
+const accountLinks = [
+  { to: '/cuenta', label: 'Resumen', icon: 'i-lucide-layout-dashboard' },
+  { to: '/cuenta/pedidos', label: 'Mis pedidos', icon: 'i-lucide-package' },
+  { to: '/cuenta/favoritos', label: 'Listas de compra', icon: 'i-lucide-list-checks' },
+  { to: '/cuenta/direcciones', label: 'Direcciones', icon: 'i-lucide-map-pin' },
+  { to: '/cuenta/seguridad', label: 'Acceso y seguridad', icon: 'i-lucide-shield-check' }
+]
+
 async function logout() {
   await $fetch('/api/auth/logout', { method: 'POST' })
   await clear()
   accountOpen.value = false
-  navigateTo('/')
+  // Navegación dura: cerrando sesión desde una ruta protegida, el middleware `auth`
+  // redirigía a /login?redirect=… antes de que se ejecutara la vuelta a la home.
+  await navigateTo('/', { replace: true, external: true })
 }
 </script>
 
@@ -105,23 +121,30 @@ async function logout() {
             class="absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
           >
             <template v-if="loggedIn">
-              <p class="border-b border-slate-100 px-4 py-2 text-xs text-slate-400">
+              <p class="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
                 {{ user?.email }}
               </p>
-              <RoleGate :role="user?.role" :allow="['admin']">
+              <template v-if="panelEntry">
                 <NuxtLink
                   to="/admin"
                   class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-neteco-700 hover:bg-neteco-50"
                 >
                   <UIcon name="i-lucide-settings-2" class="size-4" /> Panel de administración
                 </NuxtLink>
-              </RoleGate>
+              </template>
+              <!-- El menú ofrecía un único enlace, «Mis pedidos», que llevaba a la página que
+                   lo contenía todo. Ahora el área de cliente son siete rutas y el menú es el
+                   sitio donde se accede a ellas: Baymard mide que el 96 % de las tiendas no
+                   ofrecen aquí las rutas clave, y esta era una de ellas. -->
               <NuxtLink
-                to="/cuenta"
+                v-for="link in accountLinks"
+                :key="link.to"
+                :to="link.to"
                 class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-neteco-50"
               >
-                <UIcon name="i-lucide-package" class="size-4" /> Mis pedidos
+                <UIcon :name="link.icon" class="size-4" /> {{ link.label }}
               </NuxtLink>
+              <div class="my-1 border-t border-slate-100" />
               <button
                 class="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-slate-700 hover:bg-neteco-50"
                 @click="logout"
@@ -177,6 +200,13 @@ async function logout() {
         >
           <UIcon name="i-lucide-layout-grid" class="size-4" /> Todo el catálogo
         </NuxtLink>
+        <NuxtLink
+          v-if="quickOrderEnabled"
+          to="/pedido-rapido"
+          class="flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold text-neteco-700 hover:text-neteco-500"
+        >
+          <UIcon name="i-lucide-list-plus" class="size-4" /> Pedido rápido
+        </NuxtLink>
 
         <div v-for="root in roots" :key="root.id" class="group relative">
           <NuxtLink
@@ -196,7 +226,7 @@ async function logout() {
               class="grid grid-cols-3 gap-x-8 gap-y-5"
             >
               <div v-for="g in groupFamilies(root.children.filter((category) => category.count > 0))" :key="g.title">
-                <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   {{ g.title }}
                 </p>
                 <NuxtLink
@@ -206,7 +236,7 @@ async function logout() {
                   class="-mx-2 flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm text-slate-700 hover:bg-neteco-50 hover:text-neteco-700"
                 >
                   <span class="min-w-0">{{ child.name }}</span>
-                  <span class="shrink-0 text-xs tabular-nums text-slate-400">{{ child.count }}</span>
+                  <span class="shrink-0 text-xs tabular-nums text-slate-500">{{ child.count }}</span>
                 </NuxtLink>
               </div>
             </div>
@@ -218,7 +248,7 @@ async function logout() {
                 class="-mx-2 flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-sm text-slate-700 hover:bg-neteco-50 hover:text-neteco-700"
               >
                 <span class="min-w-0">{{ child.name }}</span>
-                <span class="shrink-0 text-xs tabular-nums text-slate-400">{{ child.count }}</span>
+                <span class="shrink-0 text-xs tabular-nums text-slate-500">{{ child.count }}</span>
               </NuxtLink>
             </div>
             <NuxtLink
@@ -259,6 +289,13 @@ async function logout() {
               class="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-neteco-700 hover:bg-neteco-50"
             >
               <UIcon name="i-lucide-layout-grid" class="size-4" /> Todo el catálogo
+            </NuxtLink>
+            <NuxtLink
+              v-if="quickOrderEnabled"
+              to="/pedido-rapido"
+              class="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-neteco-700 hover:bg-neteco-50"
+            >
+              <UIcon name="i-lucide-list-plus" class="size-4" /> Pedido rápido
             </NuxtLink>
             <div v-for="root in roots" :key="root.id" class="mt-1">
               <button

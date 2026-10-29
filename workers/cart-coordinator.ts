@@ -3,6 +3,7 @@ import {
   CartInfrastructureError,
   assertCartAuthorized,
   canonicalPayloadHash,
+  clearCart,
   createCart,
   expireCart,
   quoteCart,
@@ -19,6 +20,21 @@ import {
 import { INVENTORY_COORDINATOR_NAME, InventoryError, type ReserveResult, type SimpleResult } from './catalog/inventory'
 import type { ShippingDestination } from './catalog/shipping'
 import { assertDestination } from './catalog/shipping'
+import type { VerifiedSessionClaims } from './catalog/authorization'
+import { shippingCommercialPolicy } from '../server/utils/shipping-policy'
+import { catalogPolicyUuidSchema } from '../shared/catalog-publication-policy'
+import {
+  cartRecoveryResumeInputSchema,
+  type CartRecoveryResumeInput,
+  type CartRecoveryReceipt
+} from '../shared/cart-recovery'
+import {
+  CartRecoveryError,
+  readD1CartRecoveryResumeAuthority,
+  resumeD1CartRecovery,
+  type CartRecoveryCartGrant
+} from './marketing/cart-recovery'
+import { productWatchHmacKey } from './runtime/product-watch'
 
 /**
  * CartCoordinator partitions work ONE Durable Object instance PER CART.
@@ -40,8 +56,6 @@ export function cartDoName(cartId: string): string {
   return `cart:${cartId}`
 }
 
-const ALARM_LEEWAY_MS = 1_000
-
 function isValidKey(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 200 && !hasControl(value)
 }
@@ -54,9 +68,32 @@ function isCanonicalInstant(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value)
 }
 
+function isSessionClaims(value: unknown): value is VerifiedSessionClaims {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const claims = value as Record<string, unknown>
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  return (
+    typeof claims.identityId === 'string' &&
+    uuid.test(claims.identityId) &&
+    typeof claims.sessionId === 'string' &&
+    uuid.test(claims.sessionId) &&
+    Number.isSafeInteger(claims.sessionVersion) &&
+    (claims.sessionVersion as number) > 0
+  )
+}
+
 export interface CoordinatorDeps {
   database: D1Database
+  /** Internal only: the recovery core reauthorizes every attempt and replay. */
+  resumeRecovery?: (
+    claims: VerifiedSessionClaims,
+    input: CartRecoveryResumeInput,
+    commandId: string,
+    cartId: string
+  ) => Promise<{ receipt: CartRecoveryReceipt; cart: CartRecoveryCartGrant }>
   inventory?: CheckoutInventoryGateway
+  /** Trusted Worker environment policy; never read from a cart command. */
+  freeShippingThresholdCents?: number | null
   /** Durable per-command responses; unbounded by design. */
   getResponse: (commandId: string) => Promise<{ payloadHash: string; status: number; body: unknown } | undefined>
   putResponse: (commandId: string, value: { payloadHash: string; status: number; body: unknown }) => Promise<void>
@@ -107,6 +144,10 @@ function parseQuotePayload(payload: unknown): { ok: true; input: QuoteRequestInp
   if (!isCanonicalInstant(raw.now)) return { ok: false, message: 'now must be canonical ISO-8601 UTC' }
   if (!Number.isSafeInteger(raw.expectedVersion) || (raw.expectedVersion as number) < 1)
     return { ok: false, message: 'expectedVersion must be a positive integer' }
+  if (raw.couponCode !== undefined && raw.couponCode !== null && typeof raw.couponCode !== 'string')
+    return { ok: false, message: 'couponCode is invalid' }
+  if (raw.ownerSession !== undefined && raw.ownerSession !== null && !isSessionClaims(raw.ownerSession))
+    return { ok: false, message: 'ownerSession is invalid' }
   return {
     ok: true,
     input: {
@@ -115,7 +156,9 @@ function parseQuotePayload(payload: unknown): { ok: true; input: QuoteRequestInp
       expectedVersion: raw.expectedVersion as number,
       idempotencyKey: raw.idempotencyKey as string,
       now: raw.now as string,
-      token: raw.token as string
+      token: raw.token as string,
+      ...(raw.couponCode === undefined ? {} : { couponCode: raw.couponCode as string | null }),
+      ...(raw.ownerSession === undefined ? {} : { ownerSession: raw.ownerSession as VerifiedSessionClaims | null })
     }
   }
 }
@@ -142,9 +185,39 @@ function parseCheckoutPayload(
     return { ok: false, message: 'expectedVersion must be a positive integer' }
   if (!Number.isSafeInteger(raw.selectedOptionIndex) || (raw.selectedOptionIndex as number) < 0)
     return { ok: false, message: 'selectedOptionIndex is invalid' }
+  if (
+    raw.expectedTotalGrossCents !== undefined &&
+    (!Number.isSafeInteger(raw.expectedTotalGrossCents) || (raw.expectedTotalGrossCents as number) < 0)
+  )
+    return { ok: false, message: 'expectedTotalGrossCents is invalid' }
   if (raw.consentTos !== true || raw.consentPrivacy !== true) return { ok: false, message: 'consents are mandatory' }
   if (typeof raw.shippingAddress !== 'object' || raw.shippingAddress === null)
     return { ok: false, message: 'shippingAddress is required' }
+  for (const key of [
+    'contactName',
+    'contactPhone',
+    'buyerCompanyName',
+    'buyerTaxId',
+    'purchaseOrderReference'
+  ] as const)
+    if (raw[key] !== undefined && typeof raw[key] !== 'string') return { ok: false, message: `${key} must be a string` }
+  if (raw.ownerSession !== undefined && raw.ownerSession !== null && !isSessionClaims(raw.ownerSession))
+    return { ok: false, message: 'ownerSession is invalid' }
+  if (raw.salesQuote !== undefined) {
+    if (!raw.salesQuote || typeof raw.salesQuote !== 'object' || Array.isArray(raw.salesQuote))
+      return { ok: false, message: 'salesQuote is invalid' }
+    const ref = raw.salesQuote as Record<string, unknown>
+    if (
+      Object.keys(ref).some((key) => !['quoteId', 'version', 'approvedHash'].includes(key)) ||
+      typeof ref.quoteId !== 'string' ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(ref.quoteId) ||
+      !Number.isSafeInteger(ref.version) ||
+      (ref.version as number) < 1 ||
+      typeof ref.approvedHash !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(ref.approvedHash)
+    )
+      return { ok: false, message: 'salesQuote is invalid' }
+  }
   return {
     ok: true,
     input: {
@@ -153,6 +226,11 @@ function parseCheckoutPayload(
       consentPrivacy: true,
       consentTos: true,
       contactEmail: raw.contactEmail as string,
+      contactName: raw.contactName as string | undefined,
+      contactPhone: raw.contactPhone as string | undefined,
+      buyerCompanyName: raw.buyerCompanyName as string | undefined,
+      buyerTaxId: raw.buyerTaxId as string | undefined,
+      purchaseOrderReference: raw.purchaseOrderReference as string | undefined,
       correlationId: raw.correlationId as string,
       expectedVersion: raw.expectedVersion as number,
       idempotencyKey: raw.idempotencyKey as string,
@@ -160,9 +238,12 @@ function parseCheckoutPayload(
       quoteId: raw.quoteId as string,
       selectedOptionHash: raw.selectedOptionHash as string,
       selectedOptionIndex: raw.selectedOptionIndex as number,
+      expectedTotalGrossCents: raw.expectedTotalGrossCents as number | undefined,
       shippingAddress: raw.shippingAddress as PlaceOrderInput['shippingAddress'],
       shippingQuoteId: raw.shippingQuoteId as string,
-      token: raw.token as string
+      token: raw.token as string,
+      ownerSession: raw.ownerSession as VerifiedSessionClaims | null | undefined,
+      ...(raw.salesQuote === undefined ? {} : { salesQuote: raw.salesQuote as PlaceOrderInput['salesQuote'] })
     }
   }
 }
@@ -177,6 +258,27 @@ export async function handleCartCommand(
   let cacheHash: string | null = null
   try {
     switch (command.type) {
+      case 'cart-recovery-resume': {
+        const payload = command.payload
+        if (
+          !catalogPolicyUuidSchema.safeParse(command.commandId).success ||
+          !catalogPolicyUuidSchema.safeParse(command.cartId).success ||
+          !payload ||
+          typeof payload !== 'object' ||
+          Array.isArray(payload) ||
+          Object.keys(payload).some((key) => !['claims', 'input'].includes(key))
+        )
+          return { status: 400, body: { error: { code: 'invalid_input' } } }
+        const raw = payload as Record<string, unknown>,
+          input = cartRecoveryResumeInputSchema.safeParse(raw.input)
+        if (!isSessionClaims(raw.claims) || !input.success)
+          return { status: 400, body: { error: { code: 'invalid_input' } } }
+        if (!deps.resumeRecovery) return { status: 503, body: { error: { code: 'service_unavailable' } } }
+        // The internal response contains freshly derived HttpOnly possession.
+        // It must never enter this object's durable command-response cache.
+        const resumed = await deps.resumeRecovery(raw.claims, input.data, command.commandId, command.cartId as string)
+        return { status: 200, body: resumed as unknown as Record<string, unknown> }
+      }
       case 'create': {
         if (!isValidKey(command.cartId) || !isCanonicalInstant((command.payload as Record<string, unknown>)?.now))
           return { status: 400, body: { error: { code: 'invalid_input' } } }
@@ -192,6 +294,7 @@ export async function handleCartCommand(
         }
         break
       }
+      case 'add':
       case 'mutate': {
         if (!isValidKey(command.cartId)) return { status: 400, body: { error: { code: 'invalid_input' } } }
         const parsed = parseMutatePayload(command.payload)
@@ -202,7 +305,7 @@ export async function handleCartCommand(
           cartId: parsed.input.cartId,
           expectedVersion: parsed.input.expectedVersion,
           quantity: parsed.input.quantity,
-          type: 'mutate',
+          type: command.type,
           variantId: parsed.input.variantId
         })
         const cached = await deps.getResponse(command.commandId)
@@ -210,12 +313,39 @@ export async function handleCartCommand(
           return cached.payloadHash === cacheHash
             ? { status: cached.status, body: cached.body as Record<string, unknown> }
             : { status: 409, body: { error: { code: 'conflict' } } }
-        const outcome = await setCartLine(deps.database, parsed.input)
+        const outcome = await setCartLine(deps.database, {
+          ...parsed.input,
+          ...(command.type === 'add' ? { mode: 'add' as const } : {})
+        })
         const status = outcome.outcome === 'applied' ? 200 : 409
         result = {
           status,
           body: outcome as unknown as Record<string, unknown>,
           rescheduleForCartId: command.cartId as string
+        }
+        break
+      }
+      case 'clear': {
+        if (!isValidKey(command.cartId)) return { status: 400, body: { error: { code: 'invalid_input' } } }
+        const parsed = parseQuotePayload(command.payload)
+        if (!parsed.ok || parsed.input.cartId !== command.cartId)
+          return { status: 400, body: { error: { code: 'invalid_input' } } }
+        await assertCartAuthorized(deps.database, parsed.input.cartId, parsed.input.token)
+        cacheHash = await canonicalPayloadHash({
+          cartId: parsed.input.cartId,
+          expectedVersion: parsed.input.expectedVersion,
+          type: 'clear'
+        })
+        const cached = await deps.getResponse(command.commandId)
+        if (cached)
+          return cached.payloadHash === cacheHash
+            ? { status: cached.status, body: cached.body as Record<string, unknown> }
+            : { status: 409, body: { error: { code: 'conflict' } } }
+        const outcome = await clearCart(deps.database, parsed.input)
+        result = {
+          status: outcome.outcome === 'applied' ? 200 : 409,
+          body: outcome as unknown as Record<string, unknown>,
+          rescheduleForCartId: command.cartId
         }
         break
       }
@@ -225,12 +355,16 @@ export async function handleCartCommand(
         if (!parsed.ok || parsed.input.cartId !== command.cartId)
           return { status: 400, body: { error: { code: 'invalid_input' } } }
         await assertCartAuthorized(deps.database, parsed.input.cartId, parsed.input.token)
-        cacheHash = await canonicalPayloadHash({
-          cartId: parsed.input.cartId,
-          expectedVersion: parsed.input.expectedVersion,
-          type: 'quote'
-        })
-        const cached = await deps.getResponse(command.commandId)
+        // Coupon replay always checks LIVE customer authority and the durable
+        // payload (normalized code + server-resolved owner), never the DO cache.
+        cacheHash = parsed.input.couponCode
+          ? null
+          : await canonicalPayloadHash({
+              cartId: parsed.input.cartId,
+              expectedVersion: parsed.input.expectedVersion,
+              type: 'quote'
+            })
+        const cached = cacheHash ? await deps.getResponse(command.commandId) : undefined
         if (cached)
           return cached.payloadHash === cacheHash
             ? { status: cached.status, body: cached.body as Record<string, unknown> }
@@ -266,7 +400,8 @@ export async function handleCartCommand(
             : { status: 409, body: { error: { code: 'conflict' } } }
         const outcome = await requestShippingOptions(deps.database, {
           ...parsed.input,
-          destination
+          destination,
+          freeShippingThresholdCents: deps.freeShippingThresholdCents
         })
         const status = outcome.outcome === 'options' ? 200 : outcome.outcome === 'empty_cart' ? 422 : 409
         result = { status, body: outcome as unknown as Record<string, unknown> }
@@ -280,7 +415,12 @@ export async function handleCartCommand(
         // Checkout responses contain the one-time order access token. They are
         // replayed from D1 and deterministically re-derived, never persisted in
         // this DO's response cache.
-        const outcome = await placeOrder(deps.database, parsedCheckout.input, deps.inventory)
+        const outcome = await placeOrder(
+          deps.database,
+          parsedCheckout.input,
+          deps.inventory,
+          deps.freeShippingThresholdCents
+        )
         const status =
           outcome.outcome === 'order_created'
             ? 200
@@ -296,6 +436,21 @@ export async function handleCartCommand(
         return { status: 400, body: { error: { code: 'invalid_input' } } }
     }
   } catch (error) {
+    if (error instanceof CartRecoveryError) {
+      const status =
+        error.code === 'invalid_input'
+          ? 400
+          : error.code === 'unauthenticated'
+            ? 401
+            : ['email_unverified', 'mfa_required', 'consent_required'].includes(error.code)
+              ? 403
+              : error.code === 'not_found'
+                ? 404
+                : ['conflict', 'version_conflict', 'cart_unavailable'].includes(error.code)
+                  ? 409
+                  : 503
+      return { status, body: { error: { code: error.code } } }
+    }
     if (error instanceof CartInfrastructureError || !(error instanceof CartError))
       return { status: 500, body: { error: { code: 'internal' } } }
     if (error instanceof CartError)
@@ -336,6 +491,35 @@ export async function scheduleCartExpiry(deps: CoordinatorDeps, cartId: string):
   await deps.putAlarmCartId?.(cartId)
 }
 
+/** Same canonical transport used by carts and private commercial conversion. */
+export function createCheckoutInventoryGateway(namespace: CloudflareEnv['INVENTORY']): CheckoutInventoryGateway {
+  const command = async <T>(type: 'reserve' | 'release', payload: unknown): Promise<T> => {
+    const stub = namespace.get(namespace.idFromName(INVENTORY_COORDINATOR_NAME))
+    const raw = payload as { idempotencyKey: string }
+    const operation = payload as { now?: string }
+    const commandId =
+      type === 'reserve' ? `${type}:${raw.idempotencyKey}` : `${type}:${raw.idempotencyKey}:${operation.now ?? ''}`
+    const response = await stub.fetch('https://inventory.internal/command', {
+      body: JSON.stringify({ commandId, payload, type }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST'
+    })
+    const body = (await response.json()) as Record<string, unknown>
+    if (response.status >= 500) throw new Error('inventory coordinator unavailable')
+    if ('error' in body) {
+      const error = body.error as { code?: string; message?: string }
+      if (error.code === 'insufficient_stock')
+        throw new InventoryError('insufficient_stock', error.message ?? 'Insufficient inventory')
+      throw new Error(`inventory coordinator rejected command: ${error.code ?? 'unknown'}`)
+    }
+    return body as T
+  }
+  return {
+    release: (input) => command<SimpleResult>('release', input),
+    reserve: (input) => command<ReserveResult>('reserve', input)
+  }
+}
+
 export class CartCoordinator implements DurableObject {
   private serial = Promise.resolve()
 
@@ -370,7 +554,9 @@ export class CartCoordinator implements DurableObject {
       outcome = await this.runSerially(() =>
         handleCartCommand(command, {
           database: this.env.DB,
+          resumeRecovery: this.recoveryGateway(),
           inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
+          freeShippingThresholdCents: this.freeShippingThreshold(),
           getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
           putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
           setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs)),
@@ -385,60 +571,55 @@ export class CartCoordinator implements DurableObject {
 
   /** Expire only this object's cart; a stale alarm is gated by expires_at. */
   async alarm(): Promise<void> {
-    const scheduledAt = await this.state.storage.getAlarm()
-    if (scheduledAt === null) return
-    const cartId = await this.state.storage.get<string>('alarmCartId')
-    if (!cartId) {
-      await this.state.storage.deleteAlarm()
-      return
-    }
-    if (Date.now() < scheduledAt - ALARM_LEEWAY_MS) {
-      await this.state.storage.setAlarm(scheduledAt)
-      return
-    }
-    await expireCart(this.env.DB, {
-      cartId,
-      at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    await this.runSerially(async () => {
+      // Cloudflare returns null from getAlarm() while this handler is running.
+      // The durable cart identity and D1's live expiry gate remain authoritative.
+      // https://developers.cloudflare.com/durable-objects/api/alarms/#getalarm
+      const cartId = await this.state.storage.get<string>('alarmCartId')
+      if (!cartId) {
+        await this.state.storage.deleteAlarm()
+        return
+      }
+      await expireCart(this.env.DB, {
+        cartId,
+        at: new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      // An early or obsolete wake-up cannot expire a renewed cart; re-arm from
+      // current D1 data rather than the already-consumed platform alarm.
+      await scheduleCartExpiry(this.dependencies(), cartId)
     })
-    // Reschedule only while THIS cart is still alive; otherwise clear.
-    await scheduleCartExpiry(this.dependencies(), cartId)
   }
 
   private dependencies(): CoordinatorDeps {
     return {
       database: this.env.DB,
       inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
+      freeShippingThresholdCents: this.freeShippingThreshold(),
       getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
       putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
       setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs))
     }
   }
 
+  private recoveryGateway(): CoordinatorDeps['resumeRecovery'] {
+    if (this.env.CART_RECOVERY_ENABLED !== 'true' || this.env.AUTH_ENABLED !== 'true') return undefined
+    const hmacKey = productWatchHmacKey(this.env)
+    return async (claims, input, commandId, cartId) => {
+      const options = { hmacKey }
+      const authority = await readD1CartRecoveryResumeAuthority(this.env.DB, claims, input, options)
+      if (authority.cartId !== cartId) throw new CartRecoveryError('not_found')
+      return resumeD1CartRecovery(this.env.DB, claims, input, commandId, options)
+    }
+  }
+
+  private freeShippingThreshold(): number | null {
+    return shippingCommercialPolicy({
+      APP_ENV: this.env.APP_ENV,
+      FREE_SHIPPING_THRESHOLD_CENTS: this.env.FREE_SHIPPING_THRESHOLD_CENTS
+    } as NodeJS.ProcessEnv).freeShippingThresholdCents
+  }
+
   private inventoryGateway(): CheckoutInventoryGateway {
-    const stub = this.env.INVENTORY.get(this.env.INVENTORY.idFromName(INVENTORY_COORDINATOR_NAME))
-    const command = async <T>(type: 'reserve' | 'release', payload: unknown): Promise<T> => {
-      const raw = payload as { idempotencyKey: string }
-      const operation = payload as { now?: string }
-      const commandId =
-        type === 'reserve' ? `${type}:${raw.idempotencyKey}` : `${type}:${raw.idempotencyKey}:${operation.now ?? ''}`
-      const response = await stub.fetch('https://inventory.internal/command', {
-        body: JSON.stringify({ commandId, payload, type }),
-        headers: { 'content-type': 'application/json' },
-        method: 'POST'
-      })
-      const body = (await response.json()) as Record<string, unknown>
-      if (response.status >= 500) throw new Error('inventory coordinator unavailable')
-      if ('error' in body) {
-        const error = body.error as { code?: string; message?: string }
-        if (error.code === 'insufficient_stock')
-          throw new InventoryError('insufficient_stock', error.message ?? 'Insufficient inventory')
-        throw new Error(`inventory coordinator rejected command: ${error.code ?? 'unknown'}`)
-      }
-      return body as T
-    }
-    return {
-      release: (input) => command<SimpleResult>('release', input),
-      reserve: (input) => command<ReserveResult>('reserve', input)
-    }
+    return createCheckoutInventoryGateway(this.env.INVENTORY)
   }
 }

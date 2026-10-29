@@ -41,12 +41,8 @@ async function submit() {
         <UButton to="/login" block class="mt-4">Iniciar sesión</UButton>
       </div>
       <form v-else class="mt-6 space-y-4" @submit.prevent="submit">
-        <UFormField label="Nueva contraseña" hint="mínimo 12 caracteres, con letras y números">
-          <UInput v-model="form.password" type="password" autocomplete="new-password" class="w-full" />
-        </UFormField>
-        <UFormField label="Repite la contraseña">
-          <UInput v-model="form.repeat" type="password" autocomplete="new-password" class="w-full" />
-        </UFormField>
+        <PasswordField v-model="form.password" label="Nueva contraseña" required show-rules />
+        <PasswordField v-model="form.repeat" label="Repite la contraseña" required :matches="form.password" />
         <UAlert v-if="errorMsg" color="error" :title="errorMsg" />
         <UButton type="submit" block :loading="loading">Guardar contraseña</UButton>
       </form>

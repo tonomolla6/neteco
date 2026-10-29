@@ -157,6 +157,16 @@ describe('catalog tabular contract', () => {
     expect(validateCatalogRecords(parsed).valid).toBe(true)
   })
 
+  it('parses only the exact XLSX byte window of a nonzero-offset Uint8Array', async () => {
+    const exported = await exportCatalogXlsx(completeRecords())
+    const padded = new Uint8Array(exported.byteLength + 32).fill(0xff)
+    padded.set(exported, 13)
+    const window = padded.subarray(13, 13 + exported.byteLength)
+    expect(window.byteOffset).toBe(13)
+    expect(window.byteLength).toBe(exported.byteLength)
+    expect(await parseCatalogXlsx(window)).toEqual(completeRecords())
+  })
+
   it('rejects formulas, malformed encoding, oversized input, wrong headers and hostile XLSX', async () => {
     expect(validateCatalogRecords([record({ product_name: '=HYPERLINK("https://attacker.invalid")' })]).issues).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'field.formula', field: 'product_name' })])

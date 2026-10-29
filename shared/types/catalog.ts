@@ -1,3 +1,5 @@
+import type { CatalogTypedAttributeKind, CatalogTypedAttributeValue } from '../catalog-typed-attributes'
+
 export type UiColor = 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
 
 export interface ProductVisualData {
@@ -13,9 +15,12 @@ export interface ProductCardData {
   badges: string[]
   visual: ProductVisualData
   image: string | null
+  imageAlt?: string | null
   shortDesc?: string | null
   minPrice: number
   minNetPrice: number
+  /** Precio anterior de la variante más barata, si lo hay. Permite marcar oferta con su ahorro. */
+  compareAtPrice?: number | null
   formats: number
 }
 
@@ -31,6 +36,7 @@ export interface SearchSuggestion {
   brand: string
   visual: ProductVisualData
   image: string | null
+  imageAlt?: string | null
   minPrice: number
   minNetPrice: number
   sku: string | null
@@ -59,7 +65,36 @@ export interface FacetValue {
   n: number
 }
 
+export interface TypedAttributeFilter {
+  definitionId: string
+  values: Array<Exclude<CatalogTypedAttributeValue, string[]>>
+}
+
+export interface TypedAttributeFacet {
+  definitionId: string
+  categoryId: number
+  code: string
+  kind: Exclude<CatalogTypedAttributeKind, 'text'>
+  label: string
+  values: Array<{
+    value: Exclude<CatalogTypedAttributeValue, string[]>
+    label: string
+    n: number
+  }>
+}
+
+export interface TypedAttributeDetail {
+  definitionId: string
+  revision: number
+  code: string
+  kind: CatalogTypedAttributeKind
+  label: string
+  value: CatalogTypedAttributeValue
+  displayValue: string
+}
+
 export interface ProductFacets {
+  typed?: TypedAttributeFacet[]
   brands: FacetValue[]
   badges: FacetValue[]
   envases: FacetValue[]
@@ -81,6 +116,7 @@ export interface ProductListResponse {
 }
 
 export interface CatalogFilters {
+  typed?: TypedAttributeFilter[]
   brands: string[]
   badges: string[]
   envases: string[]

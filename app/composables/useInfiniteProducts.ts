@@ -21,6 +21,17 @@ export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryPa
     params: computed(() => ({ ...baseParams.value, page: requestedPage.value, limit: pageSize, facets: 1 }))
   })
   const { data, status } = asyncData
+  const retrying = ref(false)
+
+  async function retry() {
+    if (retrying.value || status.value === 'pending') return
+    retrying.value = true
+    try {
+      await asyncData.refresh()
+    } finally {
+      retrying.value = false
+    }
+  }
 
   watch(data, () => {
     extra.value = []
@@ -77,5 +88,18 @@ export async function useInfiniteProducts(baseParams: ComputedRef<CatalogQueryPa
   // esperar la primera página para que el SSR salga con contenido
   await asyncData
 
-  return { items, total, page: requestedPage, pages, facets, status, loadingMore, canLoadMore, loadMore, sentinel }
+  return {
+    items,
+    total,
+    page: requestedPage,
+    pages,
+    facets,
+    status,
+    retrying,
+    retry,
+    loadingMore,
+    canLoadMore,
+    loadMore,
+    sentinel
+  }
 }

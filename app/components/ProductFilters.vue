@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { CatalogFilters, ProductFacets } from '~~/shared/types/catalog'
+import type { CatalogFilters, ProductFacets, TypedAttributeFacet, TypedAttributeFilter } from '~~/shared/types/catalog'
+import { serializeCatalogTypedFilters } from '~~/shared/catalog-typed-attribute-filters'
 
 // Panel de filtros por capas. Emite snapshots nuevos para que la página mantenga
 // una sola fuente de verdad sin mutar propiedades de Vue.
@@ -10,6 +11,49 @@ const props = defineProps<{
   hide?: string[]
 }>()
 const emit = defineEmits<{ 'update:filters': [filters: CatalogFilters] }>()
+const typedPrefix = useId()
+const typedMessage = ref('')
+const typedFacets = computed(() =>
+  (props.facets?.typed ?? [])
+    .map((facet) => ({ ...facet, values: facet.values.filter((option) => option.n > 0) }))
+    .filter((facet) => facet.values.length > 0)
+)
+function valueKey(value: TypedAttributeFacet['values'][number]['value']) {
+  return typeof value === 'object'
+    ? JSON.stringify({ quantity: value.quantity, unit: value.unit })
+    : JSON.stringify(value)
+}
+function selectedTyped(id: string, value: TypedAttributeFacet['values'][number]['value']) {
+  return (
+    props.filters.typed
+      ?.find((entry) => entry.definitionId === id)
+      ?.values.some((item) => valueKey(item) === valueKey(value)) ?? false
+  )
+}
+function toggleTyped(id: string, value: TypedAttributeFacet['values'][number]['value'], event: Event) {
+  const typed: TypedAttributeFilter[] = (props.filters.typed ?? []).map((entry) => ({
+    definitionId: entry.definitionId,
+    values: entry.values.map((item) => (typeof item === 'object' ? { ...item } : item))
+  }))
+  const existing = typed.find((entry) => entry.definitionId === id)
+  if (!existing) typed.push({ definitionId: id, values: [typeof value === 'object' ? { ...value } : value] })
+  else {
+    const index = existing.values.findIndex((item) => valueKey(item) === valueKey(value))
+    if (index === -1) existing.values.push(typeof value === 'object' ? { ...value } : value)
+    else existing.values.splice(index, 1)
+  }
+  const next = typed.filter((entry) => entry.values.length > 0)
+  try {
+    serializeCatalogTypedFilters(next)
+    typedMessage.value = ''
+    emit('update:filters', { ...props.filters, typed: next })
+  } catch {
+    const input = event.currentTarget
+    if (input instanceof HTMLInputElement) input.checked = selectedTyped(id, value)
+    typedMessage.value =
+      'Se ha alcanzado el límite de selección de atributos. Quite alguna selección antes de añadir otra.'
+  }
+}
 
 const open = reactive<Record<string, boolean>>({
   marca: true,
@@ -96,6 +140,32 @@ const THUMB =
 
 <template>
   <div class="divide-y divide-slate-100">
+    <fieldset
+      v-for="facet in typedFacets"
+      :key="facet.definitionId"
+      :data-typed-group="facet.definitionId"
+      class="min-w-0 py-4 first:pt-0"
+    >
+      <legend class="mb-2 break-words text-sm font-semibold text-slate-800">{{ facet.label }}</legend>
+      <label
+        v-for="(option, index) in facet.values"
+        :key="valueKey(option.value)"
+        :for="`${typedPrefix}-${facet.definitionId}-${index}`"
+        class="flex cursor-pointer items-start gap-2.5 rounded-lg px-2 py-2 text-sm hover:bg-slate-50"
+      >
+        <input
+          :id="`${typedPrefix}-${facet.definitionId}-${index}`"
+          data-typed-value
+          type="checkbox"
+          class="mt-0.5 size-4 shrink-0 accent-neteco-600 focus-visible:outline-neteco-600"
+          :checked="selectedTyped(facet.definitionId, option.value)"
+          @change="toggleTyped(facet.definitionId, option.value, $event)"
+        />
+        <span class="min-w-0 flex-1 break-words text-slate-700">{{ option.label }}</span>
+        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-500">({{ option.n }})</span>
+      </label>
+    </fieldset>
+    <p v-if="typedMessage" role="status" class="py-2 text-sm text-slate-600">{{ typedMessage }}</p>
     <!-- gama (solo si hay más de una: con una sola no filtra nada) -->
     <section v-if="(facets?.brands?.length ?? 0) > 1 && !hide?.includes('gama')" class="py-4 first:pt-0">
       <button
@@ -140,7 +210,7 @@ const THUMB =
               <UIcon v-if="filters.brands.includes(b.value)" name="i-lucide-check" class="size-3.5" />
             </span>
             <span class="flex-1 text-sm text-slate-700">{{ b.value }}</span>
-            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-500">{{ b.n }}</span>
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-500">({{ b.n }})</span>
           </label>
         </li>
         <li v-if="(facets?.brands?.length ?? 0) > 8">
@@ -271,6 +341,7 @@ const THUMB =
           v-for="b in facets.badges"
           :key="b.value"
           :aria-pressed="filters.badges.includes(b.value)"
+          :aria-label="`${BADGES[b.value]?.label ?? b.value}, ${b.n} ${b.n === 1 ? 'producto' : 'productos'}`"
           class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           :class="
             filters.badges.includes(b.value)
@@ -281,7 +352,11 @@ const THUMB =
         >
           <UIcon v-if="BADGES[b.value]" :name="BADGES[b.value]!.icon" class="size-3.5" />
           {{ BADGES[b.value]?.label ?? b.value }}
-          <span :class="filters.badges.includes(b.value) ? 'text-neteco-100' : 'text-slate-600'">{{ b.n }}</span>
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.badges.includes(b.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >{{ b.n }}</span
+          >
         </button>
       </div>
     </section>
@@ -313,6 +388,7 @@ const THUMB =
           v-for="e in facets?.envases ?? []"
           :key="e.value"
           :aria-pressed="filters.envases.includes(e.value)"
+          :aria-label="`${ENVASE_LABELS[e.value] ?? e.value}, ${e.n} ${e.n === 1 ? 'producto' : 'productos'}`"
           class="flex flex-col items-center gap-0.5 rounded-xl border-2 p-1.5 pb-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           :class="
             filters.envases.includes(e.value)
@@ -329,7 +405,7 @@ const THUMB =
           <span class="text-center text-[11px] leading-tight text-slate-700">{{
             ENVASE_LABELS[e.value] ?? e.value
           }}</span>
-          <span class="text-[10px] tabular-nums text-slate-600">{{ e.n }}</span>
+          <span class="text-[11px] tabular-nums text-slate-500">{{ e.n }}</span>
         </button>
       </div>
     </section>
@@ -361,6 +437,7 @@ const THUMB =
           v-for="c in facets?.capacidades ?? []"
           :key="c.value"
           :aria-pressed="filters.capacidades.includes(c.value)"
+          :aria-label="`${formatCapacity(c.value)}, ${c.n} ${c.n === 1 ? 'producto' : 'productos'}`"
           class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           :class="
             filters.capacidades.includes(c.value)
@@ -370,7 +447,11 @@ const THUMB =
           @click="toggle('capacidades', c.value)"
         >
           {{ formatCapacity(c.value) }}
-          <span :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-600'">{{ c.n }}</span>
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >({{ c.n }})</span
+          >
         </button>
       </div>
     </section>
@@ -442,6 +523,7 @@ const THUMB =
           v-for="m in facets.medidas"
           :key="m.value"
           :aria-pressed="filters.medidas.includes(m.value)"
+          :aria-label="`${m.value}, ${m.n} ${m.n === 1 ? 'producto' : 'productos'}`"
           class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           :class="
             filters.medidas.includes(m.value)
@@ -451,7 +533,11 @@ const THUMB =
           @click="toggle('medidas', m.value)"
         >
           {{ m.value }}
-          <span :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-600'">{{ m.n }}</span>
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >({{ m.n }})</span
+          >
         </button>
       </div>
     </section>
@@ -483,6 +569,7 @@ const THUMB =
           v-for="a in facets.acabados"
           :key="a.value"
           :aria-pressed="filters.acabados.includes(a.value)"
+          :aria-label="`${a.value}, ${a.n} ${a.n === 1 ? 'producto' : 'productos'}`"
           class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
           :class="
             filters.acabados.includes(a.value)
@@ -492,7 +579,11 @@ const THUMB =
           @click="toggle('acabados', a.value)"
         >
           {{ a.value }}
-          <span :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-600'">{{ a.n }}</span>
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >({{ a.n }})</span
+          >
         </button>
       </div>
     </section>

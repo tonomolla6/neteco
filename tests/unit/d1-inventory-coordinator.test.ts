@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import worker from '../../workers/canary'
 import { INVENTORY_COORDINATOR_NAME, InventoryCoordinator } from '../../workers/inventory-coordinator'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { canonicalJson, sha256Hex } from '../../workers/catalog/inventory'
 
 const NOW = '2026-08-25T09:00:00Z'
 const TTL = '2026-08-26T09:00:00Z'
@@ -114,6 +115,76 @@ const reserveCommand = (commandId: string, variantId: string) => ({
 })
 
 describe('InventoryCoordinator durable object', () => {
+  const manualCommand = () => ({
+    type: 'admin_inventory',
+    claims: {
+      identityId: '10000000-0000-4000-8000-000000000001',
+      sessionId: '20000000-0000-4000-8000-000000000001',
+      sessionVersion: 1
+    },
+    action: 'receipt',
+    target: { variantId: '11' },
+    idempotencyKey: 'manual-do-proof',
+    input: {
+      expectedBalanceVersion: 1,
+      quantity: 5,
+      reason: 'Synthetic inventory delivery',
+      reference: 'LOCAL-DO-ONLY'
+    }
+  })
+  it('re-authorizes administrative stock intents without consulting the reservation response cache', async () => {
+    const fixture = await environment()
+    try {
+      const cached = vi.spyOn(fixture.storage, 'get')
+      const write = vi.spyOn(fixture.storage, 'put')
+      const coordinator = new InventoryCoordinator(fakeState(fixture.storage), {
+        DB: fixture.database
+      } as CloudflareEnv)
+      const response = await coordinator.fetch(request(manualCommand()))
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: { code: 'unauthenticated' } })
+      expect(response.headers.get('cache-control')).toBe('private, no-store')
+      expect(cached).not.toHaveBeenCalled()
+      expect(write).not.toHaveBeenCalled()
+      expect(fixture.rawSqlite.prepare('SELECT count(*) AS n FROM inventory_admin_commands').get()?.n).toBe(0)
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+  it('does not let an injected commandId obtain an old cached administrative response', async () => {
+    const fixture = await environment()
+    try {
+      const command = { ...manualCommand(), commandId: 'cached-manual-stock' }
+      await fixture.storage.put(`cmd:${command.commandId}`, {
+        commandHash: await sha256Hex(canonicalJson(command)),
+        status: 200,
+        body: { cached: true }
+      })
+      const cached = vi.spyOn(fixture.storage, 'get')
+      const coordinator = new InventoryCoordinator(fakeState(fixture.storage), {
+        DB: fixture.database
+      } as CloudflareEnv)
+      const response = await coordinator.fetch(request(command))
+      expect(response.status).toBe(422)
+      expect(await response.json()).toEqual({ error: { code: 'invalid_input' } })
+      expect(cached).not.toHaveBeenCalled()
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
+  it('returns a sanitized private outage for administrative commands', async () => {
+    const fixture = await environment({ failFirst: true })
+    try {
+      const coordinator = new InventoryCoordinator(fakeState(fixture.storage), {
+        DB: fixture.database
+      } as CloudflareEnv)
+      const response = await coordinator.fetch(request(manualCommand()))
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({ error: { code: 'service_unavailable' } })
+    } finally {
+      fixture.sqlite.close()
+    }
+  })
   it('executes commands through D1 and replays cached responses after restart', async () => {
     const environment_ = await environment()
     const state = fakeState(environment_.storage)

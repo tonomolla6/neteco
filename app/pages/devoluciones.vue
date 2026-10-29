@@ -1,26 +1,36 @@
 <script setup lang="ts">
 import type { OrderDetailView } from '~~/shared/types/orders'
+import CustomerReturnSection from '~/components/CustomerReturnSection.vue'
+
+const runtime = useRuntimeConfig().public.serverRuntime
 
 useSeoMeta({
   title: 'Devoluciones',
   description:
-    'Cómo devolver un producto NETECO: plazos, condiciones y pasos. En zona de reparto propio lo recogemos nosotros.'
+    runtime === 'cloudflare'
+      ? 'Solicitud y seguimiento de devoluciones del pedido: revisión documentada, custodia e inspección.'
+      : 'Cómo devolver un producto NETECO: plazos, condiciones y pasos. En zona de reparto propio lo recogemos nosotros.'
 })
 
 const route = useRoute()
 const orderNumber = computed(() => String(route.query.pedido ?? ''))
 const { data: order, error: orderError } = await useFetch<OrderDetailView>(
   () => (orderNumber.value ? `/api/orders/${orderNumber.value}` : '/api/health/live'),
-  { key: `return-order-${orderNumber.value}` }
+  {
+    key: `return-order-${orderNumber.value}`,
+    immediate: runtime === 'node',
+    watch: runtime === 'node' ? undefined : false
+  }
 )
 const reason = ref('')
 const quantities = reactive<Record<string, number>>({})
 const submitting = ref(false)
 const result = ref<{ id: string; status: string } | null>(null)
 const formError = ref('')
-let idempotencyKey = crypto.randomUUID()
+let idempotencyKey = randomId()
 
 async function submitReturn() {
+  if (runtime !== 'node') return
   formError.value = ''
   const lines = (order.value?.items ?? [])
     .map((item) => ({ orderLineId: item.id, quantity: Number(quantities[item.id] ?? 0) }))
@@ -39,7 +49,7 @@ async function submitReturn() {
       method: 'POST',
       body: { reason: reason.value.trim(), lines, idempotencyKey }
     })
-    idempotencyKey = crypto.randomUUID()
+    idempotencyKey = randomId()
   } catch (error) {
     formError.value = apiErrorMessage(error, 'No se ha podido registrar la devolución.')
   } finally {
@@ -49,7 +59,15 @@ async function submitReturn() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl px-4 py-10">
+  <div v-if="runtime === 'cloudflare'" class="mx-auto max-w-4xl space-y-6 px-4 py-10">
+    <h1 class="text-2xl font-bold">Devoluciones</h1>
+    <CustomerReturnSection v-if="orderNumber" :order-id="orderNumber" :runtime="runtime" />
+    <p v-else role="status">
+      Abre la devolución desde tu pedido para consultar sus cantidades e historial con tu cuenta verificada.
+    </p>
+    <NuxtLink to="/cuenta/pedidos" class="underline">Ver mis pedidos</NuxtLink>
+  </div>
+  <div v-else-if="runtime === 'node'" class="mx-auto max-w-4xl px-4 py-10">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Devoluciones</h1>
     <p class="mt-2 text-slate-600">Si algo no es lo que esperabas, lo arreglamos rápido y sin vueltas.</p>
 
@@ -60,7 +78,7 @@ async function submitReturn() {
         class="mt-4"
         color="error"
         title="No se puede abrir este pedido"
-        description="Accede desde el enlace seguro del pedido o inicia sesión con la cuenta que lo compró."
+        description="Entra con la cuenta con la que hiciste el pedido, o usa el enlace que te llegó por email."
       />
       <UAlert
         v-else-if="result"
@@ -68,7 +86,7 @@ async function submitReturn() {
         color="success"
         icon="i-lucide-circle-check"
         title="Devolución registrada"
-        :description="`Referencia ${result.id}. Revisaremos la solicitud antes de autorizar el envío o la recogida.`"
+        :description="`Guarda esta referencia: ${result.id}. La revisamos y te decimos cómo devolverlo antes de que muevas nada.`"
       />
       <form v-else-if="order?.items" class="mt-4 space-y-4" @submit.prevent="submitReturn">
         <fieldset>
@@ -111,8 +129,9 @@ async function submitReturn() {
           <UIcon name="i-lucide-calendar-days" class="size-5 text-neteco-600" /> Plazo
         </h2>
         <p class="mt-2 text-sm text-slate-600">
-          La elegibilidad, el plazo y las excepciones se determinan con la condición B2B/B2C, el producto, su estado y
-          la versión de condiciones aceptada al comprar. El formulario conserva la fecha y referencia de la solicitud.
+          Escríbenos en cuanto veas el problema. El plazo depende del producto y de las condiciones que aceptaste al
+          comprar; si tienes dudas, llámanos y lo miramos contigo. Al enviar la solicitud te damos una referencia con la
+          fecha, para que quede constancia desde el primer momento.
         </p>
       </div>
 
@@ -123,7 +142,7 @@ async function submitReturn() {
         <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
           <li>El producto debe estar sin abrir y en su embalaje original.</li>
           <li>Por seguridad, los productos químicos abiertos o desprecintados no admiten devolución.</li>
-          <li>Los costes y la resolución se asignan tras revisar responsabilidad, estado y condiciones aplicables.</li>
+          <li>Si el fallo es nuestro, la recogida corre de nuestra cuenta. Te lo confirmamos al autorizar.</li>
         </ul>
       </div>
 
@@ -137,12 +156,13 @@ async function submitReturn() {
           <a href="mailto:administracion@neteco.es" class="font-semibold text-neteco-600 underline"
             >administracion@neteco.es</a
           >
-          con el número de pedido. Tras autorizar la solicitud te indicaremos si corresponde recogida, etiqueta de
-          retorno u otra instrucción compatible con la mercancía.
+          con el número de pedido. Cuando la autoricemos te diremos cómo devolverlo: si pasamos a recogerlo, si te
+          mandamos una etiqueta, o cómo tratarlo si es un producto químico.
         </p>
         <p class="mt-2 text-sm text-slate-600">
-          El abono aprobado se tramita por el flujo conciliado del método de pago y genera la documentación fiscal que
-          corresponda. El ticket muestra su estado sin presentar una solicitud como reembolso confirmado.
+          El abono se hace por el mismo medio con el que pagaste, y recibirás la factura rectificativa. Mientras tanto
+          puedes seguir el estado de la solicitud: que esté registrada no significa todavía que el reembolso esté
+          aprobado.
         </p>
       </div>
     </div>
@@ -151,4 +171,5 @@ async function submitReturn() {
       <UButton to="/catalogo" variant="soft" icon="i-lucide-layout-grid">Ver el catálogo</UButton>
     </div>
   </div>
+  <p v-else role="status">No se ha confirmado el adaptador operativo. No se habilita ningún flujo de devolución.</p>
 </template>

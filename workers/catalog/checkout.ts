@@ -40,6 +40,10 @@ import {
   type ReservationLineInput
 } from './inventory'
 import { validateQuantity } from '../../server/domain/money'
+import { publicationValidityExpression } from './publication-validity'
+import { isD1CheckConstraintFailure } from '../runtime/d1-errors'
+import { customerTaxIdIsValid, normalizeCustomerTaxId } from '../../shared/customer-tax-validation'
+import { normalizeOrderPurchaseOrderReference, readOrderPurchaseOrderReference } from './order-customer-reference'
 import {
   assertDestination,
   destinationHash,
@@ -49,6 +53,18 @@ import {
   type ShippingDestination,
   type ShippingOptionSnapshot
 } from './shipping'
+import { activeOrderCustomerId } from './customer-orders'
+import type { VerifiedSessionClaims } from './authorization'
+import { prepareEmailOutboxEnqueue } from '../communications/email-outbox'
+import { readAppliedOrderPromotion, promotionAvailableForOrder, promotionOrderStatements } from './promotion-order'
+import { shippingCalendarCurrentPredicate } from './shipping-calendar'
+import {
+  readSalesQuoteCheckoutAuthority,
+  readSalesQuoteShippingAuthority,
+  salesQuoteCompletionStatements,
+  SalesQuoteError,
+  type SalesQuoteCheckoutReference
+} from './sales-quotes'
 
 export { CartInfrastructureError }
 
@@ -117,6 +133,10 @@ export interface ShippingOptionsInput {
   destination: ShippingDestination
   correlationId: string
   now: string
+  /** Trusted server policy only; never accepted from the HTTP command body. */
+  freeShippingThresholdCents?: number | null
+  salesQuote?: SalesQuoteCheckoutReference
+  ownerSession?: VerifiedSessionClaims | null
 }
 
 export type ShippingOptionsResult =
@@ -137,12 +157,26 @@ export async function requestShippingOptions(
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new CartError('invalid_input', 'expectedVersion must be a positive integer')
 
-  const payload = { kind: 'shipping-options', destination, expectedVersion: input.expectedVersion }
+  const payload = {
+    kind: 'shipping-options',
+    destination,
+    expectedVersion: input.expectedVersion,
+    ...(input.salesQuote ? { salesQuote: input.salesQuote } : {})
+  }
   const hash = await canonicalPayloadHash(payload)
   // Authentication ALWAYS precedes any replay/cache consultation; a stored
   // answer for the same key+payload is then served even if the cart has since
   // expired or been converted (it is the original contractual response).
   const cartView = await getCart(database, { cartId: input.cartId, token: input.token })
+  if (input.salesQuote)
+    await readSalesQuoteShippingAuthority(
+      database,
+      input.ownerSession ?? null,
+      input.salesQuote,
+      input.cartId,
+      destination,
+      input.now
+    )
   const cart = { id: input.cartId, status: cartView.status as typeof cartView.status, version: cartView.version }
   const cached = await findCheckoutCommand(database, input.cartId, input.idempotencyKey)
   const replayed = replayOrConflict<Record<string, unknown>>(cached, hash)
@@ -153,7 +187,10 @@ export async function requestShippingOptions(
   const resolved = await resolveShippingOptions(database, {
     cartId: input.cartId,
     destination,
-    now: input.now
+    now: input.now,
+    freeShippingThresholdCents: input.freeShippingThresholdCents,
+    salesQuote: input.salesQuote,
+    ownerSession: input.ownerSession
   })
   if (!resolved.options.length) return { outcome: 'empty_cart' }
   const options = await withOptionHashes(resolved.options)
@@ -167,6 +204,11 @@ export async function requestShippingOptions(
     options,
     shippingQuoteId
   }
+  const calendarEligibility = await shippingCalendarCurrentPredicate(
+    database,
+    options[0]!.eta,
+    options[0]!.etaValidUntil
+  )
   try {
     await database.batch([
       database
@@ -210,6 +252,7 @@ export async function requestShippingOptions(
              OR NOT EXISTS (
              SELECT 1 FROM shipping_quotes WHERE id = ?6 AND expires_at = ?7
            )
+           OR NOT ${calendarEligibility}
            LIMIT 1`
         )
         .bind(
@@ -240,8 +283,11 @@ export async function requestShippingOptions(
 
 export interface AddressInput {
   recipientName: string
+  companyName?: string
+  taxId?: string
   line1: string
   line2?: string
+  instructions?: string
   city: string
   province?: string
   postalCode: string
@@ -259,13 +305,24 @@ export interface PlaceOrderInput {
   shippingQuoteId: string
   selectedOptionIndex: number
   selectedOptionHash: string
+  /** Optional for legacy raw callers; required by the storefront adapter. */
+  expectedTotalGrossCents?: number
   contactEmail: string
+  contactName?: string
+  contactPhone?: string
+  buyerCompanyName?: string
+  buyerTaxId?: string
+  purchaseOrderReference?: string
   shippingAddress: AddressInput
   billingAddress?: AddressInput
   consentTos: boolean
   consentPrivacy: boolean
   correlationId: string
   now: string
+  /** Set only by the Worker after verifying the sealed session cookie. */
+  ownerSession?: VerifiedSessionClaims | null
+  /** A reference only: immutable D1 approval is the sole price authority. */
+  salesQuote?: SalesQuoteCheckoutReference
 }
 
 export type PlaceOrderResult =
@@ -282,6 +339,7 @@ export type PlaceOrderResult =
     }
   | { outcome: 'out_of_stock'; detail: string }
 
+export { assertAddress as assertCheckoutAddress }
 function assertAddress(value: AddressInput | undefined, requirePhone: boolean): void {
   if (!value) {
     if (requirePhone) throw new CartError('invalid_input', 'shipping address is required')
@@ -314,6 +372,28 @@ function assertAddress(value: AddressInput | undefined, requirePhone: boolean): 
     (typeof value.nif !== 'string' || value.nif.length < 6 || value.nif.length > 20)
   )
     invalid('nif is invalid')
+  optionalCheckoutText(value.companyName, 2, 160, 'companyName')
+  optionalCheckoutText(value.instructions, 1, 500, 'instructions')
+  optionalTaxId(value.taxId, 'taxId')
+  optionalTaxId(value.nif, 'nif')
+}
+
+function optionalCheckoutText(value: unknown, minimum: number, maximum: number, field: string): string | null {
+  if (value === undefined || value === null || value === '') return null
+  if (typeof value !== 'string') throw new CartError('invalid_input', `${field} must be a string`)
+  const normalized = value.trim()
+  if (!normalized) return null
+  if (normalized.length < minimum || normalized.length > maximum)
+    throw new CartError('invalid_input', `${field} length is invalid`)
+  return normalized
+}
+
+function optionalTaxId(value: unknown, field: string): string | null {
+  const normalized = optionalCheckoutText(value, 6, 20, field)
+  if (!normalized) return null
+  if (!customerTaxIdIsValid('ES', normalized, { required: true }))
+    throw new CartError('invalid_input', `${field} is invalid`)
+  return normalizeCustomerTaxId(normalized)
 }
 
 interface StoredQuoteLine {
@@ -329,6 +409,7 @@ interface StoredQuoteLine {
   taxRateBasisPoints: number
   unitGrossCents: number
   variantId: string
+  discountGrossCents: number
 }
 
 async function loadQuoteLines(database: D1Database, quoteId: string): Promise<StoredQuoteLine[]> {
@@ -339,6 +420,7 @@ async function loadQuoteLines(database: D1Database, quoteId: string): Promise<St
               q.sku,
               p.name,
               q.unit_gross_cents AS unitGrossCents,
+              q.unit_gross_cents*q.quantity-q.gross_cents AS discountGrossCents,
               q.net_cents AS netCents,
               q.tax_cents AS taxCents,
               q.gross_cents AS grossCents,
@@ -370,6 +452,7 @@ async function loadQuoteLines(database: D1Database, quoteId: string): Promise<St
       taxRateBasisPoints: number
       unitGrossCents: number
       variantId: string
+      discountGrossCents: number
     }>()
   return results.map((row) => ({
     ...row,
@@ -513,24 +596,43 @@ function addressInsert(
   now: string
 ) {
   const isShipping = table === 'order_shipping_address'
-  const columns = isShipping
-    ? 'order_id, recipient_name, line1, line2, city, province, postal_code, country_code, phone, created_at'
-    : 'order_id, recipient_name, line1, line2, city, province, postal_code, country_code, nif, created_at'
+  const common = [
+    orderId,
+    address.recipientName.trim(),
+    address.line1,
+    address.line2 ?? null,
+    address.city.trim(),
+    address.province ?? null,
+    address.postalCode
+  ]
+  if (isShipping)
+    return database
+      .prepare(
+        `INSERT INTO order_shipping_address (
+           order_id, recipient_name, line1, line2, city, province, postal_code, country_code,
+           phone, company_name, tax_id, instructions, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ES', ?8, ?9, ?10, ?11, ?12)`
+      )
+      .bind(
+        ...common,
+        address.phone ?? null,
+        optionalCheckoutText(address.companyName, 2, 160, 'companyName'),
+        optionalTaxId(address.taxId, 'taxId'),
+        optionalCheckoutText(address.instructions, 1, 500, 'instructions'),
+        now
+      )
   return database
     .prepare(
-      `INSERT INTO ${table} (
-         ${columns}
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ES', ?8, ?9)`
+      `INSERT INTO order_billing_address (
+         order_id, recipient_name, line1, line2, city, province, postal_code, country_code,
+         nif, company_name, instructions, created_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ES', ?8, ?9, ?10, ?11)`
     )
     .bind(
-      orderId,
-      address.recipientName.trim(),
-      address.line1,
-      address.line2 ?? null,
-      address.city.trim(),
-      address.province ?? null,
-      address.postalCode,
-      isShipping ? (address.phone ?? null) : (address.nif ?? null),
+      ...common,
+      optionalTaxId(address.nif ?? address.taxId, 'nif'),
+      optionalCheckoutText(address.companyName, 2, 160, 'companyName'),
+      optionalCheckoutText(address.instructions, 1, 500, 'instructions'),
       now
     )
 }
@@ -540,6 +642,23 @@ function normalizeBillingFromShipping(shipping: AddressInput): AddressInput {
 }
 
 type RevalidationOutcome = Extract<PlaceOrderResult, { outcome: 'revalidation_required' }>
+
+// Applied to every saved line, including W2 recovery. Snapshots record a past
+// contract; they cannot authorize a new sale after governing evidence expires.
+const invalidQuotePublication = `EXISTS (SELECT 1 FROM checkout_quote_lines ql
+  JOIN variants v ON v.id = ql.variant_id JOIN products p ON p.id = v.product_id
+  JOIN categories c ON c.id = p.category_id
+  WHERE ql.quote_id = ?3 AND (v.status <> 'published' OR p.status <> 'published'
+    OR c.status <> 'published' OR NOT ${publicationValidityExpression('p')}))`
+
+async function quotePublicationsCurrent(database: D1Database, quoteId: string): Promise<boolean> {
+  const row = await database
+    .prepare(`SELECT NOT ${invalidQuotePublication.replaceAll('?3', '?1')} AS valid`)
+    .bind(quoteId)
+    .first<{ valid: number }>()
+  if (!row) throw new CartInfrastructureError('Unable to validate quote publications')
+  return row.valid === 1
+}
 
 function revalidate(database: D1Database, input: PlaceOrderInput, reason: string): RevalidationOutcome {
   void database
@@ -567,7 +686,8 @@ function revalidateShippingOnly(database: D1Database, input: PlaceOrderInput, re
 export async function placeOrder(
   database: D1Database,
   input: PlaceOrderInput,
-  inventory: CheckoutInventoryGateway = directInventoryGateway(database)
+  inventory: CheckoutInventoryGateway = directInventoryGateway(database),
+  freeShippingThresholdCents: number | null = null
 ): Promise<PlaceOrderResult> {
   assertCommandKey(input.idempotencyKey)
   assertCommandKey(input.correlationId, 'correlationId')
@@ -578,6 +698,13 @@ export async function placeOrder(
   const contactEmail = input.contactEmail.trim().toLowerCase()
   if (contactEmail.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail))
     throw new CartError('invalid_input', 'contactEmail is required')
+  const contactName = optionalCheckoutText(input.contactName, 2, 120, 'contactName')
+  const contactPhone = optionalCheckoutText(input.contactPhone, 6, 24, 'contactPhone')
+  if (contactPhone && !/^[0-9 +()-]{6,24}$/.test(contactPhone))
+    throw new CartError('invalid_input', 'contactPhone is invalid')
+  const buyerCompanyName = optionalCheckoutText(input.buyerCompanyName, 2, 160, 'buyerCompanyName')
+  const buyerTaxId = optionalTaxId(input.buyerTaxId, 'buyerTaxId')
+  const purchaseOrderReference = normalizeOrderPurchaseOrderReference(input.purchaseOrderReference)
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new CartError('invalid_input', 'expectedVersion must be a positive integer')
   if (input.consentTos !== true || input.consentPrivacy !== true)
@@ -586,16 +713,54 @@ export async function placeOrder(
     throw new CartError('invalid_input', 'selectedOptionIndex is invalid')
   if (typeof input.selectedOptionHash !== 'string' || !/^[0-9a-f]{64}$/.test(input.selectedOptionHash))
     throw new CartError('invalid_input', 'selectedOptionHash is invalid')
+  if (
+    input.expectedTotalGrossCents !== undefined &&
+    (!Number.isSafeInteger(input.expectedTotalGrossCents) || input.expectedTotalGrossCents < 0)
+  )
+    throw new CartError('invalid_input', 'expectedTotalGrossCents is invalid')
+
+  const customerId = input.ownerSession ? await activeOrderCustomerId(database, input.ownerSession, input.now) : null
+  if (input.ownerSession && !customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
+  const salesQuote = input.salesQuote
+    ? await readSalesQuoteCheckoutAuthority(
+        database,
+        input.ownerSession ?? null,
+        input.salesQuote,
+        input.cartId,
+        input.quoteId,
+        input.now
+      )
+    : null
+  const authorizationStarted = Date.now()
+  const releaseOrder = async (result: PlaceOrderResult): Promise<PlaceOrderResult> => {
+    const response = await addOrderToken(result, input.token)
+    if (input.ownerSession) {
+      const instant = new Date(Date.parse(input.now) + Math.max(0, Date.now() - authorizationStarted))
+        .toISOString()
+        .replace(/\.\d{3}Z$/, 'Z')
+      if ((await activeOrderCustomerId(database, input.ownerSession, instant)) !== customerId)
+        throw new CartError('unauthorized', 'Customer session is no longer active')
+    }
+    return response
+  }
 
   const payload = {
     billingAddress,
     consentPrivacy: input.consentPrivacy,
     consentTos: input.consentTos,
     contactEmail,
+    contactName,
+    contactPhone,
+    buyerCompanyName,
+    buyerTaxId,
+    ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
+    ...(customerId ? { customerId } : {}),
+    ...(input.salesQuote ? { salesQuote: input.salesQuote } : {}),
     expectedVersion: input.expectedVersion,
     quoteId: input.quoteId,
     selectedOptionHash: input.selectedOptionHash,
     selectedOptionIndex: input.selectedOptionIndex,
+    expectedTotalGrossCents: input.expectedTotalGrossCents,
     shippingAddress: input.shippingAddress,
     shippingQuoteId: input.shippingQuoteId
   }
@@ -603,7 +768,7 @@ export async function placeOrder(
   const cartView = await getCart(database, { cartId: input.cartId, token: input.token })
   const cached = await findCheckoutCommand(database, input.cartId, input.idempotencyKey)
   const cachedReplay = replayOrConflict<PlaceOrderResult>(cached, hash)
-  if (cachedReplay) return addOrderToken(cachedReplay, input.token)
+  if (cachedReplay) return releaseOrder(cachedReplay)
 
   type Attempt = {
     correlation_id: string
@@ -629,7 +794,7 @@ export async function placeOrder(
   if (attempt?.state === 'completed' && attempt.order_id) {
     const view = await buildOrderView(database, attempt.order_id)
     if (!view) throw new CartInfrastructureError('completed checkout has no order')
-    return addOrderToken({ outcome: 'order_created', body: view }, input.token)
+    return releaseOrder({ outcome: 'order_created', body: view })
   }
   if (attempt?.state === 'failed' || attempt?.state === 'compensated')
     return { detail: attempt.state, outcome: 'out_of_stock' }
@@ -663,6 +828,47 @@ export async function placeOrder(
     return revalidate(database, input, 'selected_option_missing')
   const storedQuoteLines = await loadQuoteLines(database, input.quoteId)
   if (!storedQuoteLines.length) return { outcome: 'empty_cart' }
+  if (
+    salesQuote &&
+    (salesQuote.lines.length !== storedQuoteLines.length ||
+      salesQuote.lines.some(
+        (line) =>
+          !storedQuoteLines.some(
+            (stored) =>
+              stored.variantId === line.variantId &&
+              stored.quantity === line.quantity &&
+              stored.unitGrossCents === line.unitGrossCents &&
+              stored.priceVersionId === line.priceVersionId &&
+              stored.taxRateBasisPoints === line.taxRateBasisPoints &&
+              stored.netCents === line.amounts.netCents &&
+              stored.taxCents === line.amounts.taxCents &&
+              stored.grossCents === line.amounts.grossCents &&
+              stored.discountGrossCents === 0
+          )
+      ) ||
+      salesQuote.definition.shippingMethod !== selected.methodCode ||
+      salesQuote.shipping?.grossCents !== selected.grossCents ||
+      salesQuote.shipping?.netCents !== selected.netCents ||
+      salesQuote.shipping?.taxCents !== selected.taxCents)
+  )
+    throw new SalesQuoteError('quote_changed')
+  // Redsys cannot charge a zero-value order. Do not consume stock or a coupon
+  // while a separate, explicitly no-payment completion flow is unavailable.
+  if (storedQuoteLines.reduce((sum, line) => sum + line.grossCents, selected.grossCents) <= 0) {
+    if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
+    return { outcome: 'revalidation_required', reason: 'payment_total_non_positive' }
+  }
+  const appliedPromotion = storedQuoteLines.some((line) => line.discountGrossCents > 0)
+    ? await readAppliedOrderPromotion(database, input.quoteId)
+    : null
+  if (appliedPromotion && !(await promotionAvailableForOrder(database, appliedPromotion, customerId, input.now))) {
+    if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
+    return revalidate(database, input, 'promotion_changed')
+  }
+  if (!(await quotePublicationsCurrent(database, input.quoteId))) {
+    if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
+    return revalidate(database, input, 'publication_changed')
+  }
 
   let reservationLines: ReservationLineInput[]
   let reservationExpiresAt: string
@@ -682,7 +888,8 @@ export async function placeOrder(
       expectedVersion: input.expectedVersion,
       idempotencyKey: `revalidate:${await sha256Hex(`${input.idempotencyKey}:${input.now}`)}`,
       now: input.now,
-      token: input.token
+      token: input.token,
+      ...(appliedPromotion ? { couponCode: appliedPromotion.rule.code, ownerSession: input.ownerSession } : {})
     })
     if (liveQuote.outcome === 'empty_cart') return { outcome: 'empty_cart' }
     if (liveQuote.outcome !== 'quoted') return revalidate(database, input, 'cart_state_changed')
@@ -693,9 +900,14 @@ export async function placeOrder(
       if (!live) return revalidateWith(database, input, 'line_removed', liveQuote.quote)
       if (
         live.quantity !== stored.quantity ||
-        live.unitGrossCents !== stored.unitGrossCents ||
-        live.priceVersionId !== stored.priceVersionId ||
-        live.taxRateBasisPoints !== stored.taxRateBasisPoints
+        live.taxRateBasisPoints !== stored.taxRateBasisPoints ||
+        (!salesQuote &&
+          (live.unitGrossCents !== stored.unitGrossCents ||
+            live.priceVersionId !== stored.priceVersionId ||
+            live.netCents !== stored.netCents ||
+            live.taxCents !== stored.taxCents ||
+            live.grossCents !== stored.grossCents)) ||
+        (live.discountGrossCents ?? 0) !== stored.discountGrossCents
       )
         return revalidateWith(database, input, 'pricing_or_quantity_changed', liveQuote.quote)
       if (live.availableQuantity < stored.quantity && !live.backorderAllowed)
@@ -722,7 +934,10 @@ export async function placeOrder(
     const freshShipping = await resolveShippingOptions(database, {
       cartId: input.cartId,
       destination: freshDestination,
-      now: input.now
+      now: input.now,
+      freeShippingThresholdCents,
+      salesQuote: input.salesQuote,
+      ownerSession: input.ownerSession
     })
     const freshOptions = await withOptionHashes(freshShipping.options)
     if (
@@ -731,6 +946,15 @@ export async function placeOrder(
       !freshOptions.some((option) => option.optionHash === selected.optionHash)
     )
       return revalidateShippingOnly(database, input, 'shipping_option_changed')
+    if (
+      input.expectedTotalGrossCents !== undefined &&
+      (salesQuote
+        ? storedQuoteLines.reduce((sum, line) => sum + line.grossCents, 0)
+        : liveQuote.quote.totals.grossCents) +
+        selected.grossCents !==
+        input.expectedTotalGrossCents
+    )
+      return revalidateWith(database, input, 'display_total_changed', liveQuote.quote)
 
     reservationLines = []
     for (const stored of storedQuoteLines) {
@@ -770,6 +994,42 @@ export async function placeOrder(
       state: 'reserving'
     }
   } else {
+    // W2 can outlive a campaign revision, price or session. Recover the SAME
+    // intent only while its full discounted economic contract is still valid.
+    if (appliedPromotion) {
+      const fresh = await quoteCart(database, {
+        cartId: input.cartId,
+        token: input.token,
+        expectedVersion: input.expectedVersion,
+        idempotencyKey: `revalidate-promotion:${crypto.randomUUID()}`,
+        correlationId: input.correlationId,
+        now: input.now,
+        couponCode: appliedPromotion.rule.code,
+        ownerSession: input.ownerSession
+      })
+      if (
+        fresh.outcome !== 'quoted' ||
+        !fresh.quote.promotion?.applied ||
+        fresh.quote.lines.length !== storedQuoteLines.length ||
+        storedQuoteLines.some(
+          (line) =>
+            !fresh.quote.lines.some(
+              (live) =>
+                live.variantId === line.variantId &&
+                live.quantity === line.quantity &&
+                live.priceVersionId === line.priceVersionId &&
+                live.unitGrossCents === line.unitGrossCents &&
+                live.netCents === line.netCents &&
+                live.taxCents === line.taxCents &&
+                live.grossCents === line.grossCents &&
+                (live.discountGrossCents ?? 0) === line.discountGrossCents
+            )
+        )
+      ) {
+        await compensateAttempt(database, attempt, input.now, inventory)
+        return revalidate(database, input, 'promotion_changed')
+      }
+    }
     if (!attempt.reservation_expires_at || !attempt.reservation_lines_json)
       throw new CartInfrastructureError('checkout attempt is missing its reservation plan')
     reservationExpiresAt = attempt.reservation_expires_at
@@ -827,6 +1087,7 @@ export async function placeOrder(
   const totalTax = goodsTax + selected.taxCents
   const totalGross = goodsGross + selected.grossCents
   const orderViewBody: Record<string, unknown> = {
+    ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
     createdAt: input.now,
     currency: 'EUR',
     etaMaxDays: selected.etaMaxDays,
@@ -842,7 +1103,8 @@ export async function placeOrder(
       taxCents: stored.taxCents,
       taxRateBasisPoints: stored.taxRateBasisPoints,
       unitGrossCents: stored.unitGrossCents,
-      variantId: stored.variantId
+      variantId: stored.variantId,
+      ...(appliedPromotion ? { discountGrossCents: stored.discountGrossCents } : {})
     })),
     reservationExpiresAt,
     shippingGrossCents: selected.grossCents,
@@ -853,6 +1115,15 @@ export async function placeOrder(
     totalTaxCents: totalTax
   }
   const storedResult: PlaceOrderResult = { body: orderViewBody, outcome: 'order_created' }
+  const orderEventId = crypto.randomUUID()
+  const emailOutbox = await prepareEmailOutboxEnqueue(database, {
+    sourceEventId: orderEventId,
+    sourceKind: 'order',
+    sourceId: orderId,
+    eventType: 'order.created',
+    now: input.now
+  })
+  const calendarEligibility = await shippingCalendarCurrentPredicate(database, selected.eta, selected.etaValidUntil)
   try {
     await database.batch([
       database
@@ -864,11 +1135,20 @@ export async function placeOrder(
              shipping_net_cents, shipping_tax_cents, shipping_gross_cents,
              shipping_method_code, shipping_rate_version, shipping_eta_min_days, shipping_eta_max_days,
              contact_email, contact_email_hash, consent_tos, consent_privacy,
-             correlation_id, created_at, updated_at
-           ) VALUES (
+             correlation_id, created_at, updated_at, customer_id,
+             contact_name, contact_phone, buyer_company_name, buyer_tax_id${purchaseOrderReference !== null ? ', purchase_order_reference' : ''}
+           ) SELECT
              ?1, ?2, ?3, ?4, ?5, ?6, 'awaiting_payment', ?7, ?8, 'EUR',
              ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-             ?19, ?20, 1, 1, ?21, ?22, ?22
+             ?19, ?20, 1, 1, ?21, ?22, ?22, ?23, ?28, ?29, ?30, ?31${purchaseOrderReference !== null ? ', ?32' : ''}
+           WHERE ?23 IS NULL OR EXISTS (
+             SELECT 1 FROM auth_sessions s JOIN identities i ON i.id = s.identity_id
+             JOIN customers c ON c.id = i.customer_id AND c.status = 'active'
+             WHERE s.id = ?24 AND s.identity_id = ?25 AND s.session_version = ?26
+               AND i.session_version = s.session_version AND i.status = 'active'
+               AND i.email_verified_at IS NOT NULL AND i.email_verified_at <= ?27
+               AND s.revoked_at IS NULL AND s.created_at <= ?27 AND s.expires_at > ?27
+               AND c.id = ?23
            )`
         )
         .bind(
@@ -893,7 +1173,17 @@ export async function placeOrder(
           contactEmail,
           await sha256Hex(contactEmail),
           input.correlationId,
-          input.now
+          input.now,
+          customerId,
+          input.ownerSession?.sessionId ?? null,
+          input.ownerSession?.identityId ?? null,
+          input.ownerSession?.sessionVersion ?? null,
+          new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+          contactName,
+          contactPhone,
+          buyerCompanyName,
+          buyerTaxId,
+          ...(purchaseOrderReference !== null ? [purchaseOrderReference] : [])
         ),
       ...storedQuoteLines.map((stored, index) =>
         database
@@ -901,8 +1191,8 @@ export async function placeOrder(
             `INSERT INTO order_lines (
                order_id, line_index, variant_id, sku, name, quantity,
                unit_gross_cents, net_cents, tax_cents, gross_cents, tax_rate_basis_points,
-               price_version_id, location_id, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)`
+               price_version_id, location_id, created_at${appliedPromotion ? ', discount_gross_cents' : ''}
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14${appliedPromotion ? ', ?15' : ''})`
           )
           .bind(
             orderId,
@@ -918,9 +1208,13 @@ export async function placeOrder(
             stored.taxRateBasisPoints,
             stored.priceVersionId,
             reservationLines[index]!.locationId,
-            input.now
+            input.now,
+            ...(appliedPromotion ? [stored.discountGrossCents] : [])
           )
       ),
+      ...(appliedPromotion
+        ? promotionOrderStatements(database, { orderId, quoteId: input.quoteId, now: input.now })
+        : []),
       addressInsert(database, orderId, 'order_shipping_address', input.shippingAddress, input.now),
       addressInsert(database, orderId, 'order_billing_address', billingAddress, input.now),
       database
@@ -929,12 +1223,13 @@ export async function placeOrder(
            VALUES (?1, ?2, 'order.created', ?3, ?4, ?5)`
         )
         .bind(
-          crypto.randomUUID(),
+          orderEventId,
           orderId,
           JSON.stringify({ attemptId: attempt.id, reservationId }),
           input.correlationId,
           input.now
         ),
+      emailOutbox.statement,
       database
         .prepare(
           `UPDATE carts SET status = 'converted', converted_quote_id = ?2, converted_at = ?3,
@@ -957,6 +1252,17 @@ export async function placeOrder(
            ) VALUES (?1, ?2, 'checkout', ?3, 200, ?4, ?5, ?6)`
         )
         .bind(input.cartId, input.idempotencyKey, hash, JSON.stringify(storedResult), input.correlationId, input.now),
+      ...(input.salesQuote
+        ? await salesQuoteCompletionStatements(
+            database,
+            input.ownerSession!,
+            input.salesQuote,
+            input.cartId,
+            input.quoteId,
+            orderId,
+            input.now
+          )
+        : []),
       database
         .prepare(
           `INSERT INTO carts (
@@ -974,6 +1280,8 @@ export async function placeOrder(
              SELECT 1 FROM checkout_commands
              WHERE cart_id = ?8 AND command_id = ?1 AND payload_hash = ?7
            )
+           OR ${invalidQuotePublication.replaceAll('?3', '?9')}
+           OR NOT ${calendarEligibility}
            LIMIT 1`
         )
         .bind(
@@ -990,12 +1298,55 @@ export async function placeOrder(
         )
     ])
   } catch (error) {
+    if (input.salesQuote) {
+      try {
+        await readSalesQuoteCheckoutAuthority(
+          database,
+          input.ownerSession ?? null,
+          input.salesQuote,
+          input.cartId,
+          input.quoteId,
+          new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+        )
+      } catch (authorityError) {
+        if (
+          authorityError instanceof SalesQuoteError &&
+          ['quote_not_approved', 'quote_expired', 'quote_changed', 'unauthenticated', 'not_found'].includes(
+            authorityError.code
+          )
+        ) {
+          await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
+          throw authorityError
+        }
+      }
+    }
+    // Only an actual constraint rollback may be classified as evidence drift;
+    // infrastructure outages remain 500 and keep the persisted saga recoverable.
+    if (
+      isD1CheckConstraintFailure(error) &&
+      !(await database.prepare(`SELECT ${calendarEligibility} AS valid`).first<{ valid: number }>())?.valid
+    ) {
+      await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
+      return revalidateShippingOnly(database, input, 'shipping_option_changed')
+    }
+    if (isD1CheckConstraintFailure(error) && !(await quotePublicationsCurrent(database, input.quoteId))) {
+      await compensateAttempt(database, attempt, input.now, inventory)
+      return revalidate(database, input, 'publication_changed')
+    }
+    if (
+      isD1CheckConstraintFailure(error) &&
+      appliedPromotion &&
+      !(await promotionAvailableForOrder(database, appliedPromotion, customerId, input.now))
+    ) {
+      await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
+      return revalidate(database, input, 'promotion_changed')
+    }
     throw new CartInfrastructureError(`checkout finalisation failed: ${(error as Error).message}`)
   }
-  return addOrderToken(storedResult, input.token)
+  return releaseOrder(storedResult)
 }
 
-async function deriveOrderToken(cartToken: string, orderId: string): Promise<string> {
+export async function deriveOrderToken(cartToken: string, orderId: string): Promise<string> {
   return sha256Hex(`neteco:order-access:v1\u0000${cartToken}\u0000${orderId}`)
 }
 
@@ -1009,19 +1360,17 @@ async function addOrderToken(result: PlaceOrderResult, cartToken: string): Promi
   }
 }
 
-export async function getOrderView(database: D1Database, input: { orderId: string; token: string }) {
-  const tokenHash = await sha256Hex(input.token)
-  const header = await database
-    .prepare(
-      `SELECT id, status, currency, total_net_cents AS totalNetCents,
-              total_tax_cents AS totalTaxCents, total_gross_cents AS totalGrossCents,
-              shipping_method_code AS shippingMethodCode,
-              reservation_expires_at AS reservationExpiresAt, created_at AS createdAt
-       FROM orders WHERE id = ?1 AND token_hash = ?2`
-    )
-    .bind(input.orderId, tokenHash)
-    .first<Record<string, unknown>>()
-  if (!header) return null
+export const ORDER_VIEW_COLUMNS = `id, status, currency, contact_email AS contactEmail,
+  contact_name AS contactName, contact_phone AS contactPhone,
+  buyer_company_name AS buyerCompanyName, buyer_tax_id AS buyerTaxId,
+  total_net_cents AS totalNetCents, total_tax_cents AS totalTaxCents,
+  total_gross_cents AS totalGrossCents, shipping_method_code AS shippingMethodCode,
+  reservation_expires_at AS reservationExpiresAt, created_at AS createdAt`
+
+/** Internal snapshot loader, not an authorization boundary. The caller must
+ * select this exact order header under current D1 authority and recheck that
+ * authority after the asynchronous reads before releasing the snapshot. */
+export async function loadOrderView(database: D1Database, orderId: string, header: Record<string, unknown>) {
   const lines = (
     await database
       .prepare(
@@ -1030,8 +1379,117 @@ export async function getOrderView(database: D1Database, input: { orderId: strin
                 gross_cents AS grossCents, tax_rate_basis_points AS taxRateBasisPoints
          FROM order_lines WHERE order_id = ?1 ORDER BY line_index`
       )
-      .bind(input.orderId)
+      .bind(orderId)
       .all()
   ).results
-  return { ...header, lines }
+  const payment = await database
+    .prepare(
+      `SELECT status, paid_gross_cents AS paidGrossCents, updated_at AS updatedAt
+       FROM order_payment_states WHERE order_id = ?1`
+    )
+    .bind(orderId)
+    .first<{ status: string; paidGrossCents: number; updatedAt: string }>()
+  const shippingAddress = await database
+    .prepare(
+      `SELECT recipient_name AS recipientName, company_name AS companyName,
+              tax_id AS taxId, line1, line2, city, province, postal_code AS postalCode,
+              country_code AS countryCode, phone, instructions
+       FROM order_shipping_address WHERE order_id = ?1`
+    )
+    .bind(orderId)
+    .first<Record<string, unknown>>()
+  const billingAddress = await database
+    .prepare(
+      `SELECT recipient_name AS recipientName, company_name AS companyName,
+              nif, line1, line2, city, province, postal_code AS postalCode,
+              country_code AS countryCode, instructions
+       FROM order_billing_address WHERE order_id = ?1`
+    )
+    .bind(orderId)
+    .first<Record<string, unknown>>()
+  const purchaseOrderReference = await readOrderPurchaseOrderReference(database, orderId)
+  return {
+    ...header,
+    ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
+    lines,
+    shippingAddress,
+    billingAddress,
+    payment: payment ?? { status: 'awaiting_payment', paidGrossCents: 0 }
+  }
+}
+
+/** Guest bearer access expires after 24 hours and can be revoked at logout. */
+export async function getOrderView(database: D1Database, input: { orderId: string; token: string; now: string }) {
+  const authorizationStarted = Date.now()
+  assertCanonicalInstant(input.now, 'now')
+  const tokenHash = await sha256Hex(input.token)
+  const cutoff = plusSeconds(input.now, -24 * 60 * 60)
+  const headerQuery = database.prepare(
+    `SELECT ${ORDER_VIEW_COLUMNS} FROM orders
+       WHERE id = ?1 AND token_hash = ?2 AND access_revoked_at IS NULL
+         AND created_at <= ?3 AND created_at > ?4`
+  )
+  const header = await headerQuery.bind(input.orderId, tokenHash, input.now, cutoff).first<Record<string, unknown>>()
+  if (!header) return null
+  const snapshot = await loadOrderView(database, input.orderId, header)
+  const finalNow = new Date(Date.parse(input.now) + Math.max(0, Date.now() - authorizationStarted))
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
+  const current = await headerQuery
+    .bind(input.orderId, tokenHash, finalNow, plusSeconds(finalNow, -24 * 60 * 60))
+    .first<Record<string, unknown>>()
+  return current ? snapshot : null
+}
+
+/** Account access is independent of a guest token and rechecks ownership and
+ * current session state in the same D1 query that selects the order header.
+ */
+export async function getCustomerOwnedOrderView(
+  database: D1Database,
+  input: { orderId: string; claims: VerifiedSessionClaims | null; now: string; customerId?: string }
+) {
+  const authorizationStarted = Date.now()
+  assertCanonicalInstant(input.now, 'now')
+  const customerId = input.customerId ?? (await activeOrderCustomerId(database, input.claims, input.now))
+  if (!customerId || !input.claims) return null
+  const headerQuery = database.prepare(
+    `SELECT ${ORDER_VIEW_COLUMNS} FROM orders
+       WHERE id = ?1 AND customer_id = ?2
+         AND EXISTS (
+           SELECT 1 FROM auth_sessions s
+           JOIN identities i ON i.id = s.identity_id
+           JOIN customers c ON c.id = i.customer_id AND c.status = 'active'
+           WHERE s.id = ?3 AND s.identity_id = ?4 AND s.session_version = ?5
+             AND i.session_version = s.session_version AND i.status = 'active'
+             AND i.email_verified_at IS NOT NULL AND i.email_verified_at <= ?6
+             AND s.revoked_at IS NULL AND s.created_at <= ?6 AND s.expires_at > ?6
+             AND c.id = orders.customer_id
+         )`
+  )
+  const header = await headerQuery
+    .bind(
+      input.orderId,
+      customerId,
+      input.claims.sessionId,
+      input.claims.identityId,
+      input.claims.sessionVersion,
+      input.now
+    )
+    .first<Record<string, unknown>>()
+  if (!header) return null
+  const snapshot = await loadOrderView(database, input.orderId, header)
+  const finalNow = new Date(Date.parse(input.now) + Math.max(0, Date.now() - authorizationStarted))
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
+  const current = await headerQuery
+    .bind(
+      input.orderId,
+      customerId,
+      input.claims.sessionId,
+      input.claims.identityId,
+      input.claims.sessionVersion,
+      finalNow
+    )
+    .first<Record<string, unknown>>()
+  return current ? snapshot : null
 }

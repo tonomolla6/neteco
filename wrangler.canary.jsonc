@@ -9,12 +9,121 @@
     "head_sampling_rate": 1
   },
   "upload_source_maps": true,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "vars": {
-    "APP_ENV": "canary"
+    "APP_ENV": "canary",
+    "FREE_SHIPPING_THRESHOLD_CENTS": "15000",
+    "AUTH_ENABLED": "false",
+    "INVENTORY_ALERTS_ENABLED": "false",
+    "CART_RECOVERY_ENABLED": "false",
+    "CART_RECOVERY_DELIVERY_ENABLED": "false",
+    "CART_RECOVERY_POLICY": "null",
+    "CART_RECOVERY_ALLOWED_RECIPIENTS": "[]",
+    "PRODUCT_WATCH_ENABLED": "false",
+    "PRODUCT_WATCH_DELIVERY_ENABLED": "false",
+    "PRODUCT_WATCH_ALLOWED_RECIPIENTS": "[]",
+    "PRODUCT_CONTRIBUTIONS_ENABLED": "false",
+    "SALES_QUOTES_ENABLED": "false",
+    "CUSTOMER_360_ENABLED": "false",
+    "ANALYTICS_ENABLED": "false",
+    "ANALYTICS_PROJECTION_ENABLED": "false",
+    "ANALYTICS_RETENTION_ENABLED": "false",
+    "ANALYTICS_POLICY": "null",
+    "AUTH_EMAIL_ENABLED": "false",
+    "AUTH_EMAIL_FROM": "orders@neteco.es",
+    "AUTH_ORIGIN": "https://neteco.invalid",
+    "PUBLIC_SITE_ORIGIN": "https://neteco.invalid",
+    "MEDIA_ADMIN_ENABLED": "false",
+    "MEDIA_PUBLIC_ENABLED": "false",
+    "MEDIA_ADMIN_ORIGIN": "https://neteco.invalid",
+    "CMS_PUBLICATION_ENABLED": "false",
+    "CMS_PREVIEW_ENABLED": "false",
+    "FISCAL_ISSUANCE_ENABLED": "false",
+    "FISCAL_LOCAL_VALIDATION_ENABLED": "false",
+    "FISCAL_POLICY_IDS": "[]",
+    "REFUNDS_ENABLED": "false",
+    "REFUND_DISPATCH_ENABLED": "false",
+    "REFUND_LOCAL_VALIDATION_ENABLED": "false",
+    "REFUND_POLICY_IDS": "[]",
+    "CREDIT_DISPATCH_ENABLED": "false",
+    "CREDIT_LOCAL_VALIDATION_ENABLED": "false",
+    "CREDIT_POLICY_IDS": "[]",
+    "SUPPORT_ENABLED": "false",
+    "SUPPORT_POLICY": "null",
+    "SUPPORT_ATTACHMENTS_ENABLED": "false",
+    "SUPPORT_TURNSTILE_ENABLED": "false",
+    "SUPPORT_TURNSTILE_SITE_KEY": "",
+    "BEPLY_ENABLED": "false",
+    "BEPLY_ENVIRONMENT": "sandbox",
+    "BEPLY_BASE_URL": "",
+    "BEPLY_INVOICE_SERIES": "",
+    "BEPLY_CORRECTIVE_SERIES": "",
+    "BEPLY_COMPANY_ID": "",
+    "BEPLY_TAX_CODE_0": "",
+    "BEPLY_TAX_CODE_10": "",
+    "BEPLY_TAX_CODE_21": "",
+    "BEPLY_PAYMENT_CODE_REDSYS": "",
+    "BEPLY_PAYMENT_CODE_BANK_TRANSFER": "",
+    "REDSYS_ENABLED": "false",
+    "REDSYS_ENVIRONMENT": "sandbox",
+    "REDSYS_MERCHANT_CODE": "",
+    "REDSYS_TERMINAL": "",
+    "REDSYS_BIZUM_ENABLED": "false",
+    "PAYMENT_PUBLIC_BASE_URL": "https://neteco.invalid",
+    "NEWSLETTER_ENABLED": "false",
+    "NEWSLETTER_EDITORIAL_ENABLED": "false",
+    "NEWSLETTER_CAMPAIGN_DELIVERY_ENABLED": "false",
+    "NEWSLETTER_LOCAL_VALIDATION_ENABLED": "false",
+    "NEWSLETTER_CAMPAIGN_ALLOWED_RECIPIENTS": "[]",
+    "NEWSLETTER_FEEDBACK_ENABLED": "false",
+    "NEWSLETTER_PUBLIC_ORIGIN": "https://neteco.invalid",
+    "NEWSLETTER_EMAIL_FROM": "newsletter@neteco.es",
+    "TRANSACTIONAL_EMAIL_ENABLED": "false",
+    "TRANSACTIONAL_EMAIL_FROM": "orders@neteco.es",
+    "INVOICE_EMAIL_ENABLED": "false",
+    "INVOICE_VALIDATION_EMAIL_ENABLED": "false",
+    "TRANSACTIONAL_EMAIL_RENDERER_KEYS": "[]",
+    "TRANSACTIONAL_EMAIL_RENDERER_VALIDATION_ENABLED": "false"
   },
   "secrets": {
-    "required": []
+    "required": [
+      "REDSYS_SECRET_KEY",
+      "NUXT_SESSION_PASSWORD",
+      "AUTH_RATE_LIMIT_PEPPER",
+      "AUTH_TOKEN_PEPPER",
+      "AUTH_ENCRYPTION_KEY",
+      "NEWSLETTER_HMAC_KEY",
+      "MEDIA_SCAN_SECRET"
+    ]
   },
+  "ratelimits": [
+    {
+      "name": "AUTH_EDGE_LIMIT",
+      // Local placeholder; account-unique namespace required before deployment.
+      "namespace_id": "900003",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "ADMIN_EDGE_LIMIT",
+      // Local placeholder: reserve a unique account namespace before deployment.
+      "namespace_id": "900001",
+      "simple": { "limit": 300, "period": 60 }
+    },
+    {
+      "name": "CART_EDGE_LIMIT",
+      // Local placeholder: allocate a distinct account namespace before deployment.
+      "namespace_id": "900004",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    {
+      "name": "ANALYTICS_EDGE_LIMIT",
+      // Local placeholder; reserve a unique namespace before deployment.
+      "namespace_id": "900005",
+      "simple": { "limit": 60, "period": 60 }
+    }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
@@ -33,6 +142,17 @@
     {
       "binding": "MEDIA",
       "bucket_name": "neteco-canary-local"
+    }
+  ],
+  "images": { "binding": "IMAGES" },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["orders@neteco.es"]
+    },
+    {
+      "name": "NEWSLETTER_EMAIL",
+      "allowed_sender_addresses": ["newsletter@neteco.es"]
     }
   ],
   "queues": {

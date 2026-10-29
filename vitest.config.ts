@@ -1,7 +1,7 @@
 import { defineConfig, defineProject } from 'vitest/config'
 import { defineVitestProject } from '@nuxt/test-utils/config'
 import { resolve } from 'node:path'
-import coveragePolicy from './docs/testing/coverage-policy.json' with { type: 'json' }
+import { unitProject, coverage } from './vitest.node.config'
 
 export default defineConfig({
   resolve: {
@@ -11,20 +11,7 @@ export default defineConfig({
   },
   test: {
     projects: [
-      defineProject({
-        resolve: {
-          alias: {
-            'cloudflare:workers': resolve('tests/support/cloudflare-workers.ts')
-          }
-        },
-        test: {
-          name: 'unit',
-          include: ['tests/unit/**/*.test.ts'],
-          setupFiles: ['tests/support/no-external-network.ts'],
-          environment: 'node',
-          testTimeout: 10_000
-        }
-      }),
+      unitProject,
       await defineVitestProject({
         test: {
           name: 'nuxt',
@@ -40,6 +27,9 @@ export default defineConfig({
           include: ['tests/components/**/*.test.ts'],
           setupFiles: ['tests/support/no-external-network.ts'],
           environment: 'nuxt',
+          // Nuxt's bootstrap hook may exceed the 10s Vitest default on the
+          // shared development host. Behavior tests retain their own timeout.
+          hookTimeout: 30_000,
           testTimeout: 20_000
         }
       }),
@@ -56,12 +46,6 @@ export default defineConfig({
         }
       })
     ],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json-summary', 'html', 'lcov'],
-      include: coveragePolicy.include,
-      exclude: coveragePolicy.exclusions.map((exclusion) => exclusion.pattern),
-      thresholds: coveragePolicy.thresholds
-    }
+    coverage
   }
 })

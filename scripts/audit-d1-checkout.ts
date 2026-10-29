@@ -1,14 +1,22 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import { convertV4MiniflareOptions, Miniflare } from 'miniflare'
 import { createCart, quoteCart, setCartLine } from '../workers/catalog/cart'
 import { compensateStaleAttempts, getOrderView, placeOrder, requestShippingOptions } from '../workers/catalog/checkout'
+import { initiateRedsysPayment, processRedsysNotification } from '../workers/catalog/payments'
+import { encodeMerchantParameters, signMerchantParameters } from '../workers/payments/redsys'
+import { REDSYS_OFFICIAL_CONTRACT } from '../tests/fixtures/redsys-official'
+import { INVENTORY_COORDINATOR_NAME, type AssignResult, type OperationInput } from '../workers/catalog/inventory'
+import { publishFiscalOutbox, type FiscalEvaluationMessage } from '../workers/catalog/fiscal-outbox'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const execute = promisify(execFile)
 const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+const exerciseQueueFailure = process.argv.includes('--queue-failure')
 
 /**
  * Isolated checkout acceptance audit. Migrations and every seed are applied from
@@ -16,6 +24,7 @@ const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx'
  * failure; the shared canary state is never touched.
  */
 const persistenceDirectory = await mkdtemp(join(tmpdir(), 'neteco-d1-checkout-audit-'))
+let runtime: Miniflare | undefined
 
 try {
   const localArguments = ['--config', 'wrangler.canary.jsonc', '--local', '--persist-to', persistenceDirectory]
@@ -39,89 +48,82 @@ try {
     await wrangler(['d1', 'execute', 'DB', ...localArguments, '--yes', '--file', file])
   }
 
-  function sqlLiteral(value: unknown): string {
-    if (value === null || value === undefined) return 'NULL'
-    if (typeof value === 'number') return String(value)
-    if (typeof value === 'string') return `'${value.replaceAll("'", "''")}'`
-    throw new Error(`Unsupported literal for isolated audit: ${typeof value}`)
-  }
-
-  let autoPosition = 0
-  function inlineParameters(sql: string, parameters: unknown[]) {
-    autoPosition = 0
-    return sql.replaceAll(/\?(\d*)/g, (_match, digits: string) => {
-      const index = digits ? Number(digits) : ++autoPosition
-      return sqlLiteral(parameters[index - 1])
+  // Use the actual workerd binding: SQL parameters and batch boundaries must
+  // have exactly the same semantics as the application, without CLI splitting.
+  const coordinatorBundle = join(persistenceDirectory, 'inventory-coordinator.mjs')
+  await execute(
+    executable,
+    [
+      '--no-install',
+      'esbuild',
+      'tests/support/inventory-runtime.ts',
+      '--bundle',
+      '--format=esm',
+      '--platform=browser',
+      '--external:cloudflare:*',
+      '--external:node:*',
+      `--outfile=${coordinatorBundle}`
+    ],
+    { cwd: process.cwd() }
+  )
+  runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      modules: true,
+      script: await readFile(coordinatorBundle, 'utf8'),
+      compatibilityDate: '2026-08-15',
+      compatibilityFlags: ['nodejs_compat'],
+      queueProducers: { ASYNC_JOBS: 'fiscal-audit-local' },
+      queueConsumers: { 'fiscal-audit-local': { maxBatchSize: 12, maxBatchTimeout: 1, maxRetries: 1 } },
+      durableObjects: { INVENTORY: { className: 'InventoryCoordinator', useSQLite: true } },
+      resourcePersistencePath: join(persistenceDirectory, 'v3'),
+      d1Databases: { DB: '00000000-0000-0000-0000-000000000000' }
     })
+  )
+  const database = (await runtime.getD1Database('DB')) as unknown as D1Database
+  // Miniflare's ReplaceWorkersTypes maps this namespace to Request when combined
+  // with the generated runtime declarations. Validate the two methods we use.
+  const inventoryNamespace: unknown = await runtime.getDurableObjectNamespace('INVENTORY')
+  function isNamespace(value: unknown): value is Pick<DurableObjectNamespace, 'get' | 'idFromName'> {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'get' in value &&
+      typeof value.get === 'function' &&
+      'idFromName' in value &&
+      typeof value.idFromName === 'function'
+    )
   }
-
-  async function rawQuery(command: string) {
-    const outcome = await execute(
-      executable,
-      ['wrangler', 'd1', 'execute', 'DB', ...localArguments, '--yes', '--json', '--command', command],
-      { cwd: process.cwd(), maxBuffer: 16 * 1024 * 1024 }
-    ).catch((error: { stderr?: string; stdout?: string }) => {
-      const detail = (error.stderr ?? '') + (error.stdout ?? '')
-      throw new Error(`D1 command failed: ${detail.slice(0, 400)} | cmd: ${command.slice(0, 160)}`)
-    })
-    return JSON.parse(outcome.stdout) as Array<{ results: Array<Record<string, unknown>>; success: boolean }>
-  }
-
-  interface AuditStatement {
-    sql: string
-    bound: () => unknown[]
-    bind(...parameters: unknown[]): AuditStatement
-    first<T>(...parameters: unknown[]): Promise<T | null>
-    all<T>(...parameters: unknown[]): Promise<{ results: T[] }>
-    run(...parameters: unknown[]): Promise<{ success: true }>
-  }
-
-  function makeStatement(sql: string): AuditStatement {
-    let parameters: unknown[] = []
-    const statement: AuditStatement = {
-      sql,
-      bound: () => [...parameters],
-      bind(...next: unknown[]) {
-        parameters = next
-        return statement
-      },
-      async first<T>(...next: unknown[]) {
-        if (next.length) parameters = next
-        const parsed = await rawQuery(inlineParameters(sql, parameters))
-        if (!parsed.every((entry) => entry.success)) throw new Error('Isolated checkout audit statement failed')
-        return (parsed[0]?.results[0] as T | undefined) ?? null
-      },
-      async all<T>(...next: unknown[]) {
-        if (next.length) parameters = next
-        const parsed = await rawQuery(inlineParameters(sql, parameters))
-        if (!parsed.every((entry) => entry.success)) throw new Error('Isolated checkout audit statement failed')
-        return { results: parsed.flatMap((entry) => entry.results) as T[] }
-      },
-      async run(...next: unknown[]) {
-        if (next.length) parameters = next
-        await rawQuery(inlineParameters(sql, parameters))
-        return { success: true }
-      }
+  if (!isNamespace(inventoryNamespace)) throw new Error('Inventory namespace unavailable')
+  const inventoryStub = inventoryNamespace.get(inventoryNamespace.idFromName(INVENTORY_COORDINATOR_NAME))
+  const inventoryGateway = {
+    async assign(payload: OperationInput): Promise<AssignResult> {
+      const response = await inventoryStub.fetch('https://inventory.invalid/command', {
+        method: 'POST',
+        body: JSON.stringify({ type: 'assign', commandId: crypto.randomUUID(), payload })
+      })
+      if (response.status !== 200 && response.status !== 409) throw new Error(`Inventory DO status ${response.status}`)
+      return (await response.json()) as AssignResult
     }
-    return statement
   }
-
-  /** One multi-statement command == one atomic implicit D1 transaction. */
-  function ephemeralD1() {
+  function makeStatement(sql: string) {
     return {
-      prepare: makeStatement,
-      batch: async (statements: AuditStatement[]) => {
-        const command = statements
-          .map((statement) => `${inlineParameters(statement.sql, statement.bound())};`)
-          .join('\n')
-        const parsed = await rawQuery(command)
-        if (parsed.length < statements.length || parsed.some((entry) => !entry.success))
-          throw new Error('Isolated checkout audit batch incomplete')
-        return statements.map((_statement, index) => ({ results: parsed[index]?.results ?? [], success: true }))
-      }
-    } as unknown as D1Database
+      first: <T>(...values: unknown[]) =>
+        database
+          .prepare(sql)
+          .bind(...values)
+          .first<T>(),
+      all: (...values: unknown[]) =>
+        database
+          .prepare(sql)
+          .bind(...values)
+          .all(),
+      run: (...values: unknown[]) =>
+        database
+          .prepare(sql)
+          .bind(...values)
+          .run()
+    }
   }
-  const database = ephemeralD1()
 
   const failures: string[] = []
   const check = (condition: boolean, scenario: string, detail = '') => {
@@ -237,9 +239,13 @@ try {
   // Guest lookup works with the creation-time token only.
   const guestView = await getOrderView(database, {
     orderId,
-    token: String(placedFirst.outcome === 'order_created' ? (placedFirst.body.orderToken ?? '') : '')
+    token: String(placedFirst.outcome === 'order_created' ? (placedFirst.body.orderToken ?? '') : ''),
+    now: NOW
   })
-  check(guestView?.id === orderId, 'token entregado permite consultar el pedido invitado')
+  check(
+    guestView !== null && 'id' in guestView && guestView.id === orderId,
+    'token entregado permite consultar el pedido invitado'
+  )
 
   // 3. Replay of the same command returns the identical stored answer.
   const replayed = await placeOrder(database, {
@@ -364,10 +370,199 @@ try {
   )
   check(zonesBefore === zonesAfter && ratesBefore === ratesAfter, 'seed de envío idempotente')
 
+  // Synthetic Redsys callback, exclusively against this disposable D1 database.
+  // Public documentation vector only: never load a production secret or call a bank.
+  if (placedFirst.outcome !== 'order_created') throw new Error('Order required for payment audit')
+  const paymentConfig = {
+    environment: 'sandbox' as const,
+    merchantName: 'NETECO',
+    merchantCode: REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode,
+    terminal: REDSYS_OFFICIAL_CONTRACT.sandbox.terminal,
+    secretKey: REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey,
+    publicBaseUrl: 'https://shop.example'
+  }
+  const paymentInput = {
+    orderId,
+    orderToken: String(placedFirst.body.orderToken),
+    idempotencyKey: 'audit-payment',
+    method: 'card' as const,
+    correlationId: 'audit-payment',
+    now: NOW
+  }
+  const payment = await initiateRedsysPayment(database, paymentInput, paymentConfig)
+  check(
+    JSON.stringify(await initiateRedsysPayment(database, paymentInput, paymentConfig)) === JSON.stringify(payment),
+    'payment redirect replay exact'
+  )
+  const intent = await makeStatement('SELECT merchant_order, amount_gross_cents FROM payment_intents').first<{
+    merchant_order: string
+    amount_gross_cents: number
+  }>()
+  if (!intent) throw new Error('Payment intent required')
+  const parameterValues = {
+    Ds_Order: intent.merchant_order,
+    Ds_Amount: String(intent.amount_gross_cents),
+    Ds_Currency: '978',
+    Ds_MerchantCode: paymentConfig.merchantCode,
+    Ds_Terminal: paymentConfig.terminal,
+    Ds_Response: '0000',
+    Ds_TransactionType: '0'
+  }
+  const parameters = encodeMerchantParameters(parameterValues)
+  const declineParameters = encodeMerchantParameters({ ...parameterValues, Ds_Response: '0101' })
+  await processRedsysNotification(
+    database,
+    {
+      Ds_MerchantParameters: declineParameters,
+      Ds_SignatureVersion: 'HMAC_SHA512_V2',
+      Ds_Signature: await signMerchantParameters(declineParameters, paymentConfig.secretKey)
+    },
+    paymentConfig,
+    { now: NOW, correlationId: 'audit-decline' }
+  )
+  const retry = await initiateRedsysPayment(
+    database,
+    { ...paymentInput, idempotencyKey: 'audit-payment-retry' },
+    paymentConfig
+  )
+  const envelope = {
+    Ds_MerchantParameters: parameters,
+    Ds_SignatureVersion: 'HMAC_SHA512_V2',
+    Ds_Signature: await signMerchantParameters(parameters, paymentConfig.secretKey)
+  }
+  const concurrentCaptures = await Promise.all(
+    Array.from({ length: 12 }, (_, index) =>
+      processRedsysNotification(
+        database,
+        envelope,
+        paymentConfig,
+        { now: NOW, correlationId: `audit-concurrent-${index}` },
+        inventoryGateway
+      )
+    )
+  )
+  check(
+    concurrentCaptures.every((result) => result.outcome === 'captured'),
+    '12 concurrent signed duplicate callbacks'
+  )
+  const domainCaptures = await makeStatement(
+    "SELECT count(*) AS n FROM order_events WHERE event_type = 'payment_captured'"
+  ).first<{ n: number }>()
+  check(domainCaptures?.n === 1, 'concurrent callbacks emit one downstream capture event')
+  const paid = await getOrderView(database, { orderId, token: paymentInput.orderToken, now: NOW })
+  check(paid?.payment.status === 'paid', 'order exposes confirmed payment')
+  const retryIntent = await makeStatement('SELECT merchant_order FROM payment_intents WHERE id = ?').first<{
+    merchant_order: string
+  }>(retry.body.paymentIntentId)
+  if (!retryIntent) throw new Error('Retry payment intent required')
+  const secondParameters = encodeMerchantParameters({ ...parameterValues, Ds_Order: retryIntent.merchant_order })
+  const secondEnvelope = {
+    Ds_MerchantParameters: secondParameters,
+    Ds_SignatureVersion: 'HMAC_SHA512_V2',
+    Ds_Signature: await signMerchantParameters(secondParameters, paymentConfig.secretKey)
+  }
+  for (const correlationId of ['audit-second-capture', 'audit-second-replay']) {
+    check(
+      (
+        await processRedsysNotification(
+          database,
+          secondEnvelope,
+          paymentConfig,
+          { now: NOW, correlationId },
+          inventoryGateway
+        )
+      ).outcome === 'manual_review',
+      'second provider capture goes to durable review'
+    )
+  }
+  const review = await makeStatement(
+    'SELECT status, last_error_code FROM payment_recovery_jobs WHERE payment_intent_id = ?'
+  ).first<{ status: string; last_error_code: string }>(retry.body.paymentIntentId)
+  check(
+    review?.status === 'manual_review' && review.last_error_code === 'duplicate_provider_capture',
+    'duplicate capture remains discoverable'
+  )
+  const allocated = await makeStatement(
+    "SELECT count(*) AS n FROM inventory_movements WHERE movement_type = 'allocate'"
+  ).first<{ n: number }>()
+  check(allocated?.n === 1, 'duplicate callback allocates inventory only once')
+  const fiscalEvents = await makeStatement(
+    `SELECT count(*) AS n FROM fiscal_outbox_events event
+     JOIN fiscal_outbox_delivery delivery ON delivery.event_id = event.id
+     WHERE event.order_id = ? AND delivery.status = 'blocked_policy'`
+  ).first<{ n: number }>(orderId)
+  check(fiscalEvents?.n === 1, 'paid order queues exactly one policy-blocked fiscal evaluation')
+  await database.prepare('CREATE TABLE audit_queue_completion (handled INTEGER NOT NULL)').run()
+  await database.prepare('INSERT INTO audit_queue_completion VALUES (0)').run()
+  async function waitForQueueHandlers(expected: number, timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs
+    let handled = 0
+    while (Date.now() < deadline) {
+      handled = Number(
+        (await database.prepare('SELECT handled FROM audit_queue_completion').first<{ handled: number }>())?.handled ??
+          0
+      )
+      if (handled >= expected) return handled
+      await delay(100)
+    }
+    throw new Error(`Queue handlers timed out: expected ${expected}, observed ${handled}`)
+  }
+  if (exerciseQueueFailure) {
+    await database
+      .prepare(
+        `CREATE TRIGGER audit_reject_fiscal_receipt BEFORE INSERT ON fiscal_evaluation_inbox
+      BEGIN SELECT RAISE(ABORT, 'injected receipt write failure'); END`
+      )
+      .run()
+  }
+  const queue = await runtime.getQueueProducer<FiscalEvaluationMessage>('ASYNC_JOBS')
+  const sender = {
+    send: async (message: FiscalEvaluationMessage) => {
+      await queue.send(message)
+    }
+  }
+  check(
+    (await publishFiscalOutbox(database, sender, { now: NOW })).published === 0,
+    'runtime queue respects policy block'
+  )
+  // Explicit fixture-only release for transport testing, not fiscal approval.
+  await database.prepare("UPDATE fiscal_outbox_delivery SET status = 'ready'").run()
+  check(
+    (await publishFiscalOutbox(database, sender, { now: NOW })).published === 1,
+    'outbox publishes to local Queue binding'
+  )
+  const fiscalMessage: FiscalEvaluationMessage = {
+    type: 'invoice.evaluate.requested',
+    version: 1,
+    eventId: `invoice-evaluation:${orderId}`
+  }
+  if (exerciseQueueFailure) {
+    await waitForQueueHandlers(1, 15000)
+    const failedInbox = await database
+      .prepare('SELECT count(*) AS n FROM fiscal_evaluation_inbox')
+      .first<{ n: number }>()
+    check(failedInbox?.n === 0, 'D1 failure leaves no acknowledged fiscal receipt')
+    await database.prepare('DROP TRIGGER audit_reject_fiscal_receipt').run()
+    process.stdout.write('Injected D1 receipt failure observed; awaiting the actual 60-second Queue retry.\n')
+  }
+  await Promise.all(Array.from({ length: 11 }, () => queue.send(fiscalMessage)))
+  const expectedHandlers = exerciseQueueFailure ? 13 : 12
+  const handled = await waitForQueueHandlers(expectedHandlers, exerciseQueueFailure ? 75000 : 15000)
+  check(handled === expectedHandlers, 'all runtime Queue messages and requested retries finished', String(handled))
+  const inbox = await database
+    .prepare("SELECT count(*) AS n FROM fiscal_evaluation_inbox WHERE order_id = ?1 AND status = 'blocked_policy'")
+    .bind(orderId)
+    .first<{ n: number }>()
+  check(inbox?.n === 1, 'runtime Queue duplicates create one policy-blocked fiscal receipt')
+
   if (failures.length) throw new Error(`Isolated checkout audit failed:\n- ${failures.join('\n- ')}`)
   process.stdout.write(
-    `D1 isolated checkout audit passed (saga completa, replay byte-idéntico, compensaciones seguras, sha256 ${createHash('sha256').update(orderId).digest('hex').slice(0, 16)}…)\n`
+    `D1 isolated checkout audit passed (saga completa, replay byte-idéntico, compensaciones seguras, pago firmado y callback duplicado sin doble stock, sha256 ${createHash('sha256').update(orderId).digest('hex').slice(0, 16)}…)\n`
   )
 } finally {
-  await rm(persistenceDirectory, { recursive: true, force: true })
+  try {
+    await runtime?.dispose()
+  } finally {
+    await rm(persistenceDirectory, { recursive: true, force: true })
+  }
 }

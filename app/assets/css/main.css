@@ -21,23 +21,96 @@
   --color-neteco-800: #0a536e;
   --color-neteco-900: #0d455c;
   --color-neteco-950: #062c3d;
+
+  /* ------------------------------------------------------------------
+   * Escala de radios. Tres decisiones, no cuatro accidentes.
+   * control  → lo que se pulsa o se escribe (botón, input, badge)
+   * surface  → lo que agrupa contenido (tarjeta, fila, celda destacada)
+   * panel    → lo que enmarca una región entera (panel, diálogo, hero)
+   * ------------------------------------------------------------------ */
+  --radius-control: 0.5rem;
+  --radius-surface: 0.75rem;
+  --radius-panel: 1rem;
+
+  /* Elevación: solo tres niveles. Casi todo vive en el nivel 0 (borde, sin sombra). */
+  --shadow-raised: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-overlay: 0 10px 15px -3px rgb(15 23 42 / 0.08), 0 4px 6px -4px rgb(15 23 42 / 0.05);
 }
 
-/* AA: marca y estados semánticos conservan al menos 4.5:1 sobre sus fondos claros y sólidos. */
+/* --------------------------------------------------------------------------
+ * Roles semánticos. El código de producto usa estos nombres, no `slate-500`.
+ * Antes de esto convivían 11 escalones de gris sin regla; ahora hay 5 roles.
+ * Contrastes verificados sobre --surface (#fff) y sobre --canvas (#f8fafc).
+ * -------------------------------------------------------------------------- */
 :root {
   --ui-primary: var(--color-neteco-700);
   --ui-error: var(--color-red-700);
   --ui-success: var(--color-green-800);
+  /* El ámbar por defecto de Nuxt UI daba 1,78:1 sobre su propio fondo `subtle`: los
+     distintivos de «pago pendiente» o «en revisión» eran ilegibles. `amber-700` subía a 4,37,
+     todavía por debajo del mínimo; `amber-800` lo deja en 6,5:1. Medido con axe sobre el
+     distintivo real, no sobre la muestra de color. */
+  --ui-warning: var(--color-amber-800);
+  --ui-info: var(--color-sky-800);
+
+  --canvas: var(--color-slate-50);
+  --surface: #fff;
+  --surface-sunken: var(--color-slate-100);
+
+  --text-strong: var(--color-slate-900); /* titulares y cifras */
+  --text: var(--color-slate-700); /* cuerpo — 8.9:1 sobre blanco */
+  --text-muted: var(--color-slate-600); /* secundario — 5.9:1, AA también sobre --canvas */
+
+  --border: var(--color-slate-200);
+  --border-strong: var(--color-slate-300);
 }
 
 body {
-  @apply bg-slate-50 text-slate-800 antialiased;
+  background-color: var(--canvas);
+  color: var(--text);
+  font-size: 0.9375rem; /* 15px: la interfaz vivía en 14px y se leía apretada */
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* la tipografía display (Archivo) lleva titulares y precios; el cuerpo queda en Inter */
+/* La tipografía display (Archivo) lleva titulares y precios; el cuerpo queda en Inter.
+ *
+ * Deliberadamente NO se fija aquí el color. Una versión anterior añadió
+ * `color: var(--text-strong)` a esta regla y rompió todos los titulares sobre fondo oscuro
+ * —el hero de la portada y los de la barra del pie— porque una regla de elemento gana
+ * siempre al color heredado del contenedor, por muy específico que sea este. Cada titular
+ * declara su color con una utilidad, que sí respeta el contexto. */
 h1,
 h2,
 h3 {
   font-family: var(--font-display);
   letter-spacing: -0.015em;
+}
+
+/* Cifras tabulares en todo lo que se compara en vertical: precios, totales,
+   importes de una tabla. Sin esto las columnas de euros bailan. */
+.tabular,
+th[data-numeric],
+td[data-numeric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Foco visible y consistente. Requisito 2.4.7 y condición para poder operar
+   el panel con teclado, que es como lo usa almacén. */
+:where(a, button, [role='button'], input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--color-neteco-600);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

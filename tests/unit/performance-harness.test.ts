@@ -1,7 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { initialAssetUrls, percentile, runBoundedLoad } from '../../scripts/lib/performance'
+import postgres from 'postgres'
+import {
+  initialAssetUrls,
+  percentile,
+  performanceObserverDatabaseOptions,
+  runBoundedLoad
+} from '../../scripts/lib/performance'
 
 describe('performance harness', () => {
+  it('sets the observer name as a PostgreSQL startup parameter without opening a connection', async () => {
+    const options = performanceObserverDatabaseOptions()
+    expect(options).toEqual({ max: 1, connection: { application_name: 'neteco-performance-observer' } })
+    const client = postgres('postgres://fixture:fixture@127.0.0.1:1/neteco_test', options)
+    try {
+      expect(client.options.max).toBe(1)
+      expect(client.options.connection.application_name).toBe('neteco-performance-observer')
+      options.connection.application_name = 'changed-by-caller'
+      expect(performanceObserverDatabaseOptions().connection.application_name).toBe('neteco-performance-observer')
+    } finally {
+      await client.end({ timeout: 0 })
+    }
+  })
+
   it('calculates nearest-rank percentiles', () => {
     expect(percentile([50, 10, 30, 20, 40], 0.5)).toBe(30)
     expect(percentile([50, 10, 30, 20, 40], 0.95)).toBe(50)

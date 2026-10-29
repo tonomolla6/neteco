@@ -7,6 +7,7 @@ import {
 } from '../../workers/catalog/pricing'
 import { listPublishedProducts } from '../../workers/catalog/products'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 
 const T0 = '2026-08-20T00:00:00Z'
 const REASON = 'Versión creada por pruebas de resolución temporal'
@@ -127,6 +128,22 @@ describe('D1 price version model on an empty database', () => {
            ) VALUES ('pv-x', 'missing-variant', 500, '2026-01-01T00:00:00Z', '${REASON}', '2026-01-01T00:00:00Z')`
         )
         .run()
+    ).toThrow()
+  })
+
+  it('rejects a reversed window even when mixed timestamp precision would sort its text the other way', async () => {
+    const database = await openMigratedDatabase()
+    insertVariantBase(database)
+    insertProduct(database, 'p1', 101, 'Producto', 'producto')
+    insertVariant(database, { id: 'v1', productId: 'p1', sku: 'SKU-1', grossCents: 500 }, 1)
+    expect(() =>
+      insertVersion(database, {
+        id: 'reversed-window',
+        variantId: 'v1',
+        grossCents: 600,
+        validFrom: '2026-08-20T00:00:00.500Z',
+        validUntil: '2026-08-20T00:00:00Z'
+      })
     ).toThrow()
   })
 
@@ -292,6 +309,10 @@ describe('D1 deterministic effective pricing', () => {
     })
     insertVersion(database, { id: 'pv-startb', variantId: 'v-bound', grossCents: 300, validFrom: T0 })
 
+    await provisionPublicationValidityFixture(d1OverSqlite(database), {
+      productIds: ['p-act', 'p-mix', 'p-high'],
+      now: '2020-01-01T00:00:00Z'
+    })
     return { database, variants }
   }
 
@@ -320,6 +341,31 @@ describe('D1 deterministic effective pricing', () => {
     // Greatest id wins when valid_from and created_at both tie.
     expect(resolveEffective(database, 'v-sched', '2027-01-01T12:00:00Z')).toBe(700)
     expect(resolveEffective(database, 'v-sched', '2027-01-01T12:00:00Z')).toBe(700)
+  })
+
+  it('orders second and millisecond timestamps chronologically at the same-second boundary', async () => {
+    const { database } = await seededCatalog()
+    insertVersion(database, {
+      id: 'mixed-seconds',
+      variantId: 'v-act',
+      grossCents: 500,
+      validFrom: '2026-08-20T00:00:00Z',
+      validUntil: '2026-08-20T00:00:00.500Z',
+      createdAt: '2026-08-20T00:00:00Z'
+    })
+    insertVersion(database, {
+      id: 'mixed-millis',
+      variantId: 'v-act',
+      grossCents: 600,
+      validFrom: '2026-08-20T00:00:00.500Z',
+      validUntil: '2026-08-20T00:00:00.750Z',
+      createdAt: '2026-08-20T00:00:00.001Z'
+    })
+    expect(resolveEffective(database, 'v-act', '2026-08-20T00:00:00Z')).toBe(500)
+    expect(resolveEffective(database, 'v-act', '2026-08-20T00:00:00.499Z')).toBe(500)
+    expect(resolveEffective(database, 'v-act', '2026-08-20T00:00:00.500Z')).toBe(600)
+    expect(resolveEffective(database, 'v-act', '2026-08-20T00:00:00.749Z')).toBe(600)
+    expect(resolveEffective(database, 'v-act', '2026-08-20T00:00:00.750Z')).toBe(423)
   })
 
   it('exposes effective prices through the public catalog contract without N+1 queries', async () => {

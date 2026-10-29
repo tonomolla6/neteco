@@ -13,6 +13,18 @@ import {
   type ReserveInput
 } from './catalog/inventory'
 import { compensateStaleAttempts } from './catalog/checkout'
+import {
+  executeD1AdminInventoryCommand,
+  InventoryCommandError,
+  parseAdminInventoryCoordinatorCommand
+} from './catalog/admin-inventory'
+import { adminInventoryErrorStatus } from './catalog/admin-inventory-http'
+import { executeD1InventoryCountImportCoordinatorCommand } from './runtime/inventory-count-import-coordinator'
+import { InventoryCountImportError } from './catalog/inventory-count-import'
+import {
+  inventoryCountImportErrorCodeSchema,
+  inventoryCountImportErrorStatus
+} from './catalog/inventory-count-import-http'
 
 function hasControlCharacters(value: string): boolean {
   return [...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
@@ -125,6 +137,38 @@ export async function handleInventoryCommand(
   command: RawCommand,
   dependencies: CoordinatorDependencies
 ): Promise<{ status: number; body: Record<string, unknown>; rescheduleAfterSuccess: boolean }> {
+  if (command.type === 'inventory_count_import') {
+    try {
+      const receipt = await executeD1InventoryCountImportCoordinatorCommand(dependencies.database, command)
+      return { status: 201, body: receipt, rescheduleAfterSuccess: false }
+    } catch (failure) {
+      const parsed = inventoryCountImportErrorCodeSchema.safeParse(
+        failure instanceof InventoryCountImportError ? failure.code : undefined
+      )
+      const code = parsed.success ? parsed.data : 'service_unavailable'
+      return { status: inventoryCountImportErrorStatus(code), body: { error: { code } }, rescheduleAfterSuccess: false }
+    }
+  }
+  if (command.type === 'admin_inventory') {
+    try {
+      const parsed = parseAdminInventoryCoordinatorCommand(command)
+      const receipt = await executeD1AdminInventoryCommand(
+        dependencies.database,
+        parsed.claims,
+        parsed.action,
+        parsed.target,
+        parsed.input,
+        { idempotencyKey: parsed.idempotencyKey }
+      )
+      return { status: 200, body: receipt, rescheduleAfterSuccess: false }
+    } catch (failure) {
+      return {
+        status: failure instanceof InventoryCommandError ? adminInventoryErrorStatus(failure.code) : 503,
+        body: { error: { code: failure instanceof InventoryCommandError ? failure.code : 'service_unavailable' } },
+        rescheduleAfterSuccess: false
+      }
+    }
+  }
   if (!isValidKey(command.commandId))
     return {
       status: 400,
@@ -256,6 +300,13 @@ export class InventoryCoordinator implements DurableObject {
   }
 
   private async executeCommand(command: RawCommand): Promise<Response> {
+    // These manual financial/stock intents always re-authorize against D1,
+    // including durable replays. Never consult the older reservation DO cache
+    // or let an injected commandId turn a revoked grant into a cached success.
+    if (command.type === 'admin_inventory' || command.type === 'inventory_count_import') {
+      const outcome = await handleInventoryCommand(command, this.dependencies())
+      return Response.json(outcome.body, { status: outcome.status, headers: { 'cache-control': 'private, no-store' } })
+    }
     const commandHash = await sha256Hex(canonicalJson(command))
     if (isValidKey(command.commandId)) {
       const cached = await this.state.storage.get<StoredResponse>(`cmd:${command.commandId}`)
