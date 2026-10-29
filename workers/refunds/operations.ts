@@ -23,6 +23,7 @@ import { guardedFiscalDatabase } from '../fiscal/d1-boundary'
 import { readD1AdminReturn } from '../returns/operations'
 import { prepareEmailOutboxEnqueue } from '../communications/email-outbox'
 import { roundRatio } from '../../server/domain/money'
+import { safeRecordRefundAnomalySignal } from '../auth/security-anomalies'
 import { readFinancialPolicy } from './policies'
 import { capturedSource, captureMatchesPolicy } from './source'
 import {
@@ -334,6 +335,19 @@ export async function planD1Refund(
     return commandRace(database, claims, input.idempotencyKey, 'refund_plan', payloadHash, now, failure)
   }
   await admin(database, claims, now)
+  // SEC-035: alert-only; a failing signal store never changes the planned refund.
+  await safeRecordRefundAnomalySignal(database, {
+    actorId: claims.identityId,
+    sessionId: claims.sessionId,
+    refundId: id,
+    orderId: returned.orderId,
+    stage: 'plan',
+    sourceCommandId: input.idempotencyKey,
+    grossCents: amount,
+    ipHash: options.ipHash ?? null,
+    thresholds: options.anomalyThresholds,
+    occurredAt: at
+  })
   return response
 }
 export async function confirmD1Refund(
@@ -398,6 +412,18 @@ export async function confirmD1Refund(
     return commandRace(database, claims, input.idempotencyKey, 'refund_confirm', payloadHash, now, failure)
   }
   await admin(database, claims, now)
+  await safeRecordRefundAnomalySignal(database, {
+    actorId: claims.identityId,
+    sessionId: claims.sessionId,
+    refundId: id,
+    orderId: contract.orderId,
+    stage: 'confirm',
+    sourceCommandId: input.idempotencyKey,
+    grossCents: contract.amountCents,
+    ipHash: options.ipHash ?? null,
+    thresholds: options.anomalyThresholds,
+    occurredAt: at
+  })
   return response
 }
 export async function cancelD1Refund(

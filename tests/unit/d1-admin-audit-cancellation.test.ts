@@ -3,13 +3,17 @@ import { expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { cancelD1UnpaidOrder } from '../../workers/catalog/order-cancellation'
 import { readD1AdminAudit } from '../../workers/auth/admin-audit'
+import { BASE_MIGRATION_NAMES } from '../support/d1-sqlite'
 
 it('projects a proven administrative cancellation and excludes customer cancellations without inferring roles', async () => {
   const f = await returnsFixture()
   try {
     const directory = new URL('../../db/d1/migrations/', import.meta.url)
     const names = (await readdir(directory))
-      .filter((name) => /^\d{4}_[a-z0-9_]+\.sql$/.test(name) && Number(name.slice(0, 4)) > 62)
+      .filter(
+        (name) =>
+          /^\d{4}_[a-z0-9_]+\.sql$/.test(name) && Number(name.slice(0, 4)) > 62 && !BASE_MIGRATION_NAMES.has(name)
+      )
       .sort()
     f.sqlite.exec(
       'BEGIN;\n' +

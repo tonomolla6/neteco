@@ -2,6 +2,7 @@ import { ZodError } from 'zod'
 import type { VerifiedSessionClaims } from '../catalog/authorization'
 import { guardedFiscalDatabase } from '../fiscal/d1-boundary'
 import { supportInstant, supportUuid } from '../../shared/support-operations'
+import { safeRecordRolePermissionChangeSignal } from './security-anomalies'
 import {
   adminInvitationCreateInputSchema,
   adminInvitationRevokeInputSchema,
@@ -41,7 +42,7 @@ export class AdminInvitationError extends Error {
   }
 }
 type Options = { now?: string }
-type CommandOptions = Options & { idempotencyKey: string }
+type CommandOptions = Options & { idempotencyKey: string; ipHash?: string | null }
 type Actor = { id: string; email: string; session_version: number }
 type Ledger = {
   id: string
@@ -318,7 +319,24 @@ async function persist(
     .bind(receipt.commandId)
     .first<Ledger>()
   if (!row) throw new AdminInvitationError('history_unconfirmed')
-  return release(db, claims, options, row, receipt.action !== 'accept', receipt.action === 'accept')
+  const released = await release(db, claims, options, row, receipt.action !== 'accept', receipt.action === 'accept')
+  // SEC-035: alert-only signal, derived from this exact committed command. Never blocks or fails the command.
+  await safeRecordRolePermissionChangeSignal(db, {
+    actorId: claims.identityId,
+    sessionId: claims.sessionId,
+    changeKind:
+      receipt.action === 'create'
+        ? 'admin_invitation_created'
+        : receipt.action === 'accept'
+          ? 'admin_invitation_accepted'
+          : 'admin_invitation_revoked',
+    sourceCommandId: receipt.commandId,
+    invitationId: receipt.invitationId,
+    roleCode: receipt.roleCode,
+    ipHash: options.ipHash ?? null,
+    occurredAt: receipt.recordedAt
+  })
+  return released
 }
 function isGuard(error: unknown) {
   let current = error

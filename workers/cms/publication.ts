@@ -254,6 +254,36 @@ export async function executeCmsPublicationCommand(
   }
   const needsMedia = input.action !== 'schedule' || input.publishAtLocal !== null
   const media = version && needsMedia ? await cmsDocumentMedia(deps, version.document) : []
+  let activeReview: { id: string; status: string; is_critical: number; author_id: string } | null = null
+  if (version && (input.action === 'publish' || input.action === 'schedule')) {
+    try {
+      const reviewRow = await deps.database
+        .prepare(
+          'SELECT id, status, is_critical, author_id FROM editorial_reviews WHERE page_id=? AND version_id=? ORDER BY created_at DESC LIMIT 1'
+        )
+        .bind(pageId, version.id)
+        .first<{ id: string; status: string; is_critical: number; author_id: string }>()
+      if (reviewRow) {
+        if (reviewRow.status !== 'approved') throw new CmsPublicationError('review_not_approved')
+        if (reviewRow.is_critical === 1) {
+          if (claims.identityId === reviewRow.author_id) throw new CmsPublicationError('author_cannot_publish')
+          const session = await deps.database
+            .prepare(
+              'SELECT mfa_verified, created_at FROM auth_sessions WHERE id=? AND identity_id=? AND session_version=?'
+            )
+            .bind(claims.sessionId, claims.identityId, claims.sessionVersion)
+            .first<{ mfa_verified: number; created_at: string }>()
+          if (!session || session.mfa_verified !== 1) throw new CmsPublicationError('mfa_required')
+          if ((Date.parse(now) - Date.parse(session.created_at)) / 1000 > 900) {
+            throw new CmsPublicationError('mfa_expired')
+          }
+        }
+        activeReview = reviewRow
+      }
+    } catch (e) {
+      if (e instanceof CmsPublicationError) throw e
+    }
+  }
   const statements: D1PreparedStatement[] = []
   const actorParams = [
     deps.now ? cmsNow(deps) : null,
@@ -281,6 +311,31 @@ export async function executeCmsPublicationCommand(
         )
         .bind(ownerId, pageId, version.id, version.document.slug, claims.identityId, input.reason, now)
     )
+    if (activeReview) {
+      statements.push(
+        deps.database
+          .prepare(
+            "UPDATE editorial_reviews SET status='published', published_by=?, published_at=?, updated_at=?, version=version+1 WHERE id=? AND status='approved'"
+          )
+          .bind(claims.identityId, now, now, activeReview.id)
+      )
+      statements.push(
+        deps.database
+          .prepare(
+            'INSERT INTO editorial_review_audit(id, review_id, actor_id, action, from_status, to_status, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          )
+          .bind(
+            crypto.randomUUID(),
+            activeReview.id,
+            claims.identityId,
+            'publish',
+            'approved',
+            'published',
+            JSON.stringify({ publicationId: ownerId }),
+            now
+          )
+      )
+    }
   }
   if (input.action === 'withdraw') {
     publicationId = null

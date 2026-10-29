@@ -12,5 +12,6 @@
     </main>
     <AppFooter />
     <ConsentManager />
+    <MarketingModalHost />
   </div>
 </template>

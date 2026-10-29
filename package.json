@@ -57,6 +57,7 @@
     "audit:catalog-file:scale": "tsx scripts/audit-catalog-file-scale.ts",
     "test": "npm run test:unit",
     "test:unit": "vitest run --config vitest.node.config.ts --project unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml",
+    "test:search:relevance": "vitest run --config vitest.node.config.ts --project unit --maxWorkers=2 tests/unit/search-relevance-offline.test.ts",
     "test:compiled": "vitest run --config vitest.compiled.config.ts",
     "test:compiled:browser": "NETECO_COMPILED_BROWSER_REQUIRED=true vitest run --config vitest.compiled.config.ts",
     "test:nuxt": "vitest run --project nuxt --reporter=default --reporter=junit --outputFile.junit=test-results/nuxt.xml",

@@ -9,6 +9,14 @@ import {
 import { collectClientAnalytics, withdrawAnalyticsSession } from './collector'
 import { readAnalyticsSnapshot } from './read-model'
 import { readAnalyticsReconciliation } from './reconciliation'
+import {
+  readSearchAnalyticsDashboard,
+  recordSearchEvent,
+  searchDeviceSchema,
+  searchSegmentSchema,
+  type SearchDevice,
+  type SearchSegment
+} from './search-analytics'
 import { analyticsConsent } from '../../server/utils/analytics'
 
 export interface AnalyticsHttpDependencies extends AnalyticsMeasurementDependencies {
@@ -28,7 +36,7 @@ export interface AnalyticsHttpRange {
 function ownedArea(pathname: string): 'admin' | 'events' | null {
   let path = pathname
   for (let round = 0; round < 4; round++) {
-    if (/^\/api\/admin\/analytics(?:[/\\%]|$)/i.test(path)) return 'admin'
+    if (/^\/api\/admin\/(?:analytics|search-analytics)(?:[/\\%]|$)/i.test(path)) return 'admin'
     if (/^\/api\/analytics(?:[/\\%]|$)/i.test(path)) return 'events'
     try {
       const next = decodeURIComponent(path)
@@ -205,7 +213,12 @@ export async function handleAnalyticsHttp(request: Request, deps: AnalyticsHttpD
         ? 'POST'
         : url.pathname === '/api/analytics/session'
           ? 'DELETE'
-          : ['/api/admin/analytics', '/api/admin/analytics/reconciliation'].includes(url.pathname)
+          : [
+                '/api/admin/analytics',
+                '/api/admin/analytics/reconciliation',
+                '/api/admin/analytics/search',
+                '/api/admin/search-analytics'
+              ].includes(url.pathname)
             ? 'GET'
             : null
     if (expectedMethod === null) return failure('invalid_input', 400)
@@ -217,8 +230,33 @@ export async function handleAnalyticsHttp(request: Request, deps: AnalyticsHttpD
       const consentCookie = cookie(request, 'neteco-consent-v1'),
         anonymousCookie = cookie(request, 'neteco-analytics-id')
       if (!analyticsConsent(consentCookie)) return failure('consent_required', 403)
+      const eventPayload = await body(request)
+      const isSearchEvent =
+        typeof eventPayload === 'object' &&
+        eventPayload !== null &&
+        'name' in eventPayload &&
+        typeof (eventPayload as { name: unknown }).name === 'string' &&
+        ['search_performed', 'search_result_clicked', 'add_to_cart'].includes((eventPayload as { name: string }).name)
+
+      if (isSearchEvent) {
+        const result = await recordSearchEvent(deps, {
+          event: eventPayload,
+          consentCookie,
+          anonymousCookie,
+          userAgent: request.headers.get('user-agent') ?? undefined
+        })
+        if (result.reason === 'consent_required') return failure('consent_required', 403)
+        if (result.reason === 'disabled') return failure('service_unavailable')
+        analyticsAssertCurrentConfiguration(deps, policy, expectedOrigin)
+        return analyticsHttpJson(
+          { accepted: result.accepted },
+          202,
+          result.cookie === null ? {} : { 'Set-Cookie': cookieInstruction(result.cookie) }
+        )
+      }
+
       const result = await collectClientAnalytics(deps, {
-        event: await body(request),
+        event: eventPayload,
         consentCookie,
         anonymousCookie,
         userAgent: request.headers.get('user-agent') ?? undefined
@@ -236,6 +274,23 @@ export async function handleAnalyticsHttp(request: Request, deps: AnalyticsHttpD
     const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
     if (!claims) return failure('unauthenticated', 401)
     await analyticsAuthorizeAdmin(deps, claims)
+
+    if (['/api/admin/analytics/search', '/api/admin/search-analytics'].includes(url.pathname)) {
+      const from = url.searchParams.get('from') ?? new Date(Date.now() - 30 * 86400000).toISOString()
+      const to = url.searchParams.get('to') ?? new Date().toISOString()
+      const rawDevice = url.searchParams.get('device') ?? 'all'
+      const rawSegment = url.searchParams.get('segment') ?? 'all'
+      const device: 'all' | SearchDevice = rawDevice === 'all' ? 'all' : searchDeviceSchema.parse(rawDevice)
+      const segment: 'all' | SearchSegment = rawSegment === 'all' ? 'all' : searchSegmentSchema.parse(rawSegment)
+      const page = Number(url.searchParams.get('page') ?? '1')
+      const perPage = Number(url.searchParams.get('perPage') ?? '20')
+
+      const result = await readSearchAnalyticsDashboard(deps, claims, { from, to, device, segment, page, perPage })
+      await analyticsAuthorizeAdmin(deps, claims)
+      analyticsAssertCurrentConfiguration(deps, policy, expectedOrigin)
+      return analyticsHttpJson(result)
+    }
+
     const range = parseAnalyticsHttpRange(url.searchParams)
     const result =
       url.pathname === '/api/admin/analytics/reconciliation'

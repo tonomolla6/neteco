@@ -2,6 +2,7 @@ import { ZodError } from 'zod'
 import type { VerifiedSessionClaims } from '../catalog/authorization'
 import { guardedFiscalDatabase } from '../fiscal/d1-boundary'
 import { authorizeD1AdminInvitationActor } from './admin-invitations'
+import { safeRecordMassExportSignal, type SecurityAnomalyThresholds } from './security-anomalies'
 import { supportInstant, supportUuid } from '../../shared/support-operations'
 import { orderExportCsvCell } from '../../shared/order-export'
 import {
@@ -49,7 +50,11 @@ export class AdminAuditError extends Error {
   }
 }
 export type AdminAuditOptions = { now?: string }
-export type AdminAuditCommandOptions = AdminAuditOptions & { idempotencyKey: string; ipHash?: string | null }
+export type AdminAuditCommandOptions = AdminAuditOptions & {
+  idempotencyKey: string
+  ipHash?: string | null
+  anomalyThresholds?: SecurityAnomalyThresholds
+}
 const utc = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 const clock = "COALESCE(?4,strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
 const authority = `SELECT 1 allowed FROM identities i JOIN auth_sessions s ON s.identity_id=i.id
@@ -489,7 +494,7 @@ export async function exportD1AdminAudit(
       filterHash = await adminAuditFilterHash(input.filters),
       recordedAt = options.now ?? utc(),
       expiresAt = new Date(Date.parse(recordedAt) + 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-    return commit(
+    const exported = await commit(
       db,
       claims,
       input,
@@ -508,6 +513,19 @@ export async function exportD1AdminAudit(
       csv,
       options
     )
+    // SEC-035: alert-only mass export signal; never blocks or fails the export.
+    await safeRecordMassExportSignal(db, {
+      actorId: claims!.identityId,
+      sessionId: claims!.sessionId,
+      exportKind: 'admin_audit',
+      exportCommandId: options.idempotencyKey,
+      rowCount: safe.length,
+      byteLength: bytes,
+      ipHash: options.ipHash ?? null,
+      thresholds: options.anomalyThresholds,
+      occurredAt: recordedAt
+    })
+    return exported
   })
 }
 export async function readD1AdminAuditCommand(

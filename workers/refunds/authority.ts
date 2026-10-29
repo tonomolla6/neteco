@@ -1,3 +1,4 @@
+import type { SecurityAnomalyThresholds } from '../auth/security-anomalies'
 import { z } from 'zod'
 import { catalogPolicyOwnJson } from '../../shared/catalog-publication-policy'
 import { fiscalUuid, fiscalInstant } from '../../shared/fiscal-issuance'
@@ -26,7 +27,12 @@ export const claimsSchema = z
     sessionVersion: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER)
   })
   .strict()
-export type RefundCommandOptions = { now?: string }
+export type RefundCommandOptions = {
+  now?: string
+  /** SEC-035 optional context for the alert-only refund anomaly signal. */
+  ipHash?: string | null
+  anomalyThresholds?: SecurityAnomalyThresholds
+}
 export function clock(options: RefundCommandOptions = {}) {
   const initial = options.now === undefined ? Date.now() : Date.parse(checked(fiscalInstant, options.now)),
     start = Date.now()

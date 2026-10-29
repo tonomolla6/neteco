@@ -1,3 +1,4 @@
+import { safeRecordMfaChangeSignal } from './security-anomalies'
 import { createTotpEnrollment, generateRecoveryCodes, recoveryCodeHashes, validateTotp } from '../../server/domain/mfa'
 import { SENSITIVE_RATE_LIMIT_POLICIES } from '../../server/utils/abuse-limit'
 import { decryptSecret, encryptSecret } from '../../server/utils/secrets'
@@ -262,6 +263,15 @@ export async function verifyD1MfaEnrollment(
       return { ok: false, code: 'invalid_mfa_setup' }
     throw cause
   }
+  // SEC-035: alert-only; only administrative identities raise it, failures never affect enrollment.
+  await safeRecordMfaChangeSignal(database, {
+    identityId: claims.identityId,
+    sessionId: claims.sessionId,
+    changeType: 'mfa_reenrolled',
+    sourceEventId: activationId,
+    occurredAt: now,
+    onlyIfAdmin: true
+  })
   return { ok: true }
 }
 

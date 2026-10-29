@@ -48,7 +48,9 @@ const DEMO_PERMISSIONS = [
   'orders.read',
   'payments.read',
   'invoices.read',
-  'support.manage'
+  'support.manage',
+  'security.read',
+  'security.manage'
 ] as const
 const UNUSABLE_PASSWORD = 'DEMO-OFFLINE-IDENTITY-NOT-A-PASSWORD-HASH'
 const REASON = 'Bootstrap offline de datos sintéticos DEMO; sin venta real, aprobación legal ni proveedor externo'

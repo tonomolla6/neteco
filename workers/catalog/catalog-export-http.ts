@@ -1,8 +1,11 @@
 import { catalogExportFiltersSchema } from '../../shared/catalog-export'
 import { verifySessionCookie } from '../auth/session-cookie'
+import { deriveAdminAuditIpHash } from '../auth/admin-audit-network'
+import { safeRecordMassExportSignal, type SecurityAnomalyThresholds } from '../auth/security-anomalies'
 import { CatalogExportError, readCatalogSnapshot } from './catalog-export'
 
-type Environment = Pick<CloudflareEnv, 'DB' | 'AUTH_ENABLED' | 'AUTH_ORIGIN' | 'NUXT_SESSION_PASSWORD'>
+type Environment = Pick<CloudflareEnv, 'DB' | 'AUTH_ENABLED' | 'AUTH_ORIGIN' | 'NUXT_SESSION_PASSWORD'> &
+  Partial<Pick<CloudflareEnv, 'AUTH_RATE_LIMIT_PEPPER'>>
 const prefix = '/api/admin/catalog/export'
 const headers = {
   'Cache-Control': 'private, no-store',
@@ -29,7 +32,11 @@ export function ownsCatalogExportNamespace(path: string) {
 }
 /** Only snapshot filters. No pagination, clock pin, client IDs or format that
  * changes the server snapshot; every download asks for a new authorized read. */
-export async function handleCatalogExportHttp(request: Request, env: Environment): Promise<Response | null> {
+export async function handleCatalogExportHttp(
+  request: Request,
+  env: Environment,
+  options: { anomalyThresholds?: SecurityAnomalyThresholds } = {}
+): Promise<Response | null> {
   const url = new URL(request.url)
   if (!ownsCatalogExportNamespace(url.pathname)) return null
   if (url.pathname !== prefix + '/snapshot') return error('invalid_input', 400)
@@ -53,7 +60,21 @@ export async function handleCatalogExportHttp(request: Request, env: Environment
     if (env.AUTH_ENABLED !== 'true') return error('service_unavailable', 503)
     const claims = await verifySessionCookie(request, { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 })
     if (!claims) return error('unauthenticated', 401)
-    return Response.json(await readCatalogSnapshot(env.DB, claims, parsed.data), { headers })
+    const snapshot = await readCatalogSnapshot(env.DB, claims, parsed.data)
+    // SEC-035: the snapshot read itself stays strictly read-only. The alert-only signal is recorded
+    // here, after the authorized read, and a signal failure never blocks the download.
+    await safeRecordMassExportSignal(env.DB, {
+      actorId: claims.identityId,
+      sessionId: claims.sessionId,
+      exportKind: 'catalog',
+      exportCommandId: snapshot.snapshotId,
+      rowCount: Object.values(snapshot.counts).reduce((sum, count) => sum + count, 0),
+      ipHash: env.AUTH_RATE_LIMIT_PEPPER
+        ? await deriveAdminAuditIpHash(request, env.AUTH_RATE_LIMIT_PEPPER).catch(() => null)
+        : null,
+      thresholds: options.anomalyThresholds
+    })
+    return Response.json(snapshot, { headers })
   } catch (failure) {
     if (failure instanceof CatalogExportError)
       return error(

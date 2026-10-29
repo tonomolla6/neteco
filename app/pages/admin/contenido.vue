@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ContentBlock } from '~~/server/utils/content-schema'
 import CmsDraftEditor from '../../components/CmsDraftEditor.vue'
+import AdminEditorialReview from '../../components/AdminEditorialReview.vue'
 import { catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
@@ -10,6 +11,7 @@ const cloudflare = runtime === 'cloudflare',
   node = runtime === 'node'
 const { ready, loggedIn, user } = useUserSession()
 const operatorId = computed(() => (typeof user.value?.id === 'string' ? user.value.id : ''))
+const activeTab = ref<'editor' | 'review'>('editor')
 function authorizeCms() {
   return (
     cloudflare &&
@@ -219,146 +221,164 @@ async function rollback(version: Version) {
 </script>
 
 <template>
-  <CmsDraftEditor v-if="cloudflare" :runtime="runtime" :operator-id="operatorId" :authorize="authorizeCms" />
-  <UAlert
-    v-else-if="!node"
-    color="warning"
-    title="Runtime de contenido no confirmado"
-    description="No se habilitan consultas ni operaciones hasta confirmar el runtime."
-  />
-  <div v-else>
-    <UiPageHeader
-      title="Contenido"
-      :count="pages.length"
-      :count-label="pages.length === 1 ? 'página' : 'páginas'"
-      description="Páginas editoriales con bloques tipados, vista previa firmada, publicación programada e historial inmutable."
-    >
-      <template #actions>
-        <UButton icon="i-lucide-plus" @click="createNew">Nueva página</UButton>
-      </template>
-    </UiPageHeader>
-
-    <UiSurface v-if="!pages.length && !creating" padding="none">
-      <UiEmptyState
-        icon="i-lucide-panels-top-left"
-        title="Todavía no hay páginas de contenido"
-        description="Son las páginas que no son catálogo: quiénes somos, condiciones, guías de uso o una campaña. Se editan por bloques, sin tocar código, y cada versión queda guardada."
-      >
-        <UButton icon="i-lucide-plus" @click="createNew">Crear la primera página</UButton>
-      </UiEmptyState>
-    </UiSurface>
-
-    <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-[18rem_1fr]">
-      <aside class="h-fit rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-2">
-        <button
-          v-for="page in pages"
-          :key="page.id"
-          class="mb-0.5 block w-full rounded-[var(--radius-control)] px-3 py-2 text-left transition-colors"
-          :class="
-            selected?.id === page.id ? 'bg-neteco-50 text-neteco-800' : 'text-[var(--text)] hover:bg-[var(--canvas)]'
-          "
-          @click="load(page)"
+  <div>
+    <div v-if="activeTab === 'review'" class="p-6">
+      <div class="mb-4 flex items-center justify-between">
+        <h1 class="text-xl font-bold">Revisiones editoriales</h1>
+        <UButton variant="outline" icon="i-lucide-arrow-left" @click="activeTab = 'editor'">Volver al editor</UButton>
+      </div>
+      <AdminEditorialReview :operator-id="operatorId" :page-id="selected?.id" />
+    </div>
+    <div v-else>
+      <div class="flex justify-end px-6 pt-2">
+        <UButton size="xs" variant="outline" icon="i-lucide-clipboard-check" @click="activeTab = 'review'">
+          Aprobaciones editoriales
+        </UButton>
+      </div>
+      <CmsDraftEditor v-if="cloudflare" :runtime="runtime" :operator-id="operatorId" :authorize="authorizeCms" />
+      <UAlert
+        v-else-if="!node"
+        color="warning"
+        title="Runtime de contenido no confirmado"
+        description="No se habilitan consultas ni operaciones hasta confirmar el runtime."
+      />
+      <div v-else>
+        <UiPageHeader
+          title="Contenido"
+          :count="pages.length"
+          :count-label="pages.length === 1 ? 'página' : 'páginas'"
+          description="Páginas editoriales con bloques tipados, vista previa firmada, publicación programada e historial inmutable."
         >
-          <span class="block truncate font-semibold">{{ page.title }}</span>
-          <span class="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
-            <span class="truncate font-mono">/{{ page.slug }}</span>
-            <UBadge :color="(PAGE_STATUS[page.status] ?? { color: 'neutral' }).color" variant="subtle">
-              {{ (PAGE_STATUS[page.status] ?? { label: page.status }).label }}
-            </UBadge>
-          </span>
-        </button>
-      </aside>
+          <template #actions>
+            <UButton icon="i-lucide-plus" @click="createNew">Nueva página</UButton>
+          </template>
+        </UiPageHeader>
 
-      <section v-if="selected || creating" class="rounded-2xl border border-slate-200 bg-white p-6">
-        <form class="space-y-4" @submit.prevent="save">
-          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Título"><UInput v-model="form.title" class="w-full" /></UFormField>
-            <UFormField label="Slug"><UInput v-model="form.slug" class="w-full" /></UFormField>
-            <UFormField label="SEO title"><UInput v-model="form.seoTitle" class="w-full" /></UFormField>
-            <UFormField label="SEO description"><UInput v-model="form.seoDescription" class="w-full" /></UFormField>
-          </div>
-          <label class="flex items-center gap-2 text-sm text-slate-700">
-            <input v-model="form.noindex" type="checkbox" /> No indexar la versión publicada
-          </label>
-          <UFormField
-            label="Bloques tipados (JSON)"
-            hint="heading, paragraph, list, image, callout o cta; no admite HTML/JS"
+        <UiSurface v-if="!pages.length && !creating" padding="none">
+          <UiEmptyState
+            icon="i-lucide-panels-top-left"
+            title="Todavía no hay páginas de contenido"
+            description="Son las páginas que no son catálogo: quiénes somos, condiciones, guías de uso o una campaña. Se editan por bloques, sin tocar código, y cada versión queda guardada."
           >
-            <UTextarea v-model="form.blocksJson" :rows="18" class="w-full font-mono text-xs" />
-          </UFormField>
-          <UFormField label="Resumen del cambio">
-            <UInput v-model="form.changeSummary" class="w-full" placeholder="Qué cambia y por qué" />
-          </UFormField>
-          <div class="flex flex-wrap gap-2">
-            <UButton type="submit" icon="i-lucide-save" :loading="saving">Guardar nueva versión</UButton>
-            <UButton v-if="selected" type="button" variant="outline" icon="i-lucide-eye" @click="preview">
-              Vista previa 30 min
-            </UButton>
-            <UButton v-if="selected" type="button" color="success" icon="i-lucide-send" @click="publish">
-              Publicar borrador
-            </UButton>
-          </div>
-        </form>
+            <UButton icon="i-lucide-plus" @click="createNew">Crear la primera página</UButton>
+          </UiEmptyState>
+        </UiSurface>
 
-        <form
-          v-if="selected"
-          class="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"
-          @submit.prevent="schedulePublication"
-        >
-          <h2 class="font-bold text-slate-900">Calendario editorial</h2>
-          <p class="mt-1 text-xs text-slate-500">
-            Horario Europe/Madrid. En la hora repetida de otoño se aplica la segunda ocurrencia.
-          </p>
-          <div class="mt-3 grid gap-3 grid-cols-1 md:grid-cols-3">
-            <UFormField label="Publicar desde">
-              <UInput v-model="scheduleForm.publishAtLocal" type="datetime-local" class="w-full" />
-            </UFormField>
-            <UFormField label="Despublicar desde">
-              <UInput v-model="scheduleForm.unpublishAtLocal" type="datetime-local" class="w-full" />
-            </UFormField>
-            <UFormField label="Motivo">
-              <UInput v-model="scheduleForm.reason" required minlength="3" class="w-full" />
-            </UFormField>
-          </div>
-          <UButton type="submit" class="mt-3" icon="i-lucide-calendar-clock" :loading="saving">
-            Guardar programación
-          </UButton>
-        </form>
-
-        <div v-if="selected" class="mt-8 border-t border-slate-200 pt-5">
-          <h2 class="font-bold text-slate-900">Historial inmutable</h2>
-          <ul class="mt-3 space-y-2">
-            <li
-              v-for="version in selected.versions"
-              :key="version.id"
-              class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm"
+        <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-[18rem_1fr]">
+          <aside class="h-fit rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-2">
+            <button
+              v-for="page in pages"
+              :key="page.id"
+              class="mb-0.5 block w-full rounded-[var(--radius-control)] px-3 py-2 text-left transition-colors"
+              :class="
+                selected?.id === page.id
+                  ? 'bg-neteco-50 text-neteco-800'
+                  : 'text-[var(--text)] hover:bg-[var(--canvas)]'
+              "
+              @click="load(page)"
             >
-              <span>
-                <strong>v{{ version.version }}</strong> · {{ version.changeSummary }} · {{ version.author }} ·
-                {{ new Date(version.createdAt).toLocaleString('es-ES') }}
-                <details class="mt-1 text-xs text-slate-500">
-                  <summary class="cursor-pointer">Ver snapshot/diff respecto a la versión anterior</summary>
-                  <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap">{{
-                    JSON.stringify({ seo: version.seo, blocks: version.blocks }, null, 2)
-                  }}</pre>
-                </details>
+              <span class="block truncate font-semibold">{{ page.title }}</span>
+              <span class="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+                <span class="truncate font-mono">/{{ page.slug }}</span>
+                <UBadge :color="(PAGE_STATUS[page.status] ?? { color: 'neutral' }).color" variant="subtle">
+                  {{ (PAGE_STATUS[page.status] ?? { label: page.status }).label }}
+                </UBadge>
               </span>
-              <UButton size="xs" variant="ghost" icon="i-lucide-history" @click="rollback(version)">
-                Restaurar como nueva
+            </button>
+          </aside>
+
+          <section v-if="selected || creating" class="rounded-2xl border border-slate-200 bg-white p-6">
+            <form class="space-y-4" @submit.prevent="save">
+              <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
+                <UFormField label="Título"><UInput v-model="form.title" class="w-full" /></UFormField>
+                <UFormField label="Slug"><UInput v-model="form.slug" class="w-full" /></UFormField>
+                <UFormField label="SEO title"><UInput v-model="form.seoTitle" class="w-full" /></UFormField>
+                <UFormField label="SEO description"><UInput v-model="form.seoDescription" class="w-full" /></UFormField>
+              </div>
+              <label class="flex items-center gap-2 text-sm text-slate-700">
+                <input v-model="form.noindex" type="checkbox" /> No indexar la versión publicada
+              </label>
+              <UFormField
+                label="Bloques tipados (JSON)"
+                hint="heading, paragraph, list, image, callout o cta; no admite HTML/JS"
+              >
+                <UTextarea v-model="form.blocksJson" :rows="18" class="w-full font-mono text-xs" />
+              </UFormField>
+              <UFormField label="Resumen del cambio">
+                <UInput v-model="form.changeSummary" class="w-full" placeholder="Qué cambia y por qué" />
+              </UFormField>
+              <div class="flex flex-wrap gap-2">
+                <UButton type="submit" icon="i-lucide-save" :loading="saving">Guardar nueva versión</UButton>
+                <UButton v-if="selected" type="button" variant="outline" icon="i-lucide-eye" @click="preview">
+                  Vista previa 30 min
+                </UButton>
+                <UButton v-if="selected" type="button" color="success" icon="i-lucide-send" @click="publish">
+                  Publicar borrador
+                </UButton>
+              </div>
+            </form>
+
+            <form
+              v-if="selected"
+              class="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4"
+              @submit.prevent="schedulePublication"
+            >
+              <h2 class="font-bold text-slate-900">Calendario editorial</h2>
+              <p class="mt-1 text-xs text-slate-500">
+                Horario Europe/Madrid. En la hora repetida de otoño se aplica la segunda ocurrencia.
+              </p>
+              <div class="mt-3 grid gap-3 grid-cols-1 md:grid-cols-3">
+                <UFormField label="Publicar desde">
+                  <UInput v-model="scheduleForm.publishAtLocal" type="datetime-local" class="w-full" />
+                </UFormField>
+                <UFormField label="Despublicar desde">
+                  <UInput v-model="scheduleForm.unpublishAtLocal" type="datetime-local" class="w-full" />
+                </UFormField>
+                <UFormField label="Motivo">
+                  <UInput v-model="scheduleForm.reason" required minlength="3" class="w-full" />
+                </UFormField>
+              </div>
+              <UButton type="submit" class="mt-3" icon="i-lucide-calendar-clock" :loading="saving">
+                Guardar programación
               </UButton>
-            </li>
-          </ul>
+            </form>
+
+            <div v-if="selected" class="mt-8 border-t border-slate-200 pt-5">
+              <h2 class="font-bold text-slate-900">Historial inmutable</h2>
+              <ul class="mt-3 space-y-2">
+                <li
+                  v-for="version in selected.versions"
+                  :key="version.id"
+                  class="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm"
+                >
+                  <span>
+                    <strong>v{{ version.version }}</strong> · {{ version.changeSummary }} · {{ version.author }} ·
+                    {{ new Date(version.createdAt).toLocaleString('es-ES') }}
+                    <details class="mt-1 text-xs text-slate-500">
+                      <summary class="cursor-pointer">Ver snapshot/diff respecto a la versión anterior</summary>
+                      <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap">{{
+                        JSON.stringify({ seo: version.seo, blocks: version.blocks }, null, 2)
+                      }}</pre>
+                    </details>
+                  </span>
+                  <UButton size="xs" variant="ghost" icon="i-lucide-history" @click="rollback(version)">
+                    Restaurar como nueva
+                  </UButton>
+                </li>
+              </ul>
+            </div>
+          </section>
+          <UiSurface v-else padding="none">
+            <UiEmptyState
+              icon="i-lucide-mouse-pointer-click"
+              title="Elige una página para editarla"
+              description="A la izquierda están todas. Cada guardado crea una versión nueva, así que puedes volver atrás en cualquier momento."
+            >
+              <UButton color="neutral" variant="outline" icon="i-lucide-plus" @click="createNew">Nueva página</UButton>
+            </UiEmptyState>
+          </UiSurface>
         </div>
-      </section>
-      <UiSurface v-else padding="none">
-        <UiEmptyState
-          icon="i-lucide-mouse-pointer-click"
-          title="Elige una página para editarla"
-          description="A la izquierda están todas. Cada guardado crea una versión nueva, así que puedes volver atrás en cualquier momento."
-        >
-          <UButton color="neutral" variant="outline" icon="i-lucide-plus" @click="createNew">Nueva página</UButton>
-        </UiEmptyState>
-      </UiSurface>
+      </div>
     </div>
   </div>
 </template>

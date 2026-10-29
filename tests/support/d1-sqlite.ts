@@ -68,6 +68,8 @@ const MIGRATIONS = [
   '0062_support_knowledge_feedback.sql',
   '0091_search_merchandising_rules.sql'
 ].map((name) => fileURLToPath(new URL(`../../db/d1/migrations/${name}`, import.meta.url)))
+/** Base migrations applied by openMigratedDatabase; later suites must not apply them twice. */
+export const BASE_MIGRATION_NAMES: ReadonlySet<string> = new Set(MIGRATIONS.map((path) => path.split('/').pop()!))
 
 // Cache immutable SQL source per test worker, never a database or its rows.
 // Promise.all retains migration order and concurrent fixtures share the reads.
@@ -88,7 +90,10 @@ export async function openAccountSecurityDatabase() {
   try {
     const directory = new URL('../../db/d1/migrations/', import.meta.url)
     const files = (await readdir(directory))
-      .filter((file) => /^\d{4}_[a-z0-9_]+\.sql$/.test(file) && Number(file.slice(0, 4)) > 62)
+      .filter(
+        (file) =>
+          /^\d{4}_[a-z0-9_]+\.sql$/.test(file) && Number(file.slice(0, 4)) > 62 && !BASE_MIGRATION_NAMES.has(file)
+      )
       .sort()
     const adapter = d1OverSqlite(database)
     for (const file of files) {

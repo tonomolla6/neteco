@@ -1,0 +1,226 @@
+{
+  "version": "v1",
+  "name": "Relevancia de búsqueda catálogo Neteco v1",
+  "description": "Conjunto versionado de consultas reales del dominio (lejía, desengrasante industrial, pH neutro, sinónimos, erratas y SKUs exactos) con expectativas de top-k y nDCG para evitar regresiones de ranking.",
+  "dataset": {
+    "products": [
+      {
+        "id": "rel-prod-lejia-trad",
+        "name": "Lejía tradicional desinfectante 5L",
+        "slug": "lejia-tradicional-desinfectante-5l",
+        "brand": "NETECO",
+        "category": "Desinfección",
+        "featured": 1,
+        "variants": [{ "id": "rel-var-lej-1", "sku": "LEJ-TRAD-001", "ean": "8410000000016", "price": 450 }]
+      },
+      {
+        "id": "rel-prod-lejia-neutra",
+        "name": "Lejía con detergente y pH neutro 5L",
+        "slug": "lejia-detergente-ph-neutro-5l",
+        "brand": "NETECO",
+        "category": "Desinfección",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-lej-2", "sku": "LEJ-NEUT-002", "price": 520 }]
+      },
+      {
+        "id": "rel-prod-hipoclorito",
+        "name": "Hipoclorito sódico industrial 15% 25L",
+        "slug": "hipoclorito-sodico-industrial-25l",
+        "brand": "NETECO",
+        "category": "Desinfección",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-hip-1", "sku": "HIP-IND-003", "mpn": "HIPO-15-25", "price": 1850 }]
+      },
+      {
+        "id": "rel-prod-desengrasante-ind",
+        "name": "Desengrasante industrial enérgico alcalino 5L",
+        "slug": "desengrasante-industrial-energico-5l",
+        "brand": "NETECO",
+        "category": "Limpieza técnica",
+        "featured": 1,
+        "variants": [{ "id": "rel-var-des-1", "sku": "DES-IND-001", "mpn": "DES-MAX-01", "price": 990 }]
+      },
+      {
+        "id": "rel-prod-desengrasante-cocinas",
+        "name": "Desengrasante planchas y hornos cocina profesional 750ml",
+        "slug": "desengrasante-planchas-hornos-cocina-750ml",
+        "brand": "NETECO",
+        "category": "Hostelería",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-des-2", "sku": "DES-COC-002", "price": 620 }]
+      },
+      {
+        "id": "rel-prod-fregasuelos-ph-neutro",
+        "name": "Fregasuelos multiusos pH neutro aroma pino 5L",
+        "slug": "fregasuelos-multiusos-ph-neutro-pino-5l",
+        "brand": "NETECO",
+        "category": "Suelos",
+        "featured": 1,
+        "variants": [{ "id": "rel-var-fre-1", "sku": "FREG-PH-001", "ean": "8410000000061", "price": 490 }]
+      },
+      {
+        "id": "rel-prod-detergente-neutro",
+        "name": "Detergente pH neutro concentrado superficies delicadas 5L",
+        "slug": "detergente-neutro-superficies-delicadas-5l",
+        "brand": "NETECO",
+        "category": "Limpieza general",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-det-1", "sku": "DET-NEU-002", "price": 580 }]
+      },
+      {
+        "id": "rel-prod-lavavajillas-manual",
+        "name": "Lavavajillas manual concentrado desengrasante 5L",
+        "slug": "lavavajillas-manual-concentrado-5l",
+        "brand": "NETECO",
+        "category": "Hostelería",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-lav-1", "sku": "LAV-MAN-001", "price": 680 }]
+      },
+      {
+        "id": "rel-prod-papel-bobina-ind",
+        "name": "Bobina secamanos industrial celulosa 2 capas",
+        "slug": "bobina-secamanos-industrial-celulosa-2-capas",
+        "brand": "NETECO",
+        "category": "Celulosa",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-pap-1", "sku": "PAP-BOB-001", "price": 1450 }]
+      },
+      {
+        "id": "rel-prod-guantes-nitrilo",
+        "name": "Guantes de nitrilo azul sin polvo caja 100 uds",
+        "slug": "guantes-nitrilo-azul-sin-polvo-100",
+        "brand": "NETECO",
+        "category": "Protección e higiene",
+        "featured": 0,
+        "variants": [{ "id": "rel-var-gua-1", "sku": "GUA-NIT-001", "price": 890 }]
+      }
+    ],
+    "synonyms": [
+      {
+        "source": "cloro",
+        "replacements": ["lejia", "hipoclorito"]
+      }
+    ]
+  },
+  "cases": [
+    {
+      "id": "case-lejia",
+      "query": "lejía",
+      "category": "core_domain",
+      "k": 5,
+      "minNdcg": 0.85,
+      "expectedTopK": ["lejia-tradicional-desinfectante-5l", "lejia-detergente-ph-neutro-5l"],
+      "judgments": {
+        "lejia-tradicional-desinfectante-5l": 3,
+        "lejia-detergente-ph-neutro-5l": 2,
+        "hipoclorito-sodico-industrial-25l": 1
+      }
+    },
+    {
+      "id": "case-desengrasante-industrial",
+      "query": "desengrasante industrial",
+      "category": "multiword_exact",
+      "k": 5,
+      "minNdcg": 0.85,
+      "expectedTopK": ["desengrasante-industrial-energico-5l"],
+      "judgments": {
+        "desengrasante-industrial-energico-5l": 3,
+        "desengrasante-planchas-hornos-cocina-750ml": 1,
+        "lavavajillas-manual-concentrado-5l": 1
+      }
+    },
+    {
+      "id": "case-ph-neutro",
+      "query": "ph neutro",
+      "category": "attribute_search",
+      "k": 5,
+      "minNdcg": 0.85,
+      "expectedTopK": ["fregasuelos-multiusos-ph-neutro-pino-5l", "detergente-neutro-superficies-delicadas-5l"],
+      "judgments": {
+        "fregasuelos-multiusos-ph-neutro-pino-5l": 3,
+        "detergente-neutro-superficies-delicadas-5l": 3,
+        "lejia-detergente-ph-neutro-5l": 2
+      }
+    },
+    {
+      "id": "case-sinonimo-cloro",
+      "query": "cloro",
+      "category": "synonym",
+      "k": 5,
+      "minNdcg": 0.8,
+      "expectedTopK": ["lejia-tradicional-desinfectante-5l", "hipoclorito-sodico-industrial-25l"],
+      "judgments": {
+        "lejia-tradicional-desinfectante-5l": 3,
+        "hipoclorito-sodico-industrial-25l": 3,
+        "lejia-detergente-ph-neutro-5l": 2
+      }
+    },
+    {
+      "id": "case-errata-desengrasant",
+      "query": "desengrasant",
+      "category": "typo_tolerance",
+      "k": 5,
+      "minNdcg": 0.8,
+      "expectedTopK": ["desengrasante-industrial-energico-5l"],
+      "judgments": {
+        "desengrasante-industrial-energico-5l": 3,
+        "desengrasante-planchas-hornos-cocina-750ml": 2
+      }
+    },
+    {
+      "id": "case-sku-exacto-lej",
+      "query": "LEJ-TRAD-001",
+      "category": "exact_sku",
+      "k": 5,
+      "minNdcg": 1.0,
+      "expectedTopK": ["lejia-tradicional-desinfectante-5l"],
+      "judgments": {
+        "lejia-tradicional-desinfectante-5l": 3
+      }
+    },
+    {
+      "id": "case-sku-exacto-des",
+      "query": "DES-IND-001",
+      "category": "exact_sku",
+      "k": 5,
+      "minNdcg": 1.0,
+      "expectedTopK": ["desengrasante-industrial-energico-5l"],
+      "judgments": {
+        "desengrasante-industrial-energico-5l": 3
+      }
+    },
+    {
+      "id": "case-ean-exacto-freg",
+      "query": "8410000000061",
+      "category": "exact_identifier",
+      "k": 5,
+      "minNdcg": 1.0,
+      "expectedTopK": ["fregasuelos-multiusos-ph-neutro-pino-5l"],
+      "judgments": {
+        "fregasuelos-multiusos-ph-neutro-pino-5l": 3
+      }
+    },
+    {
+      "id": "case-guantes-nitrilo",
+      "query": "guantes nitrilo",
+      "category": "domain_category",
+      "k": 5,
+      "minNdcg": 0.9,
+      "expectedTopK": ["guantes-nitrilo-azul-sin-polvo-100"],
+      "judgments": {
+        "guantes-nitrilo-azul-sin-polvo-100": 3
+      }
+    },
+    {
+      "id": "case-bobina-celulosa",
+      "query": "bobina celulosa",
+      "category": "material",
+      "k": 5,
+      "minNdcg": 0.85,
+      "expectedTopK": ["bobina-secamanos-industrial-celulosa-2-capas"],
+      "judgments": {
+        "bobina-secamanos-industrial-celulosa-2-capas": 3
+      }
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { safeRecordMassExportSignal, type SecurityAnomalyThresholds } from '../auth/security-anomalies'
 import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
 import { buildD1AdminOrderReadQuery } from './admin-orders'
 import { parseAdminOrderQuery } from './admin-orders-http'
@@ -62,7 +63,11 @@ export async function exportD1AdminOrders(
   database: D1Database,
   claims: VerifiedSessionClaims | null,
   parameters: URLSearchParams,
-  options: { now?: () => string } = {}
+  options: {
+    now?: () => string
+    /** SEC-035 alert-only mass export detection context. */
+    anomalyDetection?: { exportCommandId?: string; ipHash?: string | null; thresholds?: SecurityAnomalyThresholds }
+  } = {}
 ): Promise<OrderExportResult> {
   try {
     if (!claims) throw new OrderExportError('unauthenticated')
@@ -125,6 +130,18 @@ export async function exportD1AdminOrders(
     const metadata: OrderExportMetadata = { source: 'cloudflare', rows: rows as number, bytes: bytes as number }
     verifyOrderExportCsv(new TextEncoder().encode(csv), metadata)
     await finalAuthority(database, claims, options.now?.() ?? null)
+    // SEC-035: alert-only; a signal failure never blocks the authorized export.
+    await safeRecordMassExportSignal(database, {
+      actorId: claims.identityId,
+      sessionId: claims.sessionId,
+      exportKind: 'orders',
+      exportCommandId: options.anomalyDetection?.exportCommandId ?? crypto.randomUUID(),
+      rowCount: metadata.rows,
+      byteLength: metadata.bytes,
+      ipHash: options.anomalyDetection?.ipHash ?? null,
+      thresholds: options.anomalyDetection?.thresholds,
+      occurredAt: instant
+    })
     return { csv, metadata }
   } catch (error) {
     if (error instanceof OrderExportError) throw error

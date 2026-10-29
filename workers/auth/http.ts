@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { loginD1 } from './login'
 import { completeD1MfaChallenge } from './mfa-completion'
+import { hashSecurityNetworkValue } from './security-anomalies'
 import { issueD1SessionCookie, revokeD1Session, validateSessionCookieConfiguration } from './session-cookie'
 import type { SessionCookieConfiguration } from './session-cookie'
 import { canonicalAddress, checkAdministrativeEdgeLimit } from './edge-limit'
@@ -347,7 +348,16 @@ export async function handleAuthenticationHttp(
       result = await completeD1MfaChallenge(deps.database, {
         ...parsed.data,
         tokenPepper: configuration.tokenPepper,
-        encryptionKey: configuration.encryptionKey
+        encryptionKey: configuration.encryptionKey,
+        // SEC-035: peppered hashes only (never raw IP/user-agent) for alert-only new-device signals.
+        ipHash: await hashSecurityNetworkValue(
+          canonicalAddress(request.headers.get('cf-connecting-ip')),
+          `ip:${configuration.tokenPepper}`
+        ),
+        userAgentHash: await hashSecurityNetworkValue(
+          request.headers.get('user-agent'),
+          `ua:${configuration.tokenPepper}`
+        )
       })
       if (!result.ok) return error(result.code, 401)
     }

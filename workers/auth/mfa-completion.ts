@@ -1,3 +1,4 @@
+import { safeRecordAdminSessionDeviceSignal, safeRecordMfaChangeSignal } from './security-anomalies'
 import { findRecoveryCode, validateTotp } from '../../server/domain/mfa'
 import { decryptSecret, hashOpaqueToken } from '../../server/utils/secrets'
 
@@ -21,6 +22,9 @@ export async function completeD1MfaChallenge(
     tokenPepper: string
     encryptionKey: string
     now?: string
+    /** SEC-035 optional peppered network evidence (64 hex) for alert-only signals. */
+    ipHash?: string | null
+    userAgentHash?: string | null
   }
 ) {
   const now = input.now ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
@@ -121,6 +125,25 @@ export async function completeD1MfaChallenge(
     if (error instanceof Error && error.message.includes('mfa_challenge_consumption')) return invalid
     throw error
   }
+  // SEC-035: alert-only signals derived from this committed session; failures never affect authentication.
+  await safeRecordAdminSessionDeviceSignal(database, {
+    identityId: challenge.identity_id,
+    sessionId,
+    ipHash: input.ipHash ?? null,
+    userAgentHash: input.userAgentHash ?? null,
+    occurredAt: now
+  })
+  if (recovery)
+    await safeRecordMfaChangeSignal(database, {
+      identityId: challenge.identity_id,
+      sessionId,
+      changeType: 'mfa_recovery_code_used',
+      sourceEventId: sessionId,
+      ipHash: input.ipHash ?? null,
+      userAgentHash: input.userAgentHash ?? null,
+      occurredAt: now,
+      onlyIfAdmin: true
+    })
   return {
     ok: true as const,
     sessionId,

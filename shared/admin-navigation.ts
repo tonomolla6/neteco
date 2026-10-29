@@ -108,6 +108,12 @@ const sections: Array<{
         permission: 'administration.manage'
       },
       {
+        to: '/admin/modales',
+        label: 'Modales',
+        icon: 'i-lucide-megaphone',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/newsletter',
         label: 'Newsletter editorial',
         icon: 'i-lucide-mails',
@@ -117,6 +123,12 @@ const sections: Array<{
         to: '/admin/analitica',
         label: 'Analítica',
         icon: 'i-lucide-chart-no-axes-combined',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/analitica-busqueda',
+        label: 'Analítica de búsqueda',
+        icon: 'i-lucide-search-check',
         permission: 'administration.manage'
       }
     ]

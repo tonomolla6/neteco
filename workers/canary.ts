@@ -79,6 +79,11 @@ import { createD1CatalogPublicationGate } from './catalog/catalog-publication-ga
 import { handleD1AdminPricingRequest, ownsD1AdminPricingNamespace } from './catalog/admin-pricing-http'
 import { handleAdminPromotionsHttp, ownsAdminPromotionsNamespace } from './catalog/admin-promotions-http'
 import {
+  handleMarketingModalsHttp,
+  isAdminMarketingModalsPath,
+  ownsMarketingModalsNamespace
+} from './marketing/marketing-modals-http'
+import {
   handleAdminInventoryHttp,
   inventoryCommandErrorCodeSchema,
   ownsAdminInventoryNamespace
@@ -107,6 +112,7 @@ import { handleAuthenticationHttp } from './auth/http'
 import { handleAdminCapabilitiesHttp } from './auth/admin-capabilities'
 import { handleAdminInvitationsHttp, ownsAdminInvitationsNamespace } from './auth/admin-invitations-http'
 import { handleAdminAuditHttp, ownsAdminAuditNamespace } from './auth/admin-audit-http'
+import { handleSecurityAnomaliesHttp, ownsSecurityAnomaliesNamespace } from './auth/security-anomalies-http'
 import { handleAdminOrderViewsHttp, ownsAdminOrderViewsNamespace } from './catalog/admin-order-views-http'
 import { supportJson } from './support/http'
 import { handleAdminActivityHttp } from './auth/admin-activity-http'
@@ -719,6 +725,26 @@ export default {
         })) ?? supportJson({ error: { code: 'not_found' } }, 404)
       )
     }
+    if (ownsSecurityAnomaliesNamespace(path)) {
+      if (env.AUTH_ENABLED !== 'true') return supportJson({ error: { code: 'service_unavailable' } }, 503)
+      return (
+        (await handleSecurityAnomaliesHttp(request, {
+          database: env.DB,
+          sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+          origin: env.AUTH_ORIGIN,
+          rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER,
+          edgeGate: async (incoming) => {
+            const result = await checkAdministrativeEdgeLimit(
+              incoming,
+              env.ADMIN_EDGE_LIMIT,
+              env.AUTH_RATE_LIMIT_PEPPER,
+              'admin-audit'
+            )
+            return result === 'limited' ? 'denied' : result
+          }
+        })) ?? supportJson({ error: { code: 'not_found' } }, 404)
+      )
+    }
     if (ownsAdminInvitationsNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return supportJson({ error: { code: 'service_unavailable' } }, 503)
       return (
@@ -1042,6 +1068,34 @@ export default {
         })
       })
       if (catalog) return catalog
+    }
+    if (ownsMarketingModalsNamespace(path)) {
+      const modalFailure = (code: string, status: number) =>
+        Response.json(
+          { error: { code } },
+          { status, headers: { 'cache-control': 'private, no-store', vary: 'Cookie' } }
+        )
+      if (isAdminMarketingModalsPath(path)) {
+        if (env.AUTH_ENABLED !== 'true') return modalFailure('service_unavailable', 503)
+        const limited = await checkAdministrativeEdgeLimit(
+          request,
+          env.ADMIN_EDGE_LIMIT,
+          env.AUTH_RATE_LIMIT_PEPPER,
+          'admin-pricing'
+        )
+        if (limited !== 'allowed')
+          return modalFailure(
+            limited === 'limited' ? 'rate_limited' : 'service_unavailable',
+            limited === 'limited' ? 429 : 503
+          )
+      }
+      const marketingModals = await handleMarketingModalsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+        origin: env.AUTH_ORIGIN,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (marketingModals) return marketingModals
     }
     if (ownsD1AdminPricingNamespace(path) || ownsAdminPromotionsNamespace(path)) {
       const privateFailure = (code: string, status: number) =>

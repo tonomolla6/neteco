@@ -1,5 +1,6 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
 import { checkAdministrativeEdgeLimit } from '../auth/edge-limit'
+import { deriveAdminAuditIpHash } from '../auth/admin-audit-network'
 import { ORDER_EXPORT_CONTENT_TYPE, ORDER_EXPORT_FILENAME, ORDER_EXPORT_HEADERS } from '../../shared/order-export'
 import { exportD1AdminOrders, OrderExportError } from './order-export'
 export interface OrderExportHttpDependencies {
@@ -41,7 +42,12 @@ export async function handleOrderExportHttp(
       return error(limited === 'limited' ? 'rate_limited' : 'unavailable', limited === 'limited' ? 429 : 503)
     const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
     if (!claims) return error('unauthenticated', 401)
-    const result = await exportD1AdminOrders(deps.database, claims, url.searchParams, { now: deps.now })
+    // SEC-035: network evidence is a peppered hash and optional; its absence never blocks the export.
+    const ipHash = await deriveAdminAuditIpHash(request, deps.rateLimitPepper).catch(() => null)
+    const result = await exportD1AdminOrders(deps.database, claims, url.searchParams, {
+      now: deps.now,
+      anomalyDetection: { ipHash }
+    })
     return new Response(result.csv, {
       status: 200,
       headers: {

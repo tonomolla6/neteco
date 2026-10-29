@@ -16,6 +16,7 @@ import {
   listD1CmsPages,
   getD1CmsPage
 } from './drafts'
+import { handleEditorialApprovalHttp } from './editorial-approval-http'
 
 export type CmsDraftHttpEnvironment = Pick<
   CloudflareEnv,
@@ -120,6 +121,9 @@ export async function handleCmsDraftHttp(
 ): Promise<Response | null> {
   const url = new URL(request.url)
   if (!ownsCmsNamespace(url.pathname)) return null
+  if (url.pathname.startsWith('/api/admin/content/editorial-reviews')) {
+    return handleEditorialApprovalHttp(request, env, dependencies)
+  }
   if (url.pathname === '/api/admin/content/calendar') {
     if (request.method !== 'GET') return error('method_not_allowed', 405, { Allow: 'GET' })
     if (
@@ -158,13 +162,22 @@ export async function handleCmsDraftHttp(
           failure.code,
           failure.code === 'unauthenticated'
             ? 401
-            : ['forbidden', 'email_unverified', 'mfa_required'].includes(failure.code)
+            : [
+                  'forbidden',
+                  'email_unverified',
+                  'mfa_required',
+                  'mfa_expired',
+                  'author_cannot_publish',
+                  'author_cannot_approve'
+                ].includes(failure.code)
               ? 403
               : failure.code === 'feature_unavailable'
                 ? 501
                 : failure.code === 'invalid_input'
                   ? 400
-                  : 503
+                  : ['version_conflict', 'review_not_approved'].includes(failure.code)
+                    ? 409
+                    : 503
         )
       return error('service_unavailable', 503)
     }
@@ -291,7 +304,14 @@ export async function handleCmsDraftHttp(
         failure.code,
         failure.code === 'unauthenticated'
           ? 401
-          : ['forbidden', 'email_unverified', 'mfa_required'].includes(failure.code)
+          : [
+                'forbidden',
+                'email_unverified',
+                'mfa_required',
+                'mfa_expired',
+                'author_cannot_publish',
+                'author_cannot_approve'
+              ].includes(failure.code)
             ? 403
             : failure.code === 'not_found'
               ? 404
@@ -299,9 +319,13 @@ export async function handleCmsDraftHttp(
                 ? 501
                 : ['invalid_input', 'invalid_schedule'].includes(failure.code)
                   ? 422
-                  : ['version_conflict', 'idempotency_conflict', 'media_blocked', 'draft_not_editable'].includes(
-                        failure.code
-                      )
+                  : [
+                        'version_conflict',
+                        'idempotency_conflict',
+                        'media_blocked',
+                        'draft_not_editable',
+                        'review_not_approved'
+                      ].includes(failure.code)
                     ? 409
                     : 503
       )
