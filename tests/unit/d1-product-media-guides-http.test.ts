@@ -17,18 +17,29 @@ async function fixture() {
 
     sqlite.exec(`
       INSERT INTO identities(id, email, password_hash, email_verified_at, status, session_version, created_at, updated_at) VALUES
-      ('id-admin-1', 'staff@example.invalid', 'syn', '${now}', 'active', 1, '${now}', '${now}');
+      ('id-admin-1', 'staff@example.invalid', 'syn', '${now}', 'active', 1, '${now}', '${now}'),
+      ('id-editor-1', 'editor@example.invalid', 'syn', '${now}', 'active', 1, '${now}', '${now}');
 
       INSERT INTO auth_sessions(id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
-      ('sess-admin-1', 'id-admin-1', 1, 1, '${now}', '2026-10-30T12:00:00Z');
+      ('sess-admin-1', 'id-admin-1', 1, 1, '${now}', '2026-10-30T12:00:00Z'),
+      ('sess-editor-1', 'id-editor-1', 1, 1, '${now}', '2026-10-30T12:00:00Z');
 
       INSERT INTO identity_mfa(identity_id, encrypted_secret, verified_at, updated_at) VALUES
-      ('id-admin-1', 'synth-secret', '${now}', '${now}');
+      ('id-admin-1', 'synth-secret', '${now}', '${now}'),
+      ('id-editor-1', 'synth-secret', '${now}', '${now}');
 
-      INSERT INTO permissions(code, resource, action, description) VALUES('catalog.manage', 'catalog', 'manage', 'Synthetic');
-      INSERT INTO roles(code, name, description) VALUES('catalog_manager', 'Catalog Manager', 'Synthetic');
-      INSERT INTO role_permissions(role_code, permission_code) VALUES('catalog_manager', 'catalog.manage');
-      INSERT INTO identity_roles(identity_id, role_code, granted_at) VALUES('id-admin-1', 'catalog_manager', '${now}');
+      INSERT INTO permissions(code, resource, action, description) VALUES
+        ('catalog.manage', 'catalog', 'manage', 'Synthetic'),
+        ('catalog.write', 'catalog', 'write', 'Synthetic');
+      INSERT INTO roles(code, name, description) VALUES
+        ('catalog_manager', 'Catalog Manager', 'Synthetic'),
+        ('catalog_writer', 'Catalog Writer', 'Synthetic');
+      INSERT INTO role_permissions(role_code, permission_code) VALUES
+        ('catalog_manager', 'catalog.manage'),
+        ('catalog_writer', 'catalog.write');
+      INSERT INTO identity_roles(identity_id, role_code, granted_at) VALUES
+        ('id-admin-1', 'catalog_manager', '${now}'),
+        ('id-editor-1', 'catalog_writer', '${now}');
 
       -- Seed sample video guide for product p-1 (which was seeded by seedInventoryFixture)
       INSERT INTO product_media_guides (
@@ -164,6 +175,28 @@ describe('PDP-018 & MED-016: Media guides and video telemetry HTTP router', () =
       const data = (await response?.json()) as { guide: { id: string; version: number } }
       expect(data.guide.id).toBe('guide-new-assembly-1')
       expect(data.guide.version).toBe(1)
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('authorizes admin media guide listing for identities with catalog.write', async () => {
+    const { sqlite, db } = await fixture()
+    try {
+      const request = new Request('https://tienda.example.com/api/admin/media/guides', {
+        method: 'GET'
+      })
+      const response = await handleProductMediaGuidesHttp(request, {
+        database: db,
+        now: () => now,
+        sessionClaimsResolver: async () => ({
+          identityId: 'id-editor-1',
+          customerId: null,
+          sessionId: 'sess-editor-1',
+          sessionVersion: 1
+        })
+      })
+      expect(response?.status).toBe(200)
     } finally {
       sqlite.close()
     }

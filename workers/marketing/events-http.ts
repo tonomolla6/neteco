@@ -112,27 +112,25 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
       }
 
       if (deps.edgeLimiter && deps.rateLimitPepper) {
-        const edgeOk = await checkAdministrativeEdgeLimit({
-          limiter: deps.edgeLimiter,
-          pepper: deps.rateLimitPepper,
-          request,
-          identityId: claims.identityId
-        })
+        const edgeOk = await checkAdministrativeEdgeLimit(request, deps.edgeLimiter, deps.rateLimitPepper, 'admin-cms')
         if (!edgeOk) return errorResponse('rate_limited', 429)
       }
 
       if (request.method === 'POST' && path === '/api/admin/events') {
-        const body = await request.json()
-        const event = await createD1Event(deps.database, claims, { ...body, now })
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+        const event = await createD1Event(deps.database, claims, {
+          ...(body as unknown as Parameters<typeof createD1Event>[2]),
+          now
+        })
         return jsonResponse({ event }, 201)
       }
 
       const matchId = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]+)$/)
       if (matchId && (request.method === 'PUT' || request.method === 'PATCH')) {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const event = await updateD1Event(deps.database, claims, {
-          ...body,
-          eventId: matchId[1],
+          ...(body as unknown as Parameters<typeof updateD1Event>[2]),
+          eventId: matchId[1]!,
           now
         })
         return jsonResponse({ event }, 200)
@@ -140,10 +138,10 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
       const matchRecording = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]+)\/recording$/)
       if (matchRecording && request.method === 'POST') {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const event = await publishD1EventRecording(deps.database, claims, {
-          ...body,
-          eventId: matchRecording[1],
+          ...(body as unknown as Parameters<typeof publishD1EventRecording>[2]),
+          eventId: matchRecording[1]!,
           now
         })
         return jsonResponse({ event }, 200)
@@ -151,10 +149,10 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
       const matchReminders = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]+)\/reminders$/)
       if (matchReminders && request.method === 'POST') {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const reminders = await dispatchD1EventReminders(deps.database, claims, {
-          ...body,
-          eventId: matchReminders[1],
+          ...(body as unknown as Parameters<typeof dispatchD1EventReminders>[2]),
+          eventId: matchReminders[1]!,
           now
         })
         return jsonResponse({ reminders }, 200)
@@ -162,10 +160,10 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
       const matchFollowup = path.match(/^\/api\/admin\/events\/([0-9a-fA-F-]+)\/followup$/)
       if (matchFollowup && request.method === 'POST') {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const followups = await dispatchD1EventFollowup(deps.database, claims, {
-          ...body,
-          eventId: matchFollowup[1],
+          ...(body as unknown as Parameters<typeof dispatchD1EventFollowup>[2]),
+          eventId: matchFollowup[1]!,
           now
         })
         return jsonResponse({ followups }, 200)
@@ -173,10 +171,10 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
       const matchAnswer = path.match(/^\/api\/admin\/events\/questions\/([0-9a-fA-F-]+)\/answer$/)
       if (matchAnswer && request.method === 'POST') {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const question = await answerD1EventQuestion(deps.database, claims, {
-          ...body,
-          questionId: matchAnswer[1],
+          ...(body as unknown as Parameters<typeof answerD1EventQuestion>[2]),
+          questionId: matchAnswer[1]!,
           now
         })
         return jsonResponse({ question }, 200)
@@ -196,7 +194,7 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
     const matchSlug = path.match(/^\/api\/events\/([a-z0-9_-]+)$/)
     if (matchSlug && request.method === 'GET') {
-      const slug = matchSlug[1]
+      const slug = matchSlug[1]!
       const event = await getD1EventBySlug(deps.database, slug)
       if (!event) return errorResponse('not_found', 404)
       return jsonResponse({ event }, 200)
@@ -204,23 +202,23 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
     const matchRegister = path.match(/^\/api\/events\/([a-z0-9_-]+)\/register$/)
     if (matchRegister && request.method === 'POST') {
-      const slug = matchRegister[1]
+      const slug = matchRegister[1]!
       const event = await getD1EventBySlug(deps.database, slug)
       if (!event) return errorResponse('not_found', 404)
 
-      const body = await request.json()
+      const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
       const registration = await registerD1EventAttendee(deps.database, {
-        commandId: body.commandId ?? crypto.randomUUID(),
-        idempotencyKey: body.idempotencyKey ?? `idem-reg-${Date.now()}`,
+        commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
+        idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-reg-${Date.now()}`,
         eventId: event.id,
         customerId: claims?.identityId,
-        attendeeName: body.attendeeName,
-        attendeeEmail: body.attendeeEmail,
-        attendeePhone: body.attendeePhone,
-        consentEmailReminder: body.consentEmailReminder,
-        consentSmsReminder: body.consentSmsReminder,
-        consentFollowup: body.consentFollowup,
-        consentTermsVersion: body.consentTermsVersion ?? 'terms-v1',
+        attendeeName: typeof body.attendeeName === 'string' ? body.attendeeName : '',
+        attendeeEmail: typeof body.attendeeEmail === 'string' ? body.attendeeEmail : '',
+        attendeePhone: typeof body.attendeePhone === 'string' ? body.attendeePhone : undefined,
+        consentEmailReminder: Boolean(body.consentEmailReminder),
+        consentSmsReminder: Boolean(body.consentSmsReminder),
+        consentFollowup: Boolean(body.consentFollowup),
+        consentTermsVersion: typeof body.consentTermsVersion === 'string' ? body.consentTermsVersion : 'terms-v1',
         now
       })
       return jsonResponse({ registration }, 201)
@@ -228,7 +226,7 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
     const matchQuestions = path.match(/^\/api\/events\/([a-z0-9_-]+)\/questions$/)
     if (matchQuestions) {
-      const slug = matchQuestions[1]
+      const slug = matchQuestions[1]!
       const event = await getD1EventBySlug(deps.database, slug)
       if (!event) return errorResponse('not_found', 404)
 
@@ -238,14 +236,14 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
       }
 
       if (request.method === 'POST') {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const question = await submitD1EventQuestion(deps.database, {
-          commandId: body.commandId ?? crypto.randomUUID(),
-          idempotencyKey: body.idempotencyKey ?? `idem-q-${Date.now()}`,
+          commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
+          idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-q-${Date.now()}`,
           eventId: event.id,
           customerId: claims?.identityId,
-          authorName: body.authorName,
-          questionText: body.questionText,
+          authorName: typeof body.authorName === 'string' ? body.authorName : '',
+          questionText: typeof body.questionText === 'string' ? body.questionText : '',
           now
         })
         return jsonResponse({ question }, 201)

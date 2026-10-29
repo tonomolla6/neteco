@@ -245,11 +245,15 @@ export async function handleSeoHttp(request: Request, deps: SeoHttpDependencies)
 
     // B. SEO Bot Logs Endpoints
     if (path === '/api/admin/seo/bots/log' && request.method === 'POST') {
-      const rawBody = await request.json()
-      const record = await recordBotAccessLog(deps.database, rawBody, {
-        pepper: deps.rateLimitPepper ?? 'default-seo-pepper',
-        now: () => getIsoNow(deps)
-      })
+      const rawBody = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      const record = await recordBotAccessLog(
+        deps.database,
+        rawBody as unknown as Parameters<typeof recordBotAccessLog>[1],
+        {
+          pepper: deps.rateLimitPepper ?? 'default-seo-pepper',
+          now: () => getIsoNow(deps)
+        }
+      )
       return jsonResponse(record)
     }
 
@@ -265,8 +269,12 @@ export async function handleSeoHttp(request: Request, deps: SeoHttpDependencies)
         return jsonResponse(policy)
       }
       if (request.method === 'PUT' || request.method === 'POST') {
-        const rawBody = await request.json()
-        const updated = await updateBotRetentionPolicy(deps.database, rawBody, getIsoNow(deps))
+        const rawBody = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+        const updated = await updateBotRetentionPolicy(
+          deps.database,
+          rawBody as unknown as Parameters<typeof updateBotRetentionPolicy>[1],
+          getIsoNow(deps)
+        )
         return jsonResponse(updated)
       }
     }
@@ -280,10 +288,10 @@ export async function handleSeoHttp(request: Request, deps: SeoHttpDependencies)
 
     // C. SEO AI Search Curation Endpoints
     if (path === '/api/admin/seo/ai/curate' && request.method === 'POST') {
-      const rawBody = await request.json()
+      const rawBody = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
       const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID()
 
-      const receipt = await curateEditorialGuide(deps.database, claims, rawBody, {
+      const receipt = await curateEditorialGuide(deps.database, claims, rawBody as unknown as CurateGuideInput, {
         idempotencyKey,
         now: () => getIsoNow(deps)
       })

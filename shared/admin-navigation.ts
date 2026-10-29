@@ -131,6 +131,12 @@ const sections: Array<{
       },
       { to: '/admin/precios', label: 'Precios', icon: 'i-lucide-badge-euro', permission: 'catalog.write' },
       { to: '/admin/medios', label: 'Medios', icon: 'i-lucide-images', permission: 'catalog.write' },
+      {
+        to: '/admin/medios/guias-producto',
+        label: 'Guías de producto y vídeo',
+        icon: 'i-lucide-video',
+        permission: ['catalog.write', 'administration.manage']
+      },
       { to: '/admin/contenido', label: 'Contenido', icon: 'i-lucide-panels-top-left', permission: 'catalog.write' }
     ]
   },
@@ -168,6 +174,24 @@ const sections: Array<{
         permission: 'administration.manage'
       },
       {
+        to: '/admin/marketing/kits',
+        label: 'Kits y Bundles',
+        icon: 'i-lucide-package-check',
+        permission: ['catalog.write', 'administration.manage']
+      },
+      {
+        to: '/admin/marketing/referidos',
+        label: 'Programa de Referidos',
+        icon: 'i-lucide-user-plus',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/marketing/eventos',
+        label: 'Webinars y Eventos',
+        icon: 'i-lucide-calendar-days',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/newsletter',
         label: 'Newsletter editorial',
         icon: 'i-lucide-mails',
@@ -190,6 +214,12 @@ const sections: Array<{
         label: 'Analítica de búsqueda',
         icon: 'i-lucide-search-check',
         permission: 'administration.manage'
+      },
+      {
+        to: '/admin/seo',
+        label: 'SEO Técnico & Búsqueda IA',
+        icon: 'i-lucide-search-check',
+        permission: ['administration.manage', 'catalog.write']
       }
     ]
   },

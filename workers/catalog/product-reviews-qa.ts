@@ -767,7 +767,7 @@ export async function listPublicProductQuestions(
        LIMIT 50`
     )
     .bind(productId)
-    .all<ProductReviewRow>()
+    .all<ProductQuestionRow>()
 
   const items: PublicProductQuestion[] = (rows.results ?? []).map((row) => ({
     id: row.id,

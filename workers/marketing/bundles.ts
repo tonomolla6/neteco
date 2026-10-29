@@ -59,8 +59,11 @@ export async function createD1Bundle(
   const now = resolveNow(input.now)
   if (!claims?.identityId) fail('unauthenticated')
 
-  const auth = await authorizeD1Session(db, claims, 'administration.manage', { now })
-  if (!auth.allowed) fail('forbidden')
+  const authAdmin = await authorizeD1Session(db, claims, 'administration.manage', { now })
+  if (!authAdmin.allowed) {
+    const authCatalog = await authorizeD1Session(db, claims, 'catalog.write', { now })
+    if (!authCatalog.allowed) fail('forbidden')
+  }
 
   const parsed = bundleCreateSchema.safeParse(input)
   if (!parsed.success) fail('invalid_input')
@@ -205,8 +208,11 @@ export async function updateD1Bundle(
   const now = resolveNow(input.now)
   if (!claims?.identityId) fail('unauthenticated')
 
-  const auth = await authorizeD1Session(db, claims, 'administration.manage', { now })
-  if (!auth.allowed) fail('forbidden')
+  const authAdmin = await authorizeD1Session(db, claims, 'administration.manage', { now })
+  if (!authAdmin.allowed) {
+    const authCatalog = await authorizeD1Session(db, claims, 'catalog.write', { now })
+    if (!authCatalog.allowed) fail('forbidden')
+  }
 
   const parsed = bundleUpdateSchema.safeParse(input)
   if (!parsed.success) fail('invalid_input')
@@ -536,8 +542,8 @@ export async function calculateD1BundleSelection(
 
   const componentsForPricing = detail.items.map((item) => {
     const customQty =
-      input.customQuantities && input.customQuantities[item.variantId] !== undefined
-        ? input.customQuantities[item.variantId]
+      input.customQuantities && typeof input.customQuantities[item.variantId] === 'number'
+        ? input.customQuantities[item.variantId]!
         : item.defaultQuantity
     return {
       variantId: item.variantId,
@@ -557,8 +563,8 @@ export async function calculateD1BundleSelection(
   const maxAvailableKits = calculateBundleAvailability(
     detail.items.map((item) => {
       const customQty =
-        input.customQuantities && input.customQuantities[item.variantId] !== undefined
-          ? input.customQuantities[item.variantId]
+        input.customQuantities && typeof input.customQuantities[item.variantId] === 'number'
+          ? input.customQuantities[item.variantId]!
           : item.defaultQuantity
       return {
         effectiveStock: item.effectiveStock,

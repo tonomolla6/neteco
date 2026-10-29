@@ -165,6 +165,7 @@ import { handleHighValueConsentHttp } from './communications/high-value-consent-
 import { handleCustomerRiskScoringHttp, ownsCustomerRiskScoringNamespace } from './crm/risk-scoring-http'
 import { handleB2bEdiHttp, ownsB2bEdiNamespace } from './b2b/edi-gateway-http'
 import { handleB2bPublicAdmin, ownsB2bPublicAdminNamespace } from './developer-platform/b2b-public-admin'
+import { handleConnectorsHttp, ownsConnectorsNamespace } from './developer-platform/connector-marketplace'
 import { handleB2bPublicApi, ownsB2bPublicApiNamespace } from './developer-platform/b2b-public-api'
 import {
   handleCompanyShippingConditionsHttp,
@@ -175,9 +176,31 @@ import { handleDeliveryRoutesHttp, ownsDeliveryRoutesNamespace } from './fulfill
 import { handleB2BContractSloHttp, ownsB2BContractSloNamespace } from './observability/b2b-slo-http'
 import { handleCapacityPlanningHttp, ownsCapacityPlanningNamespace } from './observability/capacity-planning-http'
 import { handleErrorBudgetHttp, ownsErrorBudgetNamespace } from './observability/error-budget-http'
+import { handleOperationalAlertsHttp, ownsOperationalAlertsNamespace } from './communications/operational-alerts-http'
+import {
+  handleSendTimeOptimizationHttp,
+  ownsSendTimeOptimizationNamespace
+} from './communications/send-time-optimization-http'
+import {
+  handleWarehouseRouteTelemetryHttp,
+  ownsWarehouseRouteTelemetryNamespace
+} from './observability/warehouse-route-telemetry-http'
 import { handlePaymentTokenRemovalHttp } from './payments/token-removal-http'
 import { handleSecurityControlsHttp, ownsSecurityControlsNamespace } from './security/security-controls-http'
 import { handleSeoHttp, ownsSeoNamespace } from './seo/seo-http'
+import { handleSeoContentDashboardHttp, ownsSeoContentDashboardNamespace } from './seo/content-dashboard-http'
+import { handleB2bSalesMetricsHttp, ownsB2bSalesMetricsNamespace } from './b2b/metrics-http'
+import { handleCostToServeHttp, ownsCostToServeNamespace } from './analytics/cost-to-serve-http'
+import { handleUgcReviewsHttp, ownsUgcReviewsNamespace } from './media/ugc-reviews-http'
+import { handleCustomerCaseStudiesHttp, ownsCustomerCaseStudiesNamespace } from './cms/customer-case-studies-http'
+import { handleLearningCentreHttp, ownsLearningCentreNamespace } from './learning/learning-centre-http'
+import { handleTargetedCampaignsHttp, ownsTargetedCampaignsNamespace } from './marketing/targeted-campaigns-http'
+import { handleRecurringIncentivesHttp, ownsRecurringIncentivesNamespace } from './b2b/recurring-incentives-http'
+import {
+  handlePredictivePersonalizationHttp,
+  ownsPredictivePersonalizationNamespace
+} from './marketing/predictive-personalization-http'
+import { handleModelEvaluationHttp, ownsModelEvaluationNamespace } from './analytics/model-evaluation-http'
 import { handleAccountPreferencesHttp } from './auth/account-preferences-http'
 import { handleDeliveryPreferencesRequest, ownsDeliveryPreferencesNamespace } from './auth/delivery-preferences-http'
 import { handleIdentityLifecycleHttp } from './auth/lifecycle-http'
@@ -1769,6 +1792,30 @@ export default {
       })
       if (audiences) return audiences
     }
+    if (ownsOperationalAlertsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-operations')
+      if (blocked) return blocked
+      const alerts = await handleOperationalAlertsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (alerts) return alerts
+    }
+    if (ownsSendTimeOptimizationNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-marketing')
+      if (blocked) return blocked
+      const sendTime = await handleSendTimeOptimizationHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (sendTime) return sendTime
+    }
     if (ownsBundlesNamespace(path)) {
       const administrative = isAdministrativePath(path)
       const blocked = await mountGuard(
@@ -1908,10 +1955,125 @@ export default {
         }
       )
       if (blocked) return blocked
-      const context = { database: env.DB, sessionClaimsResolver: (incoming: Request) => customerSession(incoming, env) }
+      const context = {
+        database: env.DB,
+        sessionClaimsResolver: async (incoming: Request) => {
+          const claims = await customerSession(incoming, env)
+          if (!claims) return null
+          const customerId = await activeOrderCustomerId(env.DB, claims, serverNow())
+          return { ...claims, customerId }
+        }
+      }
       const feedback =
         (await handleProductReviewsQaHttp(request, context)) ?? (await handleProductMediaGuidesHttp(request, context))
       if (feedback) return feedback
+    }
+    if (ownsUgcReviewsNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-media' : 'product-contributions',
+        { requireAuth: administrative }
+      )
+      if (blocked) return blocked
+      const ugc = await handleUgcReviewsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSessionOrNull(env)
+      })
+      if (ugc) return ugc
+    }
+    if (ownsCustomerCaseStudiesNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-cms' : 'product-contributions',
+        { requireAuth: administrative }
+      )
+      if (blocked) return blocked
+      const caseStudy = await handleCustomerCaseStudiesHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSessionOrNull(env)
+      })
+      if (caseStudy) return caseStudy
+    }
+    if (ownsLearningCentreNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-learning' : 'customer-learning',
+        { requireAuth: administrative }
+      )
+      if (blocked) return blocked
+      const learning = await handleLearningCentreHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (learning) return learning
+    }
+    if (ownsTargetedCampaignsNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-marketing' : 'customer-marketing',
+        { requireAuth: administrative }
+      )
+      if (blocked) return blocked
+      const mkt = await handleTargetedCampaignsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (mkt) return mkt
+    }
+    if (ownsRecurringIncentivesNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(request, env, administrative, administrative ? 'admin-b2b' : 'customer-b2b', {
+        requireAuth: administrative
+      })
+      if (blocked) return blocked
+      const incentives = await handleRecurringIncentivesHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (incentives) return incentives
+    }
+    if (ownsPredictivePersonalizationNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-marketing' : 'customer-marketing',
+        { requireAuth: administrative }
+      )
+      if (blocked) return blocked
+      const pred = await handlePredictivePersonalizationHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (pred) return pred
+    }
+    if (ownsModelEvaluationNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(request, env, administrative, 'admin-analytics', { requireAuth: true })
+      if (blocked) return blocked
+      const evalResp = await handleModelEvaluationHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (evalResp) return evalResp
     }
     if (path.startsWith('/api/admin/product-recalls/')) {
       const unavailable = authUnavailable(env)
@@ -2007,6 +2169,17 @@ export default {
       })
       if (publicAdmin) return publicAdmin
     }
+    if (ownsConnectorsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-connectors')
+      if (blocked) return blocked
+      const connectors = await handleConnectorsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        secretPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (connectors) return connectors
+    }
     if (ownsB2bPublicApiNamespace(path)) {
       // Keyed API: quota and authentication are enforced per key by the handler.
       const unavailable = b2bPublicUnavailable(env)
@@ -2014,7 +2187,12 @@ export default {
       const publicApi = await handleB2bPublicApi(request, { database: env.DB })
       if (publicApi) return publicApi
     }
-    if (ownsErrorBudgetNamespace(path) || ownsCapacityPlanningNamespace(path) || ownsB2BContractSloNamespace(path)) {
+    if (
+      ownsErrorBudgetNamespace(path) ||
+      ownsCapacityPlanningNamespace(path) ||
+      ownsB2BContractSloNamespace(path) ||
+      ownsWarehouseRouteTelemetryNamespace(path)
+    ) {
       const blocked = await mountGuard(request, env, true, 'admin-observability')
       if (blocked) return blocked
       const observability = {
@@ -2028,6 +2206,7 @@ export default {
         (await handleErrorBudgetHttp(request, observability)) ??
         (await handleCapacityPlanningHttp(request, observability)) ??
         (await handleB2BContractSloHttp(request, observability)) ??
+        (await handleWarehouseRouteTelemetryHttp(request, observability)) ??
         noStoreJson({ error: { code: 'not_found' } }, 404)
       )
     }
@@ -2062,6 +2241,36 @@ export default {
         rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
       })
       if (seoApi) return seoApi
+    }
+    if (ownsSeoContentDashboardNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-seo', { requireAuth: true })
+      if (blocked) return blocked
+      const seoDashboard = await handleSeoContentDashboardHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (seoDashboard) return seoDashboard
+    }
+    if (ownsB2bSalesMetricsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-b2b', { requireAuth: true })
+      if (blocked) return blocked
+      const b2bMetrics = await handleB2bSalesMetricsHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (b2bMetrics) return b2bMetrics
+    }
+    if (ownsCostToServeNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-analytics', { requireAuth: true })
+      if (blocked) return blocked
+      const costToServe = await handleCostToServeHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (costToServe) return costToServe
     }
     if (
       ['/api/admin/orders', '/api/admin/stats', '/api/admin/operations'].includes(path) ||

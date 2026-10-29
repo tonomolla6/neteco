@@ -103,40 +103,43 @@ export async function handleBundlesHttp(request: Request, deps: BundlesHttpDepen
       }
 
       if (deps.edgeLimiter && deps.rateLimitPepper) {
-        const edgeOk = await checkAdministrativeEdgeLimit({
-          limiter: deps.edgeLimiter,
-          pepper: deps.rateLimitPepper,
+        const edgeOk = await checkAdministrativeEdgeLimit(
           request,
-          identityId: claims.identityId
-        })
+          deps.edgeLimiter,
+          deps.rateLimitPepper,
+          'admin-catalog'
+        )
         if (!edgeOk) return errorResponse('rate_limited', 429)
       }
 
       if (request.method === 'POST' && path === '/api/admin/bundles') {
-        const body = await request.json()
-        const result = await createD1Bundle(deps.database, claims, { ...body, now })
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+        const result = await createD1Bundle(deps.database, claims, {
+          ...(body as unknown as Parameters<typeof createD1Bundle>[2]),
+          now
+        })
         return jsonResponse({ bundle: result }, 201)
       }
 
       const matchId = path.match(/^\/api\/admin\/bundles\/([0-9a-fA-F-]+)$/)
       if (matchId) {
-        const bundleId = matchId[1]
+        const bundleId = matchId[1]!
         if (request.method === 'PATCH' || request.method === 'PUT') {
-          const body = await request.json()
+          const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
           const result = await updateD1Bundle(deps.database, claims, {
-            ...body,
+            ...(body as unknown as Parameters<typeof updateD1Bundle>[2]),
             bundleId,
             now
           })
           return jsonResponse({ bundle: result }, 200)
         }
         if (request.method === 'DELETE') {
-          const body = await request.json().catch(() => ({}))
+          const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
           const result = await archiveD1Bundle(deps.database, claims, {
-            commandId: body.commandId ?? crypto.randomUUID(),
-            idempotencyKey: body.idempotencyKey ?? `idem-del-${Date.now()}`,
+            commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
+            idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-del-${Date.now()}`,
             bundleId,
-            expectedVersion: body.expectedVersion ?? 1,
+            expectedVersion: typeof body.expectedVersion === 'number' ? body.expectedVersion : 1,
             now
           })
           return jsonResponse({ bundle: result }, 200)
@@ -155,14 +158,17 @@ export async function handleBundlesHttp(request: Request, deps: BundlesHttpDepen
     }
 
     if (request.method === 'POST' && path === '/api/bundles/calculate') {
-      const body = await request.json()
-      const selection = await calculateD1BundleSelection(deps.database, body)
+      const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      const selection = await calculateD1BundleSelection(
+        deps.database,
+        body as unknown as Parameters<typeof calculateD1BundleSelection>[1]
+      )
       return jsonResponse({ selection }, 200)
     }
 
     const matchSlug = path.match(/^\/api\/bundles\/([a-z0-9_-]+)$/)
     if (request.method === 'GET' && matchSlug) {
-      const slug = matchSlug[1]
+      const slug = matchSlug[1]!
       const bundle = await getD1BundleBySlug(deps.database, slug, now)
       if (!bundle || bundle.status === 'archived') {
         return errorResponse('not_found', 404)

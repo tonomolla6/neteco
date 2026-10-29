@@ -96,7 +96,7 @@ async function verifyAdminAuthority(db: D1Database, identityId: string): Promise
     .prepare(
       `SELECT 1 FROM identity_roles ir
        JOIN role_permissions rp ON rp.role_code = ir.role_code
-       WHERE ir.identity_id = ? AND rp.permission_code IN ('support.manage', 'catalog.manage', 'administration.manage')`
+       WHERE ir.identity_id = ? AND rp.permission_code IN ('support.manage', 'catalog.write', 'catalog.manage', 'administration.manage')`
     )
     .bind(identityId)
     .first()

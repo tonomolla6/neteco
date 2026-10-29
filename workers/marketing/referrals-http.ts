@@ -108,12 +108,12 @@ export async function handleReferralsHttp(request: Request, deps: ReferralsHttpD
       }
 
       if (deps.edgeLimiter && deps.rateLimitPepper) {
-        const edgeOk = await checkAdministrativeEdgeLimit({
-          limiter: deps.edgeLimiter,
-          pepper: deps.rateLimitPepper,
+        const edgeOk = await checkAdministrativeEdgeLimit(
           request,
-          identityId: claims.identityId
-        })
+          deps.edgeLimiter,
+          deps.rateLimitPepper,
+          'admin-orders'
+        )
         if (!edgeOk) return errorResponse('rate_limited', 429)
       }
 
@@ -123,25 +123,28 @@ export async function handleReferralsHttp(request: Request, deps: ReferralsHttpD
       }
 
       if ((request.method === 'PUT' || request.method === 'PATCH') && path === '/api/admin/referrals/policy') {
-        const body = await request.json()
-        const policy = await updateD1ReferralPolicy(deps.database, claims, { ...body, now })
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+        const policy = await updateD1ReferralPolicy(deps.database, claims, {
+          ...(body as unknown as Parameters<typeof updateD1ReferralPolicy>[2]),
+          now
+        })
         return jsonResponse({ policy }, 200)
       }
 
       if (request.method === 'POST' && path === '/api/admin/referrals/settle') {
-        const body = await request.json().catch(() => ({}))
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const result = await settleD1ReferralAttributions(deps.database, claims, {
-          commandId: body.commandId ?? crypto.randomUUID(),
-          idempotencyKey: body.idempotencyKey ?? `idem-settle-${Date.now()}`,
+          commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
+          idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-settle-${Date.now()}`,
           now
         })
         return jsonResponse(result, 200)
       }
 
       if (request.method === 'POST' && path === '/api/admin/referrals/reject') {
-        const body = await request.json()
+        const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
         const result = await rejectD1ReferralAttribution(deps.database, claims, {
-          ...body,
+          ...(body as unknown as Parameters<typeof rejectD1ReferralAttribution>[2]),
           now
         })
         return jsonResponse({ attribution: result }, 200)
@@ -169,14 +172,20 @@ export async function handleReferralsHttp(request: Request, deps: ReferralsHttpD
     }
 
     if (request.method === 'POST' && path === '/api/account/referrals/enroll') {
-      const body = await request.json()
-      const result = await enrollD1ReferralAdvocate(deps.database, claims, { ...body, now })
+      const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      const result = await enrollD1ReferralAdvocate(deps.database, claims, {
+        ...(body as unknown as Parameters<typeof enrollD1ReferralAdvocate>[2]),
+        now
+      })
       return jsonResponse({ enrollment: result }, 200)
     }
 
     if (request.method === 'POST' && path === '/api/account/referrals/attribute') {
-      const body = await request.json()
-      const result = await attributeD1ReferralOrder(deps.database, { ...body, now })
+      const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      const result = await attributeD1ReferralOrder(deps.database, {
+        ...(body as unknown as Parameters<typeof attributeD1ReferralOrder>[1]),
+        now
+      })
       return jsonResponse({ attribution: result }, 201)
     }
 

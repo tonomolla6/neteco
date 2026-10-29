@@ -509,10 +509,13 @@ try {
   assert(migrations.includes('0109_shipping_convenience_conditions_routes.sql'))
   assert(migrations.includes('0110_rca_copilot_audiences.sql'))
   assert(migrations.includes('0111_experiments_ab_testing.sql'))
+  assert(migrations.includes('0112_bundles_referrals_events.sql'))
+  assert(migrations.includes('0113_product_reviews_qa_and_media_guides.sql'))
   assert(migrations.includes('0114_security_keys_devices_abuse.sql'))
   assert(migrations.includes('0115_growth_offers.sql'))
   assert(migrations.includes('0116_observability_sre_capacity_slo.sql'))
-  assert(migrations.length >= 116, 'Native shop audit requires the complete migration set')
+  assert(migrations.includes('0117_seo_technical_bot_logs_ai_search.sql'))
+  assert(migrations.length >= 117, 'Native shop audit requires the complete migration set')
   for (const migration of migrations) {
     scenario = `migration_${migration.replace(/\.sql$/, '')}`
     await applySql(await readFile(join(migrationsDirectory, migration), 'utf8'))

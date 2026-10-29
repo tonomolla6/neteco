@@ -16,6 +16,8 @@ import {
 const NOW = '2026-10-29T12:00:00Z'
 const ADMIN_ID = '10000000-0000-4000-8000-000000000001'
 const ADMIN_CLAIMS = { identityId: ADMIN_ID, sessionId: '20000000-0000-4000-8000-000000000001', sessionVersion: 1 }
+const CATALOG_ID = '10000000-0000-4000-8000-000000000002'
+const CATALOG_CLAIMS = { identityId: CATALOG_ID, sessionId: '20000000-0000-4000-8000-000000000002', sessionVersion: 1 }
 
 const CATEGORY_ID = 'cat-cocina-01'
 const PRODUCT_ID_1 = 'prod-desengrasante-01'
@@ -36,17 +38,23 @@ async function setupTestDb(): Promise<DatabaseSync> {
   // Roles & permissions
   sqlite.exec(`
     INSERT OR IGNORE INTO roles (code, name, description) VALUES
-      ('admin', 'Administrador', 'Fixture admin');
+      ('admin', 'Administrador', 'Fixture admin'),
+      ('catalog_editor', 'Editor Catálogo', 'Fixture catalog');
     INSERT OR IGNORE INTO permissions (code, resource, action, description) VALUES
-      ('administration.manage', 'administration', 'manage', 'Fixture admin');
+      ('administration.manage', 'administration', 'manage', 'Fixture admin'),
+      ('catalog.write', 'catalog', 'write', 'Fixture catalog');
     INSERT OR IGNORE INTO role_permissions (role_code, permission_code) VALUES
-      ('admin', 'administration.manage');
+      ('admin', 'administration.manage'),
+      ('catalog_editor', 'catalog.write');
     INSERT OR IGNORE INTO identities (id, email, password_hash, status, session_version, email_verified_at, created_at, updated_at) VALUES
-      ('${ADMIN_ID}', 'admin@neteco.test', 'fixture-hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
+      ('${ADMIN_ID}', 'admin@neteco.test', 'fixture-hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
+      ('${CATALOG_ID}', 'editor@neteco.test', 'fixture-hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
     INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
-      ('20000000-0000-4000-8000-000000000001', '${ADMIN_ID}', 1, 1, '${NOW}', '2027-01-01T00:00:00Z');
+      ('20000000-0000-4000-8000-000000000001', '${ADMIN_ID}', 1, 1, '${NOW}', '2027-01-01T00:00:00Z'),
+      ('20000000-0000-4000-8000-000000000002', '${CATALOG_ID}', 1, 1, '${NOW}', '2027-01-01T00:00:00Z');
     INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
-      ('${ADMIN_ID}', 'admin', '${NOW}');
+      ('${ADMIN_ID}', 'admin', '${NOW}'),
+      ('${CATALOG_ID}', 'catalog_editor', '${NOW}');
   `)
 
   // Fixtures: categories, tax classes, shipping profiles, products, variants, price versions, inventory
@@ -303,6 +311,23 @@ describe('MKT-021 Bundles/Kits - Business Logic & D1 Store', () => {
       expect(selection.bundlePriceCents).toBeLessThan(7000)
       expect(selection.savingsCents).toBeGreaterThan(0)
       expect(selection.inStock).toBe(true)
+    })
+
+    it('allows bundle creation and update by catalog.write editors', async () => {
+      const bundle = await createD1Bundle(db, CATALOG_CLAIMS, {
+        commandId: 'b0000000-0000-4000-8000-000000000099',
+        idempotencyKey: 'idem-create-by-catalog',
+        title: 'Kit Creado Por Editor',
+        slug: 'kit-editor-catalogo',
+        description: 'Kit para probar permisos de catalog.write.',
+        sector: 'industrial',
+        task: 'desengrase_profundo',
+        bundlePriceCents: 3500,
+        items: [{ variantId: VARIANT_ID_1, quantity: 1, minQuantity: 1, maxQuantity: 5 }],
+        now: NOW
+      })
+      expect(bundle.id).toBeDefined()
+      expect(bundle.slug).toBe('kit-editor-catalogo')
     })
   })
 })
