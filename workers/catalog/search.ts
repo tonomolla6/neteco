@@ -1,6 +1,7 @@
 import type { SearchSuggestion } from '../../shared/types/catalog'
 import { normalizeSynonymTerm } from '../../shared/search-synonyms'
 import { normalizeSearchTerm } from '../../server/utils/search-terms'
+import { sellableExpression } from './inventory'
 import { readPublicProductMedia } from '../media/public-catalog'
 import {
   publicationValidityWithClock,
@@ -15,6 +16,8 @@ import {
 } from './pricing'
 
 export const PUBLIC_SEARCH_MAX_LENGTH = 160
+/** Bound of one product's merchandising adjustment, mirrored by the 0091 CHECK on `weight`. */
+export const SEARCH_MERCHANDISING_MAX_WEIGHT = 10
 
 export function isValidPublicSearchQuery(value: string) {
   return (
@@ -91,6 +94,14 @@ interface SearchRecord {
   minPrice: number
   minNetPrice: number
   sku: string | null
+  /** Sentinel row discriminator: 0 is a product, 1 carries the live redirect path. */
+  rowKind: number
+  redirectPath: string | null
+  exactRank: number
+  nameRank: number
+  merchRank: number
+  featuredRank: number
+  foldedName: string
 }
 
 function visualFromJson(value: string): SearchSuggestion['visual'] {
@@ -113,13 +124,20 @@ function visualFromJson(value: string): SearchSuggestion['visual'] {
 }
 
 /** Two bounded reads, never one per result. Tests may pin the server
- * instant; no HTTP field can choose prices. Out-of-stock catalog remains searchable. */
+ * instant; no HTTP field can choose prices. Out-of-stock catalog remains searchable.
+ *
+ * SEA-013 merchandising lives inside the same statement (no extra read): live rules of
+ * the exact normalized term, evaluated at the pricing instant. A boost only counts for a
+ * product that is sellable right now, so it can never lift unavailable stock above available
+ * equivalents. A bury never changes which products are selected, only their order inside the
+ * selected window. Exact identifier and exact name matches always rank first. A redirect is
+ * returned beside the results, which are never withheld. */
 export async function searchPublishedProducts(
   database: D1Database,
   input: string,
   pricingOptions?: EffectivePricingOptions,
   overrideTerms?: string[]
-): Promise<{ items: SearchSuggestion[] }> {
+): Promise<{ items: SearchSuggestion[]; redirect?: { path: string } }> {
   if (!isValidPublicSearchQuery(input)) {
     throw new Error('Invalid search query')
   }
@@ -137,6 +155,8 @@ export async function searchPublishedProducts(
   // instr preserves that meaning without wildcard parsing or a new limit.
   const partial = identifiers.map((column) => `instr(${column}, ?) > 0`).join(' OR ')
   const instant = resolvePricingInstant(pricingOptions)
+  const ruleInstant = new Date(instant).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const ruleTerm = synonymTermData(input).term
   const validity = publicationValidityWithClock('p', pricingOptions?.instant)
   const { sql, instantParameters } = parameterizeEffectivePricingSql(
     `WITH effective AS (
@@ -153,33 +173,64 @@ export async function searchPublishedProducts(
       FROM variants v JOIN effective ON effective.id = v.id
       JOIN tax_classes tax ON tax.id = v.tax_class_id
       WHERE v.status = 'published' GROUP BY v.product_id
+    ), merch AS (
+      SELECT rule.product_id,
+        max(-${SEARCH_MERCHANDISING_MAX_WEIGHT}, min(${SEARCH_MERCHANDISING_MAX_WEIGHT},
+          sum(CASE rule.kind WHEN 'boost' THEN rule.weight ELSE -rule.weight END))) AS delta
+      FROM search_merchandising_current rule
+      WHERE rule.term_normalized = ? AND rule.status = 'active' AND rule.kind IN ('boost', 'bury')
+        AND rule.valid_from <= ? AND rule.valid_until > ?
+      GROUP BY rule.product_id
+    ), redirect_rule AS (
+      SELECT rule.redirect_path FROM search_merchandising_current rule
+      WHERE rule.term_normalized = ? AND rule.status = 'active' AND rule.kind = 'redirect'
+        AND rule.valid_from <= ? AND rule.valid_until > ?
+        AND (rule.redirect_path NOT GLOB '/producto/*' OR EXISTS (
+          SELECT 1 FROM products target WHERE target.slug = substr(rule.redirect_path, 11)
+            AND target.status = 'published'))
+      LIMIT 1
+    ), ranked AS (
+      SELECT p.id AS uuid, p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
+        COALESCE(json_extract(p.attributes, '$.visual'), '{}') AS visualJson,
+        json_extract(p.attributes, '$.image') AS image,
+        summary.minPrice, summary.minNetPrice, summary.sku,
+        summary.exactMatch AS exactRank,
+        CASE WHEN ${spanishFoldSql('p.name')} = ? THEN 1 ELSE 0 END AS nameRank,
+        CASE WHEN merch.delta > 0 AND EXISTS (
+          SELECT 1 FROM variants stocked JOIN inventory_balances b ON b.variant_id = stocked.id
+          WHERE stocked.product_id = p.id AND stocked.status = 'published' AND ${sellableExpression()} > 0
+        ) THEN merch.delta ELSE 0 END AS boostRank,
+        CASE WHEN merch.delta < 0 THEN merch.delta ELSE 0 END AS buryRank,
+        p.featured AS featuredRank, ${spanishFoldSql('p.name')} AS foldedName
+      FROM products p
+      JOIN categories c ON c.id = p.category_id AND c.status = 'published'
+      LEFT JOIN brands b ON b.id = p.brand_id
+      JOIN summary ON summary.product_id = p.id
+      LEFT JOIN merch ON merch.product_id = p.id
+      WHERE p.status = 'published' AND ${validity.sql} AND (
+        EXISTS (SELECT 1 FROM (${searchTerms.sql}) search_term WHERE (
+        p.rowid IN (SELECT rowid FROM products_fts WHERE products_fts MATCH search_term.fts)
+        OR instr(${spanishFoldSql('p.name')},search_term.term)>0
+        OR instr(${spanishFoldSql("COALESCE(b.name, '')")},search_term.term)>0
+        OR instr(${spanishFoldSql('c.name')},search_term.term)>0
+        OR EXISTS (SELECT 1 FROM variants synonym_variant WHERE synonym_variant.product_id=p.id
+          AND synonym_variant.status='published' AND (
+            instr(lower(COALESCE(synonym_variant.sku,'')),search_term.term)>0
+            OR instr(lower(COALESCE(synonym_variant.ean,'')),search_term.term)>0
+            OR instr(lower(COALESCE(synonym_variant.gtin,'')),search_term.term)>0
+            OR instr(lower(COALESCE(synonym_variant.mpn,'')),search_term.term)>0))))
+        OR summary.identifierMatch = 1
+      )
+      ORDER BY exactRank DESC, nameRank DESC, boostRank DESC, featuredRank DESC, foldedName, uuid
+      LIMIT 8
     )
-    SELECT p.id AS uuid, p.name, p.slug, COALESCE(b.name, 'NETECO') AS brand,
-      COALESCE(json_extract(p.attributes, '$.visual'), '{}') AS visualJson,
-      json_extract(p.attributes, '$.image') AS image,
-      summary.minPrice, summary.minNetPrice, summary.sku
-    FROM products p
-    JOIN categories c ON c.id = p.category_id AND c.status = 'published'
-    LEFT JOIN brands b ON b.id = p.brand_id
-    JOIN summary ON summary.product_id = p.id
-    WHERE p.status = 'published' AND ${validity.sql} AND (
-      EXISTS (SELECT 1 FROM (${searchTerms.sql}) search_term WHERE (
-      p.rowid IN (SELECT rowid FROM products_fts WHERE products_fts MATCH search_term.fts)
-      OR instr(${spanishFoldSql('p.name')},search_term.term)>0
-      OR instr(${spanishFoldSql("COALESCE(b.name, '')")},search_term.term)>0
-      OR instr(${spanishFoldSql('c.name')},search_term.term)>0
-      OR EXISTS (SELECT 1 FROM variants synonym_variant WHERE synonym_variant.product_id=p.id
-        AND synonym_variant.status='published' AND (
-          instr(lower(COALESCE(synonym_variant.sku,'')),search_term.term)>0
-          OR instr(lower(COALESCE(synonym_variant.ean,'')),search_term.term)>0
-          OR instr(lower(COALESCE(synonym_variant.gtin,'')),search_term.term)>0
-          OR instr(lower(COALESCE(synonym_variant.mpn,'')),search_term.term)>0))))
-      OR summary.identifierMatch = 1
-    )
-    ORDER BY summary.exactMatch DESC,
-      CASE WHEN ${spanishFoldSql('p.name')} = ? THEN 1 ELSE 0 END DESC,
-      p.featured DESC, ${spanishFoldSql('p.name')}, p.id
-    LIMIT 8`,
+    SELECT uuid, name, slug, brand, visualJson, image, minPrice, minNetPrice, sku, NULL AS redirectPath, 0 AS rowKind,
+      exactRank, nameRank, boostRank + buryRank AS merchRank, featuredRank, foldedName
+    FROM ranked
+    UNION ALL
+    SELECT NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, redirect_path, 1, 0, 0, 0, 0, ''
+    FROM redirect_rule
+    ORDER BY rowKind, exactRank DESC, nameRank DESC, merchRank DESC, featuredRank DESC, foldedName, uuid`,
     instant
   )
   const result = await database
@@ -190,28 +241,50 @@ export async function searchPublishedProducts(
       ...Array(4).fill(folded),
       ...Array(4).fill(folded),
       ...Array(4).fill(folded),
+      ruleTerm,
+      ruleInstant,
+      ruleInstant,
+      ruleTerm,
+      ruleInstant,
+      ruleInstant,
+      folded,
       ...validity.parameters,
-      ...searchTerms.parameters,
-      folded
+      ...searchTerms.parameters
     )
     .all<SearchRecord>()
+  const redirectPath = result.results.find((record) => record.rowKind === 1)?.redirectPath ?? null
+  const records = result.results.filter((record) => record.rowKind === 0)
   const publishedMedia = await readPublicProductMedia(
     database,
-    result.results.map((record) => record.uuid),
+    records.map((record) => record.uuid),
     pricingOptions?.instant?.replace(/\.\d{3}Z$/, 'Z')
   )
   await assertCurrentPublicationValidity(
     database,
-    result.results.map((record) => record.uuid),
+    records.map((record) => record.uuid),
     pricingOptions?.instant,
     publicMediaProjectionIds(publishedMedia.values())
   )
   return {
-    items: result.results.map(({ uuid, visualJson, ...record }) => ({
-      ...record,
-      image: publishedMedia.get(uuid)?.image ?? null,
-      imageAlt: publishedMedia.get(uuid)?.imageAlt ?? null,
-      visual: visualFromJson(visualJson)
-    }))
+    items: records.map(
+      ({
+        uuid,
+        visualJson,
+        rowKind: _rowKind,
+        redirectPath: _redirectPath,
+        exactRank: _exactRank,
+        nameRank: _nameRank,
+        merchRank: _merchRank,
+        featuredRank: _featuredRank,
+        foldedName: _foldedName,
+        ...record
+      }) => ({
+        ...record,
+        image: publishedMedia.get(uuid)?.image ?? null,
+        imageAlt: publishedMedia.get(uuid)?.imageAlt ?? null,
+        visual: visualFromJson(visualJson)
+      })
+    ),
+    ...(redirectPath ? { redirect: { path: redirectPath } } : {})
   }
 }

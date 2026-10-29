@@ -82,6 +82,12 @@ const sections: Array<{
       { to: '/admin/productos', label: 'Productos', icon: 'i-lucide-package', permission: 'catalog.write' },
       { to: '/admin/categorias', label: 'Familias', icon: 'i-lucide-folder-tree', permission: 'catalog.write' },
       {
+        to: '/admin/calidad-catalogo',
+        label: 'Calidad del catálogo',
+        icon: 'i-lucide-list-checks',
+        permission: 'catalog.write'
+      },
+      {
         to: '/admin/politicas-catalogo',
         label: 'Políticas de publicación',
         icon: 'i-lucide-shield-check',

@@ -4,6 +4,7 @@ import { listPublishedProducts, type ProductSort } from './catalog/products'
 import { getPublishedProductDetail } from './catalog/product-detail'
 import { handlePublicSearchHttp } from './catalog/search-http'
 import { handleSearchSynonymsHttp, ownsSearchSynonymsNamespace } from './catalog/search-synonyms-http'
+import { handleSearchMerchandisingHttp, ownsSearchMerchandisingNamespace } from './catalog/search-merchandising-http'
 import { handleCatalogRelationsHttp, ownsCatalogRelationsNamespace } from './catalog/catalog-relations-http'
 import { handleD1SeoRequest, ownsD1SeoNamespace } from './catalog/seo-http'
 import { handleEditorialImportHttp, ownsEditorialImportNamespace } from './catalog/editorial-import-http'
@@ -989,7 +990,8 @@ export default {
       ownsCatalogImportJobNamespace(path) ||
       ownsCatalogExportNamespace(path) ||
       ownsCatalogTypedAttributesNamespace(path) ||
-      ownsSearchSynonymsNamespace(path)
+      ownsSearchSynonymsNamespace(path) ||
+      ownsSearchMerchandisingNamespace(path)
     ) {
       if (env.AUTH_ENABLED !== 'true') {
         const denied = noStoreJson({ error: { code: 'service_unavailable' } }, 503)
@@ -1012,6 +1014,8 @@ export default {
       }
       const synonyms = await handleSearchSynonymsHttp(request, env)
       if (synonyms) return synonyms
+      const merchandising = await handleSearchMerchandisingHttp(request, env)
+      if (merchandising) return merchandising
       const typedAttributes = await handleCatalogTypedAttributesHttp(request, env)
       if (typedAttributes) return typedAttributes
       const editorial = await handleEditorialImportHttp(request, env)

@@ -65,7 +65,8 @@ const MIGRATIONS = [
   '0059_catalog_typed_attribute_values.sql',
   '0060_support_macros.sql',
   '0061_search_synonyms.sql',
-  '0062_support_knowledge_feedback.sql'
+  '0062_support_knowledge_feedback.sql',
+  '0091_search_merchandising_rules.sql'
 ].map((name) => fileURLToPath(new URL(`../../db/d1/migrations/${name}`, import.meta.url)))
 
 // Cache immutable SQL source per test worker, never a database or its rows.

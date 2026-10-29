@@ -466,6 +466,7 @@ try {
   assert(migrations.includes('0059_catalog_typed_attribute_values.sql'))
   assert(migrations.includes('0060_support_macros.sql'))
   assert(migrations.includes('0061_search_synonyms.sql'))
+  assert(migrations.includes('0091_search_merchandising_rules.sql'))
   assert(migrations.includes('0062_support_knowledge_feedback.sql'))
   assert(migrations.includes('0063_order_annotations.sql'))
   assert(migrations.includes('0064_company_admin_review.sql'))

@@ -4,6 +4,7 @@ import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
 import { AdminCatalogMutationError, updateD1DraftProductMetadata } from './admin-catalog-mutations'
 import { AdminCatalogStatusError, updateD1ProductStatus, type CatalogPublicationGate } from './admin-catalog-status'
 import { readD1CatalogPublicationReadiness } from './catalog-publication-readiness'
+import { handleCatalogQualityHttp, ownsCatalogQualityNamespace } from './catalog-quality-http'
 import {
   ADMIN_CATALOG_STATUSES,
   ADMIN_CATALOG_PERMISSION,
@@ -287,6 +288,7 @@ export async function handleD1AdminCatalogRequest(
   deps: AdminCatalogHttpDependencies
 ): Promise<Response | null> {
   const url = new URL(request.url)
+  if (ownsCatalogQualityNamespace(url.pathname)) return handleCatalogQualityHttp(request, deps)
   const products = url.pathname === '/api/admin/products'
   const categories = url.pathname === '/api/admin/categories'
   const catalogPath =

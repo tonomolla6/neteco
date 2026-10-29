@@ -63,6 +63,17 @@ it('offers promotion administration only to a currently authorized administrator
   expect(canNavigateAdmin('/admin/promociones', caps(['catalog.write']) as AdminCapabilities)).toBe(false)
   expect(canNavigateAdmin('/admin/promociones', { ...admin, state: 'forbidden', permissions: [] })).toBe(false)
 })
+it('offers the catalog quality queue only with live catalog authority', () => {
+  const catalog = caps(['catalog.write']) as AdminCapabilities
+  expect(
+    adminNavigationGroups(catalog)
+      .flatMap((group) => group.links)
+      .map((link) => link.to)
+  ).toContain('/admin/calidad-catalogo')
+  expect(canNavigateAdmin('/admin/calidad-catalogo', catalog)).toBe(true)
+  expect(canNavigateAdmin('/admin/calidad-catalogo', caps(['support.manage']) as AdminCapabilities)).toBe(false)
+  expect(canNavigateAdmin('/admin/calidad-catalogo', { ...catalog, state: 'forbidden', permissions: [] })).toBe(false)
+})
 const stubs = {
   AdminGlobalSearch: {
     name: 'AdminGlobalSearch',
