@@ -62,6 +62,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     appEnv: process.env.APP_ENV || 'local',
+    cspMode: process.env.CSP_MODE || 'report-only',
     databaseUrl: cloudflareRuntime
       ? ''
       : process.env.DATABASE_URL || 'postgres://neteco:neteco-local@localhost:56432/neteco',
@@ -127,6 +128,7 @@ export default defineNuxtConfig({
     },
     public: {
       appEnv: process.env.APP_ENV || 'local',
+      cspMode: process.env.CSP_MODE || 'report-only',
       // Opt-in only for the isolated public demo; backend authority is separate.
       demoEnabled: false,
       // Legacy demo photos are not evidence of publication rights or scanning.

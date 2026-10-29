@@ -66,7 +66,19 @@ const sections: Array<{
         icon: 'i-lucide-rotate-ccw',
         permission: 'administration.manage'
       },
+      {
+        to: '/admin/transportistas',
+        label: 'Transportistas y Scorecard',
+        icon: 'i-lucide-truck',
+        permission: 'administration.manage'
+      },
       { to: '/admin/soporte', label: 'Soporte', icon: 'i-lucide-life-buoy', permission: 'support.manage' },
+      {
+        to: '/admin/encuestas',
+        label: 'Encuestas de entrega',
+        icon: 'i-lucide-clipboard-check',
+        permission: 'administration.manage'
+      },
       {
         to: '/admin/aportaciones-productos',
         label: 'Reseñas y preguntas',

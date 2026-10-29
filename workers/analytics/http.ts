@@ -17,6 +17,8 @@ import {
   type SearchDevice,
   type SearchSegment
 } from './search-analytics'
+import { handleCohortsAnalyticsHttp, ownsCohortsAnalyticsNamespace } from './cohorts-http'
+import { handleFunnelAnalyticsHttp, ownsFunnelAnalyticsNamespace } from './funnel-http'
 import { analyticsConsent } from '../../server/utils/analytics'
 
 export interface AnalyticsHttpDependencies extends AnalyticsMeasurementDependencies {
@@ -175,6 +177,14 @@ export async function handleAnalyticsHttp(request: Request, deps: AnalyticsHttpD
   const url = new URL(request.url),
     area = ownedArea(url.pathname)
   if (area === null) return null
+
+  if (ownsCohortsAnalyticsNamespace(url.pathname)) {
+    return handleCohortsAnalyticsHttp(request, deps)
+  }
+  if (ownsFunnelAnalyticsNamespace(url.pathname)) {
+    return handleFunnelAnalyticsHttp(request, deps)
+  }
+
   const withdrawal = url.pathname === '/api/analytics/session' && request.method === 'DELETE'
   if (url.pathname === '/api/analytics/session' && !withdrawal)
     return failure('method_not_allowed', 405, { Allow: 'DELETE' })

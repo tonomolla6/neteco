@@ -41,6 +41,8 @@ import { handleOrderExportHttp } from './catalog/order-export-http'
 import { handleOrderAnnotationsHttp } from './catalog/order-annotations-http'
 import { handleAdminFulfillmentHttp, ownsAdminFulfillmentNamespace } from './fulfillment/admin-http'
 import { handleAdminPackingHttp, ownsAdminPackingNamespace } from './fulfillment/packing-http'
+import { handleCarrierScorecardHttp, ownsCarrierScorecardNamespace } from './fulfillment/carrier-scorecard-http'
+import { handleDeliverySurveyHttp, ownsDeliverySurveyNamespace } from './fulfillment/delivery-survey-http'
 import { handleAdminOrderBulkHttp, ownsAdminOrderBulkNamespace } from './fulfillment/bulk-http'
 import {
   consumeAdminOrderBulkMessage,
@@ -1347,6 +1349,40 @@ export default {
         )
       const fulfillment = await handleAdminFulfillmentHttp(request, env)
       if (fulfillment) return fulfillment
+    }
+    if (ownsCarrierScorecardNamespace(path)) {
+      if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const limited = await checkAdministrativeEdgeLimit(
+        request,
+        env.ADMIN_EDGE_LIMIT,
+        env.AUTH_RATE_LIMIT_PEPPER,
+        'admin-fulfillment'
+      )
+      if (limited !== 'allowed')
+        return noStoreJson(
+          { error: { code: limited === 'limited' ? 'rate_limited' : 'service_unavailable' } },
+          limited === 'limited' ? 429 : 503
+        )
+      const scorecard = await handleCarrierScorecardHttp(request, env)
+      if (scorecard) return scorecard
+    }
+    if (ownsDeliverySurveyNamespace(path)) {
+      const administrative = path.startsWith('/api/admin/')
+      if (administrative && env.AUTH_ENABLED !== 'true')
+        return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const limited = await checkAdministrativeEdgeLimit(
+        request,
+        administrative ? env.ADMIN_EDGE_LIMIT : env.CART_EDGE_LIMIT,
+        env.AUTH_RATE_LIMIT_PEPPER,
+        administrative ? 'admin-fulfillment' : 'storefront-fulfillment'
+      )
+      if (limited !== 'allowed')
+        return noStoreJson(
+          { error: { code: limited === 'limited' ? 'rate_limited' : 'service_unavailable' } },
+          limited === 'limited' ? 429 : 503
+        )
+      const deliverySurvey = await handleDeliverySurveyHttp(request, env)
+      if (deliverySurvey) return deliverySurvey
     }
     if (ownsFiscalNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
