@@ -3,7 +3,16 @@ import { MAX_CART_QUANTITY } from '../../shared/cart-limits'
 import { checkAdministrativeEdgeLimit } from '../auth/edge-limit'
 import { CartError, getCart, assertCartAuthorized, readCartAddOperation, type CartView } from './cart'
 import { deriveOrderToken } from './checkout'
-import { effectiveGovernedVersionIdExpression, inlineEffectivePricingSql } from './pricing'
+import {
+  effectiveB2BGrossCentsExpression,
+  effectiveB2BSourceExpression,
+  effectiveB2BVersionIdExpression,
+  effectiveGovernedVersionIdExpression,
+  inlineEffectivePricingSql
+} from './pricing'
+import { activeOrderCustomerId } from './customer-orders'
+import { readD1B2BPricingAuthority } from './b2b-pricing'
+import type { VerifiedSessionClaims } from './authorization'
 import { parseVolumeTiers } from './volume-pricing'
 import { publicationValidityExpression } from './publication-validity'
 import { readPublicProductMedia } from '../media/public-catalog'
@@ -25,6 +34,8 @@ interface StorefrontDeps {
   edgeLimiter: RateLimit
   rateLimitPepper: string
   now?: () => string
+  session?: (request: Request) => Promise<VerifiedSessionClaims | null>
+  authenticationEnabled?: boolean
 }
 
 interface ProjectedRow {
@@ -139,20 +150,33 @@ async function projectCart(
   cart: CartView,
   now: string,
   identity: CartCredentials,
-  started: number
+  started: number,
+  ownerSession: VerifiedSessionClaims | null,
+  customerId: string | null,
+  contractualCustomer: string | null
 ) {
+  const fingerprint = contractualCustomer ? await readD1B2BPricingAuthority(database, contractualCustomer, now) : null
   const selectedPrice = inlineEffectivePricingSql(effectiveGovernedVersionIdExpression('v'), now)
+  const gross = contractualCustomer
+    ? inlineEffectivePricingSql(effectiveB2BGrossCentsExpression('v', '?2'), now)
+    : 'COALESCE(price.gross_cents, v.price_gross_cents)'
+  const version = contractualCustomer
+    ? inlineEffectivePricingSql(effectiveB2BVersionIdExpression('v', '?2'), now)
+    : "COALESCE(price.id, 'legacy:' || v.id)"
+  const source = contractualCustomer
+    ? inlineEffectivePricingSql(effectiveB2BSourceExpression('v', '?2'), now)
+    : "'public'"
   const { results } = await database
     .prepare(
       `SELECT p.id AS productUuid, v.id AS variantUuid,
               p.legacy_id AS productId, p.slug, p.name, COALESCE(b.name, '') AS brand,
               v.legacy_id AS variantId, v.format, v.sku,
-              COALESCE(price.gross_cents, v.price_gross_cents) AS basePrice,
-              COALESCE(price.volume_tiers, '[]') AS priceTiersJson,
-              CASE WHEN price.id IS NULL THEN v.compare_at_gross_cents
+              ${gross} AS basePrice,
+              CASE WHEN ${source}='public' THEN COALESCE(price.volume_tiers, '[]') ELSE '[]' END AS priceTiersJson,
+              CASE WHEN ${source}<>'public' THEN NULL WHEN price.id IS NULL THEN v.compare_at_gross_cents
                    ELSE price.compare_at_gross_cents END AS compareAtPrice,
-              price.reference_gross_cents_30d AS referencePrice30d,
-              COALESCE(price.id, 'legacy:' || v.id) AS pricingVersion,
+              CASE WHEN ${source}='public' THEN price.reference_gross_cents_30d ELSE NULL END AS referencePrice30d,
+              ${version} AS pricingVersion,
               tax.rate_basis_points AS taxRateBasisPoints, cl.quantity AS qty,
               json_extract(p.attributes, '$.visual.type') AS visualType,
               json_extract(p.attributes, '$.visual.color') AS visualColor,
@@ -168,7 +192,7 @@ async function projectCart(
        WHERE cl.cart_id = ?1
        ORDER BY cl.created_at, v.sku`
     )
-    .bind(cart.cartId)
+    .bind(cart.cartId, ...(contractualCustomer ? [contractualCustomer] : []))
     .all<ProjectedRow>()
   const publishedMedia = await readPublicProductMedia(
     database,
@@ -179,6 +203,13 @@ async function projectCart(
   const authorizationInstant = new Date(Date.parse(now) + Math.max(0, Date.now() - started))
     .toISOString()
     .replace(/\.\d{3}Z$/, 'Z')
+  if (ownerSession && (await activeOrderCustomerId(database, ownerSession, authorizationInstant)) !== customerId)
+    throw new CartError('unauthorized', 'Customer session is no longer active')
+  if (
+    contractualCustomer &&
+    (await readD1B2BPricingAuthority(database, contractualCustomer, authorizationInstant)) !== fingerprint
+  )
+    throw new CartError('version_conflict', 'Commercial pricing changed during projection')
   const current = await getCart(database, { ...identity, now: authorizationInstant })
   if (current.status !== cart.status || current.version !== cart.version || current.expiresAt !== cart.expiresAt)
     throw new CartError('version_conflict', 'cart changed during projection')
@@ -238,7 +269,10 @@ async function createNewCart(
   request: Request,
   now: string,
   recoveryCookie?: string,
-  replacedConvertedCart = false
+  replacedConvertedCart = false,
+  ownerSession: VerifiedSessionClaims | null = null,
+  customerId: string | null = null,
+  contractualCustomer: string | null = null
 ): Promise<Response> {
   const started = Date.now()
   const limit = await checkAdministrativeEdgeLimit(request, deps.edgeLimiter, deps.rateLimitPepper, 'storefront-cart')
@@ -258,7 +292,16 @@ async function createNewCart(
   const cart = await getCart(deps.database, { cartId, token: created.token, now })
   return json(
     {
-      ...(await projectCart(deps.database, cart, now, { cartId, token: created.token }, started)),
+      ...(await projectCart(
+        deps.database,
+        cart,
+        now,
+        { cartId, token: created.token },
+        started,
+        ownerSession,
+        customerId,
+        contractualCustomer
+      )),
       replacedConvertedCart
     },
     200,
@@ -317,6 +360,20 @@ export async function handleStorefrontCartHttp(request: Request, deps: Storefron
   const started = Date.now()
   const identity = credentials(request)
   try {
+    const hasSession = /(?:^|;)\s*neteco-session=/.test(request.headers.get('cookie') ?? '')
+    if (hasSession && (!deps.authenticationEnabled || !deps.session))
+      return json({ error: { code: 'authentication_unavailable' } }, 503)
+    const ownerSession = hasSession ? await deps.session!(request) : null
+    if (hasSession && !ownerSession) return unauthorized()
+    const customerId = ownerSession ? await activeOrderCustomerId(deps.database, ownerSession, now) : null
+    if (ownerSession && !customerId) return unauthorized()
+    const company = customerId
+      ? await deps.database
+          .prepare("SELECT 1 FROM companies WHERE customer_id=?1 AND status='approved'")
+          .bind(customerId)
+          .first()
+      : null
+    const contractualCustomer = company ? customerId : null
     if (operationMatch) {
       if (!identity) return unauthorized()
       await assertCartAuthorized(deps.database, identity.cartId, identity.token)
@@ -365,7 +422,8 @@ export async function handleStorefrontCartHttp(request: Request, deps: Storefron
       )
     }
     if (isRoot && request.method === 'GET') {
-      if (!identity) return createNewCart(deps, request, now)
+      if (!identity)
+        return createNewCart(deps, request, now, undefined, false, ownerSession, customerId, contractualCustomer)
       try {
         const cart = await getCart(deps.database, { ...identity, now })
         if (cart.status !== 'active')
@@ -376,11 +434,17 @@ export async function handleStorefrontCartHttp(request: Request, deps: Storefron
             cart.status === 'converted'
               ? await convertedCartRecoveryCookie(deps.database, identity.cartId, identity.token, now)
               : undefined,
-            cart.status === 'converted'
+            cart.status === 'converted',
+            ownerSession,
+            customerId,
+            contractualCustomer
           )
-        return json(await projectCart(deps.database, cart, now, identity, started))
+        return json(
+          await projectCart(deps.database, cart, now, identity, started, ownerSession, customerId, contractualCustomer)
+        )
       } catch (error) {
-        if (error instanceof CartError && error.code === 'unauthorized') return createNewCart(deps, request, now)
+        if (error instanceof CartError && error.code === 'unauthorized')
+          return createNewCart(deps, request, now, undefined, false, ownerSession, customerId, contractualCustomer)
         throw error
       }
     }
@@ -435,7 +499,9 @@ export async function handleStorefrontCartHttp(request: Request, deps: Storefron
     if (!outcome.ok) return outcome
     if (isRoot) return json({ ok: true }, 200, deleteCookie())
     const updated = await getCart(deps.database, { ...identity, now })
-    return json(await projectCart(deps.database, updated, now, identity, started))
+    return json(
+      await projectCart(deps.database, updated, now, identity, started, ownerSession, customerId, contractualCustomer)
+    )
   } catch (error) {
     if (error instanceof CartError)
       return json(

@@ -2,10 +2,13 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import { listPublishedCategories } from './catalog/categories'
 import { listPublishedProducts, type ProductSort } from './catalog/products'
 import { getPublishedProductDetail } from './catalog/product-detail'
+import { readD1B2BPricingAuthority } from './catalog/b2b-pricing'
 import { handleProductCompareHttp, ownsProductCompareNamespace } from './catalog/product-compare-http'
 import { handlePublicSearchHttp } from './catalog/search-http'
 import { handleSearchSynonymsHttp, ownsSearchSynonymsNamespace } from './catalog/search-synonyms-http'
 import { handleSearchMerchandisingHttp, ownsSearchMerchandisingNamespace } from './catalog/search-merchandising-http'
+import { handleSemanticSearchHttp, ownsSemanticSearchNamespace } from './catalog/semantic-search-http'
+import { handlePersonalizedRerankHttp, ownsPersonalizedRerankNamespace } from './catalog/personalized-rerank-http'
 import { handleCatalogRelationsHttp, ownsCatalogRelationsNamespace } from './catalog/catalog-relations-http'
 import { handleD1SeoRequest, ownsD1SeoNamespace } from './catalog/seo-http'
 import { handleEditorialImportHttp, ownsEditorialImportNamespace } from './catalog/editorial-import-http'
@@ -31,7 +34,7 @@ import { readD1GuestOrderView, revokeD1GuestOrderAccess } from './catalog/guest-
 import { cartDoName } from './cart-coordinator'
 import { shippingCommercialPolicy } from '../server/utils/shipping-policy'
 import { compensateStaleAttempts, getOrderView } from './catalog/checkout'
-import { listD1CustomerOrders, readD1CustomerOrderLines } from './catalog/customer-orders'
+import { activeOrderCustomerId, listD1CustomerOrders, readD1CustomerOrderLines } from './catalog/customer-orders'
 import { handleCustomerFavoritesHttp } from './catalog/customer-favorites-http'
 import { handleCustomerCartSnapshotsHttp, ownsCartSnapshotsNamespace } from './catalog/cart-snapshots-http'
 import { handleD1AdminOrdersRequest } from './catalog/admin-orders-http'
@@ -43,6 +46,8 @@ import { handleAdminFulfillmentHttp, ownsAdminFulfillmentNamespace } from './ful
 import { handleAdminPackingHttp, ownsAdminPackingNamespace } from './fulfillment/packing-http'
 import { handleCarrierScorecardHttp, ownsCarrierScorecardNamespace } from './fulfillment/carrier-scorecard-http'
 import { handleDeliverySurveyHttp, ownsDeliverySurveyNamespace } from './fulfillment/delivery-survey-http'
+import { handleSupportLiveChatHttp, ownsSupportLiveChatNamespace } from './support/live-chat-http'
+import { handleCustomerAccountManagerHttp, ownsCustomerAccountManagerNamespace } from './crm/account-manager-http'
 import { handleAdminOrderBulkHttp, ownsAdminOrderBulkNamespace } from './fulfillment/bulk-http'
 import {
   consumeAdminOrderBulkMessage,
@@ -105,6 +110,7 @@ import { inventoryCommandReceiptSchema } from '../shared/inventory-commands'
 import { catalogPolicyOwnJson } from '../shared/catalog-publication-policy'
 import { verifySessionCookie } from './auth/session-cookie'
 import { handlePaymentHttp, paymentInventoryGateway } from './payments/http'
+import { handlePaymentFunnelHttp, ownsPaymentFunnelNamespace } from './payments/funnel-http'
 import { recoverAuthorisedPayments, type PaymentRuntimeConfiguration } from './catalog/payments'
 import { publishFiscalOutbox, receiveFiscalEvaluation, reconcileFiscalDelivery } from './catalog/fiscal-outbox'
 import { reconcileMediaStorage } from './catalog/media'
@@ -197,6 +203,35 @@ function hasSessionCookie(request: Request): boolean {
 async function customerSession(request: Request, env: CloudflareEnv) {
   if (env.AUTH_ENABLED !== 'true') return null
   return verifySessionCookie(request, { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 })
+}
+
+async function catalogSession(request: Request, env: CloudflareEnv) {
+  if (!hasSessionCookie(request))
+    return { claims: null, customerId: null, pricingCustomerId: undefined, fingerprint: null }
+  if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+  const claims = await customerSession(request, env)
+  if (!claims) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+  const customerId = await activeOrderCustomerId(env.DB, claims, serverNow())
+  if (!customerId) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+  const company = await env.DB.prepare("SELECT 1 FROM companies WHERE customer_id=?1 AND status='approved'")
+    .bind(customerId)
+    .first()
+  const fingerprint = company ? await readD1B2BPricingAuthority(env.DB, customerId, serverNow()) : null
+  return { claims, customerId, pricingCustomerId: company ? customerId : undefined, fingerprint }
+}
+
+async function catalogSessionCurrent(
+  env: CloudflareEnv,
+  authority: Exclude<Awaited<ReturnType<typeof catalogSession>>, Response>
+) {
+  if (!authority.claims) return true
+  const customerId = await activeOrderCustomerId(env.DB, authority.claims, serverNow())
+  if (customerId !== authority.customerId) return false
+  const company = await env.DB.prepare("SELECT 1 FROM companies WHERE customer_id=?1 AND status='approved'")
+    .bind(customerId)
+    .first()
+  if (Boolean(company) !== Boolean(authority.pricingCustomerId)) return false
+  return !company || (await readD1B2BPricingAuthority(env.DB, customerId!, serverNow())) === authority.fingerprint
 }
 
 function paymentConfiguration(env: CloudflareEnv): PaymentRuntimeConfiguration | null {
@@ -652,6 +687,10 @@ export default {
     }
     const search = await handlePublicSearchHttp(request, { database: env.DB })
     if (search) return search
+    const semanticSearch = await handleSemanticSearchHttp(request, env)
+    if (semanticSearch) return semanticSearch
+    const rerankEvents = await handlePersonalizedRerankHttp(request, env)
+    if (rerankEvents) return rerankEvents
     if (ownsCartSnapshotsNamespace(new URL(request.url).pathname)) {
       // Both private saves and public capabilities require the configured
       // identity boundary. Never fall through to a legacy account/cart API.
@@ -1020,7 +1059,9 @@ export default {
       ownsCatalogExportNamespace(path) ||
       ownsCatalogTypedAttributesNamespace(path) ||
       ownsSearchSynonymsNamespace(path) ||
-      ownsSearchMerchandisingNamespace(path)
+      ownsSearchMerchandisingNamespace(path) ||
+      ownsSemanticSearchNamespace(path) ||
+      ownsPersonalizedRerankNamespace(path)
     ) {
       if (env.AUTH_ENABLED !== 'true') {
         const denied = noStoreJson({ error: { code: 'service_unavailable' } }, 503)
@@ -1045,6 +1086,10 @@ export default {
       if (synonyms) return synonyms
       const merchandising = await handleSearchMerchandisingHttp(request, env)
       if (merchandising) return merchandising
+      const semanticSearch = await handleSemanticSearchHttp(request, env)
+      if (semanticSearch) return semanticSearch
+      const personalizedRerank = await handlePersonalizedRerankHttp(request, env)
+      if (personalizedRerank) return personalizedRerank
       const typedAttributes = await handleCatalogTypedAttributesHttp(request, env)
       if (typedAttributes) return typedAttributes
       const editorial = await handleEditorialImportHttp(request, env)
@@ -1384,6 +1429,68 @@ export default {
       const deliverySurvey = await handleDeliverySurveyHttp(request, env)
       if (deliverySurvey) return deliverySurvey
     }
+    if (ownsSupportLiveChatNamespace(path)) {
+      const administrative = path.startsWith('/api/admin/')
+      if (administrative && env.AUTH_ENABLED !== 'true')
+        return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const limited = await checkAdministrativeEdgeLimit(
+        request,
+        administrative ? env.ADMIN_EDGE_LIMIT : env.CART_EDGE_LIMIT,
+        env.AUTH_RATE_LIMIT_PEPPER,
+        administrative ? 'admin-support' : 'support-live-chat'
+      )
+      if (limited !== 'allowed')
+        return noStoreJson(
+          { error: { code: limited === 'limited' ? 'rate_limited' : 'service_unavailable' } },
+          limited === 'limited' ? 429 : 503
+        )
+      const liveChat = await handleSupportLiveChatHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration:
+          env.AUTH_ENABLED === 'true' ? { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 } : null,
+        origin: env.AUTH_ORIGIN
+      })
+      if (liveChat) return liveChat
+    }
+    if (ownsCustomerAccountManagerNamespace(path)) {
+      const administrative = path.startsWith('/api/admin/')
+      if (administrative && env.AUTH_ENABLED !== 'true')
+        return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const limited = await checkAdministrativeEdgeLimit(
+        request,
+        administrative ? env.ADMIN_EDGE_LIMIT : env.CART_EDGE_LIMIT,
+        env.AUTH_RATE_LIMIT_PEPPER,
+        administrative ? 'admin-crm' : 'customer-crm'
+      )
+      if (limited !== 'allowed')
+        return noStoreJson(
+          { error: { code: limited === 'limited' ? 'rate_limited' : 'service_unavailable' } },
+          limited === 'limited' ? 429 : 503
+        )
+      const crm = await handleCustomerAccountManagerHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration:
+          env.AUTH_ENABLED === 'true' ? { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 } : null,
+        origin: env.AUTH_ORIGIN
+      })
+      if (crm) return crm
+    }
+    if (ownsPaymentFunnelNamespace(path)) {
+      if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const limited = await checkAdministrativeEdgeLimit(
+        request,
+        env.ADMIN_EDGE_LIMIT,
+        env.AUTH_RATE_LIMIT_PEPPER,
+        'admin-payment-funnel'
+      )
+      if (limited !== 'allowed')
+        return noStoreJson(
+          { error: { code: limited === 'limited' ? 'rate_limited' : 'service_unavailable' } },
+          limited === 'limited' ? 429 : 503
+        )
+      const paymentFunnel = await handlePaymentFunnelHttp(request, env)
+      if (paymentFunnel) return paymentFunnel
+    }
     if (ownsFiscalNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
       const administrative = path.startsWith('/api/admin/')
@@ -1451,7 +1558,9 @@ export default {
       database: env.DB,
       dispatch: (command) => dispatchCartCommand(env, command),
       edgeLimiter: env.CART_EDGE_LIMIT,
-      rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER,
+      session: (incoming) => customerSession(incoming, env),
+      authenticationEnabled: env.AUTH_ENABLED === 'true'
     })
     if (storefrontCartResponse) return storefrontCartResponse
     const storefrontShippingResponse = await handleStorefrontShippingHttp(request, {
@@ -1612,32 +1721,39 @@ export default {
           { status: 400, headers: { 'cache-control': 'private, no-store', 'cdn-cache-control': 'no-store' } }
         )
       try {
+        const authority = await catalogSession(request, env)
+        if (authority instanceof Response) return authority
         const page = Math.max(Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1, 1)
         const limit = Math.min(Math.max(Number.parseInt(url.searchParams.get('limit') ?? '24', 10) || 24, 1), 100)
         const requestedSort = url.searchParams.get('sort') ?? 'default'
         const sort: ProductSort = ['name', 'price_asc', 'price_desc'].includes(requestedSort)
           ? (requestedSort as ProductSort)
           : 'default'
-        const result = await listPublishedProducts(env.DB, {
-          typed,
-          category: url.searchParams.get('category')?.slice(0, 180) || undefined,
-          search: url.searchParams.get('q')?.trim().slice(0, 160) || undefined,
-          brand: url.searchParams.get('brand') ?? undefined,
-          badge: url.searchParams.get('badge') ?? undefined,
-          envase: url.searchParams.get('envase') ?? undefined,
-          talla: url.searchParams.get('talla') ?? undefined,
-          capacidad: url.searchParams.get('capacidad') ?? undefined,
-          color: url.searchParams.get('color') ?? undefined,
-          medida: url.searchParams.get('medida') ?? undefined,
-          acabado: url.searchParams.get('acabado') ?? undefined,
-          priceMin: url.searchParams.get('price_min') ?? undefined,
-          priceMax: url.searchParams.get('price_max') ?? undefined,
-          featured: url.searchParams.has('featured'),
-          facets: url.searchParams.has('facets'),
-          page,
-          limit,
-          sort
-        })
+        const result = await listPublishedProducts(
+          env.DB,
+          {
+            typed,
+            category: url.searchParams.get('category')?.slice(0, 180) || undefined,
+            search: url.searchParams.get('q')?.trim().slice(0, 160) || undefined,
+            brand: url.searchParams.get('brand') ?? undefined,
+            badge: url.searchParams.get('badge') ?? undefined,
+            envase: url.searchParams.get('envase') ?? undefined,
+            talla: url.searchParams.get('talla') ?? undefined,
+            capacidad: url.searchParams.get('capacidad') ?? undefined,
+            color: url.searchParams.get('color') ?? undefined,
+            medida: url.searchParams.get('medida') ?? undefined,
+            acabado: url.searchParams.get('acabado') ?? undefined,
+            priceMin: url.searchParams.get('price_min') ?? undefined,
+            priceMax: url.searchParams.get('price_max') ?? undefined,
+            featured: url.searchParams.has('featured'),
+            facets: url.searchParams.has('facets'),
+            page,
+            limit,
+            sort
+          },
+          authority.pricingCustomerId ? { customerId: authority.pricingCustomerId } : undefined
+        )
+        if (!(await catalogSessionCurrent(env, authority))) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
         if (!result) {
           return Response.json(
             { error: 'category_not_found' },
@@ -1666,7 +1782,14 @@ export default {
     const productDetailPath = /^\/api\/products\/([a-z0-9][a-z0-9-]{0,179})$/.exec(url.pathname)
     if (request.method === 'GET' && productDetailPath) {
       try {
-        const product = await getPublishedProductDetail(env.DB, productDetailPath[1]!)
+        const authority = await catalogSession(request, env)
+        if (authority instanceof Response) return authority
+        const product = await getPublishedProductDetail(
+          env.DB,
+          productDetailPath[1]!,
+          authority.pricingCustomerId ? { customerId: authority.pricingCustomerId } : undefined
+        )
+        if (!(await catalogSessionCurrent(env, authority))) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
         if (!product)
           return Response.json(
             { error: 'product_not_found' },
@@ -1777,11 +1900,10 @@ export default {
           return noStoreJson({ error: { code: 'invalid_input' } }, 400)
         if (body.couponCode !== undefined && body.couponCode !== null && typeof body.couponCode !== 'string')
           return noStoreJson({ error: { code: 'invalid_input' } }, 400)
-        if (body.couponCode && hasSessionCookie(request) && env.AUTH_ENABLED !== 'true')
+        if (hasSessionCookie(request) && env.AUTH_ENABLED !== 'true')
           return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
-        const ownerSession = body.couponCode && hasSessionCookie(request) ? await customerSession(request, env) : null
-        if (body.couponCode && hasSessionCookie(request) && !ownerSession)
-          return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+        const ownerSession = hasSessionCookie(request) ? await customerSession(request, env) : null
+        if (hasSessionCookie(request) && !ownerSession) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
         return await dispatchCartCommand(env, {
           cartId,
           commandId: idempotencyKey,
@@ -1792,7 +1914,8 @@ export default {
             idempotencyKey,
             now: serverNow(),
             token,
-            ...(body.couponCode === undefined ? {} : { couponCode: body.couponCode, ownerSession })
+            ownerSession,
+            ...(body.couponCode === undefined ? {} : { couponCode: body.couponCode })
           },
           type: 'quote'
         })

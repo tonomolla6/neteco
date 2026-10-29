@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import AdminSearchMerchandisingRules from '../../components/AdminSearchMerchandisingRules.vue'
 import SearchSynonymsPanel from '../../components/SearchSynonymsPanel.vue'
+import AdminSemanticSearchEvaluation from '../../components/AdminSemanticSearchEvaluation.vue'
+import AdminPersonalizedRerankUplift from '../../components/AdminPersonalizedRerankUplift.vue'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Relevancia de búsqueda' })
 const runtime = useRuntimeConfig().public.serverRuntime
@@ -109,6 +111,8 @@ async function confirmRemove() {
   <div v-if="runtime === 'cloudflare'" class="space-y-8">
     <SearchSynonymsPanel :runtime="runtime" />
     <AdminSearchMerchandisingRules :runtime="runtime" />
+    <AdminSemanticSearchEvaluation :runtime="runtime" />
+    <AdminPersonalizedRerankUplift :runtime="runtime" />
   </div>
   <div v-else-if="runtime === 'node'" class="mx-auto max-w-4xl">
     <UiPageHeader

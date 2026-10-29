@@ -19,6 +19,7 @@
  */
 
 export const PRICE_INSTANT_TOKEN = '__NETECO_PRICING_INSTANT__'
+export const PRICE_CUSTOMER_TOKEN = '__NETECO_PRICING_CUSTOMER__'
 
 const ISO_UTC_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/
 
@@ -33,6 +34,8 @@ function isCanonicalUtcInstant(instant: string) {
 export interface EffectivePricingOptions {
   /** Pinned evaluation instant (ISO-8601 UTC). Tests only; never client input. */
   instant?: string
+  /** Resolved from a verified server session, never a request field. */
+  customerId?: string
 }
 
 export function resolvePricingInstant(options?: EffectivePricingOptions): string {
@@ -75,14 +78,19 @@ export function effectiveVersionIdExpression(variantRef: string): string {
 /** Parameterized form used by the Worker: every instant becomes a bound value. */
 export function parameterizeEffectivePricingSql(
   fragment: string,
-  instant: string
+  instant: string,
+  customerId?: string
 ): { sql: string; instantParameters: string[] } {
   const comparableInstant = resolvePricingInstant({ instant })
-  const count = fragment.split(PRICE_INSTANT_TOKEN).length - 1
-  return {
-    sql: fragment.replaceAll(PRICE_INSTANT_TOKEN, '?'),
-    instantParameters: Array(count).fill(new Date(comparableInstant).toISOString())
-  }
+  const instantParameters: string[] = []
+  const sql = fragment.replace(/__NETECO_PRICING_INSTANT__|__NETECO_PRICING_CUSTOMER__/g, (token) => {
+    if (token === PRICE_CUSTOMER_TOKEN) {
+      if (!customerId) throw new Error('Missing trusted pricing customer')
+      instantParameters.push(customerId)
+    } else instantParameters.push(new Date(comparableInstant).toISOString())
+    return '?'
+  })
+  return { sql, instantParameters }
 }
 
 /**
@@ -92,4 +100,51 @@ export function parameterizeEffectivePricingSql(
 export function inlineEffectivePricingSql(fragment: string, instant: string): string {
   if (!isCanonicalUtcInstant(instant)) throw new Error(`Invalid pricing instant: ${instant}`)
   return fragment.replaceAll(PRICE_INSTANT_TOKEN, `'${new Date(instant).toISOString()}'`)
+}
+
+/** The customer reference is a server-bound SQL parameter, never request SQL.
+ * The public winner remains the sole base for percentage discounts. */
+function b2bRuleExpression(variantRef: string, customerRef: string, field: 'gross' | 'version' | 'source'): string {
+  const publicGross = effectiveGrossCentsExpression(variantRef)
+  const publicVersion = effectiveVersionIdExpression(variantRef)
+  const factor = '(10000 - cr.discount_basis_points)'
+  // Divide first to avoid overflowing SQLite's integer multiplication.
+  const discounted = `MAX(1, ((${publicGross} / 10000) * ${factor} + ((${publicGross} % 10000) * ${factor} + 5000) / 10000))`
+  const projection =
+    field === 'gross'
+      ? `CASE WHEN vr.variant_id IS NOT NULL THEN vr.unit_gross_cents ELSE ${discounted} END`
+      : field === 'source'
+        ? `CASE WHEN vr.variant_id IS NOT NULL THEN 'b2b_variant' ELSE 'b2b_category' END`
+        : `CASE WHEN vr.variant_id IS NOT NULL THEN 'b2b:' || l.id || ':v' || l.version || ':a' || a.version || ':variant:' || ${variantRef}.id
+          ELSE 'b2b:' || l.id || ':v' || l.version || ':a' || a.version || ':category:' || p.category_id || ':' || ${publicVersion} END`
+  return `(SELECT ${projection}
+    FROM companies company
+    JOIN customers customer ON customer.id=company.customer_id AND customer.status='active'
+    JOIN b2b_company_assignments a ON a.company_id=company.id AND a.active=1
+    JOIN b2b_price_lists l ON l.id=a.price_list_id AND l.status='active'
+    JOIN products p ON p.id=${variantRef}.product_id
+    LEFT JOIN b2b_variant_rules vr ON vr.price_list_id=l.id AND vr.variant_id=${variantRef}.id
+    LEFT JOIN b2b_category_rules cr ON cr.price_list_id=l.id AND cr.category_id=p.category_id
+    WHERE customer.id=${customerRef} AND company.status='approved'
+      AND strftime('%Y-%m-%dT%H:%M:%fZ',a.valid_from)<=${PRICE_INSTANT_TOKEN}
+      AND (a.valid_until IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ',a.valid_until)>${PRICE_INSTANT_TOKEN})
+      AND strftime('%Y-%m-%dT%H:%M:%fZ',l.valid_from)<=${PRICE_INSTANT_TOKEN}
+      AND (l.valid_until IS NULL OR strftime('%Y-%m-%dT%H:%M:%fZ',l.valid_until)>${PRICE_INSTANT_TOKEN})
+      AND (vr.variant_id IS NOT NULL OR cr.category_id IS NOT NULL)
+    LIMIT 1)`
+}
+
+/** Contractual effective gross with public fallback; customerRef is trusted SQL. */
+export function effectiveB2BGrossCentsExpression(variantRef: string, customerRef: string): string {
+  return `COALESCE(${b2bRuleExpression(variantRef, customerRef, 'gross')}, ${effectiveGrossCentsExpression(variantRef)})`
+}
+
+/** Contractual identity embeds both tariff and assignment versions. */
+export function effectiveB2BVersionIdExpression(variantRef: string, customerRef: string): string {
+  return `COALESCE(${b2bRuleExpression(variantRef, customerRef, 'version')}, ${effectiveVersionIdExpression(variantRef)})`
+}
+
+/** Source is derived from matching rows, not from public version identifiers. */
+export function effectiveB2BSourceExpression(variantRef: string, customerRef: string): string {
+  return `COALESCE(${b2bRuleExpression(variantRef, customerRef, 'source')}, 'public')`
 }

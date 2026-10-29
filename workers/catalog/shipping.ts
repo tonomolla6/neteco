@@ -166,7 +166,7 @@ export async function resolveShippingOptions(
   ) {
     const goodsGross = approved
       ? approved.goods.grossCents
-      : await cartGoodsGrossCents(database, input.cartId, input.now)
+      : await cartGoodsGrossCents(database, input.cartId, input.now, input.ownerSession)
     options = mapShippingOptions(lines.results, results, input.destination, { threshold, goodsGross })
   }
   const calendar = await readD1ShippingCalendarConfiguration(database)

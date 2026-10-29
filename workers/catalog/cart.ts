@@ -28,7 +28,13 @@ import {
   type QuoteLineInput
 } from '../../server/domain/money'
 import { MAX_CART_QUANTITY } from '../../shared/cart-limits'
-import { effectiveGovernedVersionIdExpression, inlineEffectivePricingSql } from './pricing'
+import {
+  effectiveB2BGrossCentsExpression,
+  effectiveB2BSourceExpression,
+  effectiveB2BVersionIdExpression,
+  effectiveGovernedVersionIdExpression,
+  inlineEffectivePricingSql
+} from './pricing'
 import { parseVolumeTiers } from './volume-pricing'
 import { canonicalJson, sellableExpression, sha256Hex } from './inventory'
 import { publicationValidityExpression } from './publication-validity'
@@ -777,15 +783,13 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
   } catch {
     throw new CartError('invalid_input', 'couponCode is invalid')
   }
-  const customerId =
-    couponCode && input.ownerSession ? await activeOrderCustomerId(database, input.ownerSession, input.now) : null
-  if (couponCode && input.ownerSession && !customerId)
-    throw new CartError('unauthorized', 'Customer session is no longer active')
+  const customerId = input.ownerSession ? await activeOrderCustomerId(database, input.ownerSession, input.now) : null
+  if (input.ownerSession && !customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
   const payload = {
     kind: 'quote',
     cartId: input.cartId,
     expectedVersion: input.expectedVersion,
-    ...(couponCode ? { couponCode, customerId } : {})
+    ...(couponCode ? { couponCode, customerId } : customerId ? { customerId } : {})
   }
   const payloadHash = await canonicalPayloadHash(payload)
   const cart = await authorizeCart(database, input.cartId, input.token)
@@ -805,19 +809,22 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
   }
   if (cart.version !== input.expectedVersion) return { outcome: 'version_conflict', currentVersion: cart.version }
 
-  const resolved = await resolveQuoteLines(database, {
-    cartId: input.cartId,
-    instant: pricingInstant
-  })
-  if (!resolved.length) return { outcome: 'empty_cart' }
-
-  const promotion = couponCode ? await readPromotion(database, couponCode, customerId, input.now) : null
   const company = customerId
     ? await database
         .prepare("SELECT 1 AS approved FROM companies WHERE customer_id=?1 AND status='approved'")
         .bind(customerId)
         .first()
     : null
+  const resolved = await resolveQuoteLines(database, {
+    cartId: input.cartId,
+    instant: pricingInstant,
+    ...(customerId && company ? { customerId } : {})
+  })
+  if (!resolved.length) return { outcome: 'empty_cart' }
+  if (resolved.some((line) => line.unitGrossCents <= 0))
+    throw new CartError('invalid_input', 'A zero-price line cannot be quoted with the current checkout contract')
+
+  const promotion = couponCode ? await readPromotion(database, couponCode, customerId, input.now) : null
   const evaluated = promotion
     ? evaluatePromotion(promotion.rule, {
         now: input.now,
@@ -913,8 +920,47 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
     ...(evaluated?.eligible && promotion ? { promotionRuleHash: promotion.ruleHash } : {})
   })
 
+  const b2bGuardGross =
+    customerId && company ? inlineEffectivePricingSql(effectiveB2BGrossCentsExpression('v', '?6'), input.now) : ''
+  const b2bGuardVersion =
+    customerId && company ? inlineEffectivePricingSql(effectiveB2BVersionIdExpression('v', '?6'), input.now) : ''
   try {
     await database.batch([
+      ...(customerId && input.ownerSession
+        ? [
+            database
+              .prepare(
+                `INSERT INTO carts(id,token_hash,status,version,expires_at,correlation_id,created_at,updated_at)
+         SELECT 'b2b-guard:' || ?1, '0000000000000000000000000000000000000000000000000000000000000000',
+           'guard-impossible',1,'2026-01-01T00:00:00Z',?2,?3,?3
+         WHERE NOT EXISTS(SELECT 1 FROM auth_sessions s JOIN identities i ON i.id=s.identity_id
+           JOIN customers c ON c.id=i.customer_id AND c.status='active'
+           WHERE s.id=?4 AND s.identity_id=?5 AND c.id=?6 AND s.session_version=?7
+             AND i.session_version=s.session_version AND i.status='active' AND i.email_verified_at IS NOT NULL
+             AND i.email_verified_at<=?3 AND s.revoked_at IS NULL AND s.created_at<=?3 AND s.expires_at>?3)
+         OR EXISTS(SELECT 1 FROM companies company WHERE company.customer_id=?6 AND company.status='approved') <> ?9
+         ${
+           b2bGuardGross
+             ? `OR EXISTS(SELECT 1 FROM json_each(?8) expected
+           JOIN variants v ON v.id=json_extract(expected.value,'$.variantId')
+           WHERE ${b2bGuardGross} <> json_extract(expected.value,'$.baseUnitGrossCents')
+              OR ${b2bGuardVersion} <> json_extract(expected.value,'$.priceVersionId'))`
+             : 'AND ?8 IS NOT NULL'
+         }`
+              )
+              .bind(
+                input.idempotencyKey,
+                input.correlationId,
+                input.now,
+                input.ownerSession.sessionId,
+                input.ownerSession.identityId,
+                customerId,
+                input.ownerSession.sessionVersion,
+                JSON.stringify(resolved),
+                company ? 1 : 0
+              )
+          ]
+        : []),
       database
         .prepare(
           `INSERT INTO checkout_quotes (
@@ -1109,7 +1155,7 @@ export interface ResolvedLine {
 /** One aggregate query per quote: no N+1 across variants. */
 async function resolveQuoteLines(
   database: D1Database,
-  options: { cartId: string; instant: string }
+  options: { cartId: string; instant: string; customerId?: string }
 ): Promise<ResolvedLine[]> {
   const { results } = await prepareQuoteLinesStatement(database, options).all<RawResolvedLine>()
   return mapQuoteLines(results)
@@ -1123,7 +1169,9 @@ export type RawResolvedLine = Omit<ResolvedLine, 'backorderAllowed' | 'baseUnitG
  * Requested lines are parameterized JSON, never a temporary cart or caller prices. */
 export function prepareQuoteLinesStatement(
   database: D1Database,
-  options: { instant: string } & ({ cartId: string } | { lines: Array<{ variantId: string; quantity: number }> })
+  options: { instant: string; customerId?: string } & (
+    { cartId: string } | { lines: Array<{ variantId: string; quantity: number }> }
+  )
 ): D1PreparedStatement {
   const query = quoteLinesQuery(options)
   return database.prepare(query.sql).bind(...query.bindings)
@@ -1131,10 +1179,22 @@ export function prepareQuoteLinesStatement(
 
 /** Canonical prepared read shared with atomic, private recovery guards. */
 export function quoteLinesQuery(
-  options: { instant: string } & ({ cartId: string } | { lines: Array<{ variantId: string; quantity: number }> })
+  options: { instant: string; customerId?: string } & (
+    { cartId: string } | { lines: Array<{ variantId: string; quantity: number }> }
+  )
 ): { sql: string; bindings: string[] } {
   const priceVersionFragment = inlineEffectivePricingSql(effectiveGovernedVersionIdExpression('v'), options.instant)
   const requested = 'lines' in options
+  const contractual = Boolean(options.customerId)
+  const gross = contractual
+    ? inlineEffectivePricingSql(effectiveB2BGrossCentsExpression('v', '?2'), options.instant)
+    : 'COALESCE(price.gross_cents, v.price_gross_cents)'
+  const version = contractual
+    ? inlineEffectivePricingSql(effectiveB2BVersionIdExpression('v', '?2'), options.instant)
+    : "COALESCE(price.id, 'legacy:' || v.id)"
+  const source = contractual
+    ? inlineEffectivePricingSql(effectiveB2BSourceExpression('v', '?2'), options.instant)
+    : "'public'"
   return {
     sql: `${requested ? "WITH requested_lines AS (SELECT json_extract(value,'$.variantId') AS variant_id,json_extract(value,'$.quantity') AS quantity FROM json_each(?1))" : ''}
        SELECT cl.variant_id AS variantId, p.id AS productId, c.id AS categoryId,
@@ -1155,9 +1215,9 @@ export function quoteLinesQuery(
               v.unit_label AS unitLabel,
               v.backorder_allowed AS backorderAllowed,
               t.rate_basis_points AS taxRateBasisPoints,
-              COALESCE(price.gross_cents, v.price_gross_cents) AS unitGrossCents,
-              COALESCE(price.volume_tiers, '[]') AS volumeTiersJson,
-              COALESCE(price.id, 'legacy:' || v.id) AS priceVersionId,
+              ${gross} AS unitGrossCents,
+              CASE WHEN ${source}='public' THEN COALESCE(price.volume_tiers, '[]') ELSE '[]' END AS volumeTiersJson,
+              ${version} AS priceVersionId,
               (
                 SELECT TOTAL(${sellableExpression()})
                 FROM inventory_balances b
@@ -1172,7 +1232,10 @@ export function quoteLinesQuery(
        LEFT JOIN variant_price_versions price ON price.id = ${priceVersionFragment} AND price.variant_id = v.id
        ${requested ? '' : 'WHERE cl.cart_id = ?1'}
        ORDER BY cl.variant_id`,
-    bindings: [requested ? JSON.stringify(options.lines) : options.cartId]
+    bindings: [
+      requested ? JSON.stringify(options.lines) : options.cartId,
+      ...(options.customerId ? [options.customerId] : [])
+    ]
   }
 }
 
@@ -1202,8 +1265,21 @@ export function mapQuoteLines(results: RawResolvedLine[]): ResolvedLine[] {
 }
 
 /** Server-priced goods gross for shipping promotions; uses the quote's exact tier resolver. */
-export async function cartGoodsGrossCents(database: D1Database, cartId: string, instant: string): Promise<number> {
-  const lines = await resolveQuoteLines(database, { cartId, instant })
+export async function cartGoodsGrossCents(
+  database: D1Database,
+  cartId: string,
+  instant: string,
+  ownerSession?: VerifiedSessionClaims | null
+): Promise<number> {
+  const customerId = ownerSession ? await activeOrderCustomerId(database, ownerSession, instant) : null
+  if (ownerSession && !customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
+  const company = customerId
+    ? await database
+        .prepare("SELECT 1 FROM companies WHERE customer_id=?1 AND status='approved'")
+        .bind(customerId)
+        .first()
+    : null
+  const lines = await resolveQuoteLines(database, { cartId, instant, ...(company && customerId ? { customerId } : {}) })
   if (!lines.length) throw new CartError('empty_cart', 'Cannot price shipping for an empty cart')
   const gross = lines.reduce((sum, line) => sum + line.unitGrossCents * line.quantity, 0)
   if (!Number.isSafeInteger(gross) || gross < 0) throw new CartInfrastructureError('Cart gross exceeds safe range')

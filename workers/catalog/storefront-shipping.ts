@@ -185,7 +185,7 @@ export async function handleStorefrontShippingHttp(
       .split(';')
       .some((part) => part.trim().startsWith('neteco-session='))
     let ownerSession: VerifiedSessionClaims | null = null
-    if (body.couponCode && hasSession) {
+    if (hasSession) {
       if (!deps.authenticationEnabled || !deps.session) return json({ error: { code: 'service_unavailable' } }, 503)
       ownerSession = await deps.session(request)
       if (!ownerSession) return json({ error: { code: 'unauthorized' } }, 401)
@@ -211,7 +211,8 @@ export async function handleStorefrontShippingHttp(
         idempotencyKey: quoteKey,
         correlationId: 'storefront-shipping',
         now,
-        ...(body.couponCode === undefined ? {} : { couponCode: body.couponCode, ownerSession })
+        ownerSession,
+        ...(body.couponCode === undefined ? {} : { couponCode: body.couponCode })
       }
     })
     const quoted = await safeJson(quoteResponse)
@@ -231,7 +232,8 @@ export async function handleStorefrontShippingHttp(
         idempotencyKey: shippingKey,
         correlationId: 'storefront-shipping',
         destination,
-        now
+        now,
+        ownerSession
       }
     })
     const shipping = await safeJson(shippingResponse)

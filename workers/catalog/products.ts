@@ -1,5 +1,7 @@
 import {
   effectiveGrossCentsExpression,
+  effectiveB2BGrossCentsExpression,
+  PRICE_CUSTOMER_TOKEN,
   effectiveGovernedVersionIdExpression,
   parameterizeEffectivePricingSql,
   resolvePricingInstant,
@@ -302,7 +304,7 @@ export async function listPublishedProducts(
   const pricingSummary = parameterizeEffectivePricingSql(
     `WITH effective_variant_prices AS (
       SELECT variant.id AS variantId,
-             ${effectiveGrossCentsExpression('variant')} AS grossCents,
+             ${pricingOptions?.customerId ? effectiveB2BGrossCentsExpression('variant', PRICE_CUSTOMER_TOKEN) : effectiveGrossCentsExpression('variant')} AS grossCents,
              ${effectiveGovernedVersionIdExpression('variant')} AS versionId
       FROM variants variant
       WHERE variant.status = 'published'
@@ -310,8 +312,9 @@ export async function listPublishedProducts(
     variant_summary AS (
       SELECT priced.product_id,
              min(effective.grossCents) AS minPrice,
-             min(CAST(round((effective.grossCents * 10000.0) /
-                            (10000 + tax.rate_basis_points)) AS INTEGER)) AS minNetPrice,
+             min((effective.grossCents / (10000 + tax.rate_basis_points)) * 10000 +
+                 (((effective.grossCents % (10000 + tax.rate_basis_points)) * 20000 +
+                   (10000 + tax.rate_basis_points)) / (2 * (10000 + tax.rate_basis_points)))) AS minNetPrice,
              max(CASE WHEN version.id IS NULL THEN priced.compare_at_gross_cents
                   ELSE version.compare_at_gross_cents END) AS compareAtPrice,
              count(*) AS formats
@@ -322,7 +325,8 @@ export async function listPublishedProducts(
       WHERE priced.status = 'published'
       GROUP BY priced.product_id
     )`,
-    instant
+    instant,
+    pricingOptions?.customerId
   )
   const typedCtes = typed.filters.length ? publicTypedAttributeCtes(instant) : undefined
   const searchSummary = pricingSummary.sql + searchCte

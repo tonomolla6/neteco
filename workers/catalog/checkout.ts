@@ -40,6 +40,7 @@ import {
   type ReservationLineInput
 } from './inventory'
 import { validateQuantity } from '../../server/domain/money'
+import { effectiveB2BVersionIdExpression, inlineEffectivePricingSql } from './pricing'
 import { publicationValidityExpression } from './publication-validity'
 import { isD1CheckConstraintFailure } from '../runtime/d1-errors'
 import { customerTaxIdIsValid, normalizeCustomerTaxId } from '../../shared/customer-tax-validation'
@@ -157,10 +158,16 @@ export async function requestShippingOptions(
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new CartError('invalid_input', 'expectedVersion must be a positive integer')
 
+  const shippingCustomerId = input.ownerSession
+    ? await activeOrderCustomerId(database, input.ownerSession, input.now)
+    : null
+  if (input.ownerSession && !shippingCustomerId)
+    throw new CartError('unauthorized', 'Customer session is no longer active')
   const payload = {
     kind: 'shipping-options',
     destination,
     expectedVersion: input.expectedVersion,
+    ...(shippingCustomerId ? { customerId: shippingCustomerId } : {}),
     ...(input.salesQuote ? { salesQuote: input.salesQuote } : {})
   }
   const hash = await canonicalPayloadHash(payload)
@@ -889,7 +896,8 @@ export async function placeOrder(
       idempotencyKey: `revalidate:${await sha256Hex(`${input.idempotencyKey}:${input.now}`)}`,
       now: input.now,
       token: input.token,
-      ...(appliedPromotion ? { couponCode: appliedPromotion.rule.code, ownerSession: input.ownerSession } : {})
+      ownerSession: input.ownerSession,
+      ...(appliedPromotion ? { couponCode: appliedPromotion.rule.code } : {})
     })
     if (liveQuote.outcome === 'empty_cart') return { outcome: 'empty_cart' }
     if (liveQuote.outcome !== 'quoted') return revalidate(database, input, 'cart_state_changed')
@@ -1124,6 +1132,17 @@ export async function placeOrder(
     now: input.now
   })
   const calendarEligibility = await shippingCalendarCurrentPredicate(database, selected.eta, selected.etaValidUntil)
+  const approvedCompany =
+    customerId && !salesQuote
+      ? await database
+          .prepare("SELECT 1 AS approved FROM companies WHERE customer_id=?1 AND status='approved'")
+          .bind(customerId)
+          .first()
+      : null
+  const b2bCurrentVersion =
+    customerId && approvedCompany && !salesQuote
+      ? inlineEffectivePricingSql(effectiveB2BVersionIdExpression('variant', '?11'), input.now)
+      : null
   try {
     await database.batch([
       database
@@ -1282,6 +1301,8 @@ export async function placeOrder(
            )
            OR ${invalidQuotePublication.replaceAll('?3', '?9')}
            OR NOT ${calendarEligibility}
+           ${customerId && !salesQuote ? "OR EXISTS(SELECT 1 FROM companies company WHERE company.customer_id=?11 AND company.status='approved') <> ?12" : ''}
+           ${b2bCurrentVersion ? `OR EXISTS (SELECT 1 FROM checkout_quote_lines line JOIN variants variant ON variant.id=line.variant_id WHERE line.quote_id=?9 AND line.price_version_id<>${b2bCurrentVersion})` : ''}
            LIMIT 1`
         )
         .bind(
@@ -1294,7 +1315,8 @@ export async function placeOrder(
           hash,
           input.cartId,
           input.quoteId,
-          input.expectedVersion
+          input.expectedVersion,
+          ...(customerId && !salesQuote ? [customerId, approvedCompany ? 1 : 0] : [])
         )
     ])
   } catch (error) {

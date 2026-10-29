@@ -355,15 +355,16 @@ export async function handleCartCommand(
         if (!parsed.ok || parsed.input.cartId !== command.cartId)
           return { status: 400, body: { error: { code: 'invalid_input' } } }
         await assertCartAuthorized(deps.database, parsed.input.cartId, parsed.input.token)
-        // Coupon replay always checks LIVE customer authority and the durable
+        // Private and coupon replays always check LIVE customer authority and the durable
         // payload (normalized code + server-resolved owner), never the DO cache.
-        cacheHash = parsed.input.couponCode
-          ? null
-          : await canonicalPayloadHash({
-              cartId: parsed.input.cartId,
-              expectedVersion: parsed.input.expectedVersion,
-              type: 'quote'
-            })
+        cacheHash =
+          parsed.input.couponCode || parsed.input.ownerSession
+            ? null
+            : await canonicalPayloadHash({
+                cartId: parsed.input.cartId,
+                expectedVersion: parsed.input.expectedVersion,
+                type: 'quote'
+              })
         const cached = cacheHash ? await deps.getResponse(command.commandId) : undefined
         if (cached)
           return cached.payloadHash === cacheHash
@@ -387,13 +388,15 @@ export async function handleCartCommand(
           return { status: 400, body: { error: { code: 'invalid_input' } } }
         }
         await assertCartAuthorized(deps.database, parsed.input.cartId, parsed.input.token)
-        cacheHash = await canonicalPayloadHash({
-          cartId: parsed.input.cartId,
-          destination,
-          expectedVersion: parsed.input.expectedVersion,
-          type: 'shipping-options'
-        })
-        const cached = await deps.getResponse(command.commandId)
+        cacheHash = parsed.input.ownerSession
+          ? null
+          : await canonicalPayloadHash({
+              cartId: parsed.input.cartId,
+              destination,
+              expectedVersion: parsed.input.expectedVersion,
+              type: 'shipping-options'
+            })
+        const cached = cacheHash ? await deps.getResponse(command.commandId) : undefined
         if (cached)
           return cached.payloadHash === cacheHash
             ? { status: cached.status, body: cached.body as Record<string, unknown> }

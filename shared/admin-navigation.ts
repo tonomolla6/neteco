@@ -74,6 +74,18 @@ const sections: Array<{
       },
       { to: '/admin/soporte', label: 'Soporte', icon: 'i-lucide-life-buoy', permission: 'support.manage' },
       {
+        to: '/admin/soporte-chat',
+        label: 'Chat de soporte',
+        icon: 'i-lucide-messages-square',
+        permission: 'support.manage'
+      },
+      {
+        to: '/admin/gestor-cuentas',
+        label: 'Gestores de cuenta B2B',
+        icon: 'i-lucide-user-check',
+        permission: 'support.manage'
+      },
+      {
         to: '/admin/encuestas',
         label: 'Encuestas de entrega',
         icon: 'i-lucide-clipboard-check',
@@ -135,6 +147,12 @@ const sections: Array<{
         to: '/admin/analitica',
         label: 'Analítica',
         icon: 'i-lucide-chart-no-axes-combined',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/analitica?tab=payment_funnel',
+        label: 'Funnel de pagos',
+        icon: 'i-lucide-credit-card',
         permission: 'administration.manage'
       },
       {

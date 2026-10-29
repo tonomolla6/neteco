@@ -499,7 +499,11 @@ try {
   assert(migrations.includes('0097_carrier_resilience.sql'))
   assert(migrations.includes('0098_delivery_surveys.sql'))
   assert(migrations.includes('0099_analytics_cohorts.sql'))
-  assert(migrations.length >= 99, 'Native shop audit requires the complete migration set')
+  assert(migrations.includes('0100_csp_violation_reports.sql'))
+  assert(migrations.includes('0102_support_live_chat_and_account_managers.sql'))
+  assert(migrations.includes('0103_payment_funnel.sql'))
+  assert(migrations.includes('0104_semantic_search_and_rerank.sql'))
+  assert(migrations.length >= 104, 'Native shop audit requires the complete migration set')
   for (const migration of migrations) {
     scenario = `migration_${migration.replace(/\.sql$/, '')}`
     await applySql(await readFile(join(migrationsDirectory, migration), 'utf8'))

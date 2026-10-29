@@ -10,6 +10,10 @@ import {
 } from './publication-validity'
 import {
   effectiveGrossCentsExpression,
+  effectiveB2BGrossCentsExpression,
+  effectiveB2BSourceExpression,
+  effectiveB2BVersionIdExpression,
+  PRICE_CUSTOMER_TOKEN,
   effectiveGovernedVersionIdExpression,
   parameterizeEffectivePricingSql,
   resolvePricingInstant,
@@ -137,15 +141,21 @@ export async function getPublishedProductDetail(
     .first<ProductRow>()
   if (!product) return null
 
-  const selectedVersion = parameterizeEffectivePricingSql(effectiveGovernedVersionIdExpression('v'), instant)
-  const variantQuery = database
-    .prepare(
-      `SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.ean, v.gtin, v.mpn,
-        COALESCE(pv.gross_cents, v.price_gross_cents) AS price,
+  const selectedVersion = effectiveGovernedVersionIdExpression('v')
+  const b2bGross = pricingOptions?.customerId
+    ? effectiveB2BGrossCentsExpression('v', PRICE_CUSTOMER_TOKEN)
+    : 'COALESCE(pv.gross_cents, v.price_gross_cents)'
+  const b2bVersion = pricingOptions?.customerId
+    ? effectiveB2BVersionIdExpression('v', PRICE_CUSTOMER_TOKEN)
+    : "COALESCE(pv.id, 'legacy:' || v.id)"
+  const b2bSource = pricingOptions?.customerId ? effectiveB2BSourceExpression('v', PRICE_CUSTOMER_TOKEN) : "'public'"
+  const variantSql = parameterizeEffectivePricingSql(
+    `SELECT v.id AS uuid, v.legacy_id AS id, v.format, v.sku, v.ean, v.gtin, v.mpn,
+        ${b2bGross} AS price,
         CASE WHEN pv.id IS NULL THEN v.compare_at_gross_cents ELSE pv.compare_at_gross_cents END AS compareAtPrice,
         pv.reference_gross_cents_30d AS referencePrice30d,
-        COALESCE(pv.volume_tiers, '[]') AS priceTiersJson,
-        COALESCE(pv.id, 'legacy:' || v.id) AS pricingVersion,
+        CASE WHEN ${b2bSource}='public' THEN COALESCE(pv.volume_tiers, '[]') ELSE '[]' END AS priceTiersJson,
+        ${b2bVersion} AS pricingVersion,
         tax.rate_basis_points AS taxRateBasisPoints,
         COALESCE((SELECT SUM(${sellableExpression()}) FROM inventory_balances b WHERE b.variant_id = v.id), 0) AS stock,
         v.content_quantity AS units, v.unit_base AS unitBase, v.unit_label AS unitLabel,
@@ -155,11 +165,15 @@ export async function getPublishedProductDetail(
         v.lead_time_days AS leadTimeDays, v.color, v.image
       FROM variants v
       JOIN tax_classes tax ON tax.id = v.tax_class_id
-      LEFT JOIN variant_price_versions pv ON pv.id = ${selectedVersion.sql} AND pv.variant_id = v.id
+      LEFT JOIN variant_price_versions pv ON pv.id = ${selectedVersion} AND pv.variant_id = v.id
       WHERE v.product_id = ? AND v.status = 'published' AND v.legacy_id IS NOT NULL
-      ORDER BY v.legacy_id`
-    )
-    .bind(...selectedVersion.instantParameters, product.uuid)
+      ORDER BY v.legacy_id`,
+    instant,
+    pricingOptions?.customerId
+  )
+  const variantQuery = database
+    .prepare(variantSql.sql)
+    .bind(...variantSql.instantParameters, product.uuid)
     .all<VariantRow>()
 
   const siblingQuery = product.series
@@ -191,7 +205,13 @@ export async function getPublishedProductDetail(
     .bind(product.categoryUuid)
     .all<{ name: string; slug: string }>()
 
-  const relatedPrice = parameterizeEffectivePricingSql(effectiveGrossCentsExpression('v'), instant)
+  const relatedPrice = parameterizeEffectivePricingSql(
+    pricingOptions?.customerId
+      ? effectiveB2BGrossCentsExpression('v', PRICE_CUSTOMER_TOKEN)
+      : effectiveGrossCentsExpression('v'),
+    instant,
+    pricingOptions?.customerId
+  )
   const relatedQuery = database
     .prepare(
       `WITH prices AS (
