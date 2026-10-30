@@ -62,7 +62,7 @@ export async function handleHighValueConsentHttp(
       request,
       deps.edgeLimiter,
       deps.rateLimitPepper,
-      'admin-customers'
+      'admin-customer-context'
     )
     if (limited !== 'allowed')
       return error(limited === 'limited' ? 'rate_limited' : 'unavailable', limited === 'limited' ? 429 : 503)

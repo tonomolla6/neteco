@@ -1,5 +1,6 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
 import { checkAdministrativeEdgeLimit } from '../auth/edge-limit'
+import { referralEnrollSchema } from '../../shared/referrals'
 import {
   readD1ReferralPolicy,
   updateD1ReferralPolicy,
@@ -17,6 +18,8 @@ export interface ReferralsHttpDependencies {
   origin?: string
   edgeLimiter?: RateLimit
   rateLimitPepper?: string
+  /** SEC-036 pseudonymisation pepper; referral attribution fails closed (503) without it. */
+  fraudPepper?: string
   now?: string | (() => string)
 }
 
@@ -74,6 +77,8 @@ function mapReferralError(err: unknown) {
         return errorResponse('forbidden', 403)
       case 'not_found':
         return errorResponse('not_found', 404)
+      case 'security_configuration_missing':
+        return errorResponse('security_configuration_missing', 503)
       case 'conflict':
         return errorResponse('conflict', 409)
       case 'version_conflict':
@@ -173,19 +178,32 @@ export async function handleReferralsHttp(request: Request, deps: ReferralsHttpD
 
     if (request.method === 'POST' && path === '/api/account/referrals/enroll') {
       const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      // Consent time is the server clock; a client-supplied consentedAt is never trusted.
+      const enrolment = referralEnrollSchema.safeParse(body)
+      if (!enrolment.success) return errorResponse('invalid_input', 400)
       const result = await enrollD1ReferralAdvocate(deps.database, claims, {
-        ...(body as unknown as Parameters<typeof enrollD1ReferralAdvocate>[2]),
+        termsVersion: enrolment.data.termsVersion,
         now
       })
       return jsonResponse({ enrollment: result }, 200)
     }
 
     if (request.method === 'POST' && path === '/api/account/referrals/attribute') {
+      if (!deps.fraudPepper || deps.fraudPepper.length < 32) return errorResponse('security_configuration_missing', 503)
       const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
-      const result = await attributeD1ReferralOrder(deps.database, {
-        ...(body as unknown as Parameters<typeof attributeD1ReferralOrder>[1]),
-        now
-      })
+      // The referee is the authenticated customer; identity and order ownership never come from the body.
+      const result = await attributeD1ReferralOrder(
+        deps.database,
+        {
+          commandId: body.commandId as string,
+          idempotencyKey: body.idempotencyKey as string,
+          referralCode: body.referralCode as string,
+          orderId: body.orderId as string,
+          refereeCustomerId: customerId,
+          now
+        },
+        { fraudPepper: deps.fraudPepper }
+      )
       return jsonResponse({ attribution: result }, 201)
     }
 

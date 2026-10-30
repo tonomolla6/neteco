@@ -234,6 +234,7 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
       'shippingAddress',
       'billingAddress',
       'paymentMethod',
+      'marketCheckout',
       'termsAccepted',
       'privacyNoticePresented',
       'marketingConsent'
@@ -284,6 +285,30 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
   if (hasSession && !ownerSession) return unauthorized()
   if (body.paymentMethod === 'transferencia' && !ownerSession)
     return json({ error: { code: 'method_unavailable' } }, 422)
+  // The buyer only names the market profile version and terms they saw; tax, fees and methods are re-read server-side.
+  let marketCheckout: Record<string, unknown> | null = null
+  if (body.marketCheckout !== undefined) {
+    const selected = record(body.marketCheckout)
+    if (
+      !selected ||
+      !onlyKeys(selected, ['market', 'version', 'termsVersion']) ||
+      typeof selected.market !== 'string' ||
+      !/^[A-Z]{2}$/.test(selected.market) ||
+      !Number.isSafeInteger(selected.version) ||
+      (selected.version as number) < 1 ||
+      typeof selected.termsVersion !== 'string' ||
+      !/^[a-zA-Z0-9_-]{3,100}$/.test(selected.termsVersion)
+    )
+      return invalid()
+    // Bizum is a Spanish instrument; account transfer maps to the B2B credit method.
+    if (body.paymentMethod === 'bizum') return json({ error: { code: 'method_unavailable' } }, 422)
+    marketCheckout = {
+      market: selected.market,
+      version: selected.version,
+      termsVersion: selected.termsVersion,
+      paymentMethod: body.paymentMethod === 'transferencia' ? 'credit' : 'card'
+    }
+  }
   const now = deps.now?.() ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   // Authentication comes before the DO's durable replay lookup.
   await getCart(deps.database, { ...identity, now })
@@ -331,7 +356,8 @@ async function createOrder(request: Request, deps: StorefrontCheckoutDeps): Prom
       correlationId: 'storefront-checkout',
       now,
       ownerSession,
-      ...(body.paymentMethod === 'transferencia' ? { paymentMethod: 'credit' } : {})
+      ...(body.paymentMethod === 'transferencia' ? { paymentMethod: 'credit' } : {}),
+      ...(marketCheckout ? { marketCheckout } : {})
     }
   })
   const result: unknown = await response.json().catch(() => null)

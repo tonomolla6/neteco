@@ -126,6 +126,13 @@ import { inventoryCommandReceiptSchema } from '../shared/inventory-commands'
 import { catalogPolicyOwnJson } from '../shared/catalog-publication-policy'
 import { verifySessionCookie } from './auth/session-cookie'
 import { handlePaymentHttp, paymentInventoryGateway } from './payments/http'
+import { handleWalletHttp, walletAppleAssociationFromEnv, walletEvidenceFromEnv } from './payments/wallet-http'
+import { handleTokenizationHttp, ownsSavedCardsNamespace } from './payments/tokenization-http'
+import { captureTokenAfterPayment } from './payments/tokenization'
+import { configuredTokenization, type TokenizationRuntime } from './payments/tokenization-runtime'
+import { handlePreauthHttp, isPreauthNotificationPath, ownsPreauthNamespace } from './payments/preauth-http'
+import { configuredPreauth, type PreauthRuntime } from './payments/preauth-runtime'
+import { sweepPreauthorizations } from './payments/preauth'
 import { handlePaymentFunnelHttp, ownsPaymentFunnelNamespace } from './payments/funnel-http'
 import { recoverAuthorisedPayments, type PaymentRuntimeConfiguration } from './catalog/payments'
 import { publishFiscalOutbox, receiveFiscalEvaluation, reconcileFiscalDelivery } from './catalog/fiscal-outbox'
@@ -158,6 +165,7 @@ import { handleEventsHttp, ownsEventsNamespace } from './marketing/events-http'
 import { handleReferralsHttp, ownsReferralsNamespace } from './marketing/referrals-http'
 import { handleQuickOrderCompanyHttp, ownsQuickOrderCompanyNamespace } from './catalog/quick-order-company-http'
 import { handlePromoFraudHttp, ownsPromoFraudNamespace } from './security/promo-fraud-http'
+import { purgePromoFraudSignals } from './security/promo-fraud'
 import {
   handleMarketingAutomationsHttp,
   ownsMarketingAutomationsNamespace
@@ -186,7 +194,7 @@ import {
 import { handleProductMediaGuidesHttp, ownsProductMediaGuidesNamespace } from './catalog/product-media-guides-http'
 import { handleProductReviewsQaHttp, ownsProductReviewsQaNamespace } from './catalog/product-reviews-qa-http'
 import { handleProductRecallHttp } from './catalog/product-recall-http'
-import { handleCheckoutMarketHttp } from './catalog/market-checkout-http'
+import { handleCheckoutMarketHttp, handlePublicCheckoutMarketHttp } from './catalog/market-checkout-http'
 import { handleB2BHttp } from './catalog/b2b-http'
 import { handleHighValueConsentHttp } from './communications/high-value-consent-http'
 import { handleHighValueMessagesHttp } from './communications/high-value-messages-http'
@@ -227,7 +235,8 @@ import {
 } from './observability/warehouse-route-telemetry-http'
 import { handlePaymentTokenRemovalHttp } from './payments/token-removal-http'
 import { handlePayGoldLinksHttp } from './payments/paygold-links-http'
-import { configuredPayGoldIssue, type PayGoldRuntime } from './payments/paygold-runtime'
+import { handlePayGoldDraftHttp } from './payments/paygold-draft-http'
+import { configuredPayGoldDraftIssue, configuredPayGoldIssue, type PayGoldRuntime } from './payments/paygold-runtime'
 import { runConfiguredTokenRemovalRecovery, type TokenRemovalRuntime } from './payments/token-removal-runtime'
 import { handleSecurityControlsHttp, ownsSecurityControlsNamespace } from './security/security-controls-http'
 import { handleSeoHttp, ownsSeoNamespace } from './seo/seo-http'
@@ -720,6 +729,15 @@ export default {
       const result = await recoverAuthorisedPayments(env.DB, { now, limit: 25 }, paymentInventoryGateway(env))
       console.log(JSON.stringify({ event: 'payments.recovery', ...result }))
     })
+    {
+      const preauth = configuredPreauth(env as CloudflareEnv & PreauthRuntime, paymentConfiguration(env), () => now)
+      if (preauth)
+        await stage('payments.preauth', async () => {
+          const result = await sweepPreauthorizations(preauth)
+          console.log(JSON.stringify({ event: 'payments.preauth', ...result }))
+          if (result.failed > 0) throw new Error('payment_preauth_sweep_failed')
+        })
+    }
     if ((env as CloudflareEnv & TokenRemovalRuntime).PAYMENT_TOKEN_REMOVAL_ENABLED === 'true') {
       await stage('payments.token-removal', async () => {
         const result = await runConfiguredTokenRemovalRecovery(env as CloudflareEnv & TokenRemovalRuntime, now)
@@ -843,6 +861,13 @@ export default {
       const result = await dispatchConfiguredCartRecoveries(env, now)
       console.log(JSON.stringify({ event: 'cart-recovery.dispatch', ...result }))
     })
+    // SEC-036: retention of pseudonymised promo-fraud signals (90 days); cases and audit events are kept.
+    if (env.AUTH_ENABLED === 'true') {
+      await stage('security.promo-fraud-retention', async () => {
+        const result = await purgePromoFraudSignals(env.DB, { now })
+        console.log(JSON.stringify({ event: 'security.promo-fraud-retention', ...result }))
+      })
+    }
     await stage('analytics.maintenance', async () => {
       const analytics = await dispatchConfiguredAnalytics(env, serverNow)
       console.log(JSON.stringify({ event: 'analytics.maintenance.dispatch', ...analytics }))
@@ -1829,6 +1854,18 @@ export default {
       })
       if (crm) return crm
     }
+    if (ownsPreauthNamespace(path) || isPreauthNotificationPath(path)) {
+      // PAY-021: off by default; owned here so no legacy handler can shadow the admin or bank routes.
+      const preauth = await handlePreauthHttp(request, {
+        preauth: configuredPreauth(env as CloudflareEnv & PreauthRuntime, paymentConfiguration(env), serverNow),
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSessionOrNull(env),
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      return preauth ?? privateJson({ error: { code: 'not_found' } }, 404)
+    }
     if (ownsPaymentFunnelNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
       const limited = await checkAdministrativeEdgeLimit(
@@ -2051,7 +2088,8 @@ export default {
       return handleReferralsHttp(request, {
         database: env.DB,
         sessionCookieConfiguration: mountSession(env),
-        origin: env.AUTH_ORIGIN
+        origin: env.AUTH_ORIGIN,
+        fraudPepper: env.AUTH_RATE_LIMIT_PEPPER
       })
     }
     if (ownsMarketingAutomationsNamespace(path)) {
@@ -2633,15 +2671,48 @@ export default {
       }
       const issue = configuredPayGoldIssue(env as CloudflareEnv & PayGoldRuntime, paymentConfiguration(env), serverNow)
       if (env.AUTH_ENABLED !== 'true' || !issue) return privateFailure('service_unavailable', 503)
+      const draftIssue = configuredPayGoldDraftIssue(
+        env as CloudflareEnv & PayGoldRuntime,
+        paymentConfiguration(env),
+        serverNow
+      )
+      const draft = draftIssue
+        ? await handlePayGoldDraftHttp(request, {
+            database: env.DB,
+            sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+            origin: env.AUTH_ORIGIN,
+            now: serverNow,
+            issue: draftIssue
+          })
+        : null
+      if (draft) return draft
       return (
         (await handlePayGoldLinksHttp(request, {
           database: env.DB,
           sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
           origin: env.AUTH_ORIGIN,
           now: serverNow,
-          issue
+          issue,
+          recover: issue.recover
         })) ?? privateFailure('not_found', 404)
       )
+    }
+    if (ownsSavedCardsNamespace(path)) {
+      // PAY-022: closed unless bank support, PCI review and self-service removal are all configured.
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const saved = await handleTokenizationHttp(request, {
+        tokenization: configuredTokenization(
+          env as CloudflareEnv & TokenizationRuntime,
+          paymentConfiguration(env),
+          paymentInventoryGateway(env),
+          serverNow
+        ),
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      return saved ?? privateJson({ error: { code: 'not_found' } }, 404)
     }
     if (path === '/api/account/payment-tokens' || path.startsWith('/api/account/payment-tokens/')) {
       const unavailable = authUnavailable(env)
@@ -2831,6 +2902,12 @@ export default {
         : {})
     })
     if (storefrontCheckoutResponse) return storefrontCheckoutResponse
+    const publicCheckoutMarketResponse = await handlePublicCheckoutMarketHttp(request, {
+      database: env.DB,
+      edgeLimiter: env.CART_EDGE_LIMIT,
+      rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+    })
+    if (publicCheckoutMarketResponse) return publicCheckoutMarketResponse
     const lifecycleResponse = await handleIdentityLifecycleHttp(request, {
       database: env.DB,
       edgeLimiter: env.AUTH_EDGE_LIMIT,
@@ -2916,11 +2993,30 @@ export default {
     })
     if (mediaResponse) return mediaResponse
     const url = new URL(request.url)
+    const walletEnv = env as CloudflareEnv & Record<string, unknown>
+    const walletResponse = await handleWalletHttp(request, {
+      database: env.DB,
+      now: serverNow,
+      configuration: () => paymentConfiguration(env),
+      evidence: () => walletEvidenceFromEnv(walletEnv),
+      appleDomainAssociation: () => walletAppleAssociationFromEnv(walletEnv)
+    })
+    if (walletResponse) return walletResponse
+    const tokenization = configuredTokenization(
+      env as CloudflareEnv & TokenizationRuntime,
+      paymentConfiguration(env),
+      paymentInventoryGateway(env),
+      serverNow
+    )
     const paymentResponse = await handlePaymentHttp(request, {
       database: env.DB,
       now: serverNow,
       inventory: paymentInventoryGateway(env),
-      configuration: () => paymentConfiguration(env)
+      configuration: () => paymentConfiguration(env),
+      // PAY-022: a bank token is kept only for a payment with recorded consent, and only after capture.
+      ...(tokenization
+        ? { afterCaptured: (envelope) => captureTokenAfterPayment(envelope, tokenization).then(() => undefined) }
+        : {})
     })
     if (paymentResponse) return paymentResponse
     if (request.method === 'GET' && url.pathname === '/api/categories') {
@@ -3220,6 +3316,7 @@ export default {
             selectedOptionHash: String(body.selectedOptionHash ?? ''),
             selectedOptionIndex: body.selectedOptionIndex,
             expectedTotalGrossCents: body.expectedTotalGrossCents,
+            marketCheckout: body.marketCheckout,
             shippingAddress: body.shippingAddress ?? null,
             shippingQuoteId: String(body.shippingQuoteId ?? ''),
             token,

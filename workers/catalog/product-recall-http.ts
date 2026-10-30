@@ -19,9 +19,11 @@ const bodySchema = z
       .int()
       .min(0)
       .max(Number.MAX_SAFE_INTEGER - 1),
-    action: z.enum(['open', 'communicate', 'resolve']),
+    action: z.enum(['open', 'communicate', 'trace', 'resolve']),
     orderId: z.string().uuid().optional(),
     lineIndex: z.number().int().min(0).optional(),
+    targetLotId: z.string().uuid().optional(),
+    quantity: z.number().int().min(1).max(999).optional(),
     evidence: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/)
   })
   .strict()
@@ -59,21 +61,29 @@ export async function handleProductRecallHttp(
       (request.method === 'POST' && request.headers.get('origin') !== deps.origin)
     )
       return error('csrf_rejected', 403)
-    if ([...url.searchParams.keys()].some(key => request.method !== 'GET' || !['limit', 'after'].includes(key) || url.searchParams.getAll(key).length !== 1)) return error('invalid_input', 400)
+    if (
+      [...url.searchParams.keys()].some(
+        (key) =>
+          request.method !== 'GET' || !['limit', 'after'].includes(key) || url.searchParams.getAll(key).length !== 1
+      )
+    )
+      return error('invalid_input', 400)
     const limitText = url.searchParams.get('limit')
     if (limitText !== null && !/^[1-9]\d{0,2}$/.test(limitText)) return error('invalid_input', 400)
-    const limited = await checkAdministrativeEdgeLimit(
-      request,
-      deps.edgeLimiter,
-      deps.rateLimitPepper,
-      'admin-customers'
-    )
+    const limited = await checkAdministrativeEdgeLimit(request, deps.edgeLimiter, deps.rateLimitPepper, 'admin-orders')
     if (limited !== 'allowed')
       return error(limited === 'limited' ? 'rate_limited' : 'unavailable', limited === 'limited' ? 429 : 503)
     const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
     if (!claims) return error('unauthenticated', 401)
     const options = { now: deps.now }
-    if (request.method === 'GET') return json(await readProductRecall(deps.database, claims, match[1]!, { ...options, ...(limitText === null ? {} : { limit: Number(limitText) }), ...(url.searchParams.has('after') ? { after: url.searchParams.get('after')! } : {}) }))
+    if (request.method === 'GET')
+      return json(
+        await readProductRecall(deps.database, claims, match[1]!, {
+          ...options,
+          ...(limitText === null ? {} : { limit: Number(limitText) }),
+          ...(url.searchParams.has('after') ? { after: url.searchParams.get('after')! } : {})
+        })
+      )
     const key = request.headers.get('idempotency-key')
     if (
       !key ||

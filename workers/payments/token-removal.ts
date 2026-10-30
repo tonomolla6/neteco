@@ -34,13 +34,16 @@ export async function listPaymentTokens(db: D1Database, claims: VerifiedSessionC
   const rows = await db
     .prepare(
       `SELECT id,status,version,created_at AS createdAt FROM payment_saved_tokens
-    WHERE customer_id=? AND status='active' ORDER BY created_at,id LIMIT 101`
+    WHERE customer_id=? AND status IN ('active','removal_pending') ORDER BY created_at,id LIMIT 101`
     )
     .bind(customer)
     .all()
   if (!rows.success || rows.results.length > 100) throw new PaymentTokenError('unavailable')
   if ((await owner(db, claims, clock(options))) !== customer) throw new PaymentTokenError('unauthenticated')
-  return { tokens: rows.results }
+  return {
+    tokens: rows.results.filter((row) => (row as { status: string }).status === 'active'),
+    pending: rows.results.filter((row) => (row as { status: string }).status === 'removal_pending')
+  }
 }
 async function receipt(db: D1Database, customer: string, commandId: string) {
   return db
@@ -134,6 +137,14 @@ export async function requestPaymentTokenRemoval(
         WHERE customer_id=?1 AND command_id=?2`
         )
         .bind(customer, input.commandId),
+      // Consent is withdrawn in the same transaction that disables the token.
+      db
+        .prepare(
+          `INSERT INTO payment_token_consent_events(token_id,event,customer_id,consent_version,created_at)
+        SELECT id,'revoked',customer_id,consent_version,?4 FROM payment_saved_tokens
+        WHERE id=?6 AND customer_id=?5 AND status='removal_pending' AND version=?7+1 AND ${authority}`
+        )
+        .bind(...args),
       db
         .prepare(
           `INSERT INTO payment_token_guards(id,valid) SELECT ?8,CASE WHEN ${authority} AND EXISTS(

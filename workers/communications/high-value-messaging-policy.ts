@@ -34,11 +34,16 @@ const inputSchema = z.discriminatedUnion('channel', [
     .strict()
 ])
 const messages = {
-  recall: 'NETECO: Hay un aviso importante sobre un producto. Contacte con nuestro servicio de atención.',
-  delivery_exception:
-    'NETECO: Hay una incidencia importante con una entrega. Contacte con nuestro servicio de atención.',
-  security_alert: 'NETECO: Hay un aviso de seguridad. Contacte con nuestro servicio de atención.'
+  recall: 'NETECO: Aviso de producto. Contacte con atencion al cliente.',
+  delivery_exception: 'NETECO: Incidencia de entrega. Contacte con atencion al cliente.',
+  security_alert: 'NETECO: Aviso de seguridad. Contacte con atencion al cliente.'
 } as const
+
+export function highValueMessageText(event: unknown): string {
+  const parsed = common.event.safeParse(event)
+  if (!parsed.success) throw new Error('invalid_input')
+  return messages[parsed.data]
+}
 
 export function evaluateHighValueMessage(raw: unknown) {
   const parsed = inputSchema.safeParse(raw)

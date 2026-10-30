@@ -785,3 +785,85 @@ describe('Cloudflare storefront checkout bridge', () => {
     expect(await expiredRecovery?.json()).toEqual({ error: { code: 'unauthorized' } })
   })
 })
+
+describe('storefront checkout market selection', () => {
+  const ok = () =>
+    vi.fn(async (_command: Record<string, unknown>) =>
+      Response.json({ outcome: 'order_created', body: { id: ORDER_KEY, orderToken: 'a'.repeat(64), createdAt: NOW } })
+    )
+  const selection = { market: 'DE', version: 3, termsVersion: 'de-terms-v1' }
+  const gbAddress = (w: Awaited<ReturnType<typeof world>>) => ({
+    ...(w.body.shippingAddress as Record<string, unknown>),
+    countryCode: 'DE'
+  })
+  it('forwards the buyer selection with the payment method mapped to the market vocabulary', async () => {
+    const w = await world()
+    const dispatch = ok()
+    const address = gbAddress(w)
+    const response = await handleStorefrontCheckoutHttp(
+      w.request(
+        '/api/orders',
+        { ...w.body, shippingAddress: address, billingAddress: address, marketCheckout: selection },
+        w.cartCookie
+      ),
+      { ...w.deps, dispatch }
+    )
+    expect(response?.status).toBe(201)
+    const payload = (dispatch.mock.calls[0]![0] as { payload: Record<string, unknown> }).payload
+    expect(payload.marketCheckout).toEqual({ ...selection, paymentMethod: 'card' })
+    expect(payload.shippingAddress).toMatchObject({ countryCode: 'DE' })
+  })
+  it('does not add a market selection to the legacy command', async () => {
+    const w = await world()
+    const dispatch = ok()
+    await handleStorefrontCheckoutHttp(w.request('/api/orders', w.body, w.cartCookie), { ...w.deps, dispatch })
+    expect((dispatch.mock.calls[0]![0] as { payload: Record<string, unknown> }).payload).not.toHaveProperty(
+      'marketCheckout'
+    )
+  })
+  it('maps account transfer to the credit method only for an authenticated buyer', async () => {
+    const w = await world(true)
+    const dispatch = ok()
+    const response = await handleStorefrontCheckoutHttp(
+      w.request(
+        '/api/orders',
+        { ...w.body, paymentMethod: 'transferencia', marketCheckout: selection },
+        w.cartCookie + '; neteco-session=synthetic'
+      ),
+      { ...w.deps, dispatch }
+    )
+    expect(response?.status).toBe(201)
+    expect((dispatch.mock.calls[0]![0] as { payload: Record<string, unknown> }).payload.marketCheckout).toMatchObject({
+      paymentMethod: 'credit'
+    })
+  })
+  it('does not offer Bizum outside Spain', async () => {
+    const w = await world()
+    const dispatch = ok()
+    const response = await handleStorefrontCheckoutHttp(
+      w.request('/api/orders', { ...w.body, paymentMethod: 'bizum', marketCheckout: selection }, w.cartCookie),
+      { ...w.deps, dispatch }
+    )
+    expect(response?.status).toBe(422)
+    expect(await response!.json()).toEqual({ error: { code: 'method_unavailable' } })
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+  it.each([
+    ['extra key', { ...selection, currency: 'USD' }],
+    ['lowercase market', { ...selection, market: 'de' }],
+    ['zero version', { ...selection, version: 0 }],
+    ['fractional version', { ...selection, version: 1.5 }],
+    ['bad terms', { ...selection, termsVersion: 'x y' }],
+    ['array', [selection]],
+    ['null', null]
+  ])('rejects a malformed selection before dispatch (%s)', async (_name, marketCheckout) => {
+    const w = await world()
+    const dispatch = ok()
+    const response = await handleStorefrontCheckoutHttp(
+      w.request('/api/orders', { ...w.body, marketCheckout }, w.cartCookie),
+      { ...w.deps, dispatch }
+    )
+    expect(response?.status).toBe(400)
+    expect(dispatch).not.toHaveBeenCalled()
+  })
+})

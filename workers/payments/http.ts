@@ -6,6 +6,7 @@ import {
   type PaymentRuntimeConfiguration
 } from '../catalog/payments'
 import { INVENTORY_COORDINATOR_NAME, type AssignResult } from '../catalog/inventory'
+import type { RedsysEnvelope } from './redsys'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -72,6 +73,8 @@ export interface PaymentHttpDependencies {
   configuration: () => PaymentRuntimeConfiguration | null
   inventory: PaymentInventoryGateway
   now: () => string
+  /** PAY-022: optional hook run only after a verified, captured notification; a failure makes the bank retry. */
+  afterCaptured?: (envelope: RedsysEnvelope, now: string) => Promise<void>
 }
 
 /** Returns null for unrelated routes. Bank return URLs never mutate payments. */
@@ -128,17 +131,19 @@ export async function handlePaymentHttp(request: Request, deps: PaymentHttpDepen
       fields.some((key) => form.getAll(key).length !== 1)
     )
       return json({ error: { code: 'invalid_notification' } }, 400)
+    const envelope: RedsysEnvelope = {
+      Ds_MerchantParameters: form.get('Ds_MerchantParameters')!,
+      Ds_SignatureVersion: form.get('Ds_SignatureVersion')!,
+      Ds_Signature: form.get('Ds_Signature')!
+    }
     const result = await processRedsysNotification(
       deps.database,
-      {
-        Ds_MerchantParameters: form.get('Ds_MerchantParameters')!,
-        Ds_SignatureVersion: form.get('Ds_SignatureVersion')!,
-        Ds_Signature: form.get('Ds_Signature')!
-      },
+      envelope,
       configuration,
       { correlationId, now },
       deps.inventory
     )
+    if (result.outcome === 'captured' && deps.afterCaptured) await deps.afterCaptured(envelope, now)
     if (result.outcome === 'mismatch') return json({ error: { code: 'invalid_notification' } }, 422)
     return new Response('OK', { headers: { 'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8' } })
   } catch (error) {

@@ -26,16 +26,20 @@ const inputSchema = z
       .int()
       .min(0)
       .max(Number.MAX_SAFE_INTEGER - 1),
-    action: z.enum(['open', 'communicate', 'resolve']),
+    action: z.enum(['open', 'communicate', 'trace', 'resolve']),
     orderId: z.string().uuid().optional(),
     lineIndex: z.number().int().min(0).optional(),
+    targetLotId: z.string().uuid().optional(),
+    quantity: z.number().int().min(1).max(999).optional(),
     evidence: z.string().regex(/^[a-zA-Z0-9_-]{8,100}$/)
   })
   .strict()
   .refine((v) =>
-    v.action === 'communicate'
-      ? v.orderId !== undefined && v.lineIndex !== undefined
-      : v.orderId === undefined && v.lineIndex === undefined
+    v.action === 'trace'
+      ? v.orderId !== undefined && v.lineIndex !== undefined && v.targetLotId !== undefined && v.quantity !== undefined
+      : v.action === 'communicate'
+        ? v.orderId !== undefined && v.lineIndex !== undefined && v.targetLotId === undefined && v.quantity === undefined
+        : v.orderId === undefined && v.lineIndex === undefined && v.targetLotId === undefined && v.quantity === undefined
   )
 type Options = { now?: () => string; limit?: number; after?: string }
 const cte = `WITH clock AS MATERIALIZED (SELECT COALESCE(?1,strftime('%Y-%m-%dT%H:%M:%SZ','now')) now), authority AS MATERIALIZED (
@@ -121,10 +125,21 @@ export async function readProductRecall(
     .first<{ version: number; action: string }>()
   const affected = await db
     .prepare(
-      `${cte} SELECT a.order_id orderId,a.order_line_index lineIndex,o.customer_id customerId,sum(a.quantity) quantity FROM inventory_lot_allocations a JOIN orders o ON o.id=a.order_id JOIN order_lines ol ON ol.order_id=a.order_id AND ol.line_index=a.order_line_index JOIN inventory_lots l ON l.id=a.lot_id AND l.variant_id=ol.variant_id,authority WHERE ${allowed} AND a.lot_id=?5 AND (?6 IS NULL OR (a.order_id,a.order_line_index)>(?6,?7)) GROUP BY a.order_id,a.order_line_index,o.customer_id ORDER BY a.order_id,a.order_line_index LIMIT ?8`
+      `${cte}, progress AS MATERIALIZED (
+ SELECT ol.order_id orderId,ol.line_index lineIndex,o.customer_id customerId,ol.quantity orderedQuantity,
+ COALESCE(sum(CASE WHEN a.lot_id=?5 THEN a.quantity ELSE 0 END),0) confirmedQuantity,
+ COALESCE(sum(CASE WHEN source.variant_id=ol.variant_id THEN a.quantity ELSE 0 END),0) assignedQuantity
+ FROM order_lines ol JOIN inventory_lots recalled ON recalled.id=?5 AND recalled.variant_id=ol.variant_id
+ JOIN orders o ON o.id=ol.order_id LEFT JOIN inventory_lot_allocations a ON a.order_id=ol.order_id AND a.order_line_index=ol.line_index
+ LEFT JOIN inventory_lots source ON source.id=a.lot_id,authority
+ WHERE ${allowed} AND (?6 IS NULL OR (ol.order_id,ol.line_index)>(?6,?7))
+ GROUP BY ol.order_id,ol.line_index,o.customer_id,ol.quantity)
+ SELECT orderId,lineIndex,customerId,confirmedQuantity+max(0,orderedQuantity-assignedQuantity) quantity,
+ confirmedQuantity,max(0,orderedQuantity-assignedQuantity) untrackedQuantity,(assignedQuantity>orderedQuantity) traceabilityConflict
+ FROM progress WHERE confirmedQuantity>0 OR assignedQuantity<>orderedQuantity ORDER BY orderId,lineIndex LIMIT ?8`
     )
     .bind(...params(claims, lotId, options), cursor?.[0] ?? null, cursor ? Number(cursor[1]) : null, limit + 1)
-    .all<{ orderId: string; lineIndex: number; customerId: string | null; quantity: number }>()
+    .all<{ orderId: string; lineIndex: number; customerId: string | null; quantity: number; confirmedQuantity: number; untrackedQuantity: number; traceabilityConflict: number }>()
   await authority(db, claims, lotId, options)
   const rows = affected.results.slice(0, limit)
   const last = rows[rows.length - 1]
@@ -161,8 +176,8 @@ export async function executeProductRecall(
     await db.batch([
       db
         .prepare(
-          `${cte} INSERT INTO product_recall_commands(command_id,lot_id,action,evidence,actor_id,session_id,session_version,payload_hash,expected_version,version,created_at,order_id,line_index)
- SELECT ?6,?5,?7,?8,actorId,?2,?4,?9,?10,?10+1,(SELECT now FROM clock),?11,?12 FROM authority WHERE ${allowed}`
+          `${cte} INSERT INTO product_recall_commands(command_id,lot_id,action,evidence,actor_id,session_id,session_version,payload_hash,expected_version,version,created_at,order_id,line_index,target_lot_id,trace_quantity)
+ SELECT ?6,?5,?7,?8,actorId,?2,?4,?9,?10,?10+1,(SELECT now FROM clock),?11,?12,?13,?14 FROM authority WHERE ${allowed}`
         )
         .bind(
           ...params(claims, lotId, options),
@@ -172,7 +187,9 @@ export async function executeProductRecall(
           hash,
           input.expectedVersion,
           input.orderId ?? null,
-          input.lineIndex ?? null
+          input.lineIndex ?? null,
+          input.targetLotId ?? null,
+          input.quantity ?? null
         )
     ])
   } catch (cause) {

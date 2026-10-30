@@ -121,3 +121,11 @@ describe('high-value messaging policy', () => {
     expect(() => evaluateHighValueMessage({ ...whatsapp, ...change })).toThrow('invalid_input')
   })
 })
+it.each(['recall', 'delivery_exception', 'security_alert'] as const)('uses one ASCII SMS segment for %s', (event) => {
+  const result = evaluateHighValueMessage({ ...sms, event })
+  expect(result.outcome).toBe('send')
+  if (result.outcome === 'send') {
+    expect(result.text).toMatch(/^[\x20-\x7e]+$/)
+    expect(result.text.length).toBeLessThanOrEqual(70)
+  }
+})

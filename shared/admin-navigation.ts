@@ -196,6 +196,12 @@ const sections: Array<{
       { to: '/admin/productos', label: 'Productos', icon: 'i-lucide-package', permission: 'catalog.write' },
       { to: '/admin/categorias', label: 'Familias', icon: 'i-lucide-folder-tree', permission: 'catalog.write' },
       {
+        to: '/admin/orden-categorias',
+        label: 'Orden de categorías',
+        icon: 'i-lucide-arrow-up-down',
+        permission: 'catalog.write'
+      },
+      {
         to: '/admin/calidad-catalogo',
         label: 'Calidad del catálogo',
         icon: 'i-lucide-list-checks',
@@ -216,6 +222,12 @@ const sections: Array<{
         permission: ['catalog.write', 'administration.manage']
       },
       { to: '/admin/contenido', label: 'Contenido', icon: 'i-lucide-panels-top-left', permission: 'catalog.write' },
+      {
+        to: '/admin/gobernanza-contenido',
+        label: 'Gobierno de contenido',
+        icon: 'i-lucide-book-check',
+        permission: 'catalog.write'
+      },
       {
         to: '/admin/briefing-seo',
         label: 'Calendario editorial y SEO',
@@ -255,6 +267,12 @@ const sections: Array<{
         to: '/admin/promociones',
         label: 'Promociones',
         icon: 'i-lucide-ticket-percent',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/fraude-promocional',
+        label: 'Fraude promocional',
+        icon: 'i-lucide-shield-alert',
         permission: 'administration.manage'
       },
       {

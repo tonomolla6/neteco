@@ -116,3 +116,11 @@ it('supports bounded cursor pagination on affected lines', async () => {
  expect(next.nextCursor).toBeNull()
  expect((await handleProductRecallHttp(request('GET','?limit=1&limit=2'),deps()))?.status).toBe(400)
 })
+it('accepts an evidence-backed trace command through the authenticated endpoint', async () => {
+ const orderId = await f.order({ paid: false, delivered: false })
+ expect((await handleProductRecallHttp(request('POST'), deps()))?.status).toBe(200)
+ const req = request('POST', '', { action: 'trace', expectedVersion: 1, evidence: 'trace-case-123', orderId, lineIndex: 0, targetLotId: lot, quantity: 2 })
+ req.headers.set('idempotency-key', '22222222-2222-4222-8222-222222222222')
+ expect((await handleProductRecallHttp(req, deps()))?.status).toBe(200)
+ expect(f.sqlite.prepare('SELECT quantity FROM inventory_lot_allocations WHERE order_id=?').get(orderId)).toEqual({ quantity: 2 })
+})

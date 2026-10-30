@@ -1,3 +1,4 @@
+import { z } from 'zod'
 /**
  * Checkout acceptance: cart + immutable snapshots -> awaiting_payment order
  * with an atomic inventory reservation, modelled as a persistent saga.
@@ -58,7 +59,9 @@ import { activeOrderCustomerId } from './customer-orders'
 import type { VerifiedSessionClaims } from './authorization'
 import { prepareEmailOutboxEnqueue } from '../communications/email-outbox'
 import { readAppliedOrderPromotion, promotionAvailableForOrder, promotionOrderStatements } from './promotion-order'
+import { promotionBenefitBlocked } from './checkout-promo-fraud'
 import { shippingCalendarCurrentPredicate } from './shipping-calendar'
+import { calculateCheckoutMarket, calculateMarketLedger, loadCheckoutMarketProfile } from './market-checkout-policy'
 import {
   readSalesQuoteCheckoutAuthority,
   readSalesQuoteShippingAuthority,
@@ -331,7 +334,25 @@ export interface PlaceOrderInput {
   /** A reference only: immutable D1 approval is the sole price authority. */
   salesQuote?: SalesQuoteCheckoutReference
   paymentMethod?: 'credit'
+  /** Buyer-visible market profile that must still be current; identity of the market comes from the address. */
+  marketCheckout?: MarketCheckoutSelection
 }
+
+export interface MarketCheckoutSelection {
+  market: string
+  version: number
+  termsVersion: string
+  paymentMethod: 'card' | 'bank_transfer' | 'credit'
+}
+
+const marketSelectionSchema = z
+  .object({
+    market: z.string().regex(/^[A-Z]{2}$/),
+    version: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    termsVersion: z.string().regex(/^[a-zA-Z0-9_-]{3,100}$/),
+    paymentMethod: z.enum(['card', 'bank_transfer', 'credit'])
+  })
+  .strict()
 
 export type PlaceOrderResult =
   | { outcome: 'order_created'; body: Record<string, unknown> }
@@ -368,12 +389,19 @@ function assertAddress(value: AddressInput | undefined, requirePhone: boolean): 
     invalid('line1 is required')
   if (value.line2 !== undefined && (typeof value.line2 !== 'string' || value.line2.length > 160))
     invalid('line2 must be a string')
+  const country = value.countryCode ?? 'ES'
+  if (typeof country !== 'string' || !/^[A-Z]{2}$/.test(country)) invalid('countryCode is invalid')
   if (typeof value.city !== 'string' || !value.city.trim() || value.city.trim().length > 80) invalid('city is required')
   if (typeof value.province !== 'string' || !value.province.trim() || value.province.trim().length > 80)
     invalid('province is required')
-  if (typeof value.postalCode !== 'string' || !/^[0-9]{5}$/.test(value.postalCode))
-    invalid('postalCode must be five digits')
-  if ((value.countryCode ?? 'ES') !== 'ES') invalid('countryCode must be ES in this lane')
+  if (country === 'ES') {
+    if (typeof value.postalCode !== 'string' || !/^[0-9]{5}$/.test(value.postalCode))
+      invalid('postalCode must be five digits')
+  } else if (
+    typeof value.postalCode !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9 -]{1,10}[A-Za-z0-9]$/.test(value.postalCode)
+  )
+    invalid('postalCode is invalid')
   if (requirePhone && (typeof value.phone !== 'string' || !/^[0-9 +()-]{6,24}$/.test(value.phone)))
     invalid('phone is required')
   if (
@@ -384,8 +412,8 @@ function assertAddress(value: AddressInput | undefined, requirePhone: boolean): 
     invalid('nif is invalid')
   optionalCheckoutText(value.companyName, 2, 160, 'companyName')
   optionalCheckoutText(value.instructions, 1, 500, 'instructions')
-  optionalTaxId(value.taxId, 'taxId')
-  optionalTaxId(value.nif, 'nif')
+  optionalTaxId(value.taxId, 'taxId', country)
+  optionalTaxId(value.nif, 'nif', country)
 }
 
 function optionalCheckoutText(value: unknown, minimum: number, maximum: number, field: string): string | null {
@@ -398,9 +426,15 @@ function optionalCheckoutText(value: unknown, minimum: number, maximum: number, 
   return normalized
 }
 
-function optionalTaxId(value: unknown, field: string): string | null {
+function optionalTaxId(value: unknown, field: string, country = 'ES'): string | null {
   const normalized = optionalCheckoutText(value, 6, 20, field)
   if (!normalized) return null
+  if (country !== 'ES') {
+    // Foreign tax identifiers are only stored as bounded opaque references; no national checksum is claimed.
+    if (!/^[A-Za-z0-9][A-Za-z0-9 .-]{4,18}[A-Za-z0-9]$/.test(normalized))
+      throw new CartError('invalid_input', `${field} is invalid`)
+    return normalized.toUpperCase()
+  }
   if (!customerTaxIdIsValid('ES', normalized, { required: true }))
     throw new CartError('invalid_input', `${field} is invalid`)
   return normalizeCustomerTaxId(normalized)
@@ -606,6 +640,7 @@ function addressInsert(
   now: string
 ) {
   const isShipping = table === 'order_shipping_address'
+  const country = address.countryCode ?? 'ES'
   const common = [
     orderId,
     address.recipientName.trim(),
@@ -613,7 +648,8 @@ function addressInsert(
     address.line2 ?? null,
     address.city.trim(),
     address.province ?? null,
-    address.postalCode
+    address.postalCode,
+    country
   ]
   if (isShipping)
     return database
@@ -621,13 +657,13 @@ function addressInsert(
         `INSERT INTO order_shipping_address (
            order_id, recipient_name, line1, line2, city, province, postal_code, country_code,
            phone, company_name, tax_id, instructions, created_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ES', ?8, ?9, ?10, ?11, ?12)`
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`
       )
       .bind(
         ...common,
         address.phone ?? null,
         optionalCheckoutText(address.companyName, 2, 160, 'companyName'),
-        optionalTaxId(address.taxId, 'taxId'),
+        optionalTaxId(address.taxId, 'taxId', country),
         optionalCheckoutText(address.instructions, 1, 500, 'instructions'),
         now
       )
@@ -636,11 +672,11 @@ function addressInsert(
       `INSERT INTO order_billing_address (
          order_id, recipient_name, line1, line2, city, province, postal_code, country_code,
          nif, company_name, instructions, created_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'ES', ?8, ?9, ?10, ?11)`
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
     )
     .bind(
       ...common,
-      optionalTaxId(address.nif ?? address.taxId, 'nif'),
+      optionalTaxId(address.nif ?? address.taxId, 'nif', country),
       optionalCheckoutText(address.companyName, 2, 160, 'companyName'),
       optionalCheckoutText(address.instructions, 1, 500, 'instructions'),
       now
@@ -689,6 +725,96 @@ function revalidateShippingOnly(database: D1Database, input: PlaceOrderInput, re
   return { freshShippingOptions: { hint: 'request new shipping options' }, outcome: 'revalidation_required', reason }
 }
 
+interface MarketOrder {
+  selection: MarketCheckoutSelection
+  profile: NonNullable<Awaited<ReturnType<typeof loadCheckoutMarketProfile>>>
+  ledger: ReturnType<typeof calculateMarketLedger>
+  presentment: ReturnType<typeof calculateCheckoutMarket>
+  view: Record<string, unknown>
+}
+
+/**
+ * Reads the live market profile (never client prices) and the catalog's activation of the market.
+ * Stale versions or terms ask the buyer to revalidate; unsupported markets or methods are invalid input.
+ */
+async function resolveMarketOrder(
+  database: D1Database,
+  selection: MarketCheckoutSelection,
+  lines: Array<{ netCents: number }>
+): Promise<{ outcome: 'ok'; order: MarketOrder } | { outcome: 'revalidate'; reason: string }> {
+  const [profile, catalog] = await Promise.all([
+    loadCheckoutMarketProfile(database, selection.market),
+    database
+      .prepare('SELECT 1 AS active FROM catalog_markets WHERE code = ?1 AND is_active = 1')
+      .bind(selection.market)
+      .first<{ active: number }>()
+      .catch(() => null)
+  ])
+  if (!profile || !catalog) throw new CartError('invalid_input', 'market is not available for checkout')
+  if (!profile.paymentMethods.includes(selection.paymentMethod))
+    throw new CartError('invalid_input', 'payment method is not available in this market')
+  if (profile.version !== selection.version) return { outcome: 'revalidate', reason: 'market_changed' }
+  if (profile.termsVersion !== selection.termsVersion) return { outcome: 'revalidate', reason: 'terms_changed' }
+  const goodsNet = lines.reduce((sum, line) => sum + line.netCents, 0)
+  const ledger = calculateMarketLedger(profile, goodsNet)
+  const presentment = calculateCheckoutMarket(profile, goodsNet)
+  return {
+    outcome: 'ok',
+    order: {
+      selection,
+      profile,
+      ledger,
+      presentment,
+      view: {
+        market: profile.market,
+        currency: profile.currency,
+        version: profile.version,
+        termsVersion: profile.termsVersion,
+        paymentMethod: selection.paymentMethod,
+        exchangeNumerator: profile.exchangeNumerator,
+        exchangeDenominator: profile.exchangeDenominator,
+        goodsNetMinor: presentment.goodsNetMinor,
+        goodsTaxMinor: presentment.goodsTaxMinor,
+        shippingNetMinor: presentment.shippingNetMinor,
+        shippingTaxMinor: presentment.shippingTaxMinor,
+        totalMinor: presentment.totalMinor
+      }
+    }
+  }
+}
+
+function marketSnapshotInsert(database: D1Database, orderId: string, order: MarketOrder, now: string) {
+  const v = order.view
+  return database
+    .prepare(
+      `INSERT INTO order_market_snapshots (
+         order_id, market, market_version, currency, exchange_numerator, exchange_denominator, terms_version, payment_method,
+         ledger_goods_net_cents, ledger_goods_tax_cents, ledger_shipping_net_cents, ledger_shipping_tax_cents,
+         goods_net_minor, goods_tax_minor, shipping_net_minor, shipping_tax_minor, total_minor, created_at
+       ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)`
+    )
+    .bind(
+      orderId,
+      v.market,
+      v.version,
+      v.currency,
+      v.exchangeNumerator,
+      v.exchangeDenominator,
+      v.termsVersion,
+      v.paymentMethod,
+      order.ledger.goodsNetMinor,
+      order.ledger.goodsTaxMinor,
+      order.ledger.shippingNetMinor,
+      order.ledger.shippingTaxMinor,
+      v.goodsNetMinor,
+      v.goodsTaxMinor,
+      v.shippingNetMinor,
+      v.shippingTaxMinor,
+      v.totalMinor,
+      now
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Public saga entry point
 // ---------------------------------------------------------------------------
@@ -697,7 +823,9 @@ export async function placeOrder(
   database: D1Database,
   input: PlaceOrderInput,
   inventory: CheckoutInventoryGateway = directInventoryGateway(database),
-  freeShippingThresholdCents: number | null = null
+  freeShippingThresholdCents: number | null = null,
+  /** SEC-036: trusted Worker secret. When present, an applied coupon is assessed (fail closed) before ordering. */
+  options: { promoFraudPepper?: string } = {}
 ): Promise<PlaceOrderResult> {
   assertCommandKey(input.idempotencyKey)
   assertCommandKey(input.correlationId, 'correlationId')
@@ -713,7 +841,15 @@ export async function placeOrder(
   if (contactPhone && !/^[0-9 +()-]{6,24}$/.test(contactPhone))
     throw new CartError('invalid_input', 'contactPhone is invalid')
   const buyerCompanyName = optionalCheckoutText(input.buyerCompanyName, 2, 160, 'buyerCompanyName')
-  const buyerTaxId = optionalTaxId(input.buyerTaxId, 'buyerTaxId')
+  const destinationCountry = input.shippingAddress.countryCode ?? 'ES'
+  const buyerTaxId = optionalTaxId(input.buyerTaxId, 'buyerTaxId', destinationCountry)
+  const marketParsed = input.marketCheckout === undefined ? null : marketSelectionSchema.safeParse(input.marketCheckout)
+  if (marketParsed && !marketParsed.success) throw new CartError('invalid_input', 'marketCheckout is invalid')
+  const marketSelection = marketParsed?.success ? marketParsed.data : null
+  if (destinationCountry !== 'ES' && !marketSelection)
+    throw new CartError('invalid_input', 'marketCheckout is required for this destination')
+  if (marketSelection && marketSelection.market !== destinationCountry)
+    throw new CartError('invalid_input', 'marketCheckout does not match the destination country')
   const purchaseOrderReference = normalizeOrderPurchaseOrderReference(input.purchaseOrderReference)
   if (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1)
     throw new CartError('invalid_input', 'expectedVersion must be a positive integer')
@@ -768,6 +904,7 @@ export async function placeOrder(
     ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
     ...(customerId ? { customerId } : {}),
     ...(input.paymentMethod === 'credit' ? { paymentMethod: 'credit' } : {}),
+    ...(marketSelection ? { marketCheckout: marketSelection } : {}),
     ...(input.salesQuote ? { salesQuote: input.salesQuote } : {}),
     expectedVersion: input.expectedVersion,
     quoteId: input.quoteId,
@@ -893,10 +1030,49 @@ export async function placeOrder(
     if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
     return revalidate(database, input, 'promotion_changed')
   }
+  if (appliedPromotion && customerId && input.ownerSession && 'promoFraudPepper' in options) {
+    let withheld: boolean
+    try {
+      if (typeof options.promoFraudPepper !== 'string' || options.promoFraudPepper.length < 32)
+        throw new CartInfrastructureError('promo fraud gate is not configured')
+      withheld = await promotionBenefitBlocked(database, {
+        customerId,
+        identityId: input.ownerSession.identityId,
+        couponCode: appliedPromotion.rule.code,
+        shippingAddress: input.shippingAddress,
+        pepper: options.promoFraudPepper,
+        now: input.now
+      })
+    } catch (error) {
+      if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
+      throw error
+    }
+    if (withheld) {
+      if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
+      return revalidate(database, input, 'promotion_changed')
+    }
+  }
   if (!(await quotePublicationsCurrent(database, input.quoteId))) {
     if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
     return revalidate(database, input, 'publication_changed')
   }
+
+  let marketOrder: MarketOrder | null = null
+  if (marketSelection) {
+    const resolved = await resolveMarketOrder(database, marketSelection, storedQuoteLines)
+    if (resolved.outcome === 'revalidate') {
+      if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
+      return revalidate(database, input, resolved.reason)
+    }
+    marketOrder = resolved.order
+  }
+  const ledgerShipping = marketOrder
+    ? {
+        netCents: marketOrder.ledger.shippingNetMinor,
+        taxCents: marketOrder.ledger.shippingTaxMinor,
+        grossCents: marketOrder.ledger.shippingNetMinor + marketOrder.ledger.shippingTaxMinor
+      }
+    : selected
 
   let reservationLines: ReservationLineInput[]
   let reservationExpiresAt: string
@@ -977,11 +1153,13 @@ export async function placeOrder(
       return revalidateShippingOnly(database, input, 'shipping_option_changed')
     if (
       input.expectedTotalGrossCents !== undefined &&
-      (salesQuote
-        ? storedQuoteLines.reduce((sum, line) => sum + line.grossCents, 0)
-        : liveQuote.quote.totals.grossCents) +
-        selected.grossCents !==
-        input.expectedTotalGrossCents
+      (marketOrder
+        ? marketOrder.presentment.totalMinor !== input.expectedTotalGrossCents
+        : (salesQuote
+            ? storedQuoteLines.reduce((sum, line) => sum + line.grossCents, 0)
+            : liveQuote.quote.totals.grossCents) +
+            selected.grossCents !==
+          input.expectedTotalGrossCents)
     )
       return revalidateWith(database, input, 'display_total_changed', liveQuote.quote)
 
@@ -1144,9 +1322,11 @@ export async function placeOrder(
   const goodsNet = storedQuoteLines.reduce((sum, line) => sum + line.netCents, 0)
   const goodsTax = storedQuoteLines.reduce((sum, line) => sum + line.taxCents, 0)
   const goodsGross = storedQuoteLines.reduce((sum, line) => sum + line.grossCents, 0)
-  const totalNet = goodsNet + selected.netCents
-  const totalTax = goodsTax + selected.taxCents
-  const totalGross = goodsGross + selected.grossCents
+  // Market orders carry the profile's EUR ledger amounts; the quote's Spanish VAT/carrier fee does not apply.
+  const ledgerGoodsTax = marketOrder ? marketOrder.ledger.goodsTaxMinor : goodsTax
+  const totalNet = goodsNet + ledgerShipping.netCents
+  const totalTax = ledgerGoodsTax + ledgerShipping.taxCents
+  const totalGross = marketOrder ? totalNet + totalTax : goodsGross + selected.grossCents
   const orderViewBody: Record<string, unknown> = {
     ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
     createdAt: input.now,
@@ -1168,7 +1348,7 @@ export async function placeOrder(
       ...(appliedPromotion ? { discountGrossCents: stored.discountGrossCents } : {})
     })),
     reservationExpiresAt,
-    shippingGrossCents: selected.grossCents,
+    shippingGrossCents: ledgerShipping.grossCents,
     shippingMethodCode: selected.methodCode,
     status: 'awaiting_payment',
     ...(creditTerms
@@ -1180,7 +1360,8 @@ export async function placeOrder(
       : {}),
     totalGrossCents: totalGross,
     totalNetCents: totalNet,
-    totalTaxCents: totalTax
+    totalTaxCents: totalTax,
+    ...(marketOrder ? { market: marketOrder.view } : {})
   }
   const storedResult: PlaceOrderResult = { body: orderViewBody, outcome: 'order_created' }
   const orderEventId = crypto.randomUUID()
@@ -1251,9 +1432,9 @@ export async function placeOrder(
           totalNet,
           totalTax,
           totalGross,
-          selected.netCents,
-          selected.taxCents,
-          selected.grossCents,
+          ledgerShipping.netCents,
+          ledgerShipping.taxCents,
+          ledgerShipping.grossCents,
           selected.methodCode,
           selected.rateVersion,
           selected.etaMinDays,
@@ -1305,6 +1486,7 @@ export async function placeOrder(
         : []),
       addressInsert(database, orderId, 'order_shipping_address', input.shippingAddress, input.now),
       addressInsert(database, orderId, 'order_billing_address', billingAddress, input.now),
+      ...(marketOrder ? [marketSnapshotInsert(database, orderId, marketOrder, input.now)] : []),
       database
         .prepare(
           `INSERT INTO order_events (id, order_id, event_type, payload_json, correlation_id, created_at)
@@ -1443,6 +1625,17 @@ export async function placeOrder(
           await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
           throw authorityError
         }
+      }
+    }
+    if (marketSelection) {
+      const latest = await loadCheckoutMarketProfile(database, marketSelection.market)
+      if (
+        !latest ||
+        latest.version !== marketSelection.version ||
+        latest.termsVersion !== marketSelection.termsVersion
+      ) {
+        await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
+        return revalidate(database, input, 'market_changed')
       }
     }
     // Only an actual constraint rollback may be classified as evidence drift;

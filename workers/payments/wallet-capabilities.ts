@@ -29,12 +29,18 @@ const evidenceSchema = z
     origin,
     terminal,
     environment,
-    validUntil: instant
+    validUntil: instant,
+    /** Bank-assigned Redsys DS_MERCHANT_PAYMETHODS code from the approval, if the TPV requires one. */
+    payMethod: z
+      .string()
+      .regex(/^[A-Za-z0-9]{1,10}$/)
+      .optional()
   })
   .strict()
 const contextSchema = z.object({ origin, terminal, environment, now: instant }).strict()
 
-export type WalletResolution = { method: 'redirect' } | { method: 'apple_pay' | 'google_pay'; fallback: 'redirect' }
+export type WalletResolution =
+  { method: 'redirect' } | { method: 'apple_pay' | 'google_pay'; fallback: 'redirect'; payMethod?: string }
 
 /** Decision only. A separate, approved provider adapter must perform the payment. */
 export function resolveWalletPayment(input: {
@@ -64,5 +70,9 @@ export function resolveWalletPayment(input: {
     evidence.data.validUntil <= context.data.now
   )
     return { method: 'redirect' }
-  return { method: input.method, fallback: 'redirect' }
+  return {
+    method: input.method,
+    fallback: 'redirect',
+    ...(evidence.data.payMethod ? { payMethod: evidence.data.payMethod } : {})
+  }
 }

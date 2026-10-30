@@ -94,6 +94,8 @@ export interface CoordinatorDeps {
   inventory?: CheckoutInventoryGateway
   /** Trusted Worker environment policy; never read from a cart command. */
   freeShippingThresholdCents?: number | null
+  /** SEC-036 trusted secret for the checkout coupon-fraud gate; never read from a cart command. */
+  promoFraudPepper?: string
   /** Durable per-command responses; unbounded by design. */
   getResponse: (commandId: string) => Promise<{ payloadHash: string; status: number; body: unknown } | undefined>
   putResponse: (commandId: string, value: { payloadHash: string; status: number; body: unknown }) => Promise<void>
@@ -203,6 +205,23 @@ function parseCheckoutPayload(
     if (raw[key] !== undefined && typeof raw[key] !== 'string') return { ok: false, message: `${key} must be a string` }
   if (raw.paymentMethod !== undefined && raw.paymentMethod !== 'credit')
     return { ok: false, message: 'paymentMethod is invalid' }
+  if (raw.marketCheckout !== undefined) {
+    const selected = raw.marketCheckout as Record<string, unknown> | null
+    if (
+      typeof selected !== 'object' ||
+      selected === null ||
+      Array.isArray(selected) ||
+      Object.keys(selected).some((key) => !['market', 'version', 'termsVersion', 'paymentMethod'].includes(key)) ||
+      typeof selected.market !== 'string' ||
+      !/^[A-Z]{2}$/.test(selected.market) ||
+      !Number.isSafeInteger(selected.version) ||
+      (selected.version as number) < 1 ||
+      typeof selected.termsVersion !== 'string' ||
+      !/^[a-zA-Z0-9_-]{3,100}$/.test(selected.termsVersion) ||
+      !['card', 'bank_transfer', 'credit'].includes(selected.paymentMethod as string)
+    )
+      return { ok: false, message: 'marketCheckout is invalid' }
+  }
   if (raw.ownerSession !== undefined && raw.ownerSession !== null && !isSessionClaims(raw.ownerSession))
     return { ok: false, message: 'ownerSession is invalid' }
   if (raw.salesQuote !== undefined) {
@@ -246,6 +265,9 @@ function parseCheckoutPayload(
       token: raw.token as string,
       ownerSession: raw.ownerSession as VerifiedSessionClaims | null | undefined,
       ...(raw.paymentMethod === 'credit' ? { paymentMethod: 'credit' as const } : {}),
+      ...(raw.marketCheckout === undefined
+        ? {}
+        : { marketCheckout: raw.marketCheckout as PlaceOrderInput['marketCheckout'] }),
       ...(raw.salesQuote === undefined ? {} : { salesQuote: raw.salesQuote as PlaceOrderInput['salesQuote'] })
     }
   }
@@ -425,7 +447,8 @@ export async function handleCartCommand(
           deps.database,
           parsedCheckout.input,
           deps.inventory,
-          deps.freeShippingThresholdCents
+          deps.freeShippingThresholdCents,
+          deps.promoFraudPepper === undefined ? {} : { promoFraudPepper: deps.promoFraudPepper }
         )
         const status =
           outcome.outcome === 'order_created'
@@ -565,6 +588,7 @@ export class CartCoordinator implements DurableObject {
           resumeRecovery: this.recoveryGateway(),
           inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
           freeShippingThresholdCents: this.freeShippingThreshold(),
+          promoFraudPepper: this.env.AUTH_RATE_LIMIT_PEPPER,
           getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
           putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
           setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs)),
@@ -603,6 +627,7 @@ export class CartCoordinator implements DurableObject {
       database: this.env.DB,
       inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
       freeShippingThresholdCents: this.freeShippingThreshold(),
+      promoFraudPepper: this.env.AUTH_RATE_LIMIT_PEPPER,
       getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
       putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
       setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs))

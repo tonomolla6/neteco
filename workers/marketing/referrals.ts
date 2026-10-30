@@ -1,4 +1,5 @@
 import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
+import { PromoFraudError, assessPromoFraud } from '../security/promo-fraud'
 import {
   type CustomerReferralOverview,
   type ReferralAttributionView,
@@ -24,6 +25,7 @@ export class ReferralError extends Error {
       | 'fraud_detected'
       | 'program_inactive'
       | 'window_not_elapsed'
+      | 'security_configuration_missing'
   ) {
     super(code)
     this.name = 'ReferralError'
@@ -264,11 +266,15 @@ export async function attributeD1ReferralOrder(
     refereeCustomerId: string
     orderId: string
     now?: string
-  }
+  },
+  /** SEC-036: when present every attribution is assessed (fail closed) before it can ever be paid. */
+  options: { fraudPepper?: string } = {}
 ): Promise<ReferralAttributionView> {
   const now = resolveNow(input.now)
   const parsed = referralAttributeOrderSchema.safeParse(input)
   if (!parsed.success) fail('invalid_input')
+  if ('fraudPepper' in options && (typeof options.fraudPepper !== 'string' || options.fraudPepper.length < 32))
+    fail('security_configuration_missing')
 
   // Find advocate by referral code
   const enrollment = await db
@@ -303,6 +309,8 @@ export async function attributeD1ReferralOrder(
     }>()
 
   if (!order) fail('not_found')
+  // The caller (session code) vouches for the referee; the order must really be theirs.
+  if (order.customer_id !== input.refereeCustomerId) fail('not_found')
 
   // Fetch customer emails
   const advocate = await db
@@ -372,6 +380,40 @@ export async function attributeD1ReferralOrder(
     rewardCents: fraudEvaluation.passed ? policy.rewardCents : 0,
     rewardIssuedAt: null,
     createdAt: now
+  }
+
+  if (options.fraudPepper) {
+    const address = await db
+      .prepare(`SELECT line1, line2, postal_code, city FROM order_shipping_address WHERE order_id = ?`)
+      .bind(input.orderId)
+      .first<{ line1: string; line2: string | null; postal_code: string; city: string }>()
+    const signals: { identity?: string; address?: string } = {}
+    if (referee?.email) signals.identity = referee.email
+    if (address)
+      signals.address = [address.line1, address.line2, address.postal_code, address.city].filter(Boolean).join(', ')
+    // Server-derived signals only; before the attribution exists, replay-safe through the command id.
+    if (Object.keys(signals).length) {
+      try {
+        await assessPromoFraud(
+          db,
+          {
+            commandId: input.commandId,
+            context: 'referral',
+            refId: attributionId,
+            customerId: input.refereeCustomerId,
+            signals
+          },
+          { now, pepper: options.fraudPepper }
+        )
+      } catch (error) {
+        if (error instanceof PromoFraudError) {
+          if (error.code === 'customer_not_found') fail('not_found')
+          if (error.code === 'already_assessed' || error.code === 'idempotency_conflict') fail('conflict')
+          if (error.code === 'security_configuration_missing') fail('security_configuration_missing')
+        }
+        throw error
+      }
+    }
   }
 
   // Lookup actor identity for command journal
@@ -445,57 +487,34 @@ export async function settleD1ReferralAttributions(
   const auth = await authorizeD1Session(db, claims, 'administration.manage', { now })
   if (!auth.allowed) fail('forbidden')
 
-  // Find all pending attributions where return_window_ends_at <= now
-  const pending = await db
-    .prepare(
-      `SELECT
-        ra.id, ra.reward_cents, ra.order_id, o.status as order_status,
-        EXISTS(SELECT 1 FROM order_returns r WHERE r.order_id = ra.order_id AND r.state IN ('requested', 'approved', 'received', 'inspected', 'resolution_ready')) as has_return
-      FROM referral_attributions ra
-      JOIN orders o ON o.id = ra.order_id
-      WHERE ra.status = 'pending_window'
-        AND ra.return_window_ends_at <= ?`
-    )
-    .bind(now)
-    .all<{
-      id: string
-      reward_cents: number
-      order_id: string
-      order_status: string
-      has_return: number
-    }>()
-
-  let settledCount = 0
-  let settledRewardCentsTotal = 0
-
-  for (const item of pending.results || []) {
-    // If order was returned or cancelled, reject attribution
-    if (item.order_status === 'cancelled' || item.has_return === 1) {
-      await db
-        .prepare(
-          `UPDATE referral_attributions
-           SET status = 'rejected', rejection_reason = 'order_returned_or_refunded'
-           WHERE id = ?`
-        )
-        .bind(item.id)
-        .run()
-    } else {
-      // Settle reward
-      await db
-        .prepare(
-          `UPDATE referral_attributions
-           SET status = 'rewarded', reward_issued_at = ?
-           WHERE id = ?`
-        )
-        .bind(now, item.id)
-        .run()
-
-      settledCount++
-      settledRewardCentsTotal += item.reward_cents
-    }
-  }
-
-  return { settledCount, settledRewardCentsTotal }
+  // One transaction, each statement guarded by the current status: concurrent settlements cannot pay twice,
+  // an order returned/cancelled in the window is rejected instead of paid, and a SEC-036 hold withholds it.
+  const unreturned = `NOT EXISTS(SELECT 1 FROM orders o WHERE o.id = referral_attributions.order_id AND o.status = 'cancelled')
+        AND NOT EXISTS(SELECT 1 FROM order_returns r WHERE r.order_id = referral_attributions.order_id
+          AND r.state IN ('requested', 'approved', 'received', 'inspected', 'resolution_ready'))`
+  const [, paid] = await db.batch([
+    db
+      .prepare(
+        `UPDATE referral_attributions
+         SET status = 'rejected', rejection_reason = 'order_returned_or_refunded'
+         WHERE status = 'pending_window' AND return_window_ends_at <= ?1 AND NOT (${unreturned})`
+      )
+      .bind(now),
+    db
+      .prepare(
+        `UPDATE referral_attributions
+         SET status = 'rewarded', reward_issued_at = ?1
+         WHERE status = 'pending_window' AND return_window_ends_at <= ?1 AND ${unreturned}
+           AND NOT EXISTS(SELECT 1 FROM promo_fraud_cases c
+             WHERE c.context = 'referral' AND c.ref_id = referral_attributions.id
+               AND (c.status IN ('upheld', 'appeal_rejected')
+                 OR (c.decision = 'hold' AND c.status IN ('open', 'appealed'))))
+         RETURNING reward_cents`
+      )
+      .bind(now)
+  ])
+  const rewards = ((paid as D1Result<{ reward_cents: number }>).results ?? []).map((row) => row.reward_cents)
+  return { settledCount: rewards.length, settledRewardCentsTotal: rewards.reduce((sum, cents) => sum + cents, 0) }
 }
 
 export async function rejectD1ReferralAttribution(
@@ -515,14 +534,24 @@ export async function rejectD1ReferralAttribution(
   const auth = await authorizeD1Session(db, claims, 'administration.manage', { now })
   if (!auth.allowed) fail('forbidden')
 
-  await db
+  const reason = typeof input.reason === 'string' ? input.reason.trim() : ''
+  if (reason.length < 1 || reason.length > 255) fail('invalid_input')
+  // Only a pending attribution can still be rejected; a paid one is never silently flipped.
+  const changed = await db
     .prepare(
       `UPDATE referral_attributions
        SET status = 'rejected', rejection_reason = ?
-       WHERE id = ?`
+       WHERE id = ? AND status = 'pending_window' RETURNING id`
     )
-    .bind(input.reason, input.attributionId)
-    .run()
+    .bind(reason, input.attributionId)
+    .first<{ id: string }>()
+  if (!changed) {
+    const exists = await db
+      .prepare(`SELECT 1 AS present FROM referral_attributions WHERE id = ?`)
+      .bind(input.attributionId)
+      .first()
+    fail(exists ? 'conflict' : 'not_found')
+  }
 
   const updated = await db
     .prepare(`SELECT * FROM referral_attributions WHERE id = ?`)

@@ -32,6 +32,7 @@ const links = [
         { to: '/cuenta/presupuestos', label: 'Mis presupuestos', icon: 'i-lucide-file-check-2' },
         { to: '/cuenta/solicitudes-b2b', label: 'Solicitudes B2B', icon: 'i-lucide-clipboard-list' },
         { to: '/cuenta/metodos-de-pago', label: 'Métodos de pago', icon: 'i-lucide-credit-card' },
+        { to: '/cuenta/revision-promociones', label: 'Revisión de promociones', icon: 'i-lucide-shield-alert' },
         { to: '/cuenta/soporte', label: 'Mis consultas', icon: 'i-lucide-life-buoy' }
       ]
     : [])

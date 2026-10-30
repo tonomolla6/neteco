@@ -533,7 +533,10 @@ try {
   assert(migrations.includes('0136_account_lifecycle_preference_center_impersonation.sql'))
   assert(migrations.includes('0139_inventory_commitments_picking_purchasing.sql'))
   assert(migrations.includes('0140_reorder_barcode_cycle_counts.sql'))
+  assert(migrations.includes('0149_category_merchandising_promo_fraud.sql'))
   assert(migrations.includes('0150_search_gap_programme.sql'))
+  assert(migrations.includes('0151_content_governance.sql'))
+  assert(migrations.includes('0152_international_seo_channel_feeds_adr_lq.sql'))
   assert(migrations.includes('0153_support_assistant_insights_b2b_portal.sql'))
   assert(migrations.length >= 117, 'Native shop audit requires the complete migration set')
   for (const migration of migrations) {
