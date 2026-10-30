@@ -6,6 +6,8 @@ import {
   type BackgroundRemovalProposal,
   type CropProposalItem,
   type MetadataProposal,
+  type MediaAiEnrichmentType,
+  type MediaAiApprovalStatus,
   ProposeMediaEnrichmentInputSchema,
   DecideMediaEnrichmentInputSchema,
   ApplyMediaEnrichmentInputSchema,
@@ -14,6 +16,27 @@ import {
   validateProhibitedInventions
 } from '../../shared/media-ai-enrichment'
 import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
+
+interface MediaAiEnrichmentRow {
+  id: string
+  asset_id: string
+  actor_id: string
+  enrichment_type: MediaAiEnrichmentType
+  original_metadata_json: string
+  background_removal_json: string | null
+  proposed_crops_json: string | null
+  proposed_metadata_json: string | null
+  prohibited_invention_check_json: string
+  requires_human_approval: number
+  approval_status: MediaAiApprovalStatus
+  human_decided_at: string | null
+  human_decider_id: string | null
+  human_notes: string | null
+  applied_to_asset_at: string | null
+  version: number
+  created_at: string
+  updated_at: string
+}
 
 export interface MediaAiOperationOptions {
   idempotencyKey: string
@@ -26,11 +49,7 @@ function getIsoNow(options?: MediaAiOperationOptions): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
-async function verifyMediaAiAuth(
-  database: D1Database,
-  claims: VerifiedSessionClaims,
-  now: string
-): Promise<void> {
+async function verifyMediaAiAuth(database: D1Database, claims: VerifiedSessionClaims, now: string): Promise<void> {
   const authDirect = await authorizeD1Session(database, claims, 'media.ai_enrich', { now, requireMfa: false })
   if (authDirect.allowed) return
 
@@ -84,7 +103,9 @@ export async function proposeD1MediaAiEnrichment(
 
   // 2. Read media asset
   const asset = await database
-    .prepare(`SELECT id, storage_key, original_name, mime_type, byte_size, alt_text, metadata FROM media_assets WHERE id = ?1`)
+    .prepare(
+      `SELECT id, storage_key, original_name, mime_type, byte_size, alt_text, metadata FROM media_assets WHERE id = ?1`
+    )
     .bind(input.assetId)
     .first<{
       id: string
@@ -112,7 +133,7 @@ export async function proposeD1MediaAiEnrichment(
     )
   }
 
-  let originalMetadata: Record<string, unknown> = {}
+  let originalMetadata: Record<string, unknown>
   try {
     originalMetadata = JSON.parse(asset.metadata)
   } catch {
@@ -143,8 +164,7 @@ export async function proposeD1MediaAiEnrichment(
   let proposedMetadata: MetadataProposal | null = null
   if (input.enrichmentType === 'propose_metadata' || input.enrichmentType === 'full_visual_enrichment') {
     const prodName = input.options?.contextProductName ? ` de ${input.options.contextProductName}` : ''
-    const suggestedAltText =
-      `Envase original${prodName} en fondo limpio neutro, presentación técnica Neteco (${asset.original_name})`
+    const suggestedAltText = `Envase original${prodName} en fondo limpio neutro, presentación técnica Neteco (${asset.original_name})`
 
     proposedMetadata = {
       suggestedAltText,
@@ -266,7 +286,7 @@ export async function decideD1MediaAiEnrichment(
   const row = await database
     .prepare(`SELECT * FROM media_ai_enrichments WHERE id = ?1`)
     .bind(enrichmentId)
-    .first<any>()
+    .first<MediaAiEnrichmentRow>()
 
   if (!row) {
     throw new MediaAiEnrichmentError('not_found', `Propuesta de enriquecimiento ${enrichmentId} no encontrada`)
@@ -281,20 +301,14 @@ export async function decideD1MediaAiEnrichment(
   }
 
   const newStatus =
-    input.decision === 'approve'
-      ? 'approved'
-      : input.decision === 'reject'
-        ? 'rejected'
-        : 'modified_and_approved'
+    input.decision === 'approve' ? 'approved' : input.decision === 'reject' ? 'rejected' : 'modified_and_approved'
 
-  let proposedMetadata = row.proposed_metadata_json ? JSON.parse(row.proposed_metadata_json) : null
+  const proposedMetadata = row.proposed_metadata_json ? JSON.parse(row.proposed_metadata_json) : null
   if (proposedMetadata && input.modifiedAltText) {
     proposedMetadata.suggestedAltText = input.modifiedAltText
   }
 
-  const proposedCrops = input.modifiedCrops
-    ? JSON.stringify(input.modifiedCrops)
-    : row.proposed_crops_json
+  const proposedCrops = input.modifiedCrops ? JSON.stringify(input.modifiedCrops) : row.proposed_crops_json
 
   const finalNotes = input.humanNotes ?? row.human_notes
   const newVersion = row.version + 1
@@ -413,7 +427,7 @@ export async function applyD1MediaAiEnrichment(
   const row = await database
     .prepare(`SELECT * FROM media_ai_enrichments WHERE id = ?1`)
     .bind(enrichmentId)
-    .first<any>()
+    .first<MediaAiEnrichmentRow>()
 
   if (!row) {
     throw new MediaAiEnrichmentError('not_found', `Propuesta de enriquecimiento ${enrichmentId} no encontrada`)
@@ -435,6 +449,10 @@ export async function applyD1MediaAiEnrichment(
     )
   }
 
+  if (row.asset_id !== input.targetAssetId) {
+    throw new MediaAiEnrichmentError('invalid_input', 'La propuesta pertenece a otro activo multimedia')
+  }
+
   const proposedMeta = row.proposed_metadata_json ? JSON.parse(row.proposed_metadata_json) : null
   const proposedCrops = row.proposed_crops_json ? JSON.parse(row.proposed_crops_json) : null
   const backgroundRemoval = row.background_removal_json ? JSON.parse(row.background_removal_json) : null
@@ -449,7 +467,7 @@ export async function applyD1MediaAiEnrichment(
     throw new MediaAiEnrichmentError('not_found', `Activo multimedia ${input.targetAssetId} no encontrado`)
   }
 
-  let assetMeta: Record<string, unknown> = {}
+  let assetMeta: Record<string, unknown>
   try {
     assetMeta = JSON.parse(asset.metadata)
   } catch {
@@ -467,57 +485,54 @@ export async function applyD1MediaAiEnrichment(
 
   const newAltText = proposedMeta?.suggestedAltText || asset.alt_text
 
-  await database
-    .prepare(
-      `UPDATE media_assets
-       SET alt_text = ?1,
-           metadata = ?2
-       WHERE id = ?3`
-    )
-    .bind(newAltText, JSON.stringify(assetMeta), input.targetAssetId)
-    .run()
-
   const newVersion = row.version + 1
-
-  await database
-    .prepare(
-      `UPDATE media_ai_enrichments
-       SET applied_to_asset_at = ?1,
-           version = ?2,
-           updated_at = ?3
-       WHERE id = ?4 AND version = ?5`
-    )
-    .bind(now, newVersion, now, enrichmentId, row.version)
-    .run()
-
   const receipt = {
     applied: true,
     assetId: input.targetAssetId,
     version: newVersion
   }
 
-  // Record command
-  const commandId = crypto.randomUUID()
-  await database
-    .prepare(
-      `INSERT INTO media_ai_enrichment_commands (
-        command_id, enrichment_id, actor_id, action, idempotency_key,
-        expected_version, result_version, payload_hash, input_json, receipt_json, created_at
-      ) VALUES (?1, ?2, ?3, 'apply_enrichment', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
-    )
-    .bind(
-      commandId,
-      enrichmentId,
-      claims.identityId,
-      options.idempotencyKey,
-      input.expectedVersion,
-      newVersion,
-      payloadHash,
-      JSON.stringify(input),
-      JSON.stringify(receipt),
-      now
-    )
-    .run()
+  // Atomic: the asset is only touched while the enrichment is still at the reviewed version, and
+  // the immutable command row (UNIQUE enrichment/result_version) rolls back a lost race.
+  await database.batch([
+    database
+      .prepare(
+        `UPDATE media_assets
+         SET alt_text = ?1,
+             metadata = ?2
+         WHERE id = ?3
+           AND EXISTS (SELECT 1 FROM media_ai_enrichments WHERE id = ?4 AND version = ?5)`
+      )
+      .bind(newAltText, JSON.stringify(assetMeta), input.targetAssetId, enrichmentId, row.version),
+    database
+      .prepare(
+        `UPDATE media_ai_enrichments
+         SET applied_to_asset_at = ?1,
+             version = ?2,
+             updated_at = ?3
+         WHERE id = ?4 AND version = ?5`
+      )
+      .bind(now, newVersion, now, enrichmentId, row.version),
+    database
+      .prepare(
+        `INSERT INTO media_ai_enrichment_commands (
+          command_id, enrichment_id, actor_id, action, idempotency_key,
+          expected_version, result_version, payload_hash, input_json, receipt_json, created_at
+        ) VALUES (?1, ?2, ?3, 'apply_enrichment', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      )
+      .bind(
+        crypto.randomUUID(),
+        enrichmentId,
+        claims.identityId,
+        options.idempotencyKey,
+        input.expectedVersion,
+        newVersion,
+        payloadHash,
+        JSON.stringify(input),
+        JSON.stringify(receipt),
+        now
+      )
+  ])
 
   return receipt
 }
@@ -533,7 +548,7 @@ export async function readD1MediaAiEnrichment(
   const row = await database
     .prepare(`SELECT * FROM media_ai_enrichments WHERE id = ?1`)
     .bind(enrichmentId)
-    .first<any>()
+    .first<MediaAiEnrichmentRow>()
 
   if (!row) {
     throw new MediaAiEnrichmentError('not_found', `Enriquecimiento ${enrichmentId} no encontrado`)
@@ -584,7 +599,10 @@ export async function listD1MediaAiEnrichments(
   sql += ` ORDER BY created_at DESC LIMIT 50`
 
   const statement = database.prepare(sql)
-  const rows = params.length > 0 ? (await statement.bind(...params).all<any>()).results : (await statement.all<any>()).results
+  const rows =
+    params.length > 0
+      ? (await statement.bind(...params).all<MediaAiEnrichmentRow>()).results
+      : (await statement.all<MediaAiEnrichmentRow>()).results
 
   return (rows || []).map((row) => ({
     id: row.id,

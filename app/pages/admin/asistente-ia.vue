@@ -15,7 +15,8 @@ const activeTab = ref<Tab>('assistant')
         Inteligencia Artificial y Copilotos de Administración
       </h1>
       <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        Herramientas de asistencia supervisada: citas de datos, generación con fuentes verificables y enriquecimiento visual sin invención de envases.
+        Herramientas de asistencia supervisada: citas de datos, generación con fuentes verificables y enriquecimiento
+        visual sin invención de envases.
       </p>
 
       <!-- Tabs Navigation -->

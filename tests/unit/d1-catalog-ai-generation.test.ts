@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  aiTestFixture,
-  ADMIN_CLAIMS,
-  OPERATOR_CLAIMS,
-  UNAUTHORIZED_CLAIMS
-} from './d1-ai-test-fixture'
+import { aiTestFixture, ADMIN_CLAIMS, OPERATOR_CLAIMS, UNAUTHORIZED_CLAIMS } from './d1-ai-test-fixture'
 import type {
   GenerateCatalogContentInput,
   ReviewCatalogGenerationInput,
@@ -84,7 +79,8 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
     const duplicateInput: GenerateCatalogContentInput = {
       productName: 'Desengrasante Alcalino Extra Fuerte Neteco Industrial',
       targetScope: 'description',
-      prompt: 'Desengrasante industrial potente para motores y suelos industriales alcalina concentrada de alta eficacia',
+      prompt:
+        'Desengrasante industrial potente para motores y suelos industriales alcalina concentrada de alta eficacia',
       sources: [
         {
           id: 'src-fds-02',
@@ -207,6 +203,52 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
     expect(applied.targetProductId).toBe('prod-desengrasante-1')
   })
 
+  it('INT-7: applying to a missing product fails cleanly and leaves the generation untouched', async () => {
+    const gen = await generateD1CatalogContent(
+      f.database,
+      ADMIN_CLAIMS,
+      {
+        productName: 'Detergente Neutro Suelos',
+        targetScope: 'description',
+        prompt: 'Ficha de detergente neutro',
+        sources: [
+          {
+            id: 'src-int7',
+            title: 'FDS neutro',
+            type: 'fds',
+            verifiedClaims: ['pH neutro 7.0'],
+            textSnippet: 'Limpiador concentrado con tensioactivos biodegradables.'
+          }
+        ]
+      },
+      { idempotencyKey: 'idemp-int7-gen', now: () => NOW }
+    )
+    const reviewed = await reviewD1CatalogAiGeneration(
+      f.database,
+      ADMIN_CLAIMS,
+      gen.id,
+      { expectedVersion: gen.version, decision: 'approve', reviewNotes: 'Revisado' },
+      { idempotencyKey: 'idemp-int7-review', now: () => NOW }
+    )
+    await expect(
+      applyD1CatalogAiGeneration(
+        f.database,
+        ADMIN_CLAIMS,
+        gen.id,
+        { expectedVersion: reviewed.version, targetProductId: 'no-such-product' },
+        { idempotencyKey: 'idemp-int7-apply-missing', now: () => NOW }
+      )
+    ).rejects.toMatchObject({ code: 'not_found' })
+    const row = f.sqlite
+      .prepare('SELECT version, applied_content_json AS applied FROM catalog_ai_generations WHERE id=?')
+      .get(gen.id) as { version: number; applied: string | null }
+    expect(row).toEqual({ version: reviewed.version, applied: null })
+    const commands = f.sqlite
+      .prepare("SELECT COUNT(*) AS n FROM catalog_ai_generation_commands WHERE action='apply_to_product'")
+      .get() as { n: number }
+    expect(commands.n).toBe(0)
+  })
+
   it('rejects unauthorized actors without catalog permissions', async () => {
     const input: GenerateCatalogContentInput = {
       productName: 'Producto Sin Permisos',
@@ -259,5 +301,170 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
     expect(() => {
       f.sqlite.exec('DELETE FROM catalog_ai_generation_commands')
     }).toThrow(/immutable/)
+  })
+
+  it('rejects generation when technical sources provide no verified claims', async () => {
+    const input: GenerateCatalogContentInput = {
+      productName: 'Producto Sin Claims',
+      targetScope: 'description',
+      prompt: 'Generar ficha sin claims',
+      sources: [
+        {
+          id: 'src-empty',
+          title: 'Documento vacio de claims',
+          type: 'tech_sheet',
+          verifiedClaims: [],
+          textSnippet: 'Texto descriptivo sin ningun claim verificado'
+        }
+      ]
+    }
+
+    await expect(
+      generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+        idempotencyKey: 'idemp-empty-claims',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/invalid_input|unverified_claims|at least 1/i)
+  })
+
+  it('handles reject review decision and CAS mismatch on review and apply', async () => {
+    const input: GenerateCatalogContentInput = {
+      productName: 'Limpiador Rechazable',
+      targetScope: 'attributes',
+      prompt: 'Generar atributos para rechazar',
+      sources: [
+        {
+          id: 'src-1',
+          title: 'Ficha',
+          type: 'specs',
+          verifiedClaims: ['pH 9.5'],
+          textSnippet: 'Alcalino medio'
+        }
+      ]
+    }
+
+    const gen = await generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+      idempotencyKey: 'idemp-reject-review-test',
+      now: () => NOW
+    })
+
+    // CAS conflict on review
+    const invalidCasReview: ReviewCatalogGenerationInput = {
+      expectedVersion: 99,
+      decision: 'reject',
+      reviewNotes: 'Version incorrecta'
+    }
+
+    await expect(
+      reviewD1CatalogAiGeneration(f.database, ADMIN_CLAIMS, gen.id, invalidCasReview, {
+        idempotencyKey: 'idemp-cas-fail-rev',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/concurrency_conflict|versión/i)
+
+    // Valid reject
+    const validReject: ReviewCatalogGenerationInput = {
+      expectedVersion: gen.version,
+      decision: 'reject',
+      reviewNotes: 'No cumple con la directiva europea de etiquetado'
+    }
+
+    const rejected = await reviewD1CatalogAiGeneration(f.database, ADMIN_CLAIMS, gen.id, validReject, {
+      idempotencyKey: 'idemp-valid-reject-rev',
+      now: () => NOW
+    })
+
+    expect(rejected.approvalStatus).toBe('rejected')
+    expect(rejected.reviewNotes).toContain('directiva europea')
+
+    // Cannot apply rejected generation
+    const applyInput: ApplyCatalogGenerationInput = {
+      expectedVersion: rejected.version,
+      targetProductId: 'prod-desengrasante-1'
+    }
+
+    await expect(
+      applyD1CatalogAiGeneration(f.database, ADMIN_CLAIMS, gen.id, applyInput, {
+        idempotencyKey: 'idemp-apply-rejected-fail',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/not_approved|aprobad/i)
+  })
+
+  it('reads and lists catalog generations with filtering and handles not found', async () => {
+    const input: GenerateCatalogContentInput = {
+      productName: 'Producto Para Lectura y Listado',
+      targetScope: 'description',
+      prompt: 'Generar para leer y listar',
+      sources: [
+        {
+          id: 'src-list',
+          title: 'Doc List',
+          type: 'tech_sheet',
+          verifiedClaims: ['Eficacia 100% probada'],
+          textSnippet: 'Snippet list'
+        }
+      ]
+    }
+
+    const gen = await generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+      idempotencyKey: 'idemp-read-list-cat',
+      now: () => NOW
+    })
+
+    const read = await readD1CatalogAiGeneration(f.database, ADMIN_CLAIMS, gen.id)
+    expect(read.id).toBe(gen.id)
+    expect(read.productName || read.generatedTitle).toBeDefined()
+
+    const list = await listD1CatalogAiGenerations(f.database, ADMIN_CLAIMS, { status: 'pending_review' })
+    expect(list.length).toBeGreaterThanOrEqual(1)
+    expect(list.some((item) => item.id === gen.id)).toBe(true)
+
+    // Not found
+    await expect(readD1CatalogAiGeneration(f.database, ADMIN_CLAIMS, 'gen-non-existent-999999999999')).rejects.toThrow(
+      /not_found|no encontrada/i
+    )
+  })
+
+  it('enforces idempotency on catalog content generation', async () => {
+    const input: GenerateCatalogContentInput = {
+      productName: 'Producto Idempotente',
+      targetScope: 'description',
+      prompt: 'Generar con idempotencia',
+      sources: [
+        {
+          id: 'src-idemp',
+          title: 'Doc Idemp',
+          type: 'specs',
+          verifiedClaims: ['Claim Idemp'],
+          textSnippet: 'Snippet Idemp'
+        }
+      ]
+    }
+
+    const first = await generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+      idempotencyKey: 'idemp-key-cat-replay',
+      now: () => NOW
+    })
+
+    const replay = await generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+      idempotencyKey: 'idemp-key-cat-replay',
+      now: () => NOW
+    })
+
+    expect(replay.id).toBe(first.id)
+
+    // Conflict
+    const conflictingInput: GenerateCatalogContentInput = {
+      ...input,
+      productName: 'Nombre completamente diferente'
+    }
+
+    await expect(
+      generateD1CatalogContent(f.database, ADMIN_CLAIMS, conflictingInput, {
+        idempotencyKey: 'idemp-key-cat-replay',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/idempotency_conflict|clave/i)
   })
 })

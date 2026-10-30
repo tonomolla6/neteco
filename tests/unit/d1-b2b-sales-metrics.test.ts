@@ -2,10 +2,7 @@ import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
-import {
-  readB2bSalesMetrics,
-  recordB2bSalesDailySnapshot
-} from '../../workers/b2b/metrics'
+import { readB2bSalesMetrics, recordB2bSalesDailySnapshot } from '../../workers/b2b/metrics'
 import type { VerifiedSessionClaims } from '../../workers/catalog/authorization'
 
 const ADMIN_CLAIMS: VerifiedSessionClaims = {
@@ -61,11 +58,11 @@ async function setupTestDb(): Promise<DatabaseSync> {
       ('ship_std', 'STD', 'Estándar', 'parcel');
 
     -- Seed B2B Customers
-    INSERT OR IGNORE INTO customers (id, email, status, created_at, updated_at) VALUES
-      ('cust-b2b-01', 'compras@lavanderia-norte.es', 'active', '2026-08-01T10:00:00Z', '2026-08-01T10:00:00Z'),
-      ('cust-b2b-02', 'admin@talleres-este.es', 'active', '2026-09-01T10:00:00Z', '2026-09-01T10:00:00Z'),
-      ('cust-b2b-03', 'pedidos@clinica-centro.es', 'active', '2026-10-15T10:00:00Z', '2026-10-15T10:00:00Z'),
-      ('cust-b2b-04', 'gerencia@hotel-sur.es', 'active', '2026-06-01T10:00:00Z', '2026-06-01T10:00:00Z');
+    INSERT OR IGNORE INTO customers (id, name, status, created_at, updated_at) VALUES
+      ('cust-b2b-01', 'Lavanderías Norte S.L.', 'active', '2026-08-01T10:00:00Z', '2026-08-01T10:00:00Z'),
+      ('cust-b2b-02', 'Talleres Mecánicos Este S.A.', 'active', '2026-09-01T10:00:00Z', '2026-09-01T10:00:00Z'),
+      ('cust-b2b-03', 'Clínica Dental Centro S.L.', 'active', '2026-10-15T10:00:00Z', '2026-10-15T10:00:00Z'),
+      ('cust-b2b-04', 'Hotel Sur Vacacional S.A.', 'active', '2026-06-01T10:00:00Z', '2026-06-01T10:00:00Z');
 
     -- Seed Companies
     INSERT OR IGNORE INTO companies (id, customer_id, legal_name, trade_name, tax_id, status, created_at, updated_at) VALUES
@@ -74,21 +71,25 @@ async function setupTestDb(): Promise<DatabaseSync> {
       ('comp-03', 'cust-b2b-03', 'Clínica Dental Centro S.L.', 'Clínica Centro', 'B11223344', 'approved', '2026-10-15T10:00:00Z', '2026-10-15T10:00:00Z'),
       ('comp-04', 'cust-b2b-04', 'Hotel Sur Vacacional S.A.', 'Hotel Sur', 'A99887766', 'approved', '2026-06-01T10:00:00Z', '2026-06-01T10:00:00Z');
 
+    -- Seed B2B Pricing Commands & Write Context
+    INSERT OR IGNORE INTO b2b_pricing_commands (actor_id, command_id, session_id, session_version, action, payload_hash, input_json, receipt_json, created_at) VALUES
+      ('${ADMIN_CLAIMS.identityId}', 'init-list', '${ADMIN_CLAIMS.sessionId}', 1, 'create_list', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', '{}', json_object('priceListId', 'plist-industrial', 'companyId', NULL), '2026-01-01T00:00:00Z'),
+      ('${ADMIN_CLAIMS.identityId}', 'assign-1', '${ADMIN_CLAIMS.sessionId}', 1, 'assign_list', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', '{}', json_object('priceListId', 'plist-industrial', 'companyId', 'comp-01'), '2026-08-01T10:00:00Z'),
+      ('${ADMIN_CLAIMS.identityId}', 'assign-2', '${ADMIN_CLAIMS.sessionId}', 1, 'assign_list', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', '{}', json_object('priceListId', 'plist-industrial', 'companyId', 'comp-02'), '2026-09-01T10:00:00Z');
+
+    INSERT OR IGNORE INTO b2b_pricing_write_context (actor_id, command_id, price_list_id, company_id) VALUES
+      ('${ADMIN_CLAIMS.identityId}', 'init-list', 'plist-industrial', NULL),
+      ('${ADMIN_CLAIMS.identityId}', 'assign-1', 'plist-industrial', 'comp-01'),
+      ('${ADMIN_CLAIMS.identityId}', 'assign-2', 'plist-industrial', 'comp-02');
+
     -- Seed Price List
-    INSERT OR IGNORE INTO b2b_pricing_write_context (actor_id, command_id, price_list_id) VALUES
-      ('${ADMIN_CLAIMS.identityId}', 'init-list', 'plist-industrial');
     INSERT OR IGNORE INTO b2b_price_lists (id, code, name, status, version, valid_from, created_at, updated_at) VALUES
       ('plist-industrial', 'TAR-IND', 'Tarifa Químicos Industrial', 'active', 1, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
-    DELETE FROM b2b_pricing_write_context WHERE command_id='init-list';
 
     -- Assign Price List to comp-01 and comp-02
-    INSERT OR IGNORE INTO b2b_pricing_write_context (actor_id, command_id, company_id, price_list_id) VALUES
-      ('${ADMIN_CLAIMS.identityId}', 'assign-1', 'comp-01', 'plist-industrial'),
-      ('${ADMIN_CLAIMS.identityId}', 'assign-2', 'comp-02', 'plist-industrial');
     INSERT OR IGNORE INTO b2b_company_assignments (company_id, price_list_id, version, active, valid_from, updated_at) VALUES
       ('comp-01', 'plist-industrial', 1, 1, '2026-08-01T10:00:00Z', '2026-08-01T10:00:00Z'),
       ('comp-02', 'plist-industrial', 1, 1, '2026-09-01T10:00:00Z', '2026-09-01T10:00:00Z');
-    DELETE FROM b2b_pricing_write_context WHERE command_id IN ('assign-1', 'assign-2');
 
     -- Seed Commercial Terms (Migration 0105 b2b_credit_commands)
     INSERT OR IGNORE INTO b2b_credit_commands (
@@ -116,24 +117,39 @@ function insertB2bOrder(
     paymentStatus: 'paid' | 'awaiting_payment'
   }
 ) {
-  const attemptId = `att-${params.orderId}`
-  const cartId = `cart-${params.orderId}`
-  const quoteId = `quote-${params.orderId}`
-  const shipQuoteId = `ship-${params.orderId}`
+  const dummyId = `dm-${params.orderId}`
+  const tokenHash = Buffer.from(params.orderId).toString('hex').padStart(64, '0').slice(-64)
+  const expiresAt = new Date(Date.parse(params.createdAt) + 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
   sqlite.exec(`
-    INSERT OR IGNORE INTO carts (id, currency, created_at, updated_at) VALUES
-      ('${cartId}', 'EUR', '${params.createdAt}', '${params.createdAt}');
-    INSERT OR IGNORE INTO checkout_quotes (id, cart_id, cart_version, currency, subtotal_net_cents, subtotal_tax_cents, subtotal_gross_cents, total_net_cents, total_tax_cents, total_gross_cents, created_at, expires_at) VALUES
-      ('${quoteId}', '${cartId}', 1, 'EUR', ${params.netCents}, ${params.grossCents - params.netCents}, ${params.grossCents}, ${params.netCents}, ${params.grossCents - params.netCents}, ${params.grossCents}, '${params.createdAt}', '2026-12-31T00:00:00Z');
-    INSERT OR IGNORE INTO shipping_quotes (id, quote_id, shipping_method_code, rate_version, eta_min_days, eta_max_days, net_cents, tax_cents, gross_cents, created_at, expires_at) VALUES
-      ('${shipQuoteId}', '${quoteId}', 'parcel', 1, 1, 3, 0, 0, 0, '${params.createdAt}', '2026-12-31T00:00:00Z');
-    INSERT OR IGNORE INTO checkout_attempts (id, cart_id, quote_id, shipping_quote_id, customer_id, state, currency, total_gross_cents, reservation_id, reservation_expires_at, correlation_id, idempotency_key, created_at, updated_at) VALUES
-      ('${attemptId}', '${cartId}', '${quoteId}', '${shipQuoteId}', '${params.customerId}', 'completed', 'EUR', ${params.grossCents}, 'res-1', '2026-12-31T00:00:00Z', 'corr-1', 'idem-${params.orderId}', '${params.createdAt}', '${params.createdAt}');
-    INSERT OR IGNORE INTO orders (id, cart_id, quote_id, shipping_quote_id, attempt_id, token_hash, status, reservation_id, reservation_expires_at, currency, total_net_cents, total_tax_cents, total_gross_cents, shipping_net_cents, shipping_tax_cents, shipping_gross_cents, shipping_method_code, shipping_rate_version, shipping_eta_min_days, shipping_eta_max_days, contact_email, contact_email_hash, consent_tos, consent_privacy, correlation_id, created_at, updated_at) VALUES
-      ('${params.orderId}', '${cartId}', '${quoteId}', '${shipQuoteId}', '${attemptId}', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 'awaiting_payment', 'res-1', '2026-12-31T00:00:00Z', 'EUR', ${params.netCents}, ${params.grossCents - params.netCents}, ${params.grossCents}, 0, 0, 0, 'parcel', 1, 1, 3, 'empresa@neteco.es', '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', 1, 1, 'corr-1', '${params.createdAt}', '${params.createdAt}');
+    INSERT OR IGNORE INTO carts(id, token_hash, status, version, expires_at, correlation_id, created_at, updated_at)
+    VALUES('${dummyId}', '${tokenHash}', 'active', 1, '${expiresAt}', 'corr-1', '${params.createdAt}', '${params.createdAt}');
+
+    INSERT OR IGNORE INTO checkout_quotes(id, cart_id, cart_version, pricing_instant, currency, shipping_gross_cents, shipping_pending, total_net_cents, total_tax_cents, total_gross_cents, snapshot_hash, correlation_id, created_at)
+    VALUES('${dummyId}', '${dummyId}', 1, '${params.createdAt}', 'EUR', 0, 1, ${params.netCents}, ${params.grossCents - params.netCents}, ${params.grossCents}, '${tokenHash}', 'corr-1', '${params.createdAt}');
+
+    INSERT OR IGNORE INTO shipping_quotes(id, cart_id, cart_version, destination_hash, options_json, option_count, snapshot_hash, expires_at, correlation_id, created_at)
+    VALUES('${dummyId}', '${dummyId}', 1, '${tokenHash}', '[]', 0, '${tokenHash}', '${expiresAt}', 'corr-1', '${params.createdAt}');
+
+    INSERT OR IGNORE INTO checkout_attempts(id, cart_id, command_key, state, correlation_id, payload_hash, created_at, updated_at)
+    VALUES('${dummyId}', '${dummyId}', 'key-1', 'failed', 'corr-1', '${tokenHash}', '${params.createdAt}', '${params.createdAt}');
+
+    INSERT OR IGNORE INTO orders (
+      id, cart_id, quote_id, shipping_quote_id, attempt_id, token_hash, status,
+      reservation_id, reservation_expires_at, currency, total_net_cents, total_tax_cents, total_gross_cents,
+      shipping_net_cents, shipping_tax_cents, shipping_gross_cents, shipping_method_code, shipping_rate_version,
+      shipping_eta_min_days, shipping_eta_max_days, contact_email, contact_email_hash, consent_tos, consent_privacy,
+      correlation_id, created_at, updated_at, customer_id
+    ) VALUES (
+      '${params.orderId}', '${dummyId}', '${dummyId}', '${dummyId}', '${dummyId}', '${tokenHash}', 'awaiting_payment',
+      'res-1', '${expiresAt}', 'EUR', ${params.netCents}, ${params.grossCents - params.netCents}, ${params.grossCents},
+      0, 0, 0, 'parcel', 1, 1, 3, 'empresa@neteco.es', '${tokenHash}', 1, 1,
+      'corr-1', '${params.createdAt}', '${params.createdAt}', '${params.customerId}'
+    );
+
     INSERT OR IGNORE INTO order_payment_states (order_id, status, paid_gross_cents, updated_at) VALUES
       ('${params.orderId}', '${params.paymentStatus}', ${params.paymentStatus === 'paid' ? params.grossCents : 0}, '${params.createdAt}');
+
     INSERT OR IGNORE INTO order_customer_ownership (order_id, customer_id, bound_at) VALUES
       ('${params.orderId}', '${params.customerId}', '${params.createdAt}');
   `)

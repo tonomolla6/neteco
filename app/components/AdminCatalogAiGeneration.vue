@@ -62,7 +62,7 @@ async function generateContent() {
       .map((s) => s.trim())
       .filter(Boolean)
 
-    const res = await requestFetch('/api/admin/catalog/ai-generate/propose', {
+    const res = (await requestFetch('/api/admin/catalog/ai-generate/propose', {
       method: 'POST',
       body: {
         productName: productName.value.trim(),
@@ -78,7 +78,7 @@ async function generateContent() {
           }
         ]
       }
-    }) as { generation: GenerationResponse }
+    })) as { generation: GenerationResponse }
 
     generation.value = res.generation
   } catch (err: unknown) {
@@ -93,14 +93,14 @@ async function reviewContent(decision: 'approve' | 'reject') {
   reviewing.value = true
   errorMessage.value = ''
   try {
-    const res = await requestFetch(`/api/admin/catalog/ai-generate/generations/${generation.value.id}/review`, {
+    const res = (await requestFetch(`/api/admin/catalog/ai-generate/generations/${generation.value.id}/review`, {
       method: 'POST',
       body: {
         expectedVersion: generation.value.version,
         decision,
         reviewNotes: 'Revisión técnica de claims y seguridad completada'
       }
-    }) as { generation: GenerationResponse }
+    })) as { generation: GenerationResponse }
 
     generation.value = res.generation
     if (res.generation.approvalStatus === 'approved') {
@@ -139,28 +139,36 @@ async function applyContent() {
 <template>
   <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
     <div class="border-b border-gray-100 pb-4 dark:border-gray-800">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-        Generación Asistida de Catálogo (ADM-033)
-      </h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Generación Asistida de Catálogo (ADM-033)</h2>
       <p class="text-sm text-gray-500 dark:text-gray-400">
-        Descripciones y atributos respaldados por fuentes verificadas (FDS/SDS), detección de duplicados y revisión humana obligatoria.
+        Descripciones y atributos respaldados por fuentes verificadas (FDS/SDS), detección de duplicados y revisión
+        humana obligatoria.
       </p>
     </div>
 
     <!-- Error Banner -->
-    <div v-if="errorMessage" class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300" role="alert">
+    <div
+      v-if="errorMessage"
+      class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"
+      role="alert"
+    >
       {{ errorMessage }}
     </div>
 
     <!-- Status Message -->
-    <div v-if="statusMessage" class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+    <div
+      v-if="statusMessage"
+      class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+    >
       {{ statusMessage }}
     </div>
 
     <!-- Form -->
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div>
-        <label for="cat-name" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Nombre del Producto</label>
+        <label for="cat-name" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
+          >Nombre del Producto</label
+        >
         <input
           id="cat-name"
           v-model="productName"
@@ -168,11 +176,13 @@ async function applyContent() {
           type="text"
           placeholder="Ej: Desengrasante Alcalino Extra Fuerte"
           class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
+        />
       </div>
 
       <div>
-        <label for="cat-scope" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Alcance de Generación</label>
+        <label for="cat-scope" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
+          >Alcance de Generación</label
+        >
         <select
           id="cat-scope"
           v-model="targetScope"
@@ -185,14 +195,16 @@ async function applyContent() {
       </div>
 
       <div class="sm:col-span-2">
-        <label for="cat-claims" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Claims Verificables en FDS / Especificaciones (separados por comas)</label>
+        <label for="cat-claims" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
+          >Claims Verificables en FDS / Especificaciones (separados por comas)</label
+        >
         <input
           id="cat-claims"
           v-model="sourceClaims"
           type="text"
           placeholder="Ej: Biodegradable OECD 301, pH 7.0, Exento de fosfatos"
           class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
+        />
       </div>
 
       <div class="sm:col-span-2 flex justify-end">
@@ -210,10 +222,15 @@ async function applyContent() {
     </div>
 
     <!-- Generation Output -->
-    <div v-if="generation" class="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-800/40">
+    <div
+      v-if="generation"
+      class="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-800/40"
+    >
       <div class="flex items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
         <div class="flex items-center gap-2">
-          <span class="inline-flex items-center rounded bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-900/50 dark:text-purple-300">
+          <span
+            class="inline-flex items-center rounded bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
+          >
             Contenido Generado por IA
           </span>
           <span class="text-xs text-gray-500 dark:text-gray-400">Modelo: {{ generation.aiModelName }}</span>
@@ -246,12 +263,14 @@ async function applyContent() {
           <span
             class="font-bold uppercase"
             :class="{
-              'text-emerald-600 dark:text-emerald-400': generation.duplicateCheck.duplicateRisk === 'none' || generation.duplicateCheck.duplicateRisk === 'low',
+              'text-emerald-600 dark:text-emerald-400':
+                generation.duplicateCheck.duplicateRisk === 'none' || generation.duplicateCheck.duplicateRisk === 'low',
               'text-amber-600 dark:text-amber-400': generation.duplicateCheck.duplicateRisk === 'medium',
               'text-red-600 dark:text-red-400': generation.duplicateCheck.duplicateRisk === 'high'
             }"
           >
-            Riesgo: {{ generation.duplicateCheck.duplicateRisk }} (Similitud: {{ Math.round(generation.duplicateCheck.maxSimilarityScore * 100) }}%)
+            Riesgo: {{ generation.duplicateCheck.duplicateRisk }} (Similitud:
+            {{ Math.round(generation.duplicateCheck.maxSimilarityScore * 100) }}%)
           </span>
         </div>
       </div>
@@ -292,7 +311,7 @@ async function applyContent() {
             type="text"
             placeholder="ID de producto destino"
             class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-          >
+          />
           <button
             type="button"
             data-test="apply-content-btn"

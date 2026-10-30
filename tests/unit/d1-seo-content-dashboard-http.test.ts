@@ -48,18 +48,13 @@ async function setupHttpDb(): Promise<DatabaseSync> {
   return sqlite
 }
 
-async function makeCookie(
-  db: D1Database,
-  identityId: string,
-  sessionId: string
-): Promise<string> {
+async function makeCookie(db: D1Database, identityId: string, sessionId: string): Promise<string> {
   const cookie = await issueD1SessionCookie(
     db,
     { identityId, sessionId, sessionVersion: 1 },
-    { password: SESSION_PASSWORD, maxAgeSeconds: 3600 },
-    NOW
+    { password: SESSION_PASSWORD, maxAgeSeconds: 3600 }
   )
-  return cookie.cookie
+  return cookie?.split(';')[0] ?? ''
 }
 
 describe('DAT-019: SEO & Content Dashboard HTTP Endpoints', () => {

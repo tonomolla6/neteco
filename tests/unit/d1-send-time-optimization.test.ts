@@ -9,11 +9,9 @@ import {
   isCustomerHeldOut
 } from '../../shared/send-time-optimization'
 import {
-  SendTimeOptimizationError,
   readD1SendTimePolicy,
   updateD1SendTimePolicy,
-  evaluateD1SendTimeMessage,
-  listD1SendTimeDecisions
+  evaluateD1SendTimeMessage
 } from '../../workers/communications/send-time-optimization'
 
 const NOW = '2026-10-29T10:00:00Z' // Thursday 10:00 UTC (inside 09:00 - 18:00 window)
@@ -44,20 +42,20 @@ async function setupTestDb(): Promise<DatabaseSync> {
     INSERT OR IGNORE INTO role_permissions (role_code, permission_code) VALUES
       ('admin', 'administration.manage');
 
-    INSERT OR IGNORE INTO identities (id, customer_id, email, status, session_version, email_verified_at, created_at, updated_at) VALUES
-      ('${ADMIN_ID}', NULL, 'admin@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
-      ('10000000-0000-4000-8000-000000000011', '${CUSTOMER_CONSENTED_ID}', 'cliente-consented@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
-      ('10000000-0000-4000-8000-000000000012', '${CUSTOMER_UNCONSENTED_ID}', 'cliente-sin-consent@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
+    INSERT OR IGNORE INTO customers (id, name, status, created_at, updated_at) VALUES
+      ('${CUSTOMER_CONSENTED_ID}', 'Empresa Limpieza Norte SL', 'active', '${NOW}', '${NOW}'),
+      ('${CUSTOMER_UNCONSENTED_ID}', 'Lavandería Sol SL', 'active', '${NOW}', '${NOW}');
+
+    INSERT OR IGNORE INTO identities (id, customer_id, email, password_hash, status, session_version, email_verified_at, created_at, updated_at) VALUES
+      ('${ADMIN_ID}', NULL, 'admin@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
+      ('10000000-0000-4000-8000-000000000011', '${CUSTOMER_CONSENTED_ID}', 'cliente-consented@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
+      ('10000000-0000-4000-8000-000000000012', '${CUSTOMER_UNCONSENTED_ID}', 'cliente-sin-consent@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
 
     INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
       ('${ADMIN_ID}', 'admin', '${NOW}');
 
     INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
       ('${ADMIN_SESSION}', '${ADMIN_ID}', 1, 1, '${NOW}', '2026-10-30T14:00:00Z');
-
-    INSERT OR IGNORE INTO customers (id, name, status, created_at, updated_at) VALUES
-      ('${CUSTOMER_CONSENTED_ID}', 'Empresa Limpieza Norte SL', 'active', '${NOW}', '${NOW}'),
-      ('${CUSTOMER_UNCONSENTED_ID}', 'Lavandería Sol SL', 'active', '${NOW}', '${NOW}');
 
     -- Active newsletter / marketing consent for customer 1
     INSERT OR IGNORE INTO newsletter_subscriptions (

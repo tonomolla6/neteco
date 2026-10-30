@@ -42,8 +42,16 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
     now: () => utc()
   })
 
-  const req = (path: string, options: { method?: string; body?: unknown; cookie?: string; idempotencyKey?: string } = {}) => {
-    const { method = 'GET', body, cookie = adminCookie, idempotencyKey = '11111111-1111-4111-8111-111111111111' } = options
+  const req = (
+    path: string,
+    options: { method?: string; body?: unknown; cookie?: string; idempotencyKey?: string } = {}
+  ) => {
+    const {
+      method = 'GET',
+      body,
+      cookie = adminCookie,
+      idempotencyKey = '11111111-1111-4111-8111-111111111111'
+    } = options
     return new Request(`${origin}${path}`, {
       method,
       headers: {
@@ -60,7 +68,7 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
   it('GET /api/storefront/markets lists active markets publicly', async () => {
     const res = await handleMarketCatalogHttp(req('/api/storefront/markets', { cookie: '' }), deps())
     expect(res?.status).toBe(200)
-    const data = await res!.json() as any[]
+    const data = (await res!.json()) as Array<Record<string, unknown>>
     expect(data.length).toBeGreaterThan(0)
     expect(data.some((m) => m.code === 'ES')).toBe(true)
   })
@@ -90,7 +98,7 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
 
     const getRes = await handleMarketCatalogHttp(req(`/api/admin/market-catalog/products/${productId}`), deps())
     expect(getRes?.status).toBe(200)
-    const list = await getRes!.json() as any[]
+    const list = (await getRes!.json()) as Array<Record<string, unknown>>
     expect(list).toHaveLength(1)
     expect(list[0]).toMatchObject({
       marketCode: 'FR',
@@ -133,9 +141,9 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
       deps()
     )
     expect(evalRes?.status).toBe(200)
-    const evalData = await evalRes!.json() as any
+    const evalData = (await evalRes!.json()) as Record<string, unknown>
     expect(evalData.allowed).toBe(true)
-    expect(evalData.duties.estimatedDutyCents).toBe(1000) // 20000 * 5%
+    expect(evalData.duties).toMatchObject({ estimatedDutyCents: 1000 }) // 20000 * 5%
   })
 
   it('rejects unauthorized access from non-admin users on admin endpoints', async () => {
@@ -176,5 +184,132 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
     })
     const res = await handleMarketCatalogHttp(crossSiteReq, deps())
     expect(res?.status).toBe(403)
+  })
+
+  it('GET /api/storefront/products/market resolves localized product by market and slug', async () => {
+    // First configure FR product
+    await handleMarketCatalogHttp(
+      req(`/api/admin/market-catalog/products/${productId}`, {
+        method: 'POST',
+        body: {
+          action: 'configure',
+          expectedVersion: 0,
+          marketCode: 'FR',
+          locale: 'fr-FR',
+          isAvailable: true,
+          availabilityStatus: 'available',
+          minOrderQuantity: 1,
+          title: 'Dégraissant FR Storefront',
+          description: 'Description pour boutique FR',
+          slug: 'degraissant-fr-storefront',
+          isCompliant: true,
+          clpWarnings: []
+        }
+      }),
+      deps()
+    )
+
+    const res = await handleMarketCatalogHttp(
+      req('/api/storefront/products/market?market=FR&slug=degraissant-fr-storefront', { cookie: '' }),
+      deps()
+    )
+    expect(res?.status).toBe(200)
+    const data = (await res!.json()) as Record<string, unknown>
+    expect(data).toMatchObject({
+      productId,
+      marketCode: 'FR',
+      title: 'Dégraissant FR Storefront',
+      slug: 'degraissant-fr-storefront'
+    })
+  })
+
+  it('GET /api/admin/catalog-lots/expedition/locate-stock and locate-customers via HTTP', async () => {
+    const lotId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const warehouseLocation = (
+      f.sqlite.prepare('SELECT location_id FROM inventory_balances WHERE variant_id=?').get('v-1-1') as {
+        location_id: string
+      }
+    ).location_id
+
+    f.sqlite
+      .prepare(
+        `INSERT INTO inventory_lots(id, variant_id, lot_number, location_id, status, expires_at, initial_quantity, available_quantity, version, created_at, updated_at)
+         VALUES(?, 'v-1-1', 'LOT-HTTP-1', ?, 'active', ?, 100, 80, 1, ?, ?)`
+      )
+      .run(lotId, warehouseLocation, utc(90 * 86400000), utc(), utc())
+
+    const stockRes = await handleMarketCatalogHttp(
+      req(`/api/admin/catalog-lots/expedition/locate-stock/${lotId}`),
+      deps()
+    )
+    expect(stockRes?.status).toBe(200)
+    const stockData = (await stockRes!.json()) as Record<string, unknown>
+    expect(stockData).toMatchObject({
+      lotId,
+      lotNumber: 'LOT-HTTP-1',
+      availableQuantity: 80,
+      isExpeditionBlocked: false
+    })
+
+    const customersRes = await handleMarketCatalogHttp(
+      req(`/api/admin/catalog-lots/expedition/locate-customers/${lotId}`),
+      deps()
+    )
+    expect(customersRes?.status).toBe(200)
+    const customerData = (await customersRes!.json()) as Record<string, unknown>
+    expect(customerData.affectedCustomers).toEqual([])
+  })
+
+  it('POST /api/admin/catalog-lots/expedition/block and unblock via HTTP', async () => {
+    const lotId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const warehouseLocation = (
+      f.sqlite.prepare('SELECT location_id FROM inventory_balances WHERE variant_id=?').get('v-1-1') as {
+        location_id: string
+      }
+    ).location_id
+
+    f.sqlite
+      .prepare(
+        `INSERT INTO inventory_lots(id, variant_id, lot_number, location_id, status, expires_at, initial_quantity, available_quantity, version, created_at, updated_at)
+         VALUES(?, 'v-1-1', 'LOT-HTTP-BLOCK', ?, 'active', ?, 100, 80, 1, ?, ?)`
+      )
+      .run(lotId, warehouseLocation, utc(90 * 86400000), utc(), utc())
+
+    const blockRes = await handleMarketCatalogHttp(
+      req('/api/admin/catalog-lots/expedition/block', {
+        method: 'POST',
+        body: {
+          lotId,
+          blockReason: 'manual_quarantine',
+          evidence: 'test-http-hold'
+        }
+      }),
+      deps()
+    )
+    expect(blockRes?.status).toBe(200)
+    const blockData = (await blockRes!.json()) as Record<string, unknown>
+    expect(blockData.isBlocked).toBe(true)
+
+    // Unblock
+    const unblockRes = await handleMarketCatalogHttp(
+      req('/api/admin/catalog-lots/expedition/unblock', {
+        method: 'POST',
+        body: {
+          lotId,
+          evidence: 'test-http-released'
+        }
+      }),
+      deps()
+    )
+    expect(unblockRes?.status).toBe(200)
+    const unblockData = (await unblockRes!.json()) as Record<string, unknown>
+    expect(unblockData.isBlocked).toBe(false)
+  })
+
+  it('GET /api/admin/international-shipping/:market returns 404 when not configured', async () => {
+    const res = await handleMarketCatalogHttp(req('/api/admin/international-shipping/ZZ'), deps())
+    expect(res?.status).toBe(404)
+    const err = (await res!.json()) as Record<string, unknown>
+    expect(err).toEqual({ error: { code: 'not_found' } })
   })
 })

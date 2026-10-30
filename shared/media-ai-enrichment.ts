@@ -50,12 +50,7 @@ export const ProhibitedInventionCheckSchema = z.object({
 })
 export type ProhibitedInventionCheck = z.infer<typeof ProhibitedInventionCheckSchema>
 
-export const MEDIA_AI_APPROVAL_STATUSES = [
-  'pending_approval',
-  'approved',
-  'rejected',
-  'modified_and_approved'
-] as const
+export const MEDIA_AI_APPROVAL_STATUSES = ['pending_approval', 'approved', 'rejected', 'modified_and_approved'] as const
 export type MediaAiApprovalStatus = (typeof MEDIA_AI_APPROVAL_STATUSES)[number]
 
 export const ProposeMediaEnrichmentInputSchema = z.object({

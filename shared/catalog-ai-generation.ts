@@ -43,12 +43,7 @@ export const DuplicateCheckResultSchema = z.object({
 })
 export type DuplicateCheckResult = z.infer<typeof DuplicateCheckResultSchema>
 
-export const CATALOG_AI_APPROVAL_STATUSES = [
-  'pending_review',
-  'approved',
-  'rejected',
-  'modified_and_approved'
-] as const
+export const CATALOG_AI_APPROVAL_STATUSES = ['pending_review', 'approved', 'rejected', 'modified_and_approved'] as const
 export type CatalogAiApprovalStatus = (typeof CATALOG_AI_APPROVAL_STATUSES)[number]
 
 export const GenerateCatalogContentInputSchema = z.object({
@@ -143,8 +138,14 @@ export async function catalogAiPayloadHash(action: string, input: unknown): Prom
  */
 export function computeTextSimilarity(textA: string, textB: string): number {
   if (!textA || !textB) return 0
-  const normA = textA.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').trim()
-  const normB = textB.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').trim()
+  const normA = textA
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .trim()
+  const normB = textB
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .trim()
   if (normA === normB) return 1.0
 
   const wordsA = normA.split(/\s+/).filter((w) => w.length > 2)

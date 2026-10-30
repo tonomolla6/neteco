@@ -2,12 +2,11 @@ import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
-import {
-  type OperationalAlertInput,
-  type OperationalAlertAckInput,
-  type OperationalAlertEscalateInput,
-  type OperationalAlertResolveInput,
-  operationalAlertIntentHash
+import type {
+  OperationalAlertInput,
+  OperationalAlertAckInput,
+  OperationalAlertEscalateInput,
+  OperationalAlertResolveInput
 } from '../../shared/operational-alerts'
 import {
   OperationalAlertsError,
@@ -30,7 +29,6 @@ const SUPERVISOR_CLAIMS = { identityId: SUPERVISOR_ID, sessionId: SUPERVISOR_SES
 
 const DRIVER_ID = '10000000-0000-4000-8000-000000000003'
 const DRIVER_SESSION = '20000000-0000-4000-8000-000000000003'
-const DRIVER_CLAIMS = { identityId: DRIVER_ID, sessionId: DRIVER_SESSION, sessionVersion: 1 }
 
 async function setupTestDb(): Promise<DatabaseSync> {
   const sqlite = await openMigratedDatabase()
@@ -54,10 +52,10 @@ async function setupTestDb(): Promise<DatabaseSync> {
   `)
 
   sqlite.exec(`
-    INSERT OR IGNORE INTO identities (id, customer_id, email, status, session_version, email_verified_at, created_at, updated_at) VALUES
-      ('${ADMIN_ID}', NULL, 'admin@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
-      ('${SUPERVISOR_ID}', NULL, 'supervisor@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
-      ('${DRIVER_ID}', NULL, 'driver@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
+    INSERT OR IGNORE INTO identities (id, customer_id, email, password_hash, status, session_version, email_verified_at, created_at, updated_at) VALUES
+      ('${ADMIN_ID}', NULL, 'admin@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
+      ('${SUPERVISOR_ID}', NULL, 'supervisor@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}'),
+      ('${DRIVER_ID}', NULL, 'driver@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
 
     INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
       ('${ADMIN_ID}', 'admin', '${NOW}'),
@@ -325,7 +323,11 @@ describe('COM-019 Operational Alerts (Warehouse & Delivery)', () => {
   it('rejects unauthenticated requests or sessions with revoked status', async () => {
     const alertId = 'a0000000-0000-4000-8000-000000000013'
     const commandId = 'c0000000-0000-4000-8000-000000000013'
-    const fakeClaims = { identityId: '00000000-0000-4000-8000-000000000999', sessionId: '00000000-0000-4000-8000-000000000999', sessionVersion: 1 }
+    const fakeClaims = {
+      identityId: '00000000-0000-4000-8000-000000000999',
+      sessionId: '00000000-0000-4000-8000-000000000999',
+      sessionVersion: 1
+    }
 
     await expect(
       createD1OperationalAlert(

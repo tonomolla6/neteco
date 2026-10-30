@@ -77,9 +77,7 @@ export async function handleAdminAiAssistantHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de solicitud requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const interaction = await generateD1AdminAiProposal(deps.database, claims, body, {
         idempotencyKey,
@@ -103,20 +101,12 @@ export async function handleAdminAiAssistantHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de decisión requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
-      const interaction = await recordD1AdminAiHumanDecision(
-        deps.database,
-        claims,
-        interactionId,
-        body,
-        {
-          idempotencyKey,
-          now: deps.now
-        }
-      )
+      const interaction = await recordD1AdminAiHumanDecision(deps.database, claims, interactionId, body, {
+        idempotencyKey,
+        now: deps.now
+      })
       return jsonResponse({ interaction }, 200)
     }
 

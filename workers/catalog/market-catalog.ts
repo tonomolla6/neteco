@@ -94,9 +94,13 @@ export async function seedDefaultMarkets(database: D1Database, options?: Options
   }
 }
 
-export async function listActiveMarkets(database: D1Database): Promise<Array<{ code: string; name: string; defaultLocale: string; currency: string }>> {
+export async function listActiveMarkets(
+  database: D1Database
+): Promise<Array<{ code: string; name: string; defaultLocale: string; currency: string }>> {
   const result = await database
-    .prepare('SELECT code, name, default_locale as defaultLocale, currency FROM catalog_markets WHERE is_active = 1 ORDER BY code ASC')
+    .prepare(
+      'SELECT code, name, default_locale as defaultLocale, currency FROM catalog_markets WHERE is_active = 1 ORDER BY code ASC'
+    )
     .all<{ code: string; name: string; defaultLocale: string; currency: string }>()
   return result.results ?? []
 }
@@ -120,18 +124,18 @@ export async function readProductMarketConfigs(
        ORDER BY market_code ASC`
     )
     .bind(productId)
-    .all<any>()
+    .all<Record<string, unknown>>()
 
   return (result.results ?? []).map((row) => ({
-    ...row,
-    clpWarnings: typeof row.clpWarnings === 'string' ? JSON.parse(row.clpWarnings) : row.clpWarnings
+    ...(row as unknown as CatalogMarketConfig),
+    clpWarnings: typeof row.clpWarnings === 'string' ? JSON.parse(row.clpWarnings) : (row.clpWarnings as string[])
   }))
 }
 
 export async function resolveProductForMarket(
   database: D1Database,
   query: { productId?: string; slug?: string; marketCode: string; locale?: string }
-): Promise<any> {
+): Promise<Record<string, unknown> | null> {
   const sql = query.slug
     ? `SELECT c.*, p.brand_id, p.category_id
        FROM catalog_market_configs c
@@ -143,7 +147,7 @@ export async function resolveProductForMarket(
        WHERE c.product_id = ? AND c.market_code = ?`
 
   const param = query.slug ?? query.productId
-  const row = await database.prepare(sql).bind(param, query.marketCode).first<any>()
+  const row = await database.prepare(sql).bind(param, query.marketCode).first<Record<string, unknown>>()
   if (!row) return null
 
   return {
@@ -204,7 +208,14 @@ export async function executeMarketCatalogCommand(
       'SELECT command_id, product_id, market_code, payload_hash, version, created_at FROM catalog_market_commands WHERE command_id = ?'
     )
     .bind(commandId)
-    .first<{ command_id: string; product_id: string; market_code: string; payload_hash: string; version: number; created_at: string }>()
+    .first<{
+      command_id: string
+      product_id: string
+      market_code: string
+      payload_hash: string
+      version: number
+      created_at: string
+    }>()
 
   if (existingCommand) {
     if (
@@ -318,7 +329,7 @@ export async function executeMarketCatalogCommand(
           now
         )
     ])
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof Error && (error.message.includes('conflict') || error.message.includes('UNIQUE'))) {
       throw new MarketCatalogError('conflict')
     }

@@ -150,21 +150,18 @@ import {
   handleMarketingAutomationsHttp,
   ownsMarketingAutomationsNamespace
 } from './marketing/marketing-automations-http'
-import {
-  handleCrmAutomationMetricsHttp,
-  ownsCrmAutomationMetricsNamespace
-} from './crm/crm-automation-metrics-http'
-import {
-  handleAnomalyDetectionHttp,
-  ownsAnomalyDetectionNamespace
-} from './observability/anomaly-detection-http'
+import { handleCrmAutomationMetricsHttp, ownsCrmAutomationMetricsNamespace } from './crm/crm-automation-metrics-http'
+import { handleAnomalyDetectionHttp, ownsAnomalyDetectionNamespace } from './observability/anomaly-detection-http'
 import { handleExperimentsHttp, ownsExperimentsNamespace } from './analytics/experiments-http'
 import { handleGrowthHttp, ownsGrowthNamespace } from './growth/growth-http'
 import {
   handleInventoryLotsCostingForecastHttp,
   ownsInventoryLotsCostingForecastNamespace
 } from './catalog/inventory-lots-costing-forecast-http'
-import { handleInventoryOpsHttp, ownsInventoryOpsNamespace } from './catalog/inventory-commitments-picking-purchasing-http'
+import {
+  handleInventoryOpsHttp,
+  ownsInventoryOpsNamespace
+} from './catalog/inventory-commitments-picking-purchasing-http'
 import {
   handleCustomerRecurringListsHttp,
   ownsCustomerRecurringListsNamespace
@@ -179,7 +176,10 @@ import { handleHighValueConsentHttp } from './communications/high-value-consent-
 import { handleHighValueMessagesHttp } from './communications/high-value-messages-http'
 import { handleWhatsAppBusinessHttp } from './communications/whatsapp-business-http'
 import { handleHighValueOptOutHttp } from './communications/high-value-optout-http'
-import { handleAccountNotificationsHttp, ownsAccountNotificationsNamespace } from './communications/account-notifications-http'
+import {
+  handleAccountNotificationsHttp,
+  ownsAccountNotificationsNamespace
+} from './communications/account-notifications-http'
 import { handleMultichannelHttp, ownsMultichannelNamespace } from './communications/multichannel-http'
 import { handleCustomerRiskScoringHttp, ownsCustomerRiskScoringNamespace } from './crm/risk-scoring-http'
 import { handleB2bEdiHttp, ownsB2bEdiNamespace } from './b2b/edi-gateway-http'
@@ -196,22 +196,10 @@ import { handleDeliveryRoutesHttp, ownsDeliveryRoutesNamespace } from './fulfill
 import { handleB2BContractSloHttp, ownsB2BContractSloNamespace } from './observability/b2b-slo-http'
 import { handleCapacityPlanningHttp, ownsCapacityPlanningNamespace } from './observability/capacity-planning-http'
 import { handleErrorBudgetHttp, ownsErrorBudgetNamespace } from './observability/error-budget-http'
-import {
-  handleAlphaBetaPromotionHttp,
-  ownsAlphaBetaPromotionNamespace
-} from './release/alpha-beta-promotion-http'
-import {
-  handleProgressiveRolloutHttp,
-  ownsProgressiveRolloutNamespace
-} from './release/progressive-rollout-http'
-import {
-  handleCloudflarePolicyHttp,
-  ownsCloudflarePolicyNamespace
-} from './release/cloudflare-policy-http'
-import {
-  handleCampaignPipelineHttp,
-  ownsCampaignPipelineNamespace
-} from './cms/campaign-pipeline-http'
+import { handleAlphaBetaPromotionHttp, ownsAlphaBetaPromotionNamespace } from './release/alpha-beta-promotion-http'
+import { handleProgressiveRolloutHttp, ownsProgressiveRolloutNamespace } from './release/progressive-rollout-http'
+import { handleCloudflarePolicyHttp, ownsCloudflarePolicyNamespace } from './release/cloudflare-policy-http'
+import { handleCampaignPipelineHttp, ownsCampaignPipelineNamespace } from './cms/campaign-pipeline-http'
 import { handleOperationalAlertsHttp, ownsOperationalAlertsNamespace } from './communications/operational-alerts-http'
 import {
   handleSendTimeOptimizationHttp,
@@ -240,46 +228,19 @@ import {
   ownsPredictivePersonalizationNamespace
 } from './marketing/predictive-personalization-http'
 import { handleModelEvaluationHttp, ownsModelEvaluationNamespace } from './analytics/model-evaluation-http'
-import {
-  handleCmsPreviewComparisonHttp,
-  ownsCmsPreviewComparisonNamespace
-} from './cms/preview-comparison-http'
-import {
-  handleRoleDashboardHttp,
-  ownsRoleDashboardNamespace
-} from './admin/role-dashboard-http'
-import {
-  handleCommercialCampaignsHttp,
-  ownsCommercialCampaignsNamespace
-} from './marketing/commercial-campaigns-http'
-import {
-  handleSupplierFeedHttp,
-  ownsSupplierFeedNamespace
-} from './catalog/supplier-feed-comparison-http'
-import {
-  handleEditorialContentHttp,
-  ownsEditorialContentNamespace
-} from './catalog/editorial-content-http'
-import {
-  handleSupplierSourcingHttp,
-  ownsSupplierSourcingNamespace
-} from './catalog/supplier-sourcing-http'
-import {
-  handleDraftOrdersHttp,
-  ownsDraftOrdersNamespace
-} from './b2b/draft-orders-http'
-import {
-  handleEditorialBriefingHttp,
-  ownsEditorialBriefingNamespace
-} from './cms/editorial-seo-briefing-http'
+import { handleCmsPreviewComparisonHttp, ownsCmsPreviewComparisonNamespace } from './cms/preview-comparison-http'
+import { handleRoleDashboardHttp, ownsRoleDashboardNamespace } from './admin/role-dashboard-http'
+import { handleCommercialCampaignsHttp, ownsCommercialCampaignsNamespace } from './marketing/commercial-campaigns-http'
+import { handleSupplierFeedHttp, ownsSupplierFeedNamespace } from './catalog/supplier-feed-comparison-http'
+import { handleEditorialContentHttp, ownsEditorialContentNamespace } from './catalog/editorial-content-http'
+import { handleSupplierSourcingHttp, ownsSupplierSourcingNamespace } from './catalog/supplier-sourcing-http'
+import { handleDraftOrdersHttp, ownsDraftOrdersNamespace } from './b2b/draft-orders-http'
+import { handleEditorialBriefingHttp, ownsEditorialBriefingNamespace } from './cms/editorial-seo-briefing-http'
 import {
   handleCommercialQuotesAccountsHttp,
   ownsCommercialQuotesAccountsNamespace
 } from './catalog/commercial-quotes-accounts-http'
-import {
-  handleWarehouseScanHttp,
-  ownsWarehouseScanNamespace
-} from './fulfillment/warehouse-scan-operations-http'
+import { handleWarehouseScanHttp, ownsWarehouseScanNamespace } from './fulfillment/warehouse-scan-operations-http'
 import { handleAccountPreferencesHttp } from './auth/account-preferences-http'
 import { handleAccountLifecycleHttp, ownsAccountLifecycleNamespace } from './auth/account-lifecycle-http'
 import { scheduleReplenishmentReminders } from './auth/replenishment-reminders'

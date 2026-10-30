@@ -211,21 +211,11 @@ describe('DAT-019: SEO & Content Dashboard Core Logic', () => {
       { commandId: 'cmd-filter-test', now: () => NOW }
     )
 
-    const mobileOnly = await readSeoContentDashboard(
-      db,
-      ADMIN_CLAIMS,
-      { device: 'mobile' },
-      { now: () => NOW }
-    )
+    const mobileOnly = await readSeoContentDashboard(db, ADMIN_CLAIMS, { device: 'mobile' }, { now: () => NOW })
     expect(mobileOnly.summary.totalImpressions).toBe(400)
     expect(mobileOnly.summary.totalClicks).toBe(20)
 
-    const desktopOnly = await readSeoContentDashboard(
-      db,
-      ADMIN_CLAIMS,
-      { device: 'desktop' },
-      { now: () => NOW }
-    )
+    const desktopOnly = await readSeoContentDashboard(db, ADMIN_CLAIMS, { device: 'desktop' }, { now: () => NOW })
     expect(desktopOnly.summary.totalImpressions).toBe(500)
     expect(desktopOnly.summary.totalClicks).toBe(50)
   })
@@ -281,5 +271,9 @@ describe('DAT-019: SEO & Content Dashboard Core Logic', () => {
       now: () => NOW
     })
     expect(second.idempotentReplay).toBe(true)
+
+    const syncState = await getSeoContentSyncState(db, ADMIN_CLAIMS, { now: () => NOW })
+    expect(syncState.lastSyncAt).toBe(NOW)
+    expect(syncState.dataThroughDate).toBe('2026-10-27')
   })
 })

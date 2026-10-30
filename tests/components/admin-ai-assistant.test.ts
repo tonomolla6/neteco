@@ -20,7 +20,8 @@ const mockProposal = {
   category: 'catalog_review',
   prompt: 'Revisa existencias de desengrasante',
   contextSummary: 'Producto Desengrasante Alcalino Extra Fuerte. Stock: 50 uds.',
-  proposedReply: 'El stock actual es de 50 unidades [Cita 1]. Se recomienda mantener el nivel de reaprovisionamiento [Cita 2].',
+  proposedReply:
+    'El stock actual es de 50 unidades [Cita 1]. Se recomienda mantener el nivel de reaprovisionamiento [Cita 2].',
   proposedAction: 'Generar alerta de reaprovisionamiento preventivo',
   actionType: 'propose_restock_alert',
   actionPayload: { threshold: 20 },

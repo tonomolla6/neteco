@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  aiTestFixture,
-  ADMIN_CLAIMS,
-  OPERATOR_CLAIMS,
-  UNAUTHORIZED_CLAIMS
-} from './d1-ai-test-fixture'
+import { aiTestFixture, ADMIN_CLAIMS, OPERATOR_CLAIMS, UNAUTHORIZED_CLAIMS } from './d1-ai-test-fixture'
 import type { GenerateAdminProposalInput, HumanAdminDecisionInput } from '../../shared/admin-ai-assistant'
 import {
   generateD1AdminAiProposal,
@@ -105,16 +100,10 @@ describe('ADM-032: Back-office AI Assistant under human approval', () => {
       notes: 'Aprobación humana verificada'
     }
 
-    const updated = await recordD1AdminAiHumanDecision(
-      f.database,
-      ADMIN_CLAIMS,
-      proposal.id,
-      validDecision,
-      {
-        idempotencyKey: 'idemp-decision-ok',
-        now: () => NOW
-      }
-    )
+    const updated = await recordD1AdminAiHumanDecision(f.database, ADMIN_CLAIMS, proposal.id, validDecision, {
+      idempotencyKey: 'idemp-decision-ok',
+      now: () => NOW
+    })
 
     expect(updated.approvalStatus).toBe('approved')
     expect(updated.humanDeciderId).toBe(ADMIN_CLAIMS.identityId)
@@ -149,7 +138,34 @@ describe('ADM-032: Back-office AI Assistant under human approval', () => {
     expect(updated.proposedReply).toContain('NO debe aplicarse en aluminio')
   })
 
-  it('respects permissions and rejects unauthorized actors', async () => {
+  it('supports reject decision with reason notes', async () => {
+    const input: GenerateAdminProposalInput = {
+      category: 'order_ops',
+      prompt: 'Revisar cancelación de pedido sin motivo aparente'
+    }
+
+    const proposal = await generateD1AdminAiProposal(f.database, ADMIN_CLAIMS, input, {
+      idempotencyKey: 'idemp-reject-1',
+      now: () => NOW
+    })
+
+    const decision: HumanAdminDecisionInput = {
+      expectedVersion: proposal.version,
+      decision: 'reject',
+      notes: 'No procede la cancelación según condiciones generales de contratación'
+    }
+
+    const updated = await recordD1AdminAiHumanDecision(f.database, ADMIN_CLAIMS, proposal.id, decision, {
+      idempotencyKey: 'idemp-reject-decision',
+      now: () => NOW
+    })
+
+    expect(updated.approvalStatus).toBe('rejected')
+    expect(updated.humanNotes).toContain('No procede')
+    expect(updated.humanDeciderId).toBe(ADMIN_CLAIMS.identityId)
+  })
+
+  it('respects permissions and rejects unauthorized actors as well as limited operators', async () => {
     const input: GenerateAdminProposalInput = {
       category: 'financial_inquiry',
       prompt: 'Informe financiero y márgenes de liquidación'
@@ -158,6 +174,14 @@ describe('ADM-032: Back-office AI Assistant under human approval', () => {
     await expect(
       generateD1AdminAiProposal(f.database, UNAUTHORIZED_CLAIMS, input, {
         idempotencyKey: 'idemp-unauth-1',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/unauthorized|permisos/i)
+
+    // Operator lacks admin.ai_assistant permission
+    await expect(
+      generateD1AdminAiProposal(f.database, OPERATOR_CLAIMS, input, {
+        idempotencyKey: 'idemp-operator-unauth',
         now: () => NOW
       })
     ).rejects.toThrow(/unauthorized|permisos/i)
@@ -215,7 +239,7 @@ describe('ADM-032: Back-office AI Assistant under human approval', () => {
     }).toThrow(/immutable/)
   })
 
-  it('reads and lists interactions with category filtering', async () => {
+  it('reads and lists interactions with category and status filtering', async () => {
     const input: GenerateAdminProposalInput = {
       category: 'catalog_review',
       prompt: 'Listado de revisión para producto quimico'
@@ -232,5 +256,39 @@ describe('ADM-032: Back-office AI Assistant under human approval', () => {
     const list = await listD1AdminAiInteractions(f.database, ADMIN_CLAIMS, { category: 'catalog_review' })
     expect(list.length).toBeGreaterThanOrEqual(1)
     expect(list.some((item) => item.id === created.id)).toBe(true)
+
+    const pendingList = await listD1AdminAiInteractions(f.database, ADMIN_CLAIMS, { status: 'pending' })
+    expect(pendingList.length).toBeGreaterThanOrEqual(1)
+
+    // Not found throws
+    await expect(
+      readD1AdminAiInteraction(f.database, ADMIN_CLAIMS, 'non-existent-interaction-id-999999')
+    ).rejects.toThrow(/not_found|no encontrada/i)
+  })
+
+  it('rejects invalid inputs on proposal generation and decision', async () => {
+    // Prompt too short
+    const shortPrompt = {
+      category: 'order_ops',
+      prompt: 'x'
+    } as unknown as GenerateAdminProposalInput
+    await expect(
+      generateD1AdminAiProposal(f.database, ADMIN_CLAIMS, shortPrompt, {
+        idempotencyKey: 'idemp-short',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/invalid_input|inválida/i)
+
+    // Invalid category
+    const invalidCat = {
+      category: 'not_a_category',
+      prompt: 'Prompt válido pero categoría errónea'
+    } as unknown as GenerateAdminProposalInput
+    await expect(
+      generateD1AdminAiProposal(f.database, ADMIN_CLAIMS, invalidCat, {
+        idempotencyKey: 'idemp-inv-cat',
+        now: () => NOW
+      })
+    ).rejects.toThrow(/invalid_input|inválida/i)
   })
 })

@@ -78,9 +78,7 @@ export async function handleMediaAiEnrichmentHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de solicitud requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const enrichment = await proposeD1MediaAiEnrichment(deps.database, claims, body, {
         idempotencyKey,
@@ -104,9 +102,7 @@ export async function handleMediaAiEnrichmentHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de decisión requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const enrichment = await decideD1MediaAiEnrichment(deps.database, claims, enrichmentId, body, {
         idempotencyKey,
@@ -122,9 +118,7 @@ export async function handleMediaAiEnrichmentHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de aplicación requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const result = await applyD1MediaAiEnrichment(deps.database, claims, enrichmentId, body, {
         idempotencyKey,

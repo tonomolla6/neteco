@@ -76,7 +76,9 @@ describe('CAT-022: Catálogo por mercado/idioma', () => {
     expect(configs[0]?.clpWarnings).toEqual(['H314', 'H318', 'P280'])
 
     // Base product was NOT cloned: only 1 row in products table
-    const productCount = f.sqlite.prepare('SELECT count(*) as count FROM products WHERE id=?').get(productId) as { count: number }
+    const productCount = f.sqlite.prepare('SELECT count(*) as count FROM products WHERE id=?').get(productId) as {
+      count: number
+    }
     expect(productCount.count).toBe(1)
   })
 
@@ -128,7 +130,10 @@ describe('CAT-022: Catálogo por mercado/idioma', () => {
       options
     )
 
-    const resolvedES = await resolveProductForMarket(f.database, { slug: 'desengrasante-alcalino-es', marketCode: 'ES' })
+    const resolvedES = await resolveProductForMarket(f.database, {
+      slug: 'desengrasante-alcalino-es',
+      marketCode: 'ES'
+    })
     expect(resolvedES).toMatchObject({
       productId,
       marketCode: 'ES',
@@ -136,7 +141,10 @@ describe('CAT-022: Catálogo por mercado/idioma', () => {
       minOrderQuantity: 1
     })
 
-    const resolvedPT = await resolveProductForMarket(f.database, { slug: 'desengordurante-alcalino-pt', marketCode: 'PT' })
+    const resolvedPT = await resolveProductForMarket(f.database, {
+      slug: 'desengordurante-alcalino-pt',
+      marketCode: 'PT'
+    })
     expect(resolvedPT).toMatchObject({
       productId,
       marketCode: 'PT',
@@ -260,5 +268,114 @@ describe('CAT-022: Catálogo por mercado/idioma', () => {
     await expect(
       executeMarketCatalogCommand(f.database, BUYER_CLAIMS, productId, commandId1, payload, options)
     ).rejects.toThrowError(MarketCatalogError)
+  })
+
+  it('rejects invalid input when maxOrderQuantity is less than minOrderQuantity', async () => {
+    const invalidQty = {
+      action: 'configure' as const,
+      expectedVersion: 0,
+      marketCode: 'FR',
+      locale: 'fr-FR',
+      isAvailable: true,
+      availabilityStatus: 'available' as const,
+      minOrderQuantity: 10,
+      maxOrderQuantity: 5, // invalid: max < min
+      title: 'Nettoyant FR',
+      description: 'Desc FR',
+      slug: 'nettoyant-fr-qty',
+      isCompliant: true,
+      clpWarnings: []
+    }
+
+    await expect(
+      executeMarketCatalogCommand(f.database, CLAIMS, productId, commandId1, invalidQty, options)
+    ).rejects.toThrowError(new MarketCatalogError('invalid_input'))
+  })
+
+  it('rejects invalid market code not matching uppercase 2-5 letter format', async () => {
+    const invalidCode = {
+      action: 'configure' as const,
+      expectedVersion: 0,
+      marketCode: 'fr_FR', // invalid format
+      locale: 'fr-FR',
+      isAvailable: true,
+      availabilityStatus: 'available' as const,
+      minOrderQuantity: 1,
+      title: 'Nettoyant FR',
+      description: 'Desc FR',
+      slug: 'nettoyant-fr-code',
+      isCompliant: true,
+      clpWarnings: []
+    }
+
+    await expect(
+      executeMarketCatalogCommand(f.database, CLAIMS, productId, commandId1, invalidCode, options)
+    ).rejects.toThrowError(new MarketCatalogError('invalid_input'))
+  })
+
+  it('rejects invalid SDS URL if not https scheme', async () => {
+    const invalidSds = {
+      action: 'configure' as const,
+      expectedVersion: 0,
+      marketCode: 'FR',
+      locale: 'fr-FR',
+      isAvailable: true,
+      availabilityStatus: 'available' as const,
+      minOrderQuantity: 1,
+      title: 'Nettoyant FR',
+      description: 'Desc FR',
+      slug: 'nettoyant-fr-sds',
+      isCompliant: true,
+      clpWarnings: [],
+      sdsUrl: 'http://insecure.example.com/sds.pdf' // must be https
+    }
+
+    await expect(
+      executeMarketCatalogCommand(f.database, CLAIMS, productId, commandId1, invalidSds, options)
+    ).rejects.toThrowError(new MarketCatalogError('invalid_input'))
+  })
+
+  it('updates market availability status to restricted with restriction reason', async () => {
+    const payload1 = {
+      action: 'configure' as const,
+      expectedVersion: 0,
+      marketCode: 'FR',
+      locale: 'fr-FR',
+      isAvailable: true,
+      availabilityStatus: 'available' as const,
+      minOrderQuantity: 1,
+      title: 'Nettoyant FR',
+      description: 'Desc FR',
+      slug: 'nettoyant-fr-restricted',
+      isCompliant: true,
+      clpWarnings: []
+    }
+    await executeMarketCatalogCommand(f.database, CLAIMS, productId, commandId1, payload1, options)
+
+    const payload2 = {
+      action: 'set_availability' as const,
+      expectedVersion: 1,
+      marketCode: 'FR',
+      locale: 'fr-FR',
+      isAvailable: false,
+      availabilityStatus: 'restricted' as const,
+      restrictionReason: 'Requires professional applicator certificate in France',
+      minOrderQuantity: 1,
+      title: 'Nettoyant FR',
+      description: 'Desc FR',
+      slug: 'nettoyant-fr-restricted',
+      isCompliant: true,
+      clpWarnings: []
+    }
+    const updateRes = await executeMarketCatalogCommand(f.database, CLAIMS, productId, commandId2, payload2, options)
+    expect(updateRes.version).toBe(2)
+
+    const configs = await readProductMarketConfigs(f.database, productId)
+    expect(configs[0]).toMatchObject({
+      marketCode: 'FR',
+      isAvailable: 0,
+      availabilityStatus: 'restricted',
+      restrictionReason: 'Requires professional applicator certificate in France'
+    })
   })
 })

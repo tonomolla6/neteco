@@ -48,12 +48,7 @@ export const AdminAiRedactionFlagsSchema = z.object({
 })
 export type AdminAiRedactionFlags = z.infer<typeof AdminAiRedactionFlagsSchema>
 
-export const ADMIN_AI_APPROVAL_STATUSES = [
-  'pending',
-  'approved',
-  'rejected',
-  'modified_and_approved'
-] as const
+export const ADMIN_AI_APPROVAL_STATUSES = ['pending', 'approved', 'rejected', 'modified_and_approved'] as const
 export type AdminAiApprovalStatus = (typeof ADMIN_AI_APPROVAL_STATUSES)[number]
 
 export const GenerateAdminProposalInputSchema = z.object({

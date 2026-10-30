@@ -3,13 +3,7 @@ import { z } from 'zod'
 export class MarketCatalogError extends Error {
   constructor(
     readonly code:
-      | 'invalid_input'
-      | 'unauthenticated'
-      | 'forbidden'
-      | 'not_found'
-      | 'conflict'
-      | 'unavailable'
-      | 'non_compliant'
+      'invalid_input' | 'unauthenticated' | 'forbidden' | 'not_found' | 'conflict' | 'unavailable' | 'non_compliant'
   ) {
     super(code)
     this.name = 'MarketCatalogError'
@@ -48,7 +42,10 @@ export class CatalogLotRecallError extends Error {
   }
 }
 
-export const marketCodeSchema = z.string().trim().regex(/^[A-Z]{2,5}$/)
+export const marketCodeSchema = z
+  .string()
+  .trim()
+  .regex(/^[A-Z]{2,5}$/)
 export const localeSchema = z.string().trim().min(2).max(10)
 
 export const catalogMarketConfigInputSchema = z
@@ -58,7 +55,9 @@ export const catalogMarketConfigInputSchema = z
     marketCode: marketCodeSchema,
     locale: localeSchema.default('es-ES'),
     isAvailable: z.boolean().default(true),
-    availabilityStatus: z.enum(['available', 'preorder', 'discontinued', 'restricted', 'b2b_only']).default('available'),
+    availabilityStatus: z
+      .enum(['available', 'preorder', 'discontinued', 'restricted', 'b2b_only'])
+      .default('available'),
     minOrderQuantity: z.number().int().positive().default(1),
     maxOrderQuantity: z.number().int().positive().optional(),
     restrictionReason: z.string().trim().max(500).optional(),
@@ -72,13 +71,22 @@ export const catalogMarketConfigInputSchema = z
     clpWarnings: z.array(z.string().trim()).default([]),
     ufiCode: z.string().trim().min(4).max(40).optional(),
     registrationNumber: z.string().trim().max(100).optional(),
-    sdsUrl: z.string().trim().url().optional(),
+    sdsUrl: z
+      .string()
+      .trim()
+      .url()
+      .regex(/^https:\/\//, 'sdsUrl must use https scheme')
+      .optional(),
     complianceNotes: z.string().trim().optional()
   })
   .strict()
   .refine((data) => !data.isAvailable || data.isCompliant, {
     message: 'Product cannot be marked available in market if it is not compliant',
     path: ['isAvailable']
+  })
+  .refine((data) => !data.maxOrderQuantity || data.maxOrderQuantity >= data.minOrderQuantity, {
+    message: 'maxOrderQuantity must be greater than or equal to minOrderQuantity',
+    path: ['maxOrderQuantity']
   })
 
 export type CatalogMarketConfigInput = z.infer<typeof catalogMarketConfigInputSchema>
@@ -123,7 +131,9 @@ export const internationalShippingPolicyInputSchema = z
     requiredDocuments: z.array(z.string().trim()).default([]),
     customsDeclarationNotes: z.string().trim().optional(),
     adrAllowed: z.boolean().default(true),
-    maxHazardClass: z.enum(['none', 'unrestricted', 'limited_quantity_only', 'class_2', 'class_3', 'class_8']).default('unrestricted'),
+    maxHazardClass: z
+      .enum(['none', 'unrestricted', 'limited_quantity_only', 'class_2', 'class_3', 'class_8'])
+      .default('unrestricted'),
     prohibitedUnNumbers: z.array(z.string().trim().toUpperCase()).default([]),
     maxDangerousGoodsVolumeLiters: z.number().int().min(0).default(50),
     requiresSpecialAdrCarrier: z.boolean().default(false),
@@ -178,7 +188,12 @@ export interface ShippingEvaluationItem {
 export interface InternationalShippingEvaluation {
   marketCode: string
   allowed: boolean
-  blockReason?: 'adr_not_allowed_in_market' | 'prohibited_chemical_un_number' | 'dangerous_goods_volume_limit_exceeded' | 'hazard_class_exceeded' | null
+  blockReason?:
+    | 'adr_not_allowed_in_market'
+    | 'prohibited_chemical_un_number'
+    | 'dangerous_goods_volume_limit_exceeded'
+    | 'hazard_class_exceeded'
+    | null
   violations: string[]
   duties: {
     declaredValueRequired: boolean
@@ -218,7 +233,12 @@ export const lotExpeditionBlockInputSchema = z
   .object({
     lotId: z.string().uuid(),
     blockReason: z.enum(['lot_expired', 'lot_recalled', 'lot_quarantined', 'manual_quarantine']),
-    evidence: z.string().trim().min(4).max(100).regex(/^[a-zA-Z0-9_-]+$/)
+    evidence: z
+      .string()
+      .trim()
+      .min(4)
+      .max(100)
+      .regex(/^[a-zA-Z0-9_-]+$/)
   })
   .strict()
 

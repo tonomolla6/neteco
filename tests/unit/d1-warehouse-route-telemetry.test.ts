@@ -39,8 +39,8 @@ async function setupTestDb(): Promise<DatabaseSync> {
     INSERT OR IGNORE INTO role_permissions (role_code, permission_code) VALUES
       ('admin', 'administration.manage');
 
-    INSERT OR IGNORE INTO identities (id, customer_id, email, status, session_version, email_verified_at, created_at, updated_at) VALUES
-      ('${ADMIN_ID}', NULL, 'admin@neteco.test', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
+    INSERT OR IGNORE INTO identities (id, customer_id, email, password_hash, status, session_version, email_verified_at, created_at, updated_at) VALUES
+      ('${ADMIN_ID}', NULL, 'admin@neteco.test', 'hash', 'active', 1, '${NOW}', '${NOW}', '${NOW}');
 
     INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
       ('${ADMIN_ID}', 'admin', '${NOW}');
@@ -124,15 +124,9 @@ describe('OBS-029 Warehouse & Route Telemetry (8 Facets & Labor Privacy)', () =>
         occurredAt: NOW
       }
 
-      const recorded = await recordD1TelemetryEvent(
-        db,
-        ADMIN_CLAIMS,
-        eventId,
-        commandId,
-        `idemp-facet-${i}`,
-        input,
-        { now: () => NOW }
-      )
+      const recorded = await recordD1TelemetryEvent(db, ADMIN_CLAIMS, eventId, commandId, `idemp-facet-${i}`, input, {
+        now: () => NOW
+      })
 
       expect(recorded.facet).toBe(facet)
       expect(recorded.operatorPseudonym).toMatch(/^[0-9a-f]{64}$/)

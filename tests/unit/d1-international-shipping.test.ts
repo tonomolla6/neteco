@@ -68,7 +68,11 @@ describe('SHP-031: Envío internacional/restricciones por país', () => {
       hazardousReturnsAllowed: 0,
       returnWindowDays: 14
     })
-    expect(readBack?.requiredDocuments).toEqual(['commercial_invoice', 'export_declaration', 'sds_destination_language'])
+    expect(readBack?.requiredDocuments).toEqual([
+      'commercial_invoice',
+      'export_declaration',
+      'sds_destination_language'
+    ])
     expect(readBack?.prohibitedUnNumbers).toEqual(['UN1760', 'UN1791'])
   })
 
@@ -340,5 +344,124 @@ describe('SHP-031: Envío internacional/restricciones por país', () => {
     await expect(
       configureInternationalShippingPolicy(f.database, BUYER_CLAIMS, commandId1, policy, options)
     ).rejects.toThrowError(InternationalShippingError)
+  })
+
+  it('enforces idempotency on duplicate command ID for shipping policy configuration', async () => {
+    const policy = {
+      marketCode: 'DE',
+      expectedVersion: 0,
+      customsDeclaredValueRequired: false,
+      dutyCollectionType: 'exempt' as const,
+      adrAllowed: true,
+      maxHazardClass: 'unrestricted' as const,
+      prohibitedUnNumbers: [],
+      maxDangerousGoodsVolumeLiters: 80,
+      requiresSpecialAdrCarrier: false,
+      returnsPermitted: true,
+      returnWindowDays: 14,
+      hazardousReturnsAllowed: false,
+      customerReturnFeeCents: 0
+    }
+
+    const first = await configureInternationalShippingPolicy(f.database, CLAIMS, commandId1, policy, options)
+    const second = await configureInternationalShippingPolicy(f.database, CLAIMS, commandId1, policy, options)
+    expect(second).toEqual(first)
+  })
+
+  it('rejects conflicting command ID with modified shipping policy payload', async () => {
+    const policy1 = {
+      marketCode: 'DE',
+      expectedVersion: 0,
+      customsDeclaredValueRequired: false,
+      dutyCollectionType: 'exempt' as const,
+      adrAllowed: true,
+      maxHazardClass: 'unrestricted' as const,
+      prohibitedUnNumbers: [],
+      maxDangerousGoodsVolumeLiters: 80,
+      requiresSpecialAdrCarrier: false,
+      returnsPermitted: true,
+      returnWindowDays: 14,
+      hazardousReturnsAllowed: false,
+      customerReturnFeeCents: 0
+    }
+    await configureInternationalShippingPolicy(f.database, CLAIMS, commandId1, policy1, options)
+
+    const policy2 = {
+      ...policy1,
+      maxDangerousGoodsVolumeLiters: 40 // changed payload
+    }
+    await expect(
+      configureInternationalShippingPolicy(f.database, CLAIMS, commandId1, policy2, options)
+    ).rejects.toThrowError(new InternationalShippingError('conflict'))
+  })
+
+  it('rejects optimistic CAS update when expectedVersion does not match current version', async () => {
+    const policy = {
+      marketCode: 'IT',
+      expectedVersion: 0,
+      customsDeclaredValueRequired: false,
+      dutyCollectionType: 'exempt' as const,
+      adrAllowed: true,
+      maxHazardClass: 'unrestricted' as const,
+      prohibitedUnNumbers: [],
+      maxDangerousGoodsVolumeLiters: 50,
+      requiresSpecialAdrCarrier: false,
+      returnsPermitted: true,
+      returnWindowDays: 14,
+      hazardousReturnsAllowed: false,
+      customerReturnFeeCents: 0
+    }
+    await configureInternationalShippingPolicy(f.database, CLAIMS, commandId1, policy, options)
+
+    // Stale version: still passing expectedVersion: 0 instead of 1
+    const stalePolicy = {
+      ...policy,
+      expectedVersion: 0,
+      maxDangerousGoodsVolumeLiters: 60
+    }
+    await expect(
+      configureInternationalShippingPolicy(f.database, CLAIMS, commandId2, stalePolicy, options)
+    ).rejects.toThrowError(new InternationalShippingError('conflict'))
+  })
+
+  it('rejects invalid input with out-of-range duty rate or invalid market code', async () => {
+    const invalidRate = {
+      marketCode: 'FR',
+      expectedVersion: 0,
+      customsDeclaredValueRequired: false,
+      dutyCollectionType: 'ddp' as const,
+      estimatedDutyRateBps: 15000, // > 10000 bps (100%)
+      adrAllowed: true,
+      maxHazardClass: 'unrestricted' as const,
+      prohibitedUnNumbers: [],
+      maxDangerousGoodsVolumeLiters: 50,
+      requiresSpecialAdrCarrier: false,
+      returnsPermitted: true,
+      returnWindowDays: 14,
+      hazardousReturnsAllowed: false,
+      customerReturnFeeCents: 0
+    }
+    await expect(
+      configureInternationalShippingPolicy(f.database, CLAIMS, commandId1, invalidRate, options)
+    ).rejects.toThrowError(new InternationalShippingError('invalid_input'))
+  })
+
+  it('evaluates unconfigured market using safe default policy', async () => {
+    const evaluation = await evaluateInternationalShipping(f.database, {
+      marketCode: 'LU', // unconfigured market
+      declaredValueCents: 5000,
+      items: [
+        {
+          variantId: 'v-1-1',
+          quantity: 1,
+          isDangerousGoods: false,
+          valueCents: 5000
+        }
+      ]
+    })
+    expect(evaluation.allowed).toBe(true)
+    expect(evaluation.duties.dutyCollectionType).toBe('exempt')
+    expect(evaluation.returns.returnsPermitted).toBe(true)
+    expect(evaluation.returns.returnWindowDays).toBe(14)
   })
 })

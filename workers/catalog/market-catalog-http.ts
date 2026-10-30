@@ -18,11 +18,7 @@ import {
   locateLotAffectedStock,
   unblockLotExpedition
 } from './catalog-lot-recall'
-import {
-  CatalogLotRecallError,
-  InternationalShippingError,
-  MarketCatalogError
-} from '../../shared/catalog-markets'
+import { CatalogLotRecallError, InternationalShippingError, MarketCatalogError } from '../../shared/catalog-markets'
 
 export interface MarketCatalogHttpDependencies {
   database: D1Database
@@ -132,14 +128,9 @@ export async function handleMarketCatalogHttp(
       }
       if (request.method === 'POST') {
         const body = await request.json()
-        const result = await executeMarketCatalogCommand(
-          deps.database,
-          claims,
-          productId,
-          commandId,
-          body,
-          { now: deps.now }
-        )
+        const result = await executeMarketCatalogCommand(deps.database, claims, productId, commandId, body, {
+          now: deps.now
+        })
         return jsonResponse(result)
       }
     }
@@ -197,8 +188,12 @@ export async function handleMarketCatalogHttp(
     }
 
     return errorResponse('not_found', 404)
-  } catch (error: any) {
-    if (error instanceof MarketCatalogError || error instanceof InternationalShippingError || error instanceof CatalogLotRecallError) {
+  } catch (error: unknown) {
+    if (
+      error instanceof MarketCatalogError ||
+      error instanceof InternationalShippingError ||
+      error instanceof CatalogLotRecallError
+    ) {
       if (error.code === 'unauthenticated') return errorResponse('unauthenticated', 401)
       if (error.code === 'forbidden') return errorResponse('forbidden', 403)
       if (error.code === 'not_found') return errorResponse('not_found', 404)

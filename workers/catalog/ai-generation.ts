@@ -6,6 +6,8 @@ import {
   type VerifiableClaimItem,
   type DuplicateCheckResult,
   type MatchedDuplicateProduct,
+  type CatalogAiScope,
+  type CatalogAiApprovalStatus,
   GenerateCatalogContentInputSchema,
   ReviewCatalogGenerationInputSchema,
   ApplyCatalogGenerationInputSchema,
@@ -14,6 +16,32 @@ import {
   computeTextSimilarity
 } from '../../shared/catalog-ai-generation'
 import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
+
+interface CatalogAiGenerationRow {
+  id: string
+  product_id: string | null
+  target_scope: CatalogAiScope
+  actor_id: string
+  sources_json: string
+  prompt: string
+  generated_title: string | null
+  generated_short_description: string | null
+  generated_description: string | null
+  generated_usage: string | null
+  generated_attributes_json: string | null
+  verifiable_claims_json: string
+  duplicate_check_json: string
+  is_ai_generated: number
+  ai_model_name: string
+  approval_status: CatalogAiApprovalStatus
+  human_reviewed_at: string | null
+  human_reviewer_id: string | null
+  applied_content_json: string | null
+  review_notes: string | null
+  version: number
+  created_at: string
+  updated_at: string
+}
 
 export interface CatalogAiOperationOptions {
   idempotencyKey: string
@@ -26,11 +54,7 @@ function getIsoNow(options?: CatalogAiOperationOptions): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
-async function verifyCatalogAiAuth(
-  database: D1Database,
-  claims: VerifiedSessionClaims,
-  now: string
-): Promise<void> {
+async function verifyCatalogAiAuth(database: D1Database, claims: VerifiedSessionClaims, now: string): Promise<void> {
   const authDirect = await authorizeD1Session(database, claims, 'catalog.ai_generate', { now, requireMfa: false })
   if (authDirect.allowed) return
 
@@ -78,8 +102,7 @@ export async function checkD1CatalogDuplicates(
 
   matches.sort((a, b) => b.similarityScore - a.similarityScore)
 
-  const duplicateRisk =
-    maxScore > 0.7 ? 'high' : maxScore > 0.4 ? 'medium' : maxScore > 0.2 ? 'low' : 'none'
+  const duplicateRisk = maxScore > 0.7 ? 'high' : maxScore > 0.4 ? 'medium' : maxScore > 0.2 ? 'low' : 'none'
 
   return {
     maxSimilarityScore: maxScore,
@@ -132,7 +155,15 @@ export async function generateD1CatalogContent(
       const isSafety = /exento|seguridad|epi|guantes|cloro|alcali/i.test(claim)
       const isEfficacy = /eficacia|potente|minutos|rapido|rendimiento/i.test(claim)
       const isTechnical = /ph|densidad|dilucion|temperatura/i.test(claim)
-      const category = isEco ? 'eco' : isSafety ? 'safety' : isEfficacy ? 'efficacy' : isTechnical ? 'technical' : 'regulatory'
+      const category = isEco
+        ? 'eco'
+        : isSafety
+          ? 'safety'
+          : isEfficacy
+            ? 'efficacy'
+            : isTechnical
+              ? 'technical'
+              : 'regulatory'
 
       verifiableClaims.push({
         claimText: claim,
@@ -171,7 +202,9 @@ export async function generateD1CatalogContent(
   const usageClaim = verifiableClaims.find((c) => /minuto|tiempo|actua/i.test(c.claimText))?.claimText
   const generatedUsage =
     `Modo de empleo recomendado: Aplicar según las especificaciones técnicas del fabricante. ` +
-    (usageClaim ? `Instrucciones técnicas: ${usageClaim}. ` : `Dejar actuar entre 5 y 30 minutos según grado de incrustación. `) +
+    (usageClaim
+      ? `Instrucciones técnicas: ${usageClaim}. `
+      : `Dejar actuar entre 5 y 30 minutos según grado de incrustación. `) +
     `Aclarar con abundante agua si procede.`
   const generatedAttributes: Record<string, unknown> = {
     gama: 'profesional',
@@ -304,7 +337,7 @@ export async function reviewD1CatalogAiGeneration(
   const row = await database
     .prepare(`SELECT * FROM catalog_ai_generations WHERE id = ?1`)
     .bind(generationId)
-    .first<any>()
+    .first<CatalogAiGenerationRow>()
 
   if (!row) {
     throw new CatalogAiGenerationError('not_found', `Generación ${generationId} no encontrada`)
@@ -319,11 +352,7 @@ export async function reviewD1CatalogAiGeneration(
   }
 
   const newStatus =
-    input.decision === 'approve'
-      ? 'approved'
-      : input.decision === 'reject'
-        ? 'rejected'
-        : 'modified_and_approved'
+    input.decision === 'approve' ? 'approved' : input.decision === 'reject' ? 'rejected' : 'modified_and_approved'
 
   const finalShortDescription = input.modifiedContent?.shortDescription ?? row.generated_short_description
   const finalDescription = input.modifiedContent?.description ?? row.generated_description
@@ -457,7 +486,7 @@ export async function applyD1CatalogAiGeneration(
   const row = await database
     .prepare(`SELECT * FROM catalog_ai_generations WHERE id = ?1`)
     .bind(generationId)
-    .first<any>()
+    .first<CatalogAiGenerationRow>()
 
   if (!row) {
     throw new CatalogAiGenerationError('not_found', `Generación ${generationId} no encontrada`)
@@ -496,67 +525,79 @@ export async function applyD1CatalogAiGeneration(
     }
   }
 
-  // Update target product in catalog
-  await database
-    .prepare(
-      `UPDATE products
-       SET short_description = COALESCE(?1, short_description),
-           description = COALESCE(?2, description),
-           usage = COALESCE(?3, usage),
-           updated_at = ?4
-       WHERE id = ?5`
+  const target = await database
+    .prepare('SELECT id FROM products WHERE id = ?1')
+    .bind(input.targetProductId)
+    .first<{ id: string }>()
+  if (!target) {
+    throw new CatalogAiGenerationError('not_found', `Producto ${input.targetProductId} no encontrado`)
+  }
+  if (row.product_id && row.product_id !== input.targetProductId) {
+    throw new CatalogAiGenerationError(
+      'invalid_input',
+      'La generación pertenece a otro producto y no puede aplicarse a este'
     )
-    .bind(
-      row.generated_short_description,
-      row.generated_description,
-      row.generated_usage,
-      now,
-      input.targetProductId
-    )
-    .run()
+  }
 
   const newVersion = row.version + 1
-
-  await database
-    .prepare(
-      `UPDATE catalog_ai_generations
-       SET applied_content_json = ?1,
-           version = ?2,
-           updated_at = ?3
-       WHERE id = ?4 AND version = ?5`
-    )
-    .bind(JSON.stringify(appliedContent), newVersion, now, generationId, row.version)
-    .run()
-
   const receipt = {
     applied: true,
     targetProductId: input.targetProductId,
     version: newVersion
   }
 
-  // Record command
-  const commandId = crypto.randomUUID()
-  await database
-    .prepare(
-      `INSERT INTO catalog_ai_generation_commands (
-        command_id, generation_id, actor_id, action, idempotency_key,
-        expected_version, result_version, payload_hash, input_json, receipt_json, created_at
-      ) VALUES (?1, ?2, ?3, 'apply_to_product', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
-    )
-    .bind(
-      commandId,
-      generationId,
-      claims.identityId,
-      options.idempotencyKey,
-      input.expectedVersion,
-      newVersion,
-      payloadHash,
-      JSON.stringify(input),
-      JSON.stringify(receipt),
-      now
-    )
-    .run()
-
+  // One atomic batch: the product is only touched while the generation is still at the version
+  // that was reviewed, and the immutable command row (UNIQUE generation/result_version) rolls
+  // everything back if a concurrent apply won the race.
+  await database.batch([
+    database
+      .prepare(
+        `UPDATE products
+         SET short_description = COALESCE(?1, short_description),
+             description = COALESCE(?2, description),
+             usage = COALESCE(?3, usage),
+             updated_at = ?4
+         WHERE id = ?5
+           AND EXISTS (SELECT 1 FROM catalog_ai_generations WHERE id = ?6 AND version = ?7)`
+      )
+      .bind(
+        row.generated_short_description,
+        row.generated_description,
+        row.generated_usage,
+        now,
+        input.targetProductId,
+        generationId,
+        row.version
+      ),
+    database
+      .prepare(
+        `UPDATE catalog_ai_generations
+         SET applied_content_json = ?1,
+             version = ?2,
+             updated_at = ?3
+         WHERE id = ?4 AND version = ?5`
+      )
+      .bind(JSON.stringify(appliedContent), newVersion, now, generationId, row.version),
+    database
+      .prepare(
+        `INSERT INTO catalog_ai_generation_commands (
+          command_id, generation_id, actor_id, action, idempotency_key,
+          expected_version, result_version, payload_hash, input_json, receipt_json, created_at
+        ) VALUES (?1, ?2, ?3, 'apply_to_product', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      )
+      .bind(
+        crypto.randomUUID(),
+        generationId,
+        claims.identityId,
+        options.idempotencyKey,
+        input.expectedVersion,
+        newVersion,
+        payloadHash,
+        JSON.stringify(input),
+        JSON.stringify(receipt),
+        now
+      )
+  ])
   return receipt
 }
 
@@ -571,7 +612,7 @@ export async function readD1CatalogAiGeneration(
   const row = await database
     .prepare(`SELECT * FROM catalog_ai_generations WHERE id = ?1`)
     .bind(generationId)
-    .first<any>()
+    .first<CatalogAiGenerationRow>()
 
   if (!row) {
     throw new CatalogAiGenerationError('not_found', `Generación ${generationId} no encontrada`)
@@ -627,7 +668,10 @@ export async function listD1CatalogAiGenerations(
   sql += ` ORDER BY created_at DESC LIMIT 50`
 
   const statement = database.prepare(sql)
-  const rows = params.length > 0 ? (await statement.bind(...params).all<any>()).results : (await statement.all<any>()).results
+  const rows =
+    params.length > 0
+      ? (await statement.bind(...params).all<CatalogAiGenerationRow>()).results
+      : (await statement.all<CatalogAiGenerationRow>()).results
 
   return (rows || []).map((row) => ({
     id: row.id,

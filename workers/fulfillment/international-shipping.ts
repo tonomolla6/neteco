@@ -105,14 +105,20 @@ export async function readInternationalShippingPolicy(
        WHERE market_code = ?`
     )
     .bind(marketCode)
-    .first<any>()
+    .first<Record<string, unknown>>()
 
   if (!row) return null
 
   return {
-    ...row,
-    requiredDocuments: typeof row.requiredDocuments === 'string' ? JSON.parse(row.requiredDocuments) : row.requiredDocuments,
-    prohibitedUnNumbers: typeof row.prohibitedUnNumbers === 'string' ? JSON.parse(row.prohibitedUnNumbers) : row.prohibitedUnNumbers
+    ...(row as unknown as InternationalShippingPolicy),
+    requiredDocuments:
+      typeof row.requiredDocuments === 'string'
+        ? JSON.parse(row.requiredDocuments)
+        : (row.requiredDocuments as string[]),
+    prohibitedUnNumbers:
+      typeof row.prohibitedUnNumbers === 'string'
+        ? JSON.parse(row.prohibitedUnNumbers)
+        : (row.prohibitedUnNumbers as string[])
   }
 }
 
@@ -144,7 +150,9 @@ export async function configureInternationalShippingPolicy(
 
   // Check idempotency
   const existingCommand = await database
-    .prepare('SELECT command_id, market_code, payload_hash, version, created_at FROM international_shipping_commands WHERE command_id = ?')
+    .prepare(
+      'SELECT command_id, market_code, payload_hash, version, created_at FROM international_shipping_commands WHERE command_id = ?'
+    )
     .bind(commandId)
     .first<{ command_id: string; market_code: string; payload_hash: string; version: number; created_at: string }>()
 
@@ -254,7 +262,7 @@ export async function configureInternationalShippingPolicy(
           now
         )
     ])
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (error instanceof Error && error.message.includes('conflict')) {
       throw new InternationalShippingError('conflict')
     }

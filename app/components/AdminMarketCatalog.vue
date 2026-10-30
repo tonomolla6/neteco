@@ -113,6 +113,11 @@ async function loadMarkets() {
   }
 }
 
+function selectMarketAndLoad(code: string) {
+  selectedMarket.value = code
+  loadProductConfigs()
+}
+
 async function loadProductConfigs() {
   const pid = productId.value.trim()
   if (!pid) return
@@ -124,8 +129,9 @@ async function loadProductConfigs() {
     configs.value = data
 
     // Match selected market config if exists
-    const match = data.find((c) => c.marketCode === selectedMarket.value)
+    const match = data.find((c) => c.marketCode === selectedMarket.value) ?? (data.length > 0 ? data[0] : undefined)
     if (match) {
+      selectedMarket.value = match.marketCode
       form.value = { ...match, isAvailable: Boolean(match.isAvailable), isCompliant: Boolean(match.isCompliant) }
     } else {
       const marketObj = markets.value.find((m) => m.code === selectedMarket.value)
@@ -252,13 +258,7 @@ onMounted(() => {
       <div class="field-group">
         <label for="productId">ID de Producto:</label>
         <div class="input-with-button">
-          <input
-            id="productId"
-            v-model="productId"
-            name="productId"
-            type="text"
-            placeholder="ej. p-1"
-          />
+          <input id="productId" v-model="productId" name="productId" type="text" placeholder="ej. p-1" />
           <button
             type="button"
             data-action="load-product"
@@ -272,17 +272,18 @@ onMounted(() => {
     </div>
 
     <div class="tabs">
-      <button
-        type="button"
-        :class="{ active: activeTab === 'catalog' }"
-        @click="activeTab = 'catalog'"
-      >
+      <button type="button" :class="{ active: activeTab === 'catalog' }" @click="activeTab = 'catalog'">
         Catálogo Localizado
       </button>
       <button
         type="button"
         :class="{ active: activeTab === 'shipping' }"
-        @click="() => { activeTab = 'shipping'; loadShippingPolicy(); }"
+        @click="
+          () => {
+            activeTab = 'shipping'
+            loadShippingPolicy()
+          }
+        "
       >
         Política de Envío Internacional
       </button>
@@ -294,86 +295,101 @@ onMounted(() => {
         <p>Seleccione o introduzca un ID de producto para ver y editar su adaptación por mercado.</p>
       </div>
 
-      <form v-else class="market-form" @submit.prevent="saveMarketConfig">
-        <fieldset class="section-box">
-          <legend>1. Disponibilidad en Mercado ({{ selectedMarket }})</legend>
-          <div class="grid-2">
-            <label class="checkbox-label">
-              <input v-model="form.isAvailable" type="checkbox" name="isAvailable" />
-              Disponible para venta en este mercado
-            </label>
-            <div>
-              <label for="availabilityStatus">Estado de catálogo:</label>
-              <select id="availabilityStatus" v-model="form.availabilityStatus">
-                <option value="available">Disponible</option>
-                <option value="preorder">Preventa</option>
-                <option value="restricted">Distribución restringida</option>
-                <option value="b2b_only">Exclusivo B2B</option>
-                <option value="discontinued">Descatalogado</option>
-              </select>
-            </div>
-            <div>
-              <label for="minOrderQuantity">Cantidad mínima de pedido:</label>
-              <input id="minOrderQuantity" v-model.number="form.minOrderQuantity" type="number" min="1" />
+      <div v-else>
+        <div v-if="configs.length > 0" class="configs-overview mb-4">
+          <h3>Mercados configurados</h3>
+          <div class="config-cards">
+            <div
+              v-for="c in configs"
+              :key="c.marketCode"
+              class="config-card"
+              :class="{ selected: c.marketCode === selectedMarket }"
+              @click="selectMarketAndLoad(c.marketCode)"
+            >
+              <strong class="config-market">{{ c.marketCode }}:</strong>
+              <span class="config-title">{{ c.title }}</span>
+              <span v-if="c.ufiCode" class="config-ufi"> (UFI: {{ c.ufiCode }})</span>
+              <span class="config-status badge"> - {{ c.isAvailable ? 'Disponible' : 'No disponible' }}</span>
             </div>
           </div>
-        </fieldset>
-
-        <fieldset class="section-box">
-          <legend>2. Contenido Localizado (Sin clonar producto)</legend>
-          <div class="grid-2">
-            <div>
-              <label for="locale">Idioma / Locale:</label>
-              <input id="locale" v-model="form.locale" type="text" />
-            </div>
-            <div>
-              <label for="slug">Slug / URL amigable:</label>
-              <input id="slug" v-model="form.slug" type="text" />
-            </div>
-            <div class="full-width">
-              <label for="title">Título localizado:</label>
-              <input id="title" v-model="form.title" type="text" />
-            </div>
-            <div class="full-width">
-              <label for="description">Descripción detallada:</label>
-              <textarea id="description" v-model="form.description" rows="3"></textarea>
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset class="section-box">
-          <legend>3. Cumplimiento Químico y Regulatorio</legend>
-          <div class="grid-2">
-            <label class="checkbox-label">
-              <input v-model="form.isCompliant" type="checkbox" name="isCompliant" />
-              Homologado / Conforme a normativa del país
-            </label>
-            <div>
-              <label for="ufiCode">Código UFI (Centro Toxicológico):</label>
-              <input id="ufiCode" v-model="form.ufiCode" type="text" placeholder="UFI-XXXX-XXXX" />
-            </div>
-            <div>
-              <label for="registrationNumber">Nº Registro Biocidas / REACH:</label>
-              <input id="registrationNumber" v-model="form.registrationNumber" type="text" />
-            </div>
-            <div>
-              <label for="sdsUrl">Ficha de Seguridad (FDS en idioma local):</label>
-              <input id="sdsUrl" v-model="form.sdsUrl" type="url" placeholder="https://..." />
-            </div>
-          </div>
-        </fieldset>
-
-        <div class="actions">
-          <button
-            type="submit"
-            data-action="save-market-config"
-            :disabled="loading"
-            class="primary-btn"
-          >
-            {{ loading ? 'Guardando...' : 'Guardar Configuración de Mercado' }}
-          </button>
         </div>
-      </form>
+
+        <form class="market-form" @submit.prevent="saveMarketConfig">
+          <fieldset class="section-box">
+            <legend>1. Disponibilidad en Mercado ({{ selectedMarket }})</legend>
+            <div class="grid-2">
+              <label class="checkbox-label">
+                <input v-model="form.isAvailable" type="checkbox" name="isAvailable" />
+                Disponible para venta en este mercado
+              </label>
+              <div>
+                <label for="availabilityStatus">Estado de catálogo:</label>
+                <select id="availabilityStatus" v-model="form.availabilityStatus">
+                  <option value="available">Disponible</option>
+                  <option value="preorder">Preventa</option>
+                  <option value="restricted">Distribución restringida</option>
+                  <option value="b2b_only">Exclusivo B2B</option>
+                  <option value="discontinued">Descatalogado</option>
+                </select>
+              </div>
+              <div>
+                <label for="minOrderQuantity">Cantidad mínima de pedido:</label>
+                <input id="minOrderQuantity" v-model.number="form.minOrderQuantity" type="number" min="1" />
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="section-box">
+            <legend>2. Contenido Localizado (Sin clonar producto)</legend>
+            <div class="grid-2">
+              <div>
+                <label for="locale">Idioma / Locale:</label>
+                <input id="locale" v-model="form.locale" type="text" />
+              </div>
+              <div>
+                <label for="slug">Slug / URL amigable:</label>
+                <input id="slug" v-model="form.slug" type="text" />
+              </div>
+              <div class="full-width">
+                <label for="title">Título localizado:</label>
+                <input id="title" v-model="form.title" type="text" />
+              </div>
+              <div class="full-width">
+                <label for="description">Descripción detallada:</label>
+                <textarea id="description" v-model="form.description" rows="3"></textarea>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="section-box">
+            <legend>3. Cumplimiento Químico y Regulatorio</legend>
+            <div class="grid-2">
+              <label class="checkbox-label">
+                <input v-model="form.isCompliant" type="checkbox" name="isCompliant" />
+                Homologado / Conforme a normativa del país
+              </label>
+              <div>
+                <label for="ufiCode">Código UFI (Centro Toxicológico):</label>
+                <input id="ufiCode" v-model="form.ufiCode" type="text" placeholder="UFI-XXXX-XXXX" />
+              </div>
+              <div>
+                <label for="registrationNumber">Nº Registro Biocidas / REACH:</label>
+                <input id="registrationNumber" v-model="form.registrationNumber" type="text" />
+              </div>
+              <div>
+                <label for="sdsUrl">Ficha de Seguridad (FDS en idioma local):</label>
+                <input id="sdsUrl" v-model="form.sdsUrl" type="url" placeholder="https://..." />
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="actions">
+            <button type="submit" data-action="save-market-config" :disabled="loading" class="primary-btn">
+              {{ loading ? 'Guardando...' : 'Guardar Configuración de Mercado' }}
+            </button>
+          </div>
+        </form>
+      </div>
     </section>
 
     <!-- Tab 2: Política de Envíos Internacionales -->
@@ -381,7 +397,8 @@ onMounted(() => {
       <div class="section-box">
         <h3>Reglas Aduaneras, ADR y Devoluciones para {{ selectedMarket }}</h3>
         <p v-if="shippingPolicy">
-          Versión de política: {{ shippingPolicy.version }} | Incoterm: {{ shippingPolicy.dutyCollectionType.toUpperCase() }}
+          Versión de política: {{ shippingPolicy.version }} | Incoterm:
+          {{ shippingPolicy.dutyCollectionType.toUpperCase() }}
         </p>
         <p v-else class="muted">
           No hay política aduanera específica configurada para este mercado (se aplican normas generales UE).

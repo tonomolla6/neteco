@@ -1,14 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  aiTestFixture,
-  SESSION_CONFIG,
-  TEST_ORIGIN,
-  TEST_ASSET_ID
-} from './d1-ai-test-fixture'
-import {
-  handleAdminAiAssistantHttp,
-  ownsAdminAiAssistantNamespace
-} from '../../workers/admin/ai-assistant-http'
+import { aiTestFixture, SESSION_CONFIG, TEST_ORIGIN, TEST_ASSET_ID } from './d1-ai-test-fixture'
+import { handleAdminAiAssistantHttp, ownsAdminAiAssistantNamespace } from '../../workers/admin/ai-assistant-http'
 import {
   handleCatalogAiGenerationHttp,
   ownsCatalogAiGenerationNamespace
@@ -142,5 +134,148 @@ describe('Admin AI HTTP Handlers (ADM-032, ADM-033, MED-023)', () => {
     expect(res?.status).toBe(422)
     const body = (await res?.json()) as { error: { code: string } }
     expect(body.error.code).toBe('prohibited_invention_detected')
+  })
+
+  it('handles decision and retrieval on admin AI assistant HTTP endpoints', async () => {
+    // 1. Propose
+    const proposeReq = new Request('https://admin.neteco.test/api/admin/ai/assistant/propose', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: f.adminCookie },
+      body: JSON.stringify({ category: 'customer_care', prompt: 'Consulta de compatibilidad' })
+    })
+    const proposeRes = await handleAdminAiAssistantHttp(proposeReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    const propData = (await proposeRes?.json()) as { interaction: { id: string; version: number } }
+    const interactionId = propData.interaction.id
+
+    // 2. Read single interaction
+    const getReq = new Request(`https://admin.neteco.test/api/admin/ai/assistant/interactions/${interactionId}`, {
+      method: 'GET',
+      headers: { cookie: f.adminCookie }
+    })
+    const getRes = await handleAdminAiAssistantHttp(getReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(getRes?.status).toBe(200)
+
+    // 3. Human decision
+    const decisionReq = new Request(
+      `https://admin.neteco.test/api/admin/ai/assistant/interactions/${interactionId}/decision`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: f.adminCookie },
+        body: JSON.stringify({ expectedVersion: 1, decision: 'approve', notes: 'Aprobado via HTTP' })
+      }
+    )
+    const decisionRes = await handleAdminAiAssistantHttp(decisionReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(decisionRes?.status).toBe(200)
+    const decData = (await decisionRes?.json()) as { interaction: { approvalStatus: string } }
+    expect(decData.interaction.approvalStatus).toBe('approved')
+
+    // 4. List interactions
+    const listReq = new Request(
+      'https://admin.neteco.test/api/admin/ai/assistant/interactions?category=customer_care',
+      {
+        method: 'GET',
+        headers: { cookie: f.adminCookie }
+      }
+    )
+    const listRes = await handleAdminAiAssistantHttp(listReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(listRes?.status).toBe(200)
+    const listData = (await listRes?.json()) as { interactions: Array<{ id: string }> }
+    expect(listData.interactions.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('handles catalog propose, review and apply full HTTP flow', async () => {
+    // 1. Propose
+    const proposeReq = new Request('https://admin.neteco.test/api/admin/catalog/ai-generate/propose', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: f.adminCookie },
+      body: JSON.stringify({
+        productName: 'Jabón Enzimático',
+        targetScope: 'full_editorial',
+        prompt: 'Generar ficha de producto enzimático',
+        sources: [
+          {
+            id: 'src-enz-1',
+            title: 'Ficha Enzimas',
+            type: 'fds',
+            verifiedClaims: ['Acción enzimática multiactiva', 'Biodegradable'],
+            textSnippet: 'Limpiador biológico de grasas y proteínas.'
+          }
+        ]
+      })
+    })
+    const proposeRes = await handleCatalogAiGenerationHttp(proposeReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(proposeRes?.status).toBe(200)
+    const propData = (await proposeRes?.json()) as { generation: { id: string; version: number } }
+    const generationId = propData.generation.id
+
+    // 2. Review
+    const reviewReq = new Request(
+      `https://admin.neteco.test/api/admin/catalog/ai-generate/generations/${generationId}/review`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: f.adminCookie },
+        body: JSON.stringify({ expectedVersion: 1, decision: 'approve' })
+      }
+    )
+    const reviewRes = await handleCatalogAiGenerationHttp(reviewReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(reviewRes?.status).toBe(200)
+    const revData = (await reviewRes?.json()) as { generation: { version: number; approvalStatus: string } }
+    expect(revData.generation.approvalStatus).toBe('approved')
+
+    // 3. Apply
+    const applyReq = new Request(
+      `https://admin.neteco.test/api/admin/catalog/ai-generate/generations/${generationId}/apply`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: f.adminCookie },
+        body: JSON.stringify({ expectedVersion: revData.generation.version, targetProductId: 'prod-desengrasante-1' })
+      }
+    )
+    const applyRes = await handleCatalogAiGenerationHttp(applyReq, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(applyRes?.status).toBe(200)
+    const applyData = (await applyRes?.json()) as { applied: boolean }
+    expect(applyData.applied).toBe(true)
+  })
+
+  it('rejects unauthenticated requests without session cookie', async () => {
+    const req = new Request('https://admin.neteco.test/api/admin/ai/assistant/propose', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ category: 'order_ops', prompt: 'test' })
+    })
+    const res = await handleAdminAiAssistantHttp(req, {
+      database: f.database,
+      sessionCookieConfiguration: SESSION_CONFIG,
+      origin: TEST_ORIGIN
+    })
+    expect(res?.status).toBe(401)
   })
 })

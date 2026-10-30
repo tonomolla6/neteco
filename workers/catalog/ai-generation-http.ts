@@ -87,9 +87,7 @@ export async function handleCatalogAiGenerationHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de solicitud requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const generation = await generateD1CatalogContent(deps.database, claims, body, {
         idempotencyKey,
@@ -113,9 +111,7 @@ export async function handleCatalogAiGenerationHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de revisión requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const generation = await reviewD1CatalogAiGeneration(deps.database, claims, generationId, body, {
         idempotencyKey,
@@ -131,9 +127,7 @@ export async function handleCatalogAiGenerationHttp(
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de aplicación requerido')
       const idempotencyKey =
-        request.headers.get('idempotency-key') ||
-        request.headers.get('x-idempotency-key') ||
-        crypto.randomUUID()
+        request.headers.get('idempotency-key') || request.headers.get('x-idempotency-key') || crypto.randomUUID()
 
       const result = await applyD1CatalogAiGeneration(deps.database, claims, generationId, body, {
         idempotencyKey,

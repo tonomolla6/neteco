@@ -51,7 +51,9 @@ interface EnrichmentResponse {
 }
 
 const targetAssetId = ref(props.assetId || 'asset-00000000-0000-4000-8000-000000000001')
-const enrichmentType = ref<'remove_background' | 'propose_crops' | 'propose_metadata' | 'full_visual_enrichment'>('full_visual_enrichment')
+const enrichmentType = ref<'remove_background' | 'propose_crops' | 'propose_metadata' | 'full_visual_enrichment'>(
+  'full_visual_enrichment'
+)
 const productName = ref('Desengrasante Alcalino Extra Fuerte')
 const instruction = ref('')
 
@@ -68,7 +70,7 @@ async function proposeEnrichment() {
   errorMessage.value = ''
   statusMessage.value = ''
   try {
-    const res = await requestFetch('/api/admin/media/ai-enrich/propose', {
+    const res = (await requestFetch('/api/admin/media/ai-enrich/propose', {
       method: 'POST',
       body: {
         assetId: targetAssetId.value.trim(),
@@ -78,7 +80,7 @@ async function proposeEnrichment() {
           instruction: instruction.value.trim() || undefined
         }
       }
-    }) as { enrichment: EnrichmentResponse }
+    })) as { enrichment: EnrichmentResponse }
 
     enrichment.value = res.enrichment
   } catch (err: unknown) {
@@ -93,14 +95,14 @@ async function recordDecision(decision: 'approve' | 'reject') {
   deciding.value = true
   errorMessage.value = ''
   try {
-    const res = await requestFetch(`/api/admin/media/ai-enrich/enrichments/${enrichment.value.id}/decision`, {
+    const res = (await requestFetch(`/api/admin/media/ai-enrich/enrichments/${enrichment.value.id}/decision`, {
       method: 'POST',
       body: {
         expectedVersion: enrichment.value.version,
         decision,
         humanNotes: 'Verificación humana de no invención de elementos visuales completada'
       }
-    }) as { enrichment: EnrichmentResponse }
+    })) as { enrichment: EnrichmentResponse }
 
     enrichment.value = res.enrichment
     if (res.enrichment.approvalStatus === 'approved') {
@@ -139,39 +141,49 @@ async function applyEnrichment() {
 <template>
   <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
     <div class="border-b border-gray-100 pb-4 dark:border-gray-800">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
-        Enriquecimiento Visual Asistido (MED-023)
-      </h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Enriquecimiento Visual Asistido (MED-023)</h2>
       <p class="text-sm text-gray-500 dark:text-gray-400">
-        Eliminación de fondo y propuesta de recortes o metadatos accesibles. Prohibida la invención de envases, claims o usos. Aprobación humana obligatoria.
+        Eliminación de fondo y propuesta de recortes o metadatos accesibles. Prohibida la invención de envases, claims o
+        usos. Aprobación humana obligatoria.
       </p>
     </div>
 
     <!-- Error Banner -->
-    <div v-if="errorMessage" class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300" role="alert">
+    <div
+      v-if="errorMessage"
+      class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"
+      role="alert"
+    >
       {{ errorMessage }}
     </div>
 
     <!-- Status Message -->
-    <div v-if="statusMessage" class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300">
+    <div
+      v-if="statusMessage"
+      class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+    >
       {{ statusMessage }}
     </div>
 
     <!-- Form -->
     <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <div>
-        <label for="med-asset-id" class="block text-xs font-medium text-gray-700 dark:text-gray-300">ID del Activo Multimedia</label>
+        <label for="med-asset-id" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
+          >ID del Activo Multimedia</label
+        >
         <input
           id="med-asset-id"
           v-model="targetAssetId"
           type="text"
           placeholder="UUID del asset en media_assets"
           class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
+        />
       </div>
 
       <div>
-        <label for="med-type" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Tipo de Operación Permitida</label>
+        <label for="med-type" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
+          >Tipo de Operación Permitida</label
+        >
         <select
           id="med-type"
           v-model="enrichmentType"
@@ -199,27 +211,38 @@ async function applyEnrichment() {
     </div>
 
     <!-- Output Preview -->
-    <div v-if="enrichment" class="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-800/40">
+    <div
+      v-if="enrichment"
+      class="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-800/40"
+    >
       <div class="flex items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
-        <h3 class="font-semibold text-gray-900 dark:text-gray-100">
-          Propuesta de Enriquecimiento Visual
-        </h3>
-        <span class="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800 dark:bg-blue-900/60 dark:text-blue-200">
+        <h3 class="font-semibold text-gray-900 dark:text-gray-100">Propuesta de Enriquecimiento Visual</h3>
+        <span
+          class="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800 dark:bg-blue-900/60 dark:text-blue-200"
+        >
           Estado: {{ enrichment.approvalStatus }}
         </span>
       </div>
 
       <!-- Prohibited Invention Guardrail Badge -->
-      <div class="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+      <div
+        class="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200"
+      >
         <span class="font-bold">✓ Control de integridad visual estricto:</span>
         Sin invención de envases ni claims comerciales. Solo optimización técnica de fondo, recorte y accesibilidad.
       </div>
 
       <!-- Background Removal Proposal -->
-      <div v-if="enrichment.backgroundRemoval" class="rounded-md border border-gray-200 bg-white p-3 text-xs dark:border-gray-700 dark:bg-gray-900">
+      <div
+        v-if="enrichment.backgroundRemoval"
+        class="rounded-md border border-gray-200 bg-white p-3 text-xs dark:border-gray-700 dark:bg-gray-900"
+      >
         <h4 class="font-bold text-gray-800 dark:text-gray-200">Eliminación de fondo propuesta:</h4>
         <p class="mt-1 text-gray-600 dark:text-gray-400">{{ enrichment.backgroundRemoval.maskDescription }}</p>
-        <p class="mt-0.5 font-mono text-[11px] text-gray-500 dark:text-gray-400">Recorte Alpha: {{ enrichment.backgroundRemoval.alphaCutoutStorageKey }} (Precisión borde: {{ Math.round(enrichment.backgroundRemoval.edgeAccuracyScore * 100) }}%)</p>
+        <p class="mt-0.5 font-mono text-[11px] text-gray-500 dark:text-gray-400">
+          Recorte Alpha: {{ enrichment.backgroundRemoval.alphaCutoutStorageKey }} (Precisión borde:
+          {{ Math.round(enrichment.backgroundRemoval.edgeAccuracyScore * 100) }}%)
+        </p>
       </div>
 
       <!-- Crops Proposal -->
@@ -242,7 +265,9 @@ async function applyEnrichment() {
       <!-- Metadata Proposal -->
       <div v-if="enrichment.proposedMetadata" class="space-y-1 text-xs">
         <h4 class="font-semibold text-gray-700 dark:text-gray-300">Texto alternativo accesible propuesto:</h4>
-        <p class="rounded-md border border-gray-200 bg-white p-2.5 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100">
+        <p
+          class="rounded-md border border-gray-200 bg-white p-2.5 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        >
           {{ enrichment.proposedMetadata.suggestedAltText }}
         </p>
       </div>

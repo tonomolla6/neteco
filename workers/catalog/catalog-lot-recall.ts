@@ -163,15 +163,24 @@ export async function locateLotAffectedStock(
        WHERE l.id = ?`
     )
     .bind(lotId)
-    .first<any>()
+    .first<{
+      lotId: string
+      lotNumber: string
+      variantId: string
+      locationId: string
+      initialQuantity: number
+      availableQuantity: number
+      status: string
+      expiresAt: string
+      isBlocked: number | null
+      blockReason: string | null
+    }>()
 
   if (!row) throw new CatalogLotRecallError('not_found')
 
   // Also check if there is an active recall for this lot
   const activeRecall = await database
-    .prepare(
-      "SELECT action FROM product_recall_commands WHERE lot_id = ? ORDER BY version DESC LIMIT 1"
-    )
+    .prepare('SELECT action FROM product_recall_commands WHERE lot_id = ? ORDER BY version DESC LIMIT 1')
     .bind(lotId)
     .first<{ action: string }>()
 
@@ -225,7 +234,14 @@ export async function locateLotAffectedCustomers(
        ORDER BY a.created_at ASC`
     )
     .bind(lotId)
-    .all<any>()
+    .all<{
+      orderId: string
+      lineIndex: number
+      customerId: string | null
+      customerEmail: string | null
+      quantity: number
+      allocatedAt: string
+    }>()
 
   return {
     lotId,
@@ -256,6 +272,20 @@ export async function blockLotExpedition(
 
   const lot = await database.prepare('SELECT id FROM inventory_lots WHERE id = ?').bind(input.lotId).first()
   if (!lot) throw new CatalogLotRecallError('not_found')
+
+  const existing = await database
+    .prepare(
+      'SELECT block_reason AS blockReason, evidence, created_at AS createdAt FROM lot_expedition_blocks WHERE lot_id = ? AND is_blocked = 1'
+    )
+    .bind(input.lotId)
+    .first<{ blockReason: string; evidence: string; createdAt: string }>()
+  if (existing) {
+    // Replays are harmless; a different reason/evidence must not silently rewrite the recorded one.
+    if (existing.blockReason !== input.blockReason || existing.evidence !== input.evidence) {
+      throw new CatalogLotRecallError('conflict')
+    }
+    return { lotId: input.lotId, isBlocked: true, blockReason: existing.blockReason, createdAt: existing.createdAt }
+  }
 
   const blockId = crypto.randomUUID()
   await database.batch([
@@ -298,6 +328,14 @@ export async function unblockLotExpedition(
 
   const actor = await checkAuthority(database, claims, options)
   const now = getNow(options)
+
+  // Only a lot held by an active expedition block can be released here: quarantines placed by
+  // other processes must stay untouched.
+  const active = await database
+    .prepare('SELECT 1 AS found FROM lot_expedition_blocks WHERE lot_id = ? AND is_blocked = 1')
+    .bind(rawInput.lotId)
+    .first()
+  if (!active) throw new CatalogLotRecallError('not_found')
 
   await database.batch([
     database
@@ -353,7 +391,17 @@ export async function evaluateOrderExpeditionEligibility(
        WHERE a.order_id = ?`
     )
     .bind(orderId)
-    .all<any>()
+    .all<{
+      lineIndex: number
+      lotId: string
+      variantId: string
+      lotNumber: string
+      lotStatus: string
+      expiresAt: string
+      isManuallyBlocked: number | null
+      manualBlockReason: string | null
+      minShelfLifeDispatchDays: number | null
+    }>()
 
   const blockedLines: Array<{
     lineIndex: number

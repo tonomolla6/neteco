@@ -5,12 +5,39 @@ import {
   type AdminAiCitation,
   type AdminAiRedactionFlags,
   type AdminAiActionType,
+  type AdminAiCategory,
+  type AdminAiApprovalStatus,
   GenerateAdminProposalInputSchema,
   HumanAdminDecisionInputSchema,
   AdminAiAssistantError,
   assistantPayloadHash
 } from '../../shared/admin-ai-assistant'
 import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
+
+interface AdminAiInteractionRow {
+  id: string
+  actor_id: string
+  category: AdminAiCategory
+  prompt: string
+  context_summary: string
+  proposed_reply: string
+  proposed_action: string | null
+  action_type: AdminAiActionType | null
+  action_payload_json: string | null
+  citations_json: string
+  redaction_flags_json: string
+  requires_human_approval: number
+  auto_execution_forbidden: number
+  approval_status: AdminAiApprovalStatus
+  human_decided_at: string | null
+  human_decider_id: string | null
+  human_notes: string | null
+  model_id: string
+  tokens_used: number
+  version: number
+  created_at: string
+  updated_at: string
+}
 
 export interface AssistantOperationOptions {
   idempotencyKey: string
@@ -175,9 +202,7 @@ export async function generateD1AdminAiProposal(
     restrictedAccessFiltered: true
   }
 
-  const citationsFormatted = citations
-    .map((c, i) => `[Cita ${i + 1}: ${c.citationText}]`)
-    .join(' ')
+  const citationsFormatted = citations.map((c, i) => `[Cita ${i + 1}: ${c.citationText}]`).join(' ')
 
   const proposedReply =
     `Respuesta asistida para consulta (${input.category}): ` +
@@ -315,7 +340,7 @@ export async function recordD1AdminAiHumanDecision(
        FROM admin_ai_assistant_interactions WHERE id = ?1`
     )
     .bind(interactionId)
-    .first<any>()
+    .first<AdminAiInteractionRow>()
 
   if (!row) {
     throw new AdminAiAssistantError('not_found', `Interacción de asistente ${interactionId} no encontrada`)
@@ -330,11 +355,7 @@ export async function recordD1AdminAiHumanDecision(
   }
 
   const newStatus =
-    input.decision === 'approve'
-      ? 'approved'
-      : input.decision === 'reject'
-        ? 'rejected'
-        : 'modified_and_approved'
+    input.decision === 'approve' ? 'approved' : input.decision === 'reject' ? 'rejected' : 'modified_and_approved'
 
   const finalReply = input.modifiedReply ?? row.proposed_reply
   const finalPayload = input.modifiedActionPayload
@@ -439,7 +460,7 @@ export async function readD1AdminAiInteraction(
        FROM admin_ai_assistant_interactions WHERE id = ?1`
     )
     .bind(interactionId)
-    .first<any>()
+    .first<AdminAiInteractionRow>()
 
   if (!row) {
     throw new AdminAiAssistantError('not_found', `Interacción ${interactionId} no encontrada`)
@@ -499,7 +520,10 @@ export async function listD1AdminAiInteractions(
   sql += ` ORDER BY created_at DESC LIMIT 50`
 
   const statement = database.prepare(sql)
-  const rows = params.length > 0 ? (await statement.bind(...params).all<any>()).results : (await statement.all<any>()).results
+  const rows =
+    params.length > 0
+      ? (await statement.bind(...params).all<AdminAiInteractionRow>()).results
+      : (await statement.all<AdminAiInteractionRow>()).results
 
   return (rows || []).map((row) => ({
     id: row.id,

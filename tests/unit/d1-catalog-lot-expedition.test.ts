@@ -85,7 +85,9 @@ describe('CAT-020: Lotes, caducidad y recall cuando el surtido lo exija', () => 
       version: 1
     })
 
-    const row = f.sqlite.prepare('SELECT * FROM catalog_lot_tracking_policies WHERE variant_id=?').get(variantId) as any
+    const row = f.sqlite
+      .prepare('SELECT * FROM catalog_lot_tracking_policies WHERE variant_id=?')
+      .get(variantId) as Record<string, unknown>
     expect(row).toMatchObject({
       variant_id: variantId,
       lot_tracking_required: 1,
@@ -179,6 +181,34 @@ describe('CAT-020: Lotes, caducidad y recall cuando el surtido lo exija', () => 
     expect(stockReport.isExpeditionBlocked).toBe(false)
   })
 
+  it('INT-7: unblocking never reactivates a lot that has no active expedition block', async () => {
+    // Quarantined by another process (quality hold), not by the expedition block.
+    f.sqlite.prepare("UPDATE inventory_lots SET status='quarantined' WHERE id=?").run(lotId1)
+    await expect(
+      unblockLotExpedition(
+        f.database,
+        CLAIMS,
+        '99999999-9999-4999-8999-999999999999',
+        { lotId: lotId1, evidence: 'lab-analysis-cleared' },
+        options
+      )
+    ).rejects.toMatchObject({ code: 'not_found' })
+    const row = f.sqlite.prepare('SELECT status FROM inventory_lots WHERE id=?').get(lotId1) as { status: string }
+    expect(row.status).toBe('quarantined')
+  })
+
+  it('INT-7: re-blocking an already blocked lot is idempotent and never overwrites the first evidence', async () => {
+    const commandId = '12121212-1212-4212-8212-121212121212'
+    const input = { lotId: lotId1, blockReason: 'manual_quarantine', evidence: 'first-evidence' }
+    await blockLotExpedition(f.database, CLAIMS, commandId, input, options)
+    await blockLotExpedition(f.database, CLAIMS, commandId, input, options)
+    await expect(
+      blockLotExpedition(f.database, CLAIMS, commandId, { ...input, evidence: 'other-evidence' }, options)
+    ).rejects.toMatchObject({ code: 'conflict' })
+    const rows = f.sqlite.prepare('SELECT evidence FROM lot_expedition_blocks WHERE lot_id=?').all(lotId1)
+    expect(rows).toEqual([{ evidence: 'first-evidence' }])
+  })
+
   it('blocks expedition when a lot is under active product recall', async () => {
     const recallCommandId = '88888888-8888-4888-8888-888888888888'
     await executeProductRecall(
@@ -236,5 +266,64 @@ describe('CAT-020: Lotes, caducidad y recall cuando el surtido lo exija', () => 
         options
       )
     ).rejects.toThrowError(CatalogLotRecallError)
+  })
+
+  it('rejects locating stock or customers for non-existent lot', async () => {
+    const nonExistent = '99999999-9999-4999-8999-999999999999'
+    await expect(locateLotAffectedStock(f.database, nonExistent)).rejects.toThrowError(
+      new CatalogLotRecallError('not_found')
+    )
+    await expect(locateLotAffectedCustomers(f.database, nonExistent)).rejects.toThrowError(
+      new CatalogLotRecallError('not_found')
+    )
+  })
+
+  it('rejects blocking a non-existent lot with not_found', async () => {
+    const nonExistent = '99999999-9999-4999-8999-999999999999'
+    await expect(
+      blockLotExpedition(
+        f.database,
+        CLAIMS,
+        '88888888-8888-4888-8888-888888888888',
+        { lotId: nonExistent, blockReason: 'manual_quarantine', evidence: 'missing-lot-test' },
+        options
+      )
+    ).rejects.toThrowError(new CatalogLotRecallError('not_found'))
+  })
+
+  it('rejects invalid evidence string or invalid command ID with invalid_input', async () => {
+    await expect(
+      blockLotExpedition(
+        f.database,
+        CLAIMS,
+        'not-a-uuid',
+        { lotId: lotId1, blockReason: 'manual_quarantine', evidence: 'valid-evidence' },
+        options
+      )
+    ).rejects.toThrowError(new CatalogLotRecallError('invalid_input'))
+
+    await expect(
+      blockLotExpedition(
+        f.database,
+        CLAIMS,
+        '88888888-8888-4888-8888-888888888888',
+        { lotId: lotId1, blockReason: 'manual_quarantine', evidence: 'bad evidence with spaces!@#' },
+        options
+      )
+    ).rejects.toThrowError(new CatalogLotRecallError('invalid_input'))
+  })
+
+  it('evaluates order as eligible when allocated lot is active and unblocked', async () => {
+    const freshOrderId = await f.order({ paid: true, delivered: false })
+    f.sqlite
+      .prepare(
+        `INSERT INTO inventory_lot_allocations(id, lot_id, order_id, order_line_index, customer_id, quantity, correlation_id, created_at)
+         VALUES(?, ?, ?, 0, ?, 1, 'fresh-alloc', ?)`
+      )
+      .run(crypto.randomUUID(), lotId1, freshOrderId, CUSTOMER, utc())
+
+    const eligibility = await evaluateOrderExpeditionEligibility(f.database, freshOrderId, options)
+    expect(eligibility.eligible).toBe(true)
+    expect(eligibility.blockedLines).toHaveLength(0)
   })
 })
