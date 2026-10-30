@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { supportFixture, CLAIMS, BUYER_CLAIMS, ORIGIN } from './d1-support-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleSupportLiveChatHttp, ownsSupportLiveChatNamespace } from '../../workers/support/live-chat-http'
@@ -35,6 +35,17 @@ interface TranscriptResponse {
   }
 }
 
+// Next weekday 10:00 UTC at or after the real clock. The HTTP handler reads the clock itself and the
+// support chat is only open in business hours, so only `Date` is pinned (real timers), and only after
+// the fixture rows exist so they never lie in the pinned clock's future.
+function nextBusinessInstant(): Date {
+  const d = new Date()
+  d.setUTCHours(10, 0, 0, 0)
+  if (d.getTime() < Date.now()) d.setUTCDate(d.getUTCDate() + 1)
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1)
+  return d
+}
+
 describe('SUP-011 Live chat HTTP routing and authorization', () => {
   let f: Awaited<ReturnType<typeof supportFixture>>
   let adminCookie: string
@@ -44,6 +55,10 @@ describe('SUP-011 Live chat HTTP routing and authorization', () => {
 
   beforeEach(async () => {
     f = await supportFixture()
+    // Fixture sessions stay valid for the pinned instant; cookies are issued after pinning.
+    f.sqlite.exec("UPDATE auth_sessions SET expires_at='2099-12-31T23:59:59Z'")
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(nextBusinessInstant())
     const migration = await readFile(
       new URL('../../db/d1/migrations/0102_support_live_chat_and_account_managers.sql', import.meta.url),
       'utf8'
@@ -53,7 +68,10 @@ describe('SUP-011 Live chat HTTP routing and authorization', () => {
     buyerCookie = (await issueD1SessionCookie(f.database, BUYER_CLAIMS, sessionConfig))!.split(';')[0]!
   })
 
-  afterEach(() => f.sqlite.close())
+  afterEach(() => {
+    f.sqlite.close()
+    vi.useRealTimers()
+  })
 
   const dispatch = (path: string, init: RequestInit = {}, cookie?: string) => {
     const headers = new Headers(init.headers)

@@ -46,7 +46,7 @@ async function setupTestDb(): Promise<DatabaseSync> {
       ('${ADMIN_ID}', 'admin', '${NOW}');
 
     INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
-      ('${ADMIN_SESSION}', '${ADMIN_ID}', 1, 1, '${NOW}', '2026-10-30T16:00:00Z');
+      ('${ADMIN_SESSION}', '${ADMIN_ID}', 1, 1, '${NOW}', '2099-12-31T23:59:59Z');
   `)
 
   return sqlite

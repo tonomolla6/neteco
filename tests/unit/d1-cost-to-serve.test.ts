@@ -47,7 +47,7 @@ async function setupTestDb(): Promise<DatabaseSync> {
       ('${ADMIN_CLAIMS.identityId}', 'admin', '${NOW}');
 
     INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
-      ('${ADMIN_CLAIMS.sessionId}', '${ADMIN_CLAIMS.identityId}', 1, 1, '${NOW}', '2026-10-30T12:00:00Z');
+      ('${ADMIN_CLAIMS.sessionId}', '${ADMIN_CLAIMS.identityId}', 1, 1, '${NOW}', '2099-12-31T23:59:59Z');
 
     -- Seed carts, quotes, shipping, attempts, and orders for testing
     INSERT OR IGNORE INTO carts(id, token_hash, status, version, expires_at, correlation_id, created_at, updated_at) VALUES

@@ -31,7 +31,7 @@ async function setupHttpDatabase(): Promise<DatabaseSync> {
     INSERT OR IGNORE INTO identities (id, email, password_hash, email_verified_at, status, created_at, updated_at) VALUES
       ('${ADMIN_ID}', 'admin-seo-http@neteco.es', 'hash', '${NOW}', 'active', '${NOW}', '${NOW}');
     INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
-      ('${SESSION_ID}', '${ADMIN_ID}', 1, 1, '${NOW}', '2026-10-30T12:00:00Z');
+      ('${SESSION_ID}', '${ADMIN_ID}', 1, 1, '${NOW}', '2099-12-31T23:59:59Z');
     INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
       ('${ADMIN_ID}', 'admin', '${NOW}');
   `)

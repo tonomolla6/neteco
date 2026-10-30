@@ -38,8 +38,8 @@ async function setupHttpDb(): Promise<DatabaseSync> {
       ('${NON_ADMIN_ID}', 'user-cost-http@neteco.es', 'hash', '${NOW}', 'active', '${NOW}', '${NOW}');
 
     INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at) VALUES
-      ('20000000-0000-4000-8000-000000000001', '${ADMIN_ID}', 1, 1, '${NOW}', '2026-10-30T12:00:00Z'),
-      ('20000000-0000-4000-8000-000000000002', '${NON_ADMIN_ID}', 1, 1, '${NOW}', '2026-10-30T12:00:00Z');
+      ('20000000-0000-4000-8000-000000000001', '${ADMIN_ID}', 1, 1, '${NOW}', '2099-12-31T23:59:59Z'),
+      ('20000000-0000-4000-8000-000000000002', '${NON_ADMIN_ID}', 1, 1, '${NOW}', '2099-12-31T23:59:59Z');
 
     INSERT OR IGNORE INTO identity_roles (identity_id, role_code, granted_at) VALUES
       ('${ADMIN_ID}', 'admin', '${NOW}'),
