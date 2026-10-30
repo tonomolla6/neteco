@@ -2,6 +2,7 @@ import { NOINDEX_HEADER } from '../../server/utils/robots'
 import { publicationValidityExpression, assertCurrentPublicationValidity } from './publication-validity'
 import { z } from 'zod'
 import { catalogPolicyInstantSchema, catalogPolicyUuidSchema } from '../../shared/catalog-publication-policy'
+import { readThinLandingSlugs } from '../content/resource-hub'
 import { cmsPublishedValiditySql, cmsSource, type CmsPublicationDependencies } from '../cms/publication-gate'
 
 export interface D1SeoDependencies {
@@ -83,12 +84,13 @@ const PRODUCT_FROM = `FROM products p
     AND EXISTS (SELECT 1 FROM variants v WHERE v.product_id = p.id AND v.status = 'published' AND v.legacy_id IS NOT NULL)`
 
 const CMS_CLOCK = "COALESCE(?1,strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
-function cmsFrom(deps: D1SeoDependencies) {
+function cmsFrom(deps: D1SeoDependencies, thinLandings: readonly string[] = []) {
   return `FROM content_publications release
  JOIN content_publication_states head ON head.page_id=release.page_id
  JOIN content_versions version ON version.id=release.version_id AND version.page_id=release.page_id
  WHERE ${cmsPublishedValiditySql('release', 'head', CMS_CLOCK)}
  AND json_type(version.document,'$.seo.noindex')='false'
+ ${thinLandings.length ? `AND release.slug NOT IN (${thinLandings.map((slug) => `'${slug}'`).join(',')})` : ''}
  AND (json_type(version.document,'$.resourceHub') IS NULL
    OR json_type(version.document,'$.resourceHub')='null'
    OR (json_type(version.document,'$.resourceHub')='object'
@@ -241,6 +243,11 @@ export async function handleD1SeoRequest(request: Request, deps: D1SeoDependenci
   if (!config.production) headers['x-robots-tag'] = NOINDEX_HEADER
   try {
     let body: string
+    // SEO-028: thin / duplicate landings are noindex, so they must not be advertised. Slugs are validated before inlining.
+    const thin =
+      cmsEnabled && (content || url.pathname === '/sitemap.xml')
+        ? (await readThinLandingSlugs(deps.cmsPublication!)).filter((slug) => /^[a-z0-9][a-z0-9-]{0,159}$/.test(slug))
+        : []
     if (url.pathname === '/robots.txt') {
       body = config.production
         ? [
@@ -262,7 +269,7 @@ export async function handleD1SeoRequest(request: Request, deps: D1SeoDependenci
         deps.database.prepare(`SELECT count(*) AS total ${PRODUCT_FROM}`)
       ]
       if (cmsEnabled)
-        statements.push(deps.database.prepare(`SELECT count(*) AS total ${cmsFrom(deps)}`).bind(cmsClock(deps)))
+        statements.push(deps.database.prepare(`SELECT count(*) AS total ${cmsFrom(deps, thin)}`).bind(cmsClock(deps)))
       const counts = await deps.database.batch<SeoCount>(statements)
       if (cmsEnabled && (counts.length !== 3 || counts.some((result) => result.success !== true)))
         throw new Error('cms_seo_read_unconfirmed')
@@ -286,14 +293,14 @@ export async function handleD1SeoRequest(request: Request, deps: D1SeoDependenci
     } else {
       const categories = url.pathname === '/sitemaps/categories.xml'
       const countSql = content
-        ? `SELECT count(*) AS total ${cmsFrom(deps)}`
+        ? `SELECT count(*) AS total ${cmsFrom(deps, thin)}`
         : categories
           ? CATEGORY_COUNT
           : `SELECT count(*) AS total ${PRODUCT_FROM}`
       const rowsSql = content
         ? `SELECT release.id AS uuid,release.slug,release.published_at AS updatedAt,
  CASE WHEN json_type(version.document,'$.resourceHub')='object' THEN 'recursos' ELSE 'contenido' END AS canonicalType
- ${cmsFrom(deps)} ORDER BY release.slug,release.id LIMIT ?2 OFFSET ?3`
+ ${cmsFrom(deps, thin)} ORDER BY release.slug,release.id LIMIT ?2 OFFSET ?3`
         : categories
           ? `${CATEGORY_CTE} SELECT slug, updated_at AS updatedAt FROM published_categories WHERE legacy_id IS NOT NULL ORDER BY slug LIMIT ? OFFSET ?`
           : `SELECT p.id AS uuid, p.slug, p.updated_at AS updatedAt ${PRODUCT_FROM} ORDER BY p.slug LIMIT ? OFFSET ?`
@@ -323,7 +330,7 @@ export async function handleD1SeoRequest(request: Request, deps: D1SeoDependenci
         // fail closed, never emit a partial page with stale discovery totals.
         const current = await deps.database
           .prepare(
-            `SELECT count(*) AS total ${cmsFrom(deps)}
+            `SELECT count(*) AS total ${cmsFrom(deps, thin)}
  AND EXISTS(SELECT 1 FROM json_each(?2) item WHERE json_extract(item.value,'$.uuid')=release.id
  AND json_extract(item.value,'$.slug')=release.slug AND json_extract(item.value,'$.updatedAt')=release.published_at
  AND json_extract(item.value,'$.canonicalType')=CASE WHEN json_type(version.document,'$.resourceHub')='object' THEN 'recursos' ELSE 'contenido' END)`

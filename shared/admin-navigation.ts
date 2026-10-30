@@ -40,6 +40,12 @@ const sections: Array<{
         exact: true,
         permission: 'administration.manage'
       },
+      {
+        to: '/admin/panel-rol',
+        label: 'Panel configurable por rol',
+        icon: 'i-lucide-layout-grid',
+        permission: 'administration.manage'
+      },
       { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text', permission: 'administration.manage' },
       {
         to: '/admin/clientes',
@@ -173,7 +179,13 @@ const sections: Array<{
         icon: 'i-lucide-video',
         permission: ['catalog.write', 'administration.manage']
       },
-      { to: '/admin/contenido', label: 'Contenido', icon: 'i-lucide-panels-top-left', permission: 'catalog.write' }
+      { to: '/admin/contenido', label: 'Contenido', icon: 'i-lucide-panels-top-left', permission: 'catalog.write' },
+      {
+        to: '/admin/preview-comparacion',
+        label: 'Comparación preview CMS',
+        icon: 'i-lucide-diff',
+        permission: 'catalog.write'
+      }
     ]
   },
   {
@@ -282,6 +294,12 @@ const sections: Array<{
         permission: 'administration.manage'
       },
       {
+        to: '/admin/campanas-comerciales',
+        label: 'Gestor de campañas y calendario',
+        icon: 'i-lucide-calendar-days',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/analitica',
         label: 'Analítica',
         icon: 'i-lucide-chart-no-axes-combined',
@@ -334,6 +352,12 @@ const sections: Array<{
         to: '/admin/observabilidad',
         label: 'Observabilidad y SRE',
         icon: 'i-lucide-activity',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/conectores',
+        label: 'Marketplace de conectores',
+        icon: 'i-lucide-plug',
         permission: 'administration.manage'
       },
       {

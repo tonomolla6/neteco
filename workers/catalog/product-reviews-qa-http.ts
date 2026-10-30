@@ -1,3 +1,4 @@
+import { readProductReviewSeoSummary } from './product-review-seo'
 import {
   submitProductReview,
   submitProductQuestion,
@@ -115,6 +116,16 @@ export async function handleProductReviewsQaHttp(
   const method = request.method
 
   try {
+    // 0. GET /api/products/:productId/reviews/summary (public, SEO-026 AggregateRating source)
+    const summaryMatch = /^\/api\/products\/([^/]+)\/reviews\/summary$/.exec(pathname)
+    if (summaryMatch) {
+      if (method !== 'GET') return errorResponse('method_not_allowed', 405)
+      return jsonResponse(
+        await readProductReviewSeoSummary(context.database, decodeURIComponent(summaryMatch[1]!)),
+        200
+      )
+    }
+
     // 1. GET /api/products/:productId/reviews (public)
     const publicReviewsMatch = /^\/api\/products\/([^/]+)\/reviews$/.exec(pathname)
     if (publicReviewsMatch && method === 'GET') {

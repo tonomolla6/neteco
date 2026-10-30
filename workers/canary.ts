@@ -150,6 +150,14 @@ import {
   handleMarketingAutomationsHttp,
   ownsMarketingAutomationsNamespace
 } from './marketing/marketing-automations-http'
+import {
+  handleCrmAutomationMetricsHttp,
+  ownsCrmAutomationMetricsNamespace
+} from './crm/crm-automation-metrics-http'
+import {
+  handleAnomalyDetectionHttp,
+  ownsAnomalyDetectionNamespace
+} from './observability/anomaly-detection-http'
 import { handleExperimentsHttp, ownsExperimentsNamespace } from './analytics/experiments-http'
 import { handleGrowthHttp, ownsGrowthNamespace } from './growth/growth-http'
 import {
@@ -171,6 +179,8 @@ import { handleHighValueConsentHttp } from './communications/high-value-consent-
 import { handleHighValueMessagesHttp } from './communications/high-value-messages-http'
 import { handleWhatsAppBusinessHttp } from './communications/whatsapp-business-http'
 import { handleHighValueOptOutHttp } from './communications/high-value-optout-http'
+import { handleAccountNotificationsHttp, ownsAccountNotificationsNamespace } from './communications/account-notifications-http'
+import { handleMultichannelHttp, ownsMultichannelNamespace } from './communications/multichannel-http'
 import { handleCustomerRiskScoringHttp, ownsCustomerRiskScoringNamespace } from './crm/risk-scoring-http'
 import { handleB2bEdiHttp, ownsB2bEdiNamespace } from './b2b/edi-gateway-http'
 import { handleB2bPublicAdmin, ownsB2bPublicAdminNamespace } from './developer-platform/b2b-public-admin'
@@ -186,6 +196,22 @@ import { handleDeliveryRoutesHttp, ownsDeliveryRoutesNamespace } from './fulfill
 import { handleB2BContractSloHttp, ownsB2BContractSloNamespace } from './observability/b2b-slo-http'
 import { handleCapacityPlanningHttp, ownsCapacityPlanningNamespace } from './observability/capacity-planning-http'
 import { handleErrorBudgetHttp, ownsErrorBudgetNamespace } from './observability/error-budget-http'
+import {
+  handleAlphaBetaPromotionHttp,
+  ownsAlphaBetaPromotionNamespace
+} from './release/alpha-beta-promotion-http'
+import {
+  handleProgressiveRolloutHttp,
+  ownsProgressiveRolloutNamespace
+} from './release/progressive-rollout-http'
+import {
+  handleCloudflarePolicyHttp,
+  ownsCloudflarePolicyNamespace
+} from './release/cloudflare-policy-http'
+import {
+  handleCampaignPipelineHttp,
+  ownsCampaignPipelineNamespace
+} from './cms/campaign-pipeline-http'
 import { handleOperationalAlertsHttp, ownsOperationalAlertsNamespace } from './communications/operational-alerts-http'
 import {
   handleSendTimeOptimizationHttp,
@@ -2024,6 +2050,16 @@ export default {
       })
       if (automations) return automations
     }
+    if (ownsCrmAutomationMetricsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-crm-metrics')
+      if (blocked) return blocked
+      const crmMetrics = await handleCrmAutomationMetricsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (crmMetrics) return crmMetrics
+    }
     if (ownsExperimentsNamespace(path)) {
       const administrative = isAdministrativePath(path)
       const blocked = await mountGuard(
@@ -2328,7 +2364,31 @@ export default {
       })
       if (optOut) return optOut
     }
-    if (/^\/api\/admin\/customers\/[^/]+\/whatsapp-business\/(?:state|messages)$/.test(path)) {
+    if (ownsAccountNotificationsNamespace(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const notifResponse = await handleAccountNotificationsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.AUTH_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (notifResponse) return notifResponse
+    }
+    if (ownsMultichannelNamespace(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const multiResponse = await handleMultichannelHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.ADMIN_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (multiResponse) return multiResponse
+    }
+    if (/^\/api\/admin\/customers\/[^/]+\/whatsapp-business\/(?:state|messages|status)$/.test(path)) {
       const unavailable = authUnavailable(env)
       if (unavailable) return unavailable
       const whatsapp = await handleWhatsAppBusinessHttp(request, {
@@ -2473,7 +2533,8 @@ export default {
       ownsErrorBudgetNamespace(path) ||
       ownsCapacityPlanningNamespace(path) ||
       ownsB2BContractSloNamespace(path) ||
-      ownsWarehouseRouteTelemetryNamespace(path)
+      ownsWarehouseRouteTelemetryNamespace(path) ||
+      ownsAnomalyDetectionNamespace(path)
     ) {
       const blocked = await mountGuard(request, env, true, 'admin-observability')
       if (blocked) return blocked
@@ -2489,8 +2550,28 @@ export default {
         (await handleCapacityPlanningHttp(request, observability)) ??
         (await handleB2BContractSloHttp(request, observability)) ??
         (await handleWarehouseRouteTelemetryHttp(request, observability)) ??
+        (await handleAnomalyDetectionHttp(request, observability)) ??
         noStoreJson({ error: { code: 'not_found' } }, 404)
       )
+    }
+    if (
+      ownsAlphaBetaPromotionNamespace(path) ||
+      ownsProgressiveRolloutNamespace(path) ||
+      ownsCloudflarePolicyNamespace(path) ||
+      ownsCampaignPipelineNamespace(path)
+    ) {
+      const releaseDeps = {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
+        now: serverNow
+      }
+      const response =
+        (await handleProgressiveRolloutHttp(request, releaseDeps)) ??
+        (await handleCampaignPipelineHttp(request, releaseDeps)) ??
+        (await handleAlphaBetaPromotionHttp(request, releaseDeps)) ??
+        (await handleCloudflarePolicyHttp(request, releaseDeps))
+      if (response) return response
     }
     if (path === '/api/account/paygold-links' || path.startsWith('/api/account/paygold-links/')) {
       const privateFailure = (code: string, status: number) => {

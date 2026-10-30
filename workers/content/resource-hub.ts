@@ -10,6 +10,7 @@ import {
   type ResourceHubList
 } from '../../shared/resource-hub'
 import { publicationValidityExpression } from '../catalog/publication-validity'
+import { evaluateLandingSet, type LandingVerdict } from '../../shared/landing-quality'
 export class ResourceHubError extends Error {
   constructor(readonly code: 'invalid_input' | 'not_found' | 'content_unavailable' | 'limit_exceeded') {
     super(code)
@@ -69,7 +70,51 @@ async function snapshot(deps: CmsPublicationDependencies, extras: D1PreparedStat
       return { row, doc, editorial }
     })
     .filter(({ editorial }) => editorial.reviewedAt <= now && editorial.reviewDueAt > now)
-  return { items: rows, links: results.slice(1).map((result) => result.results) }
+  const verdicts = await landingVerdicts(deps.database, rows)
+  const items = rows.map((item) => ({ ...item, landing: verdicts.get(item.doc.slug) ?? null }))
+  return { items, links: results.slice(1).map((result) => result.results) }
+}
+/** SEO-028: offer is counted from live published products, never from what the editor declares. */
+async function landingVerdicts(
+  database: D1Database,
+  rows: Array<{
+    doc: { slug: string; blocks: unknown[] }
+    editorial: { kind: string; category: { slug: string }; relatedProducts: number[] }
+    row: { published_at: string }
+  }>
+) {
+  const landings = rows.filter(({ editorial }) => editorial.kind === 'landing')
+  if (!landings.length) return new Map<string, LandingVerdict>()
+  const wanted = Array.from(new Set(landings.flatMap(({ editorial }) => editorial.relatedProducts))).sort(
+    (a, b) => a - b
+  )
+  const live = new Set<number>()
+  if (wanted.length) {
+    const found = await database
+      .prepare(
+        `SELECT p.legacy_id id FROM products p WHERE p.legacy_id IN(SELECT value FROM json_each(?1)) AND p.status='published' AND ${publicationValidityExpression('p')}`
+      )
+      .bind(JSON.stringify(wanted))
+      .all<{ id: number }>()
+    for (const row of found.results ?? []) live.add(Number(row.id))
+  }
+  return evaluateLandingSet(
+    landings.map(({ doc, editorial, row }) => ({
+      slug: doc.slug,
+      kind: editorial.kind,
+      publishedAt: row.published_at,
+      categorySlug: editorial.category.slug,
+      liveProductCount: editorial.relatedProducts.filter((id) => live.has(id)).length,
+      blocks: doc.blocks as Array<{ type: string; text?: string; items?: string[] }>
+    }))
+  )
+}
+export async function listLandingCoverage(deps: CmsPublicationDependencies) {
+  return guarded(async () => (await source(deps)).flatMap((item) => (item.landing ? [item.landing] : [])))
+}
+/** Slugs of landings that must stay out of the sitemap (thin / doorway). */
+export async function readThinLandingSlugs(deps: CmsPublicationDependencies) {
+  return (await listLandingCoverage(deps)).filter((v) => !v.indexable).map((v) => v.slug)
 }
 async function source(deps: CmsPublicationDependencies) {
   return (await snapshot(deps)).items
@@ -83,7 +128,7 @@ function summary(item: Source[number]) {
     editorial: item.editorial,
     publishedAt: item.row.published_at,
     canonicalPath: `/recursos/${item.doc.slug}`,
-    noindex: item.doc.seo.noindex
+    noindex: item.doc.seo.noindex || item.landing?.indexable === false
   })
 }
 async function coherent(deps: CmsPublicationDependencies, first: Source) {
