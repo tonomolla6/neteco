@@ -8,6 +8,10 @@ import { handlePublicSearchHttp } from './catalog/search-http'
 import { handleSearchSynonymsHttp, ownsSearchSynonymsNamespace } from './catalog/search-synonyms-http'
 import { handleSearchGapHttp, ownsSearchGapNamespace } from './catalog/search-gap-programme-http'
 import { handleSearchMerchandisingHttp, ownsSearchMerchandisingNamespace } from './catalog/search-merchandising-http'
+import {
+  handleCategoryMerchandisingHttp,
+  ownsCategoryMerchandisingNamespace
+} from './catalog/category-merchandising-http'
 import { handleSemanticSearchHttp, ownsSemanticSearchNamespace } from './catalog/semantic-search-http'
 import { handlePersonalizedRerankHttp, ownsPersonalizedRerankNamespace } from './catalog/personalized-rerank-http'
 import { handleCatalogRelationsHttp, ownsCatalogRelationsNamespace } from './catalog/catalog-relations-http'
@@ -1366,6 +1370,7 @@ export default {
       ownsSearchSynonymsNamespace(path) ||
       ownsSearchGapNamespace(path) ||
       ownsSearchMerchandisingNamespace(path) ||
+      ownsCategoryMerchandisingNamespace(path) ||
       ownsSemanticSearchNamespace(path) ||
       ownsPersonalizedRerankNamespace(path)
     ) {
@@ -1394,6 +1399,8 @@ export default {
       if (synonyms) return synonyms
       const merchandising = await handleSearchMerchandisingHttp(request, env)
       if (merchandising) return merchandising
+      const categoryMerchandising = await handleCategoryMerchandisingHttp(request, env)
+      if (categoryMerchandising) return categoryMerchandising
       const semanticSearch = await handleSemanticSearchHttp(request, env)
       if (semanticSearch) return semanticSearch
       const personalizedRerank = await handlePersonalizedRerankHttp(request, env)

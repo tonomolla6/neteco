@@ -1099,6 +1099,8 @@ async function addToCart(goToCart = false) {
             <li v-for="statement in product.regulatory.hazardStatements" :key="statement">{{ statement }}</li>
           </ul>
         </div>
+        <!-- SHP-029: peligros químicos/ADR de la variante elegida, siempre visibles -->
+        <AdrHazardNotice v-if="engagementEnabled" :variant-id="selected.id" />
       </div>
     </div>
 

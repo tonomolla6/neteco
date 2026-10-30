@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { MarketHreflangResponse } from '~/utils/hreflang-links'
+
 // Antes había aquí un splash de marca a pantalla completa que cubría la página hasta
 // la hidratación y se desvanecía en 0,5 s. El coste era mayor que el problema que
 // resolvía: la página ya viene renderizada del servidor y era legible, así que el
@@ -13,14 +15,38 @@ const runtime = useRuntimeConfig()
 const demo = computed(() => runtime.public.demoEnabled === true && runtime.public.serverRuntime === 'cloudflare')
 const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
 const canonicalUrl = computed(() => `${origin}${canonicalPath(route.path, route.query)}`)
+// SEO-033: product pages publish the reciprocal hreflang set of the markets with human-reviewed
+// translations; any failure falls back to the single-market pair, never to an unreviewed alternate.
+const productSlug = computed(() => productSlugFromPath(route.path))
+const { data: marketHreflang } = await useAsyncData<MarketHreflangResponse | null>(
+  'market-hreflang',
+  async () => {
+    if (!productSlug.value) return null
+    try {
+      return await $fetch<MarketHreflangResponse>('/api/storefront/seo/hreflang', {
+        query: { slug: productSlug.value }
+      })
+    } catch {
+      return null
+    }
+  },
+  { watch: [productSlug] }
+)
+const alternateLinks = computed(() =>
+  productSlug.value
+    ? productAlternateLinks(origin, canonicalUrl.value, marketHreflang.value)
+    : [
+        { hreflang: 'es-ES', href: canonicalUrl.value },
+        { hreflang: 'x-default', href: canonicalUrl.value }
+      ]
+)
 useHead(() => ({
   link:
     canonicalPath(route.path, {}) === '/buscar'
       ? []
       : [
           { rel: 'canonical', href: canonicalUrl.value },
-          { rel: 'alternate', hreflang: 'es-ES', href: canonicalUrl.value },
-          { rel: 'alternate', hreflang: 'x-default', href: canonicalUrl.value }
+          ...alternateLinks.value.map((link) => ({ rel: 'alternate', hreflang: link.hreflang, href: link.href }))
         ],
   script: [
     {

@@ -20,5 +20,8 @@ useHead(() => ({
 }))
 </script>
 <template>
-  <main><ResourceHubPanel :enabled="enabled" :slug="slug" @confirmed="confirmed" /></main>
+  <main>
+    <ResourceHubPanel :enabled="enabled" :slug="slug" @confirmed="confirmed" />
+    <ContentTrustPanel v-if="enabled && snapshot" :slug="slug" />
+  </main>
 </template>

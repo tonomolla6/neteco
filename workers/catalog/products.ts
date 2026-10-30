@@ -21,6 +21,7 @@ import { eligibleMediaPublicationSql } from '../media/governance'
 import { publicationValidityWithClock } from './publication-validity'
 import { typedAttributePublicCategoryValiditySql } from './typed-attribute-sql'
 import { publicSearchTermsSql, spanishFoldSql } from './search'
+import { categoryOrderSqlPrefix, readLiveCategoryOrder, type LiveCategoryOrder } from './category-merchandising'
 
 export type ProductSort = 'default' | 'name' | 'price_asc' | 'price_desc'
 
@@ -338,9 +339,19 @@ export async function listPublishedProducts(
     LEFT JOIN brands b ON b.id = p.brand_id
     JOIN variant_summary summary ON summary.product_id = p.id AND summary.formats > 0`
   const where = compileWhere(filters)
+  // SEA-015: a live category merchandising rule reorders only the untouched default listing of a
+  // category. Any failure or absence keeps the default order: ranking must never break the listing.
+  const merchandised: LiveCategoryOrder | null =
+    query.category && query.sort === 'default' && !query.search
+      ? await readLiveCategoryOrder(database, query.category, {
+          instant,
+          customerId: pricingOptions?.customerId ?? null
+        }).catch(() => null)
+      : null
+  const merchandisedFirst = merchandised ? categoryOrderSqlPrefix(merchandised) : ''
   const orderBy =
     {
-      default: 'p.featured DESC, lower(p.name), p.id',
+      default: `${merchandisedFirst}p.featured DESC, lower(p.name), p.id`,
       name: 'lower(p.name), p.id',
       price_asc: 'summary.minPrice ASC, lower(p.name), p.id',
       price_desc: 'summary.minPrice DESC, lower(p.name), p.id'
