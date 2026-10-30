@@ -407,6 +407,13 @@ const sections: Array<{
     label: 'Sistema',
     links: [
       {
+        to: '/admin/plataforma',
+        label: 'Plataforma',
+        icon: 'i-lucide-activity',
+        exact: true,
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/auditoria',
         label: 'Auditoría',
         icon: 'i-lucide-history',

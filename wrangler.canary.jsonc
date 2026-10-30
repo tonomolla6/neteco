@@ -16,6 +16,7 @@
     "APP_ENV": "canary",
     "FREE_SHIPPING_THRESHOLD_CENTS": "15000",
     "AUTH_ENABLED": "false",
+    "B2B_PUBLIC_API_ENABLED": "false",
     "INVENTORY_ALERTS_ENABLED": "false",
     "CART_RECOVERY_ENABLED": "false",
     "CART_RECOVERY_DELIVERY_ENABLED": "false",
