@@ -174,6 +174,7 @@ import { handleCrmAutomationMetricsHttp, ownsCrmAutomationMetricsNamespace } fro
 import { handleAnomalyDetectionHttp, ownsAnomalyDetectionNamespace } from './observability/anomaly-detection-http'
 import { handleExperimentsHttp, ownsExperimentsNamespace } from './analytics/experiments-http'
 import { handleGrowthHttp, ownsGrowthNamespace } from './growth/growth-http'
+import { handlePricingHttp, ownsPricingNamespace } from './pricing/pricing-http'
 import {
   handleInventoryLotsCostingForecastHttp,
   ownsInventoryLotsCostingForecastNamespace
@@ -2133,6 +2134,18 @@ export default {
         origin: env.AUTH_ORIGIN
       })
       if (experiments) return experiments
+    }
+    if (ownsPricingNamespace(path)) {
+      const unavailable = authUnavailable(env)
+      if (unavailable) return unavailable
+      const pricing = await handlePricingHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSessionOrNull(env),
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: isAdministrativePath(path) ? env.ADMIN_EDGE_LIMIT : env.CART_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+      })
+      if (pricing) return pricing
     }
     if (ownsGrowthNamespace(path)) {
       const administrative = isAdministrativePath(path)

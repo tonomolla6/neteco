@@ -116,6 +116,8 @@ export async function resolveShippingOptions(
     destination: ShippingDestination
     now: string
     freeShippingThresholdCents?: number | null
+    /** PRI-017 margin/profile guard (workers/pricing/free-shipping); absent keeps the legacy threshold rule. */
+    allowFreeShipping?: (shippingNetCents: number) => boolean
     salesQuote?: SalesQuoteCheckoutReference
     ownerSession?: VerifiedSessionClaims | null
   }
@@ -167,7 +169,11 @@ export async function resolveShippingOptions(
     const goodsGross = approved
       ? approved.goods.grossCents
       : await cartGoodsGrossCents(database, input.cartId, input.now, input.ownerSession)
-    options = mapShippingOptions(lines.results, results, input.destination, { threshold, goodsGross })
+    options = mapShippingOptions(lines.results, results, input.destination, {
+      threshold,
+      goodsGross,
+      ...(input.allowFreeShipping ? { allowFree: input.allowFreeShipping } : {})
+    })
   }
   const calendar = await readD1ShippingCalendarConfiguration(database)
   let stockLeadTimeDays: number | null = 0
@@ -233,7 +239,7 @@ export function mapShippingOptions(
   lines: Pick<CartWeightRow, 'quantity' | 'weightGrams' | 'published' | 'profileKind'>[],
   results: RateRow[],
   destination: ShippingDestination,
-  freeShipping?: { threshold: number; goodsGross: number }
+  freeShipping?: { threshold: number; goodsGross: number; allowFree?: (shippingNetCents: number) => boolean }
 ): ShippingOption[] {
   if (!lines.length) throw new ShippingError('invalid_input', 'Cannot ship an empty cart')
   if (lines.some((line) => !line.published)) throw new ShippingError('variant_not_available', 'Unpublished variant')
@@ -291,7 +297,12 @@ export function mapShippingOptions(
   ) {
     if (freeShipping.goodsGross >= freeShipping.threshold)
       for (const option of options)
-        if (option.methodCode === 'parcel' && option.serviceProfile === 'parcel') option.netCents = 0
+        if (
+          option.methodCode === 'parcel' &&
+          option.serviceProfile === 'parcel' &&
+          (freeShipping.allowFree === undefined || freeShipping.allowFree(option.netCents))
+        )
+          option.netCents = 0
   }
 
   // Rates are stored net. Tax is rounded once from the final net amount and
