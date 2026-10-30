@@ -68,6 +68,12 @@ import { handleCmsDraftHttp, ownsCmsNamespace } from './cms/http'
 import { handleCmsPublicHttp, CMS_PUBLIC_HEADERS } from './cms/public-http'
 import { handlePromotionalContentHttp, ownsPromotionalContentNamespace } from './cms/promotional-content-http'
 import { handleResourceHubHttp, ownsResourceHubNamespace } from './content/resource-hub-http'
+import {
+  handleContentGovernanceAdminHttp,
+  handleContentGovernancePublicHttp,
+  ownsContentGovernanceAdminNamespace,
+  ownsContentGovernancePublicNamespace
+} from './content/content-governance-http'
 import { handleCmsMediaHttp } from './cms/media-delivery'
 import { runCmsSchedules } from './cms/schedules'
 import { handleAdminReturnsHttp, ownsAdminReturnsNamespace } from './returns/admin-http'
@@ -146,6 +152,8 @@ import { handleAudiencesHttp, ownsAudiencesNamespace } from './marketing/audienc
 import { handleBundlesHttp, ownsBundlesNamespace } from './marketing/bundles-http'
 import { handleEventsHttp, ownsEventsNamespace } from './marketing/events-http'
 import { handleReferralsHttp, ownsReferralsNamespace } from './marketing/referrals-http'
+import { handleQuickOrderCompanyHttp, ownsQuickOrderCompanyNamespace } from './catalog/quick-order-company-http'
+import { handlePromoFraudHttp, ownsPromoFraudNamespace } from './security/promo-fraud-http'
 import {
   handleMarketingAutomationsHttp,
   ownsMarketingAutomationsNamespace
@@ -167,6 +175,10 @@ import {
   ownsCustomerRecurringListsNamespace
 } from './catalog/customer-recurring-lists-http'
 import { handleMarketCatalogHttp, ownsMarketCatalogNamespace } from './catalog/market-catalog-http'
+import {
+  handleInternationalFeedsAdrHttp,
+  ownsInternationalFeedsAdrNamespace
+} from './catalog/international-feeds-adr-http'
 import { handleProductMediaGuidesHttp, ownsProductMediaGuidesNamespace } from './catalog/product-media-guides-http'
 import { handleProductReviewsQaHttp, ownsProductReviewsQaNamespace } from './catalog/product-reviews-qa-http'
 import { handleProductRecallHttp } from './catalog/product-recall-http'
@@ -849,6 +861,20 @@ export default {
         ? null
         : await handleConfiguredAnalyticsHttp(request, env)
     if (analytics) return analytics
+    // SEO-029/030/031: mounted early so no broader /api/admin or /api/content* router can shadow it.
+    if (ownsContentGovernanceAdminNamespace(earlyPath)) {
+      const blocked = await mountGuard(request, env, true, 'admin-cms', { requireAuth: true })
+      if (blocked) return blocked
+      return (
+        (await handleContentGovernanceAdminHttp(request, env)) ?? noStoreJson({ error: { code: 'not_found' } }, 404)
+      )
+    }
+    if (ownsContentGovernancePublicNamespace(earlyPath)) {
+      return (
+        (await handleContentGovernancePublicHttp(request, { database: env.DB, origin: env.AUTH_ORIGIN })) ??
+        noStoreJson({ error: { code: 'not_found' } }, 404)
+      )
+    }
     if (ownsSupportCopilotNamespace(earlyPath) || ownsSupportRcaNamespace(earlyPath)) {
       const blocked = await mountGuard(request, env, true, 'admin-support')
       if (blocked) return blocked
@@ -1986,6 +2012,32 @@ export default {
         origin: env.AUTH_ORIGIN
       })
     }
+    if (ownsPromoFraudNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-promo-fraud' : 'customer-promo-fraud'
+      )
+      if (blocked) return blocked
+      const promoFraud = await handlePromoFraudHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        session: (incoming) => customerSession(incoming, env)
+      })
+      if (promoFraud) return promoFraud
+    }
+    if (ownsQuickOrderCompanyNamespace(path)) {
+      const blocked = await mountGuard(request, env, false, 'quick-order-company')
+      if (blocked) return blocked
+      const quickOrder = await handleQuickOrderCompanyHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        session: (incoming) => customerSession(incoming, env)
+      })
+      if (quickOrder) return quickOrder
+    }
     if (ownsReferralsNamespace(path)) {
       const blocked = await mountGuard(request, env, isAdministrativePath(path), 'customer-referrals')
       if (blocked) return blocked
@@ -2086,6 +2138,24 @@ export default {
         privateResponse.headers.set('cache-control', 'private, no-store')
         return privateResponse
       }
+    }
+    if (ownsInternationalFeedsAdrNamespace(path)) {
+      // SEO-033 hreflang, SEO-034 channel feeds, SHP-029 ADR / limited quantities.
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-catalog' : 'storefront-shipping',
+        { requireAuth: administrative }
+      )
+      if (blocked) return blocked
+      const international = await handleInternationalFeedsAdrHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        sessionCookieConfiguration: mountSession(env)
+      })
+      if (international) return international
     }
     if (ownsProductReviewsQaNamespace(path) || ownsProductMediaGuidesNamespace(path)) {
       const administrative = isAdministrativePath(path)
@@ -2521,6 +2591,19 @@ export default {
       ownsCloudflarePolicyNamespace(path) ||
       ownsCampaignPipelineNamespace(path)
     ) {
+      // Only the runtime rollout evaluation and the campaign preview are session-less; everything else is admin.
+      const releasePublic =
+        path === '/api/release/progressive-rollouts/eval' ||
+        path === '/api/campaign-pipeline/preview' ||
+        path === '/api/content/campaign-pipeline/preview'
+      const releaseBlocked = await mountGuard(
+        request,
+        env,
+        !releasePublic,
+        releasePublic ? 'storefront-release' : 'admin-release',
+        { requireAuth: !releasePublic }
+      )
+      if (releaseBlocked) return releaseBlocked
       const releaseDeps = {
         database: env.DB,
         sessionCookieConfiguration: mountSession(env),

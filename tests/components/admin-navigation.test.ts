@@ -346,6 +346,9 @@ describe('permission-based staff navigation', () => {
     ).toEqual([
       '/admin/clientes/contexto',
       '/admin/soporte',
+      '/admin/soporte-analisis',
+      '/admin/soporte-educacion',
+      '/admin/solicitudes-b2b',
       '/admin/soporte-chat',
       '/admin/soporte-rca',
       '/admin/gestor-cuentas',
@@ -378,6 +381,9 @@ describe('permission-based staff navigation', () => {
     ).toEqual([
       '/admin/clientes/contexto',
       '/admin/soporte',
+      '/admin/soporte-analisis',
+      '/admin/soporte-educacion',
+      '/admin/solicitudes-b2b',
       '/admin/soporte-chat',
       '/admin/soporte-rca',
       '/admin/gestor-cuentas',

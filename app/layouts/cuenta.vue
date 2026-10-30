@@ -24,10 +24,13 @@ const links = [
   ...(runtime.public.serverRuntime === 'cloudflare'
     ? [
         { to: '/cuenta/newsletter', label: 'Temas y frecuencia', icon: 'i-lucide-mails' },
+        { to: '/cuenta/preferencias-mensajes', label: 'Preferencias de mensajes', icon: 'i-lucide-message-circle' },
+        { to: '/cuenta/notificaciones', label: 'Centro de notificaciones', icon: 'i-lucide-bell' },
         { to: '/cuenta/avisos-productos', label: 'Avisos de productos', icon: 'i-lucide-bell' },
         { to: '/cuenta/recuperar-carrito', label: 'Recuperación de carrito', icon: 'i-lucide-shopping-cart' },
         { to: '/cuenta/aportaciones-productos', label: 'Reseñas y preguntas', icon: 'i-lucide-message-square' },
         { to: '/cuenta/presupuestos', label: 'Mis presupuestos', icon: 'i-lucide-file-check-2' },
+        { to: '/cuenta/solicitudes-b2b', label: 'Solicitudes B2B', icon: 'i-lucide-clipboard-list' },
         { to: '/cuenta/metodos-de-pago', label: 'Métodos de pago', icon: 'i-lucide-credit-card' },
         { to: '/cuenta/soporte', label: 'Mis consultas', icon: 'i-lucide-life-buoy' }
       ]

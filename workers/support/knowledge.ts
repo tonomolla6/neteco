@@ -151,3 +151,5 @@ export async function recordSupportKnowledgeFeedback(deps: SupportKnowledgeDepen
     fail('feedback_unavailable')
   }
 }
+
+export { eligible as supportKnowledgeEligibleSql }

@@ -526,10 +526,15 @@ try {
   assert(migrations.includes('0129_delivery_app_carrier_manifests_packing_optimizer.sql'))
   assert(migrations.includes('0130_connector_marketplace.sql'))
   assert(migrations.includes('0131_preview_diff_role_dashboards_campaign_manager.sql'))
+  assert(migrations.includes('0132_editorial_seo_commercial_warehouse_scan.sql'))
+  assert(migrations.includes('0133_supplier_feed_editorial_sourcing_draft_orders.sql'))
+  assert(migrations.includes('0134_release_gates_progressive_rollout_policy_campaigns.sql'))
+  assert(migrations.includes('0135_multichannel_orchestration_notification_center.sql'))
   assert(migrations.includes('0136_account_lifecycle_preference_center_impersonation.sql'))
   assert(migrations.includes('0139_inventory_commitments_picking_purchasing.sql'))
   assert(migrations.includes('0140_reorder_barcode_cycle_counts.sql'))
   assert(migrations.includes('0150_search_gap_programme.sql'))
+  assert(migrations.includes('0153_support_assistant_insights_b2b_portal.sql'))
   assert(migrations.length >= 117, 'Native shop audit requires the complete migration set')
   for (const migration of migrations) {
     scenario = `migration_${migration.replace(/\.sql$/, '')}`

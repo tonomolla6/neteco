@@ -48,6 +48,18 @@ const sections: Array<{
       },
       { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text', permission: 'administration.manage' },
       {
+        to: '/admin/pedidos-borrador',
+        label: 'Pedidos en borrador',
+        icon: 'i-lucide-file-clock',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/comercial',
+        label: 'Pipeline y cuentas comerciales',
+        icon: 'i-lucide-trending-up',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/clientes',
         label: 'Clientes profesionales',
         icon: 'i-lucide-building-2',
@@ -108,7 +120,31 @@ const sections: Array<{
         icon: 'i-lucide-bell-ring',
         permission: 'administration.manage'
       },
+      {
+        to: '/admin/almacen-escaneo',
+        label: 'Almacén: terminal de escaneo',
+        icon: 'i-lucide-scan-barcode',
+        permission: 'administration.manage'
+      },
       { to: '/admin/soporte', label: 'Soporte', icon: 'i-lucide-life-buoy', permission: 'support.manage' },
+      {
+        to: '/admin/soporte-analisis',
+        label: 'Análisis de contactos',
+        icon: 'i-lucide-chart-no-axes-combined',
+        permission: 'support.manage'
+      },
+      {
+        to: '/admin/soporte-educacion',
+        label: 'Asistente y educación',
+        icon: 'i-lucide-graduation-cap',
+        permission: 'support.manage'
+      },
+      {
+        to: '/admin/solicitudes-b2b',
+        label: 'Solicitudes B2B',
+        icon: 'i-lucide-clipboard-list',
+        permission: 'support.manage'
+      },
       {
         to: '/admin/soporte-chat',
         label: 'Chat de soporte',
@@ -180,6 +216,30 @@ const sections: Array<{
         permission: ['catalog.write', 'administration.manage']
       },
       { to: '/admin/contenido', label: 'Contenido', icon: 'i-lucide-panels-top-left', permission: 'catalog.write' },
+      {
+        to: '/admin/briefing-seo',
+        label: 'Calendario editorial y SEO',
+        icon: 'i-lucide-calendar-days',
+        permission: ['catalog.write', 'administration.manage']
+      },
+      {
+        to: '/admin/contenido-editorial',
+        label: 'Contenido editorial profesional',
+        icon: 'i-lucide-file-text',
+        permission: ['catalog.write', 'administration.manage']
+      },
+      {
+        to: '/admin/feed-proveedores',
+        label: 'Revisión de feeds de proveedor',
+        icon: 'i-lucide-diff',
+        permission: ['catalog.write', 'administration.manage']
+      },
+      {
+        to: '/admin/fuentes-suministro',
+        label: 'Fuentes de suministro',
+        icon: 'i-lucide-truck',
+        permission: ['catalog.write', 'administration.manage']
+      },
       {
         to: '/admin/preview-comparacion',
         label: 'Comparación preview CMS',
@@ -358,6 +418,12 @@ const sections: Array<{
         to: '/admin/conectores',
         label: 'Marketplace de conectores',
         icon: 'i-lucide-plug',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/despliegues',
+        label: 'Release gates y despliegues',
+        icon: 'i-lucide-rocket',
         permission: 'administration.manage'
       },
       {

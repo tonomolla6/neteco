@@ -6,6 +6,12 @@ import { handleCustomerSupportHttp, ownsCustomerSupportNamespace } from '../supp
 import { handleSatisfactionHttp, ownsCustomerSatisfactionNamespace } from '../support/satisfaction-http'
 import { handleSupportContactHttp, ownsSupportContactNamespace } from '../support/contact-http'
 import { handleSupportKnowledgeHttp } from '../support/knowledge-http'
+import {
+  handleB2bRequestsHttp,
+  handleSupportAssistantHttp,
+  ownsB2bRequestsNamespace,
+  ownsSupportAssistantNamespace
+} from '../support/insights-http'
 import { ownsSupportNamespace } from '../support/http'
 import { handleNewsletterEditorialHttp, ownsNewsletterEditorialNamespace } from '../marketing/newsletter-editorial-http'
 import { handleProductWatchRequest, ownsProductWatchNamespace } from '../marketing/product-watch-http'
@@ -61,6 +67,8 @@ export async function handleCustomerOperationsHttp(
 ): Promise<Response | null> {
   const path = new URL(request.url).pathname,
     knowledge = ownsSupportNamespace(path, '/api/support/knowledge'),
+    supportAssistant = ownsSupportAssistantNamespace(path),
+    b2bRequests = ownsB2bRequestsNamespace(path),
     refunds = ownsRefundsNamespace(path),
     supportAdmin = ownsAdminSupportNamespace(path),
     supportEscalations = ownsSupportEscalationsNamespace(path),
@@ -76,6 +84,8 @@ export async function handleCustomerOperationsHttp(
     communicationHistory = ownsCommunicationHistoryNamespace(path)
   if (
     !knowledge &&
+    !supportAssistant &&
+    !b2bRequests &&
     !refunds &&
     !supportAdmin &&
     !supportEscalations &&
@@ -260,6 +270,34 @@ export async function handleCustomerOperationsHttp(
             )
             return gate === 'limited' ? 'denied' : gate
           }
+        })) ?? unavailable('not_found', 404)
+      )
+    }
+    // SUP-012: limited FAQ assistant. Answers only from approved CMS knowledge; same gates as the help centre.
+    if (supportAssistant) {
+      const cms = cmsRuntimeDependencies(env)
+      return (
+        (await handleSupportAssistantHttp(request, {
+          database: env.DB,
+          origin: env.AUTH_ORIGIN,
+          enabled: cms.enabled,
+          sessionCookieConfiguration:
+            env.AUTH_ENABLED === 'true' ? { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 } : null,
+          edgeGate: (incoming) =>
+            checkAdministrativeEdgeLimit(incoming, env.CART_EDGE_LIMIT, env.AUTH_RATE_LIMIT_PEPPER, 'support-contact')
+        })) ?? unavailable('not_found', 404)
+      )
+    }
+    // SUP-017: B2B requests portal for approved companies (quote, onboarding, documentation, credit, claim).
+    if (b2bRequests) {
+      if (!operationFlag(env.SUPPORT_ENABLED) || env.AUTH_ENABLED !== 'true') return unavailable()
+      return (
+        (await handleB2bRequestsHttp(request, {
+          database: env.DB,
+          origin: env.AUTH_ORIGIN,
+          sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+          edgeGate: (incoming) =>
+            checkAdministrativeEdgeLimit(incoming, env.CART_EDGE_LIMIT, env.AUTH_RATE_LIMIT_PEPPER, 'customer-support')
         })) ?? unavailable('not_found', 404)
       )
     }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SupportFaqAssistant from '../components/SupportFaqAssistant.vue'
 import SupportKnowledgePanel from '../components/SupportKnowledgePanel.vue'
 const runtime = useRuntimeConfig().public.serverRuntime
 useSeoMeta({
@@ -60,6 +61,7 @@ const topics = [
       persona que conoce tu pedido.
     </p>
     <SupportKnowledgePanel v-if="runtime === 'cloudflare'" :runtime="runtime" class="mt-8" />
+    <SupportFaqAssistant v-if="runtime === 'cloudflare'" class="mt-8" />
     <div class="mt-8 grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
       <NuxtLink
         v-for="topic in topics"
