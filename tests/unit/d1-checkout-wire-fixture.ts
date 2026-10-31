@@ -8,7 +8,7 @@ import { d1OverSqlite } from '../support/d1-sqlite'
 
 export { BUYER_CLAIMS, CLAIMS, CUSTOMER, utc }
 
-/** 0148 pricing fixture + 0155 wiring evidence + a parcel zone (peninsular) and priced costs. */
+/** 0146 pricing fixture + 0152 wiring evidence + a parcel zone (peninsular) and priced costs. */
 export async function wireFixture() {
   const f = await pricingFixture()
   if (!f.sqlite.prepare("SELECT 1 FROM sqlite_schema WHERE name='promotion_rules'").get()) {
@@ -17,7 +17,7 @@ export async function wireFixture() {
     await adapter.batch(splitDemoSql(coupons).map((statement) => adapter.prepare(statement)))
   }
   f.sqlite.exec(
-    await readFile(new URL('../../db/d1/migrations/0155_checkout_pricing_wire.sql', import.meta.url), 'utf8')
+    await readFile(new URL('../../db/d1/migrations/0152_checkout_pricing_wire.sql', import.meta.url), 'utf8')
   )
   const now = utc(-60000)
   f.sqlite

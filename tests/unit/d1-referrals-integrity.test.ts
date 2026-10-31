@@ -94,7 +94,7 @@ function addOrder(
 
 beforeEach(async () => {
   ;({ sqlite, database } = await categoryCommandFixture())
-  for (const file of ['0112_bundles_referrals_events.sql', '0149_category_merchandising_promo_fraud.sql'])
+  for (const file of ['0112_bundles_referrals_events.sql', '0147_category_merchandising_promo_fraud.sql'])
     sqlite.exec(await readFile(new URL(`../../db/d1/migrations/${file}`, import.meta.url), 'utf8'))
   for (const n of [1, 2, 3, 4, 5, 6, 7]) addCustomer(n)
   sqlite

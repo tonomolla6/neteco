@@ -8,7 +8,7 @@ export const ID = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-0
 const MIGRATIONS = [
   '0120_market_catalog_international_shipping.sql',
   '0141_templates_brand_warehouse_adr.sql',
-  '0152_international_seo_channel_feeds_adr_lq.sql'
+  '0150_international_seo_channel_feeds_adr_lq.sql'
 ]
 
 /** Admin (MFA, administration.manage) fixture plus the BV migrations; relative dates only. */

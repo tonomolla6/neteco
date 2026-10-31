@@ -9,6 +9,7 @@ describe('contrato público B2B v1', () => {
   it('describe operaciones implementadas y autenticación bearer', () => {
     expect(b2bPublicOpenApi.paths['/api/b2b/v1/requests'].get.security).toEqual([{ bearerAuth: [] }])
     expect(b2bPublicOpenApi.paths['/api/b2b/v1/requests'].post.security).toEqual([{ bearerAuth: [] }])
+    expect(b2bPublicOpenApi.paths['/api/b2b/v1/catalog'].get.security).toEqual([{ bearerAuth: [] }])
     expect(b2bPublicOpenApi.paths['/api/b2b/v1/sandbox/catalog'].get.security).toEqual([{ bearerAuth: [] }])
     expect(b2bPublicOpenApi.components.securitySchemes.bearerAuth.scheme).toBe('bearer')
   })
@@ -17,6 +18,13 @@ describe('contrato público B2B v1', () => {
     expect(post.parameters).toContainEqual(expect.objectContaining({ name: 'Idempotency-Key', required: true }))
     expect(post.responses).toHaveProperty('409')
     expect(post.responses).toHaveProperty('429')
+  })
+  it('describe paginación limitada en catálogo y referencias', () => {
+    for (const path of ['/api/b2b/v1/catalog', '/api/b2b/v1/requests'] as const) {
+      expect(b2bPublicOpenApi.paths[path].get.parameters).toContainEqual(
+        expect.objectContaining({ name: 'page', in: 'query' })
+      )
+    }
   })
   it('describe reset UTC, scopes y ausencia de pedidos reales', () => {
     expect(b2bPublicOpenApi.info.description).toContain('UTC')

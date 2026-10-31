@@ -193,10 +193,6 @@ WHEN NOT EXISTS(SELECT 1 FROM companies c JOIN identities i ON i.customer_id=c.c
 BEGIN SELECT RAISE(ABORT,'company_documents_rejected'); END;
 
 -- ===== CUS-028: controlled support impersonation =====
-INSERT OR IGNORE INTO permissions(code,resource,action,description)
- VALUES('support.impersonate','support','impersonate','Open a short, audited, banner-visible impersonation session on a ticket');
-INSERT OR IGNORE INTO role_permissions(role_code,permission_code)
- SELECT code,'support.impersonate' FROM roles WHERE code IN('owner','admin');
 CREATE TABLE support_impersonation_sessions (
  id TEXT PRIMARY KEY CHECK(length(id)=36),
  command_id TEXT NOT NULL CHECK(length(command_id)=36),

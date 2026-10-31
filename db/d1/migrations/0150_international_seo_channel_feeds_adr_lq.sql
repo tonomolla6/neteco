@@ -1,4 +1,4 @@
--- 0152_international_seo_channel_feeds_adr_lq.sql
+-- 0150_international_seo_channel_feeds_adr_lq.sql
 -- SEO-033: revisión humana de traducciones por mercado (base del hreflang recíproco)
 -- SEO-034: transformaciones de feeds por canal, versionadas e inmutables
 -- SHP-029: restricciones de transportista y validación de especialista para ADR / cantidades limitadas

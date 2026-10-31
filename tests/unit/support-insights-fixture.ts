@@ -38,7 +38,7 @@ const MIGRATIONS = [
   '0045_cms_publication.sql',
   '0097_carrier_resilience.sql',
   '0110_rca_copilot_audiences.sql',
-  '0153_support_assistant_insights_b2b_portal.sql'
+  '0151_support_assistant_insights_b2b_portal.sql'
 ]
 
 export async function insightsFixture() {

@@ -18,7 +18,9 @@ describe('métricas del portal de plataforma', () => {
     expect(wrapper.text()).toContain('9')
   })
   it('comunica error y permite reintentar', async () => {
-    mocks.request.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ day: '2026-10-29', activeKeys: 0, requestsToday: 0 })
+    mocks.request
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ day: '2026-10-29', activeKeys: 0, requestsToday: 0 })
     const wrapper = await mountSuspended(AdminDeveloperMetrics)
     await flushPromises()
     expect(wrapper.text()).toContain('No se pudieron cargar las métricas')
@@ -28,7 +30,11 @@ describe('métricas del portal de plataforma', () => {
   })
   it('muestra carga mientras espera', async () => {
     let finish!: (value: unknown) => void
-    mocks.request.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    mocks.request.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      })
+    )
     const wrapper = mount(AdminDeveloperMetrics)
     expect(wrapper.text()).toContain('Cargando métricas')
     finish({ day: '2026-10-29', activeKeys: 0, requestsToday: 0 })

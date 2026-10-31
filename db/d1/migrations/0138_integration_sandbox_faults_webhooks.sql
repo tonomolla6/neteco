@@ -173,16 +173,7 @@ CREATE TABLE outbound_webhook_commands (
   UNIQUE (actor_id, idempotency_key)
 ) STRICT;
 
--- Semillas iniciales de roles, permisos y cuotas
-INSERT OR IGNORE INTO roles (code, name, description) VALUES
-  ('admin', 'Administrador', 'Rol administrador');
-
-INSERT OR IGNORE INTO permissions (code, resource, action, description) VALUES
-  ('integrations.manage', 'integrations', 'manage', 'Administración de integraciones, contratos sandbox, fault injection y webhooks');
-
-INSERT OR IGNORE INTO role_permissions (role_code, permission_code) VALUES
-  ('admin', 'integrations.manage');
-
+-- Semillas iniciales de cuotas
 INSERT OR IGNORE INTO sandbox_contract_quotas (provider, daily_limit, hourly_limit, daily_used, hourly_used, window_date, window_hour, version, updated_at) VALUES
   ('beply', 100, 20, 0, 0, '2026-10-29', '2026-10-29T12', 1, '2026-10-29T12:00:00Z'),
   ('redsys', 200, 40, 0, 0, '2026-10-29', '2026-10-29T12', 1, '2026-10-29T12:00:00Z'),

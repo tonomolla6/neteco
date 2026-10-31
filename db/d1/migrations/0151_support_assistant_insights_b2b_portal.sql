@@ -1,4 +1,4 @@
--- Migration: 0153_support_assistant_insights_b2b_portal.sql
+-- Migration: 0151_support_assistant_insights_b2b_portal.sql
 -- SUP-012 limited FAQ assistant (approved knowledge only, citations, human handoff)
 -- SUP-014 contact-rate analysis with root-cause taxonomy feeding a backlog
 -- SUP-015 repeated questions -> reviewed education content -> measured deflection

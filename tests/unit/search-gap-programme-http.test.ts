@@ -15,7 +15,7 @@ describe('SEO-025 private HTTP contract', () => {
       ['search_synonym_commands', '0061_search_synonyms.sql'],
       ['search_merchandising_commands', '0091_search_merchandising_rules.sql'],
       ['search_analytics_daily', '0095_search_analytics.sql'],
-      ['search_gap_cases', '0150_search_gap_programme.sql']
+      ['search_gap_cases', '0148_search_gap_programme.sql']
     ] as const)
       if (!sqlite.prepare('SELECT 1 FROM sqlite_master WHERE name=?').get(table))
         sqlite.exec(await readFile(new URL(`../../db/d1/migrations/${file}`, import.meta.url), 'utf8'))

@@ -134,7 +134,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 74 }, (_, index) => index + 1)
+      Array.from({ length: 152 }, (_, index) => index + 1)
     )
     for (const name of migrations)
       await database.batch(

@@ -81,7 +81,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
   beforeEach(async () => {
     f = await resourceHubFixture()
     f.sqlite.exec(
-      await readFile(new URL('../../db/d1/migrations/0151_content_governance.sql', import.meta.url), 'utf8')
+      await readFile(new URL('../../db/d1/migrations/0149_content_governance.sql', import.meta.url), 'utf8')
     )
     const past = instant(-86_400_000)
     for (const [id, session, email, role] of [

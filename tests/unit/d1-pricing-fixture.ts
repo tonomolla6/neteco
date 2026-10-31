@@ -11,7 +11,7 @@ export const key = () => crypto.randomUUID()
 
 /**
  * Migrated D1 with an MFA admin (CLAIMS), a verified buyer owning CUSTOMER (BUYER_CLAIMS, no MFA),
- * an MFA identity without permissions (OTHER_CLAIMS), 0089, 0101 and 0148.
+ * an MFA identity without permissions (OTHER_CLAIMS), 0089, 0101 and 0146.
  * `order({ paid: false, delivered: false })` creates an awaiting-payment order owned by the buyer.
  */
 export async function pricingFixture() {
@@ -20,7 +20,7 @@ export async function pricingFixture() {
   for (const name of [
     '0089_sales_quotes.sql',
     '0101_b2b_price_lists_credit.sql',
-    '0148_pricing_auto_discounts_credit_deposits.sql'
+    '0146_pricing_auto_discounts_credit_deposits.sql'
   ])
     sqlite.exec(await readFile(new URL(`../../db/d1/migrations/${name}`, import.meta.url), 'utf8'))
   const before = utc(-60000)

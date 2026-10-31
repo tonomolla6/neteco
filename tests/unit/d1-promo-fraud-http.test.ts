@@ -20,7 +20,7 @@ beforeEach(async () => {
   ;({ sqlite, database } = await categoryCommandFixture())
   sqlite.exec(
     await readFile(
-      new URL('../../db/d1/migrations/0149_category_merchandising_promo_fraud.sql', import.meta.url),
+      new URL('../../db/d1/migrations/0147_category_merchandising_promo_fraud.sql', import.meta.url),
       'utf8'
     )
   )

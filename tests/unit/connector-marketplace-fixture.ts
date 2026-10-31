@@ -42,7 +42,11 @@ export async function setupConnectorsTestDb(): Promise<{
   // Seed roles & role_permissions
   sqlite.exec(`
     INSERT OR IGNORE INTO permissions (code, resource, action, description) VALUES
-      ('administration.manage', 'administration', 'manage', 'Fixture');
+      ('administration.manage', 'administration', 'manage', 'Fixture'),
+      ('connectors.view', 'connectors', 'view', 'Ver catálogo, conectores instalados y métricas'),
+      ('connectors.install', 'connectors', 'install', 'Instalar, configurar y desinstalar conectores'),
+      ('connectors.review', 'connectors', 'review', 'Revisar, aprobar y rechazar conectores del catálogo'),
+      ('connectors.secrets', 'connectors', 'secrets', 'Gestionar y rotar secretos de conectores');
 
     INSERT OR IGNORE INTO roles (code, name, description) VALUES
       ('admin', 'Administrador', 'Fixture admin'),

@@ -54,7 +54,7 @@ describe('content governance HTTP contract', () => {
   beforeEach(async () => {
     f = await resourceHubFixture()
     f.sqlite.exec(
-      await readFile(new URL('../../db/d1/migrations/0151_content_governance.sql', import.meta.url), 'utf8')
+      await readFile(new URL('../../db/d1/migrations/0149_content_governance.sql', import.meta.url), 'utf8')
     )
     const past = new Date(Date.now() - 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     f.sqlite

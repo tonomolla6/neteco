@@ -1,7 +1,7 @@
 -- Checkout wiring of the BR pricing rules (PRI-014 automatic discounts, PRI-017 free shipping,
 -- PRI-018 store credit). These tables only hold immutable EVIDENCE of what the server applied, so a
 -- quote, a shipping snapshot and an order can be recomputed and audited. Rules, credit grants and the
--- credit ledger stay in 0148. Requires 0072 (coupons), 0006 (checkout) and 0148.
+-- credit ledger stay in 0146. Requires 0072 (coupons), 0006 (checkout) and 0146.
 
 -- Automatic discounts applied to one checkout quote (rule ids + versions + per-line amounts).
 CREATE TABLE checkout_quote_auto_discounts (

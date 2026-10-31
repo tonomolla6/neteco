@@ -57,7 +57,7 @@ export async function lifecycleFixture() {
  INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES('${AGENT_SESSION}','${AGENT}',1,1,'${BEFORE}','2099-01-01T00:00:00Z');
  INSERT INTO identity_mfa(identity_id,encrypted_secret,verified_at,updated_at) VALUES('${AGENT}','synthetic-unused','${BEFORE}','${BEFORE}');
  INSERT INTO roles VALUES('lifecycle-support','Support','Synthetic');
- INSERT OR IGNORE INTO permissions VALUES('support.manage','support','manage','Synthetic');
+ INSERT OR IGNORE INTO permissions VALUES('support.manage','support','manage','Synthetic'),('support.impersonate','support','impersonate','Synthetic');
  INSERT INTO role_permissions VALUES('lifecycle-support','support.manage');
  INSERT INTO identity_roles(identity_id,role_code,granted_at) VALUES('${AGENT}','lifecycle-support','${BEFORE}')`
   )

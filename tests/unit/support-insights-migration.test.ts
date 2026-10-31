@@ -4,7 +4,7 @@ import { insightsFixture, seedTicket, seedOrder, seedKnowledgePage, CUSTOMER_A, 
 let f: Awaited<ReturnType<typeof insightsFixture>>
 afterEach(() => f.sqlite.close())
 
-describe('migration 0153 (applied over the base schema)', () => {
+describe('migration 0151 (applied over the base schema)', () => {
   it('creates the tables and the fixtures seed through real constraints', async () => {
     f = await insightsFixture()
     const names = f.sqlite

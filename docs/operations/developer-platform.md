@@ -1,0 +1,9 @@
+# Portal de plataforma interno
+
+La página `/admin/plataforma` reúne un catálogo acotado de catálogo, checkout y operaciones, sus rutas de documentación y runbooks en este repositorio, y plantillas para un cambio y para una incidencia. Las referencias estáticas muestran equipos sugeridos pendientes de confirmación; los responsables registrados son los que aparecen en el panel de asignaciones.
+
+Una sesión con correo verificado, MFA y permiso vigente `administration.manage` puede consultar y asignar responsables mediante `/api/admin/developer-platform/ownership`. Las asignaciones se guardan con versión y cada comando usa UUID de idempotencia y huella de contenido. Una versión obsoleta devuelve 409: recargar antes de intentar otro cambio. La auditoría append-only registra actor, servicio, código de equipo, versión y fecha. Utilizar códigos de equipo sin nombres, correos ni secretos. Las asignaciones empiezan vacías: operaciones debe decidir los responsables reales antes de utilizarlas como directorio de guardia.
+
+El portal también muestra claves activas y número de solicitudes B2B admitidas durante el día UTC, a partir de contadores persistentes. Un cero es un contador real si la consulta ha funcionado; un fallo aparece como error, no como cero. Estos datos no son métricas de latencia, errores o SLO de los demás servicios. Para objetivos y respuestas ante incidentes, consultar `support-and-slo.md` e `incident-runbooks.md`. La sección de claves permite emitir o revocar credenciales; sus límites y consecuencias se explican en `b2b-public-api.md`.
+
+La navegación compartida debe registrar la ruta con `administration.manage`; hasta integrar esa entrada, el middleware Cloudflare rechaza la navegación. La página no sustituye la autorización en el servidor: cada operación comprueba sesión, permiso y MFA en D1 y vuelve a comprobarlos antes de entregar información.

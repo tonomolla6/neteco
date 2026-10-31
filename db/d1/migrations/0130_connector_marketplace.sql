@@ -101,10 +101,3 @@ CREATE TABLE connector_audit_events (
 CREATE INDEX idx_connector_audit_events_resource ON connector_audit_events(resource_id, created_at DESC);
 CREATE TRIGGER connector_audit_events_no_update BEFORE UPDATE ON connector_audit_events BEGIN SELECT RAISE(ABORT, 'connector_audit_immutable'); END;
 CREATE TRIGGER connector_audit_events_no_delete BEFORE DELETE ON connector_audit_events BEGIN SELECT RAISE(ABORT, 'connector_audit_immutable'); END;
-
--- Permissions declaration
-INSERT OR IGNORE INTO permissions (code, resource, action, description) VALUES
-  ('connectors.view', 'connectors', 'view', 'Ver catálogo, conectores instalados y métricas'),
-  ('connectors.install', 'connectors', 'install', 'Instalar, configurar y desinstalar conectores'),
-  ('connectors.review', 'connectors', 'review', 'Revisar, aprobar y rechazar conectores del catálogo'),
-  ('connectors.secrets', 'connectors', 'secrets', 'Gestionar y rotar secretos de conectores');
