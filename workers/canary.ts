@@ -78,6 +78,24 @@ import {
   ownsContentGovernanceAdminNamespace,
   ownsContentGovernancePublicNamespace
 } from './content/content-governance-http'
+import {
+  handleDownloadableTemplatesHttp,
+  ownsDownloadableTemplatesNamespace
+} from './content/downloadable-templates-http'
+import { handleBrandCenterHttp, ownsBrandCenterNamespace } from './brand/brand-center-http'
+import { handleWarehouseAdrAssetsHttp, ownsWarehouseAdrAssetsNamespace } from './fulfillment/warehouse-adr-assets-http'
+import {
+  handleProcurementApprovalsHttp,
+  ownsProcurementApprovalsNamespace
+} from './orders/procurement-approvals-http'
+import {
+  handleSplitBackordersHttp,
+  ownsSplitBackordersNamespace
+} from './orders/split-backorders-http'
+import {
+  handlePaymentContingencyHttp,
+  ownsPaymentContingencyNamespace
+} from './payments/contingency-routing-http'
 import { handleCmsMediaHttp } from './cms/media-delivery'
 import { runCmsSchedules } from './cms/schedules'
 import { handleAdminReturnsHttp, ownsAdminReturnsNamespace } from './returns/admin-http'
@@ -170,8 +188,28 @@ import {
   handleMarketingAutomationsHttp,
   ownsMarketingAutomationsNamespace
 } from './marketing/marketing-automations-http'
+import { handleBrowseAbandonmentHttp, ownsBrowseAbandonmentNamespace } from './marketing/browse-abandonment-http'
+import { handleWelcomeCouponHttp, ownsWelcomeCouponNamespace } from './marketing/welcome-coupon-http'
+import { handleRecommendationEngineHttp, ownsRecommendationEngineNamespace } from './catalog/recommendation-engine-http'
 import { handleCrmAutomationMetricsHttp, ownsCrmAutomationMetricsNamespace } from './crm/crm-automation-metrics-http'
+import {
+  handleMarketingObservabilityHttp,
+  ownsMarketingObservabilityNamespace
+} from './marketing/marketing-automation-observability-http'
 import { handleAnomalyDetectionHttp, ownsAnomalyDetectionNamespace } from './observability/anomaly-detection-http'
+import {
+  handlePromotionsAutomationMatrixHttp,
+  ownsPromotionsAutomationMatrixNamespace
+} from './marketing/promotions-automation-matrix-http'
+import {
+  handleAccountIsolationHttp,
+  ownsAccountIsolationNamespace
+} from './security/account-isolation-http'
+import {
+  handleWarehouseRouteOfflineHttp,
+  ownsWarehouseRouteOfflineNamespace
+} from './fulfillment/warehouse-route-offline-http'
+import { handleGameDayHttp, ownsGameDayNamespace } from './observability/game-day-resilience-http'
 import { handleExperimentsHttp, ownsExperimentsNamespace } from './analytics/experiments-http'
 import { handleGrowthHttp, ownsGrowthNamespace } from './growth/growth-http'
 import { handlePricingHttp, ownsPricingNamespace } from './pricing/pricing-http'
@@ -211,6 +249,7 @@ import { handleB2bEdiHttp, ownsB2bEdiNamespace } from './b2b/edi-gateway-http'
 import { handleB2bPublicAdmin, ownsB2bPublicAdminNamespace } from './developer-platform/b2b-public-admin'
 import { handleDeveloperOwnership, ownsDeveloperOwnershipNamespace } from './developer-platform/ownership-http'
 import { handleConnectorsHttp, ownsConnectorsNamespace } from './developer-platform/connector-marketplace'
+import { handleIntegrationsHttp, ownsIntegrationsNamespace } from './integrations/integrations-http'
 import { handleB2bPublicApi, ownsB2bPublicApiNamespace, resetB2bSandbox } from './developer-platform/b2b-public-api'
 import {
   handleCompanyShippingConditionsHttp,
@@ -257,6 +296,7 @@ import { handleModelEvaluationHttp, ownsModelEvaluationNamespace } from './analy
 import { handleCmsPreviewComparisonHttp, ownsCmsPreviewComparisonNamespace } from './cms/preview-comparison-http'
 import { handleRoleDashboardHttp, ownsRoleDashboardNamespace } from './admin/role-dashboard-http'
 import { handleCommercialCampaignsHttp, ownsCommercialCampaignsNamespace } from './marketing/commercial-campaigns-http'
+import { handleSeasonalCampaignsHttp, ownsSeasonalCampaignsNamespace } from './marketing/seasonal-campaigns-http'
 import { handleSupplierFeedHttp, ownsSupplierFeedNamespace } from './catalog/supplier-feed-comparison-http'
 import { handleEditorialContentHttp, ownsEditorialContentNamespace } from './catalog/editorial-content-http'
 import { handleSupplierSourcingHttp, ownsSupplierSourcingNamespace } from './catalog/supplier-sourcing-http'
@@ -2109,6 +2149,84 @@ export default {
       })
       if (automations) return automations
     }
+    if (ownsBrowseAbandonmentNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-browse-recovery' : 'customer-browse-preferences'
+      )
+      if (blocked) return blocked
+      const browse = await handleBrowseAbandonmentHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (browse) return browse
+    }
+    if (ownsPromotionsAutomationMatrixNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-pricing')
+      if (blocked) return blocked
+      const promoMatrix = await handlePromotionsAutomationMatrixHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (promoMatrix) return promoMatrix
+    }
+    if (ownsAccountIsolationNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-orders')
+      if (blocked) return blocked
+      const accountIso = await handleAccountIsolationHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (accountIso) return accountIso
+    }
+    if (ownsWarehouseRouteOfflineNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-fulfillment')
+      if (blocked) return blocked
+      const warehouseOffline = await handleWarehouseRouteOfflineHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (warehouseOffline) return warehouseOffline
+    }
+    if (ownsWelcomeCouponNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-welcome-coupon' : 'customer-welcome-coupon'
+      )
+      if (blocked) return blocked
+      const coupon = await handleWelcomeCouponHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (coupon) return coupon
+    }
+    if (ownsRecommendationEngineNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      const blocked = await mountGuard(
+        request,
+        env,
+        administrative,
+        administrative ? 'admin-recommendations' : 'public-recommendations'
+      )
+      if (blocked) return blocked
+      const recommendations = await handleRecommendationEngineHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (recommendations) return recommendations
+    }
     if (ownsCrmAutomationMetricsNamespace(path)) {
       const blocked = await mountGuard(request, env, true, 'admin-crm-metrics')
       if (blocked) return blocked
@@ -2118,6 +2236,16 @@ export default {
         origin: env.AUTH_ORIGIN
       })
       if (crmMetrics) return crmMetrics
+    }
+    if (ownsMarketingObservabilityNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-marketing-observability')
+      if (blocked) return blocked
+      const mktObs = await handleMarketingObservabilityHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (mktObs) return mktObs
     }
     if (ownsExperimentsNamespace(path)) {
       const administrative = isAdministrativePath(path)
@@ -2377,6 +2505,18 @@ export default {
       })
       if (commCamp) return commCamp
     }
+    if (ownsSeasonalCampaignsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-marketing', { requireAuth: true })
+      if (blocked) return blocked
+      const seasonalCamp = await handleSeasonalCampaignsHttp(request, {
+        database: env.DB,
+        actorIdFromRequest: async (req) => {
+          const session = await customerSession(req, env)
+          return session?.identityId ?? null
+        }
+      })
+      if (seasonalCamp) return seasonalCamp
+    }
     if (ownsSupplierFeedNamespace(path)) {
       const blocked = await mountGuard(request, env, true, 'admin-catalog', { requireAuth: true })
       if (blocked) return blocked
@@ -2609,6 +2749,16 @@ export default {
       })
       if (connectors) return connectors
     }
+    if (ownsIntegrationsNamespace(path)) {
+      const blocked = await mountGuard(request, env, true, 'admin-integrations')
+      if (blocked) return blocked
+      const integrations = await handleIntegrationsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN
+      })
+      if (integrations) return integrations
+    }
     if (ownsB2bPublicApiNamespace(path)) {
       // Keyed API: quota and authentication are enforced per key by the handler.
       const unavailable = b2bPublicUnavailable(env)
@@ -2623,7 +2773,8 @@ export default {
       ownsCapacityPlanningNamespace(path) ||
       ownsB2BContractSloNamespace(path) ||
       ownsWarehouseRouteTelemetryNamespace(path) ||
-      ownsAnomalyDetectionNamespace(path)
+      ownsAnomalyDetectionNamespace(path) ||
+      ownsGameDayNamespace(path)
     ) {
       const blocked = await mountGuard(request, env, true, 'admin-observability')
       if (blocked) return blocked
@@ -2640,6 +2791,7 @@ export default {
         (await handleB2BContractSloHttp(request, observability)) ??
         (await handleWarehouseRouteTelemetryHttp(request, observability)) ??
         (await handleAnomalyDetectionHttp(request, observability)) ??
+        (await handleGameDayHttp(request, observability)) ??
         noStoreJson({ error: { code: 'not_found' } }, 404)
       )
     }
@@ -2828,6 +2980,93 @@ export default {
         sessionCookieConfiguration: mountSession(env)
       })
       if (warehouseRes) return warehouseRes
+    }
+    if (ownsDownloadableTemplatesNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      if (administrative) {
+        const blocked = await mountGuard(request, env, true, 'admin-cms', { requireAuth: true })
+        if (blocked) return blocked
+      }
+      const claims = hasSessionCookie(request) ? await customerSession(request, env) : undefined
+      const res = await handleDownloadableTemplatesHttp(request, {
+        database: env.DB,
+        claims: claims ?? undefined,
+        now: serverNow()
+      })
+      if (res) return res
+    }
+    if (ownsBrandCenterNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      if (administrative) {
+        const blocked = await mountGuard(request, env, true, 'admin-media', { requireAuth: true })
+        if (blocked) return blocked
+      }
+      const claims = hasSessionCookie(request) ? await customerSession(request, env) : undefined
+      const res = await handleBrandCenterHttp(request, {
+        database: env.DB,
+        claims: claims ?? undefined,
+        now: serverNow()
+      })
+      if (res) return res
+    }
+    if (ownsWarehouseAdrAssetsNamespace(path)) {
+      const administrative = isAdministrativePath(path) || path.includes('/transport-document')
+      if (administrative) {
+        const blocked = await mountGuard(request, env, true, 'admin-warehouse', { requireAuth: true })
+        if (blocked) return blocked
+      }
+      const claims = hasSessionCookie(request) ? await customerSession(request, env) : undefined
+      const res = await handleWarehouseAdrAssetsHttp(request, {
+        database: env.DB,
+        claims: claims ?? undefined,
+        now: serverNow()
+      })
+      if (res) return res
+    }
+    if (ownsProcurementApprovalsNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      if (administrative) {
+        const blocked = await mountGuard(request, env, true, 'admin-orders', { requireAuth: true })
+        if (blocked) return blocked
+      }
+      const claims = hasSessionCookie(request) ? await customerSession(request, env) : undefined
+      const res = await handleProcurementApprovalsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        claims: claims ?? undefined,
+        now: serverNow()
+      })
+      if (res) return res
+    }
+    if (ownsSplitBackordersNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      if (administrative) {
+        const blocked = await mountGuard(request, env, true, 'admin-orders', { requireAuth: true })
+        if (blocked) return blocked
+      }
+      const claims = hasSessionCookie(request) ? await customerSession(request, env) : undefined
+      const res = await handleSplitBackordersHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        claims: claims ?? undefined,
+        now: serverNow()
+      })
+      if (res) return res
+    }
+    if (ownsPaymentContingencyNamespace(path)) {
+      const administrative = isAdministrativePath(path)
+      if (administrative) {
+        const blocked = await mountGuard(request, env, true, 'admin-orders', { requireAuth: true })
+        if (blocked) return blocked
+      }
+      const claims = hasSessionCookie(request) ? await customerSession(request, env) : undefined
+      const res = await handlePaymentContingencyHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: mountSession(env),
+        claims: claims ?? undefined,
+        now: serverNow()
+      })
+      if (res) return res
     }
     if (
       ['/api/admin/orders', '/api/admin/stats', '/api/admin/operations'].includes(path) ||

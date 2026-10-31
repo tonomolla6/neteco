@@ -8,6 +8,7 @@ import ProductEngagementPanel from '~/components/ProductEngagementPanel.vue'
 import ProductVideoMediaGuide from '~/components/ProductVideoMediaGuide.vue'
 import { buildAggregateRatingJsonLd, type ProductReviewSeoSummary } from '~~/shared/review-aggregate'
 import ProductVerifiedReviewsQa from '~/components/ProductVerifiedReviewsQa.vue'
+import VolumePricingTable from '~/components/VolumePricingTable.vue'
 import { z } from 'zod'
 import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
@@ -856,18 +857,15 @@ async function addToCart(goToCart = false) {
             </p>
           </div>
 
-          <section
+          <VolumePricingTable
             v-if="selected.priceTiers.length"
-            class="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
-          >
-            <h2 class="text-sm font-semibold text-emerald-950">Ahorro por volumen</h2>
-            <ul class="mt-2 grid gap-2 text-sm grid-cols-1 sm:grid-cols-2">
-              <li v-for="tier in selected.priceTiers" :key="tier.minimumQuantity" class="flex justify-between gap-3">
-                <span>Desde {{ tier.minimumQuantity }} unidades</span>
-                <strong>{{ formatPrice(tier.unitGrossCents) }}/ud IVA incl.</strong>
-              </li>
-            </ul>
-          </section>
+            class="mt-4"
+            :base-gross-cents="selected.price"
+            :tax-rate-basis-points="2100"
+            :tiers="selected.priceTiers"
+            :current-quantity="qty"
+            :show-net-prices="showNetPrices"
+          />
           <p v-if="selected.compareAtPrice && selected.referencePrice30d" class="mt-3 text-xs text-slate-500">
             Precio anterior: <s>{{ formatPrice(selected.compareAtPrice) }}</s> · Precio más bajo de los 30 días
             anteriores: {{ formatPrice(selected.referencePrice30d) }}.

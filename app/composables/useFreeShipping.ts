@@ -15,6 +15,12 @@
  * mercancía peligrosa y otros perfiles conservan sus condiciones. El servidor
  * confirma siempre método, elegibilidad y coste antes de pagar.
  */
+import {
+  evaluateFreeShippingProgress,
+  type FreeShippingCartLine,
+  type FreeShippingProgressEvaluation
+} from '../../shared/free-shipping-progress'
+
 export function useFreeShipping() {
   const runtime = useRuntimeConfig()
   const thresholdCents = computed(() => {
@@ -47,8 +53,30 @@ export function useFreeShipping() {
   }
 
   function progressFor(subtotalCents: number) {
-    return thresholdCents.value ? Math.min(100, Math.round((subtotalCents / thresholdCents.value) * 100)) : 0
+    if (!thresholdCents.value) return 0
+    const missing = missingFor(subtotalCents)
+    if (missing === 0) return 100
+    return Math.min(99, Math.floor((subtotalCents / thresholdCents.value) * 100))
   }
 
-  return { thresholdCents, threshold, label, missingFor, progressFor }
+  /**
+   * Evaluación contextual MKT-022: considera perfil logístico (ADR, palé),
+   * zona de destino (exclusión peninsular) y margen. NUNCA promete gratis si está excluido.
+   */
+  function evaluateProgress(options: {
+    items?: FreeShippingCartLine[]
+    subtotalCents: number
+    destinationPostalCode?: string | null
+    customerProfile?: 'consumer' | 'company'
+  }): FreeShippingProgressEvaluation {
+    return evaluateFreeShippingProgress({
+      items: options.items ?? [],
+      subtotalGrossCents: options.subtotalCents,
+      thresholdGrossCents: thresholdCents.value,
+      destinationPostalCode: options.destinationPostalCode ?? null,
+      customerProfile: options.customerProfile ?? 'consumer'
+    })
+  }
+
+  return { thresholdCents, threshold, label, missingFor, progressFor, evaluateProgress }
 }

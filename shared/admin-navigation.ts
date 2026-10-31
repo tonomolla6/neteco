@@ -183,6 +183,12 @@ const sections: Array<{
         permission: 'inventory.read'
       },
       {
+        to: '/admin/almacen-adr',
+        label: 'Gestión ADR y Etiquetas',
+        icon: 'i-lucide-shield-alert',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/suplantacion-soporte',
         label: 'Suplantación de soporte',
         icon: 'i-lucide-user-cog',
@@ -257,6 +263,12 @@ const sections: Array<{
         label: 'Comparación preview CMS',
         icon: 'i-lucide-diff',
         permission: 'catalog.write'
+      },
+      {
+        to: '/admin/recomendaciones',
+        label: 'Motor de recomendaciones',
+        icon: 'i-lucide-sparkles',
+        permission: ['catalog.write', 'administration.manage']
       }
     ]
   },
@@ -375,6 +387,24 @@ const sections: Array<{
         to: '/admin/campanas-comerciales',
         label: 'Gestor de campañas y calendario',
         icon: 'i-lucide-calendar-days',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/campanas-estacionales',
+        label: 'Campañas estacionales',
+        icon: 'i-lucide-calendar-range',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/recuperacion-navegacion',
+        label: 'Recuperación de navegación',
+        icon: 'i-lucide-compass',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/cupon-bienvenida',
+        label: 'Cupón de bienvenida',
+        icon: 'i-lucide-badge-percent',
         permission: 'administration.manage'
       },
       {

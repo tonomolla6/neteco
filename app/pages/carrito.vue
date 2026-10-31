@@ -4,6 +4,7 @@ import CartReadFeedback from '~/components/CartReadFeedback.vue'
 import CartSnapshotsPanel from '~/components/CartSnapshotsPanel.vue'
 import CartRecoverySection from '~/components/CartRecoverySection.vue'
 import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
+import FreeShippingProgressBar from '~/components/FreeShippingProgressBar.vue'
 import type { OrderSummary } from '~/composables/useAccount'
 
 useSeoMeta({ title: 'Carrito' })
@@ -18,8 +19,17 @@ const lineErrors = reactive<Record<number, string>>({})
 // The shared threshold is informational; only a shipping quote confirms eligibility.
 const freeShipping = useFreeShipping()
 const freeShippingThreshold = freeShipping.thresholdCents
-const missingForFreeShipping = computed(() => freeShipping.missingFor(cart.subtotal))
-const freeShippingProgress = computed(() => freeShipping.progressFor(cart.subtotal))
+const freeShippingEvaluation = computed(() => {
+  return freeShipping.evaluateProgress({
+    items: cart.items.map((i) => ({
+      variantId: String(i.variantId),
+      quantity: i.qty,
+      unitGrossCents: i.price,
+      unitNetCents: i.netPrice
+    })),
+    subtotalCents: cart.subtotal
+  })
+})
 const retryingRead = ref(false)
 let readPending = false
 const cartReadLoading = computed(() => retryingRead.value || cart.loading || (!cart.ready && !cart.error))
@@ -217,34 +227,7 @@ async function retryOriginalAdd() {
               <dd class="text-slate-500">{{ formatPrice(tax) }}</dd>
             </div>
           </dl>
-          <div v-if="freeShippingThreshold" class="mt-4 rounded-xl bg-slate-50 p-3">
-            <p v-if="missingForFreeShipping" class="text-sm text-slate-700">
-              Te faltan
-              <span class="font-semibold text-neteco-700">{{ formatPrice(missingForFreeShipping) }}</span>
-              para alcanzar el umbral de paquetería estándar elegible.
-            </p>
-            <p v-else class="flex items-center gap-1.5 text-sm font-medium text-green-800">
-              <UIcon name="i-lucide-check-circle-2" class="size-4 shrink-0" />
-              Has alcanzado el umbral de paquetería estándar elegible.
-            </p>
-            <p class="mt-1 text-xs text-slate-600">
-              Sujeto a cotización según destino y mercancía. Palés y mercancías peligrosas no están incluidos.
-            </p>
-            <div
-              class="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"
-              role="progressbar"
-              :aria-valuenow="freeShippingProgress"
-              :aria-valuemin="0"
-              :aria-valuemax="100"
-              :aria-label="`Progreso hacia el umbral de paquetería estándar elegible: ${freeShippingProgress} %`"
-            >
-              <div
-                class="h-full rounded-full transition-all"
-                :class="missingForFreeShipping ? 'bg-neteco-500' : 'bg-green-600'"
-                :style="{ width: freeShippingProgress + '%' }"
-              />
-            </div>
-          </div>
+          <FreeShippingProgressBar v-if="freeShippingThreshold" class="mt-4" :evaluation="freeShippingEvaluation" />
 
           <UButton
             v-if="!cart.blockedMutations"
