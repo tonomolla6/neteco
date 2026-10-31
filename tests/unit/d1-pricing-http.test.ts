@@ -56,9 +56,16 @@ describe('pricing HTTP', () => {
     expect(issue?.status).toBe(201)
     const summary = await handlePricingHttp(call('/api/account/store-credit', 'GET', f.buyer), f.deps)
     expect(await summary?.json()).toMatchObject({ balanceCents: 300 })
+    const disabledRedeem = await handlePricingHttp(
+      call('/api/account/store-credit/redeem', 'POST', f.buyer, { orderId, amountCents: 100 }),
+      f.deps
+    )
+    expect(disabledRedeem?.status).toBe(503)
+    expect(await disabledRedeem?.json()).toEqual({ error: { code: 'feature_disabled' } })
+    const enabledDeps = { ...f.deps, storeCreditRedemptionEnabled: true }
     const redeem = call('/api/account/store-credit/redeem', 'POST', f.buyer, { orderId, amountCents: 100 })
-    const a = await handlePricingHttp(redeem.clone(), f.deps)
-    const b = await handlePricingHttp(redeem, f.deps)
+    const a = await handlePricingHttp(redeem.clone(), enabledDeps)
+    const b = await handlePricingHttp(redeem, enabledDeps)
     expect(a?.status).toBe(200)
     expect(await b?.json()).toEqual(await a?.json())
     expect(

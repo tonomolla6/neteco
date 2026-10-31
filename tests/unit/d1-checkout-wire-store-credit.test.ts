@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { placeOrder } from '../../workers/catalog/checkout'
 import { initiateRedsysPayment } from '../../workers/catalog/payments'
 import { cancelD1UnpaidOrder } from '../../workers/catalog/order-cancellation'
+import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { decodeMerchantParameters } from '../../workers/payments/redsys'
+import { handlePricingHttp } from '../../workers/pricing/pricing-http'
 import {
   redeemStoreCredit,
   reconcileStoreCredit,
@@ -349,6 +352,89 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
       // Totals reproduce from the stored lines, never from the client.
       const lines = f.sqlite.prepare('SELECT sum(gross_cents) g FROM order_lines').get() as { g: number }
       expect(lines.g + snapshot.shipping.grossCents).toBe(1800)
+    } finally {
+      f.sqlite.close()
+    }
+  })
+
+  it('when STORE_CREDIT_REDEMPTION_ENABLED is disabled (default and explicit false), charges the full total and consumes zero credit', async () => {
+    const f = await wireFixture()
+    try {
+      await grantCredit(f, 500)
+      const p = await prepare(f, { tag: 'flag-off-default' })
+      const pickup = p.options.find((o) => o.methodCode === 'pickup')!
+      const placed = await placeOrder(f.database, {
+        ...p.base,
+        selectedOptionIndex: pickup.optionIndex,
+        selectedOptionHash: pickup.optionHash,
+        storeCreditCents: 400
+      })
+      if (placed.outcome !== 'order_created') throw new Error(placed.outcome)
+      expect(placed.body.totalGrossCents).toBe(1000)
+      expect(placed.body.storeCreditCents).toBeUndefined()
+      expect(placed.body.amountDueCents).toBeUndefined()
+      expect(balance(f)).toBe(500)
+      expect(count(f, "SELECT count(*) n FROM store_credit_ledger WHERE entry_type = 'redeem'")).toBe(0)
+
+      const orderId = String(placed.body.id)
+      const orderToken = String(placed.body.orderToken)
+
+      // Post-order redeem endpoint also responds 503 feature_disabled by default and when explicitly 'false'
+      const origin = 'https://wire.neteco.test'
+      const cookieConfig = { password: 'p'.repeat(40), maxAgeSeconds: 3600 }
+      const buyerCookie = (await issueD1SessionCookie(f.database, BUYER_CLAIMS, cookieConfig))!.split(';')[0]!
+      const makeRedeemRequest = (idempotencyKey: string) =>
+        new Request(`${origin}/api/account/store-credit/redeem`, {
+          method: 'POST',
+          headers: {
+            origin,
+            cookie: buyerCookie,
+            'content-type': 'application/json',
+            'idempotency-key': idempotencyKey,
+            'cf-connecting-ip': '192.0.2.1'
+          },
+          body: JSON.stringify({ orderId, amountCents: 200 })
+        })
+      const baseDeps = {
+        database: f.database,
+        sessionCookieConfiguration: cookieConfig,
+        origin,
+        edgeLimiter: { limit: async () => ({ success: true }) } as unknown as RateLimit,
+        rateLimitPepper: 'synthetic-rate-limit-pepper-over-32'
+      }
+      const resDefault = await handlePricingHttp(makeRedeemRequest('redeem-disabled-1'), baseDeps)
+      expect(resDefault?.status).toBe(503)
+      expect(await resDefault?.json()).toEqual({ error: { code: 'feature_disabled' } })
+
+      const resExplicitFalse = await handlePricingHttp(makeRedeemRequest('redeem-disabled-2'), {
+        ...baseDeps,
+        STORE_CREDIT_REDEMPTION_ENABLED: 'false'
+      })
+      expect(resExplicitFalse?.status).toBe(503)
+      expect(await resExplicitFalse?.json()).toEqual({ error: { code: 'feature_disabled' } })
+
+      expect(balance(f)).toBe(500)
+      expect(count(f, "SELECT count(*) n FROM store_credit_ledger WHERE entry_type = 'redeem'")).toBe(0)
+
+      await initiateRedsysPayment(
+        f.database,
+        {
+          orderId,
+          orderToken,
+          method: 'card',
+          now: utc(),
+          correlationId: 'wire-pay-disabled',
+          idempotencyKey: 'pay-wire-disabled'
+        },
+        redsys
+      )
+      const intent = f.sqlite.prepare('SELECT amount_gross_cents FROM payment_intents WHERE order_id = ?').get(orderId)
+      expect(intent).toEqual({ amount_gross_cents: 1000 })
+      const command = f.sqlite
+        .prepare('SELECT response_body FROM payment_commands WHERE order_id = ?')
+        .get(orderId) as { response_body: string }
+      const fields = JSON.parse(command.response_body).redirect.fields as Record<string, string>
+      expect(decodeMerchantParameters(fields.Ds_MerchantParameters!).DS_MERCHANT_AMOUNT).toBe('1000')
     } finally {
       f.sqlite.close()
     }

@@ -21,6 +21,7 @@ export type PricingErrorCode =
   | 'overpayment'
   | 'variant_not_available'
   | 'rate_limited'
+  | 'feature_disabled'
   | 'service_unavailable'
 
 export class PricingError extends Error {

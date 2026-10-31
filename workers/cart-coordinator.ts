@@ -96,6 +96,8 @@ export interface CoordinatorDeps {
   freeShippingThresholdCents?: number | null
   /** SEC-036 trusted secret for the checkout coupon-fraud gate; never read from a cart command. */
   promoFraudPepper?: string
+  /** Feature flag gating store credit redemption in checkout; disabled unless explicitly enabled. */
+  storeCreditRedemptionEnabled?: boolean
   /** Durable per-command responses; unbounded by design. */
   getResponse: (commandId: string) => Promise<{ payloadHash: string; status: number; body: unknown } | undefined>
   putResponse: (commandId: string, value: { payloadHash: string; status: number; body: unknown }) => Promise<void>
@@ -448,7 +450,12 @@ export async function handleCartCommand(
           parsedCheckout.input,
           deps.inventory,
           deps.freeShippingThresholdCents,
-          deps.promoFraudPepper === undefined ? {} : { promoFraudPepper: deps.promoFraudPepper }
+          {
+            ...(deps.promoFraudPepper === undefined ? {} : { promoFraudPepper: deps.promoFraudPepper }),
+            ...(deps.storeCreditRedemptionEnabled === undefined
+              ? {}
+              : { storeCreditRedemptionEnabled: deps.storeCreditRedemptionEnabled })
+          }
         )
         const status =
           outcome.outcome === 'order_created'
@@ -589,6 +596,9 @@ export class CartCoordinator implements DurableObject {
           inventory: this.env.INVENTORY ? this.inventoryGateway() : undefined,
           freeShippingThresholdCents: this.freeShippingThreshold(),
           promoFraudPepper: this.env.AUTH_RATE_LIMIT_PEPPER,
+          storeCreditRedemptionEnabled:
+            (this.env as CloudflareEnv & { STORE_CREDIT_REDEMPTION_ENABLED?: string })
+              .STORE_CREDIT_REDEMPTION_ENABLED === 'true',
           getResponse: (commandId) => this.state.storage.get(`cmd:${commandId}`),
           putResponse: (commandId, value) => this.state.storage.put(`cmd:${commandId}`, value),
           setAlarm: (atMs) => (atMs === null ? this.state.storage.deleteAlarm() : this.state.storage.setAlarm(atMs)),

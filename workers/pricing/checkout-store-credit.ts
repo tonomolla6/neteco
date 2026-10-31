@@ -7,6 +7,27 @@ import { ifPricingTable } from './rules-read'
  * The credit ledger of 0148 is the single source of truth: due = total - net(redeem, restore) per order.
  */
 
+export interface StoreCreditRedemptionFlagInput {
+  storeCreditRedemptionEnabled?: boolean
+  STORE_CREDIT_REDEMPTION_ENABLED?: string
+}
+
+/**
+ * Store credit redemption reduces the amount charged below order total.
+ * Disabled by default until downstream consumers adopt amountDueCents.
+ */
+export function isStoreCreditRedemptionEnabled(options?: StoreCreditRedemptionFlagInput | null): boolean {
+  if (typeof options?.storeCreditRedemptionEnabled === 'boolean') {
+    return options.storeCreditRedemptionEnabled
+  }
+  if (typeof options?.STORE_CREDIT_REDEMPTION_ENABLED === 'string') {
+    return options.STORE_CREDIT_REDEMPTION_ENABLED === 'true'
+  }
+  const envFlag = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env
+    ?.STORE_CREDIT_REDEMPTION_ENABLED
+  return envFlag === 'true'
+}
+
 /** Net credit currently applied to an order (0 when the credit tables do not exist). */
 export async function redeemedStoreCreditCents(db: D1Database, orderId: string): Promise<number> {
   const row = await ifPricingTable(

@@ -228,7 +228,11 @@ export async function order(
   method: 'pickup' | 'parcel' | 'own_delivery' = 'pickup',
   extra: Partial<PlaceOrderInput> = {},
   threshold: number | null = null,
-  fraudOptions: { promoFraudPepper?: string } = {}
+  fraudOptions: {
+    promoFraudPepper?: string
+    storeCreditRedemptionEnabled?: boolean
+    STORE_CREDIT_REDEMPTION_ENABLED?: string
+  } = { storeCreditRedemptionEnabled: true }
 ) {
   const option = prepared.options.find((o) => o.methodCode === method)
   if (!option) throw new Error(`no ${method} option`)

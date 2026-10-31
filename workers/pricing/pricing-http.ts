@@ -33,6 +33,7 @@ import {
   restoreStoreCredit,
   voidStoreCreditGrant
 } from './store-credit'
+import { isStoreCreditRedemptionEnabled } from './checkout-store-credit'
 
 export interface PricingHttpDependencies {
   database: D1Database
@@ -42,6 +43,8 @@ export interface PricingHttpDependencies {
   rateLimitPepper?: string
   ownDeliveryPrefixes?: readonly string[]
   now?: string | (() => string)
+  storeCreditRedemptionEnabled?: boolean
+  STORE_CREDIT_REDEMPTION_ENABLED?: string
 }
 
 const ADMIN = '/api/admin/pricing'
@@ -87,6 +90,7 @@ const STATUS: Record<PricingErrorCode | 'csrf_rejected' | 'method_not_allowed' |
   payload_too_large: 413,
   variant_not_available: 422,
   rate_limited: 429,
+  feature_disabled: 503,
   service_unavailable: 503
 }
 const HEADERS = {
@@ -186,15 +190,17 @@ async function publicRoutes(
     if (method !== 'POST') return errorResponse('method_not_allowed')
     return json(await previewAutoDiscounts(db, claims, await body(request), now))
   }
+  if (path === '/api/account/store-credit/redeem') {
+    if (method !== 'POST') return errorResponse('method_not_allowed')
+    if (!isStoreCreditRedemptionEnabled(deps)) return errorResponse('feature_disabled')
+    if (!claims) return errorResponse('unauthenticated')
+    const receipt = await redeemStoreCredit(db, claims, await body(request), idemKey(request), now)
+    return json({ result: receipt.result })
+  }
   if (!claims) return errorResponse('unauthenticated')
   if (path === '/api/account/store-credit') {
     if (method !== 'GET') return errorResponse('method_not_allowed')
     return json(await getStoreCreditSummary(db, claims, now))
-  }
-  if (path === '/api/account/store-credit/redeem') {
-    if (method !== 'POST') return errorResponse('method_not_allowed')
-    const receipt = await redeemStoreCredit(db, claims, await body(request), idemKey(request), now)
-    return json({ result: receipt.result })
   }
   if (method !== 'GET') return errorResponse('method_not_allowed')
   return json(await getCustomerPaymentSchedule(db, claims, path.split('/')[3]!, now))

@@ -2271,7 +2271,10 @@ export default {
         sessionCookieConfiguration: mountSessionOrNull(env),
         origin: env.AUTH_ORIGIN,
         edgeLimiter: isAdministrativePath(path) ? env.ADMIN_EDGE_LIMIT : env.CART_EDGE_LIMIT,
-        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER,
+        storeCreditRedemptionEnabled:
+          (env as CloudflareEnv & { STORE_CREDIT_REDEMPTION_ENABLED?: string }).STORE_CREDIT_REDEMPTION_ENABLED ===
+          'true'
       })
       if (pricing) return pricing
     }

@@ -62,6 +62,7 @@ import { readAppliedOrderPromotion, promotionAvailableForOrder, promotionOrderSt
 import { promotionBenefitBlocked } from './checkout-promo-fraud'
 import {
   checkoutRedemptionStatements,
+  isStoreCreditRedemptionEnabled,
   planCheckoutRedemption,
   type CheckoutCreditPlan
 } from '../pricing/checkout-store-credit'
@@ -855,7 +856,11 @@ export async function placeOrder(
   inventory: CheckoutInventoryGateway = directInventoryGateway(database),
   freeShippingThresholdCents: number | null = null,
   /** SEC-036: trusted Worker secret. When present, an applied coupon is assessed (fail closed) before ordering. */
-  options: { promoFraudPepper?: string } = {}
+  options: {
+    promoFraudPepper?: string
+    storeCreditRedemptionEnabled?: boolean
+    STORE_CREDIT_REDEMPTION_ENABLED?: string
+  } = {}
 ): Promise<PlaceOrderResult> {
   assertCommandKey(input.idempotencyKey)
   assertCommandKey(input.correlationId, 'correlationId')
@@ -897,8 +902,9 @@ export async function placeOrder(
 
   if (input.paymentMethod !== undefined && input.paymentMethod !== 'credit')
     throw new CartError('invalid_input', 'paymentMethod is invalid')
-  if (input.storeCreditCents !== undefined) {
-    if (!Number.isSafeInteger(input.storeCreditCents) || input.storeCreditCents < 1)
+  const storeCreditCents = isStoreCreditRedemptionEnabled(options) ? input.storeCreditCents : undefined
+  if (storeCreditCents !== undefined) {
+    if (!Number.isSafeInteger(storeCreditCents) || storeCreditCents < 1)
       throw new CartError('invalid_input', 'storeCreditCents must be a positive integer')
     if (!input.ownerSession) throw new CartError('invalid_input', 'storeCreditCents requires a signed-in customer')
     if (input.paymentMethod === 'credit')
@@ -942,7 +948,7 @@ export async function placeOrder(
     ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
     ...(customerId ? { customerId } : {}),
     ...(input.paymentMethod === 'credit' ? { paymentMethod: 'credit' } : {}),
-    ...(input.storeCreditCents !== undefined ? { storeCreditCents: input.storeCreditCents } : {}),
+    ...(storeCreditCents !== undefined ? { storeCreditCents } : {}),
     ...(marketSelection ? { marketCheckout: marketSelection } : {}),
     ...(input.salesQuote ? { salesQuote: input.salesQuote } : {}),
     expectedVersion: input.expectedVersion,
@@ -1063,8 +1069,8 @@ export async function placeOrder(
     return { outcome: 'revalidation_required', reason: 'payment_total_non_positive' }
   }
   if (
-    input.storeCreditCents !== undefined &&
-    input.storeCreditCents >= storedQuoteLines.reduce((sum, line) => sum + line.grossCents, selected.grossCents)
+    storeCreditCents !== undefined &&
+    storeCreditCents >= storedQuoteLines.reduce((sum, line) => sum + line.grossCents, selected.grossCents)
   )
     throw new CartError('invalid_input', 'storeCreditCents must leave an amount to charge')
   // Precedence: a quote carries either a coupon (checkout_quote_promotions) or automatic discounts
@@ -1368,9 +1374,9 @@ export async function placeOrder(
 
   // PRI-018: plan the credit before any stock is reserved (a recovered saga re-plans against live grants).
   let creditPlan: CheckoutCreditPlan | null = null
-  if (input.storeCreditCents !== undefined) {
+  if (storeCreditCents !== undefined) {
     if (!customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
-    creditPlan = await planCheckoutRedemption(database, customerId, input.storeCreditCents, input.now)
+    creditPlan = await planCheckoutRedemption(database, customerId, storeCreditCents, input.now)
     if (!creditPlan) {
       await compensateAttempt(database, attempt, input.now, inventory)
       return revalidate(database, input, 'store_credit_unavailable')
