@@ -42,6 +42,7 @@ import { isD1CheckConstraintFailure } from '../runtime/d1-errors'
 import { normalizePromotionCode, type PromotionReason } from '../../shared/promotions'
 import { evaluatePromotion } from './promotions'
 import { readPromotion } from './promotion-lookup'
+import { autoDiscountStatements, evaluateQuoteAutoDiscounts } from '../pricing/auto-discount-quote'
 import { activeOrderCustomerId } from './customer-orders'
 import type { VerifiedSessionClaims } from './authorization'
 
@@ -753,6 +754,8 @@ export interface QuoteSnapshot {
   totals: { netCents: number; taxCents: number; grossCents: number }
   snapshotHash: string
   promotion?: { code: string; applied: boolean; reason: PromotionReason | null; discountGrossCents: number }
+  /** PRI-014: present only when automatic rules applied (customer-safe: message and amount). */
+  autoDiscounts?: { discountGrossCents: number; explanations: Array<{ message: string; discountGrossCents: number }> }
 }
 
 const QUOTE_TTL_SECONDS = 30 * 60
@@ -846,14 +849,38 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
       })
     : null
 
-  const quoteInputs: QuoteLineInput[] = resolved.map((line) => ({
+  // Precedence: an eligible coupon is the only discount source; otherwise automatic rules (PRI-014).
+  const autoDiscounts = evaluated?.eligible
+    ? null
+    : await evaluateQuoteAutoDiscounts(database, {
+        now: input.now,
+        customerId,
+        companyApproved: Boolean(company),
+        lines: resolved.map((line) => ({
+          variantId: line.variantId,
+          productId: line.productId,
+          categoryId: line.categoryId,
+          sku: line.sku,
+          quantity: line.quantity,
+          unitGrossCents: line.unitGrossCents,
+          costUnitNetCents: line.costUnitNetCents,
+          taxRateBasisPoints: line.taxRateBasisPoints,
+          priceVersionId: line.priceVersionId
+        }))
+      })
+  const lineDiscountColumn = Boolean(evaluated?.eligible || autoDiscounts)
+
+  const quoteInputs: QuoteLineInput[] = resolved.map((line, lineIndex) => ({
     quantity: line.quantity,
     sku: line.sku,
     taxRateBasisPoints: line.taxRateBasisPoints,
     unitGrossCents:
       evaluated?.lines.find((entry) => entry.variantId === line.variantId)?.unitGrossCents ?? line.unitGrossCents,
     variantId: line.variantId,
-    discountGrossCents: evaluated?.lines.find((entry) => entry.variantId === line.variantId)?.discountGrossCents ?? 0
+    discountGrossCents:
+      evaluated?.lines.find((entry) => entry.variantId === line.variantId)?.discountGrossCents ??
+      autoDiscounts?.discountByIndex.get(lineIndex) ??
+      0
   }))
   const computed = calculateQuote({
     lines: quoteInputs,
@@ -880,7 +907,7 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
       unitGrossCents: priced.unitGrossCents,
       unitLabel: line.unitLabel,
       variantId: line.variantId,
-      ...(evaluated?.eligible ? { discountGrossCents: priced.discountGrossCents } : {})
+      ...(lineDiscountColumn ? { discountGrossCents: priced.discountGrossCents } : {})
     }
   })
 
@@ -907,6 +934,11 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
       reason: evaluated ? evaluated.reason : 'unavailable',
       discountGrossCents: evaluated?.totals.discountGrossCents ?? 0
     }
+  if (autoDiscounts)
+    quote.autoDiscounts = {
+      discountGrossCents: autoDiscounts.totalDiscountGrossCents,
+      explanations: autoDiscounts.explanations
+    }
   quote.snapshotHash = await canonicalPayloadHash({
     cartId: quote.cartId,
     cartVersion: quote.cartVersion,
@@ -917,7 +949,10 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
     shipping: quote.shipping,
     totals: quote.totals,
     ...(quote.promotion ? { promotion: quote.promotion } : {}),
-    ...(evaluated?.eligible && promotion ? { promotionRuleHash: promotion.ruleHash } : {})
+    ...(evaluated?.eligible && promotion ? { promotionRuleHash: promotion.ruleHash } : {}),
+    ...(autoDiscounts
+      ? { autoDiscounts: quote.autoDiscounts, autoDiscountEvidenceHash: autoDiscounts.evidenceHash }
+      : {})
   })
 
   const b2bGuardGross =
@@ -988,8 +1023,8 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
             `INSERT INTO checkout_quote_lines (
              quote_id, line_index, variant_id, sku, name, format, unit_label, quantity,
              unit_gross_cents, net_cents, tax_cents, gross_cents, tax_rate_basis_points,
-             price_version_id, available_quantity, backorder_allowed, created_at${evaluated?.eligible ? ', discount_gross_cents' : ''}
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17${evaluated?.eligible ? ', ?18' : ''})`
+             price_version_id, available_quantity, backorder_allowed, created_at${lineDiscountColumn ? ', discount_gross_cents' : ''}
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17${lineDiscountColumn ? ', ?18' : ''})`
           )
           .bind(
             quote.quoteId,
@@ -1009,9 +1044,19 @@ export async function quoteCart(database: D1Database, input: QuoteRequestInput):
             line.availableQuantity,
             line.backorderAllowed ? 1 : 0,
             input.now,
-            ...(evaluated?.eligible ? [line.discountGrossCents ?? 0] : [])
+            ...(lineDiscountColumn ? [line.discountGrossCents ?? 0] : [])
           )
       ),
+      ...(autoDiscounts
+        ? autoDiscountStatements(
+            database,
+            quote.quoteId,
+            input.idempotencyKey,
+            input.correlationId,
+            autoDiscounts,
+            input.now
+          )
+        : []),
       ...(evaluated?.eligible && promotion
         ? [
             database

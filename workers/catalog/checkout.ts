@@ -60,6 +60,19 @@ import type { VerifiedSessionClaims } from './authorization'
 import { prepareEmailOutboxEnqueue } from '../communications/email-outbox'
 import { readAppliedOrderPromotion, promotionAvailableForOrder, promotionOrderStatements } from './promotion-order'
 import { promotionBenefitBlocked } from './checkout-promo-fraud'
+import {
+  checkoutRedemptionStatements,
+  planCheckoutRedemption,
+  type CheckoutCreditPlan
+} from '../pricing/checkout-store-credit'
+import { freeShippingEvidenceStatement, resolveFreeShippingPolicy } from '../pricing/checkout-free-shipping'
+import {
+  buildOrderPricingSnapshot,
+  orderPricingSnapshotStatement,
+  readQuoteAutoDiscountEvidence,
+  readShippingFreeEvidence,
+  snapshotRequired
+} from '../pricing/checkout-evidence'
 import { shippingCalendarCurrentPredicate } from './shipping-calendar'
 import { calculateCheckoutMarket, calculateMarketLedger, loadCheckoutMarketProfile } from './market-checkout-policy'
 import {
@@ -194,15 +207,26 @@ export async function requestShippingOptions(
   if (cart.status !== 'active') return { outcome: 'not_active', status: cart.status }
   if (cart.version !== input.expectedVersion) return { outcome: 'version_conflict', currentVersion: cart.version }
 
+  // PRI-017: active parcel rules govern free shipping (zone, profile, margin); none keeps the legacy threshold.
+  const freePolicy = await resolveFreeShippingPolicy(database, {
+    cartId: input.cartId,
+    postalCode: destination.postalCode,
+    now: input.now,
+    legacyThresholdCents: input.freeShippingThresholdCents ?? null,
+    ownerSession: input.ownerSession,
+    hasSalesQuote: Boolean(input.salesQuote)
+  })
   const resolved = await resolveShippingOptions(database, {
     cartId: input.cartId,
     destination,
     now: input.now,
-    freeShippingThresholdCents: input.freeShippingThresholdCents,
+    freeShippingThresholdCents: freePolicy ? freePolicy.thresholdGrossCents : input.freeShippingThresholdCents,
+    ...(freePolicy ? { allowFreeShipping: freePolicy.allowFree } : {}),
     salesQuote: input.salesQuote,
     ownerSession: input.ownerSession
   })
   if (!resolved.options.length) return { outcome: 'empty_cart' }
+  const freeEvidence = freePolicy ? await freePolicy.evidence() : null
   const options = await withOptionHashes(resolved.options)
   const expiresAt = plusSeconds(input.now, SHIPPING_QUOTE_TTL_SECONDS)
   const optionsHash = await hashOptions(resolved.options)
@@ -248,6 +272,7 @@ export async function requestShippingOptions(
            ) VALUES (?1, ?2, 'shipping-options', ?3, 200, ?4, ?5, ?6)`
         )
         .bind(input.cartId, input.idempotencyKey, hash, JSON.stringify(responseBody), input.correlationId, input.now),
+      ...(freeEvidence ? [freeShippingEvidenceStatement(database, shippingQuoteId, freeEvidence, input.now)] : []),
       // GUARD: both snapshot and ledger row must exist or everything rolls back.
       database
         .prepare(
@@ -334,6 +359,11 @@ export interface PlaceOrderInput {
   /** A reference only: immutable D1 approval is the sole price authority. */
   salesQuote?: SalesQuoteCheckoutReference
   paymentMethod?: 'credit'
+  /**
+   * PRI-018, trusted server callers only (the HTTP adapter never sets it): store credit, in cents, to deduct
+   * from the amount to charge. Spent FIFO inside the order transaction; the order total is not changed.
+   */
+  storeCreditCents?: number
   /** Buyer-visible market profile that must still be current; identity of the market comes from the address. */
   marketCheckout?: MarketCheckoutSelection
 }
@@ -867,6 +897,14 @@ export async function placeOrder(
 
   if (input.paymentMethod !== undefined && input.paymentMethod !== 'credit')
     throw new CartError('invalid_input', 'paymentMethod is invalid')
+  if (input.storeCreditCents !== undefined) {
+    if (!Number.isSafeInteger(input.storeCreditCents) || input.storeCreditCents < 1)
+      throw new CartError('invalid_input', 'storeCreditCents must be a positive integer')
+    if (!input.ownerSession) throw new CartError('invalid_input', 'storeCreditCents requires a signed-in customer')
+    if (input.paymentMethod === 'credit')
+      throw new CartError('invalid_input', 'storeCreditCents cannot be combined with credit terms')
+    if (marketSelection) throw new CartError('invalid_input', 'storeCreditCents is not available for market checkout')
+  }
   const customerId = input.ownerSession ? await activeOrderCustomerId(database, input.ownerSession, input.now) : null
   if (input.ownerSession && !customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
   const salesQuote = input.salesQuote
@@ -904,6 +942,7 @@ export async function placeOrder(
     ...(purchaseOrderReference !== null ? { purchaseOrderReference } : {}),
     ...(customerId ? { customerId } : {}),
     ...(input.paymentMethod === 'credit' ? { paymentMethod: 'credit' } : {}),
+    ...(input.storeCreditCents !== undefined ? { storeCreditCents: input.storeCreditCents } : {}),
     ...(marketSelection ? { marketCheckout: marketSelection } : {}),
     ...(input.salesQuote ? { salesQuote: input.salesQuote } : {}),
     expectedVersion: input.expectedVersion,
@@ -1023,9 +1062,20 @@ export async function placeOrder(
     if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
     return { outcome: 'revalidation_required', reason: 'payment_total_non_positive' }
   }
-  const appliedPromotion = storedQuoteLines.some((line) => line.discountGrossCents > 0)
-    ? await readAppliedOrderPromotion(database, input.quoteId)
-    : null
+  if (
+    input.storeCreditCents !== undefined &&
+    input.storeCreditCents >= storedQuoteLines.reduce((sum, line) => sum + line.grossCents, selected.grossCents)
+  )
+    throw new CartError('invalid_input', 'storeCreditCents must leave an amount to charge')
+  // Precedence: a quote carries either a coupon (checkout_quote_promotions) or automatic discounts
+  // (checkout_quote_auto_discounts), never both (0155 triggers). Evidence is immutable per quote.
+  const lineDiscountTotal = storedQuoteLines.reduce((sum, line) => sum + line.discountGrossCents, 0)
+  const autoDiscounts = lineDiscountTotal > 0 ? await readQuoteAutoDiscountEvidence(database, input.quoteId) : null
+  if (autoDiscounts && autoDiscounts.discountGrossCents !== lineDiscountTotal)
+    throw new CartInfrastructureError('unconfirmed_quote_auto_discounts')
+  const appliedPromotion =
+    lineDiscountTotal > 0 && !autoDiscounts ? await readAppliedOrderPromotion(database, input.quoteId) : null
+  const lineDiscountColumn = Boolean(appliedPromotion || autoDiscounts)
   if (appliedPromotion && !(await promotionAvailableForOrder(database, appliedPromotion, customerId, input.now))) {
     if (attempt) await compensateAttempt(database, attempt, input.now, inventory)
     return revalidate(database, input, 'promotion_changed')
@@ -1136,11 +1186,20 @@ export async function placeOrder(
     }
 
     const freshDestination = { city: input.shippingAddress.city, postalCode: input.shippingAddress.postalCode }
+    const freshPolicy = await resolveFreeShippingPolicy(database, {
+      cartId: input.cartId,
+      postalCode: freshDestination.postalCode,
+      now: input.now,
+      legacyThresholdCents: freeShippingThresholdCents,
+      ownerSession: input.ownerSession,
+      hasSalesQuote: Boolean(input.salesQuote)
+    })
     const freshShipping = await resolveShippingOptions(database, {
       cartId: input.cartId,
       destination: freshDestination,
       now: input.now,
-      freeShippingThresholdCents,
+      freeShippingThresholdCents: freshPolicy ? freshPolicy.thresholdGrossCents : freeShippingThresholdCents,
+      ...(freshPolicy ? { allowFreeShipping: freshPolicy.allowFree } : {}),
       salesQuote: input.salesQuote,
       ownerSession: input.ownerSession
     })
@@ -1269,10 +1328,53 @@ export async function placeOrder(
         return revalidate(database, input, 'promotion_changed')
       }
     }
+    if (autoDiscounts) {
+      const fresh = await quoteCart(database, {
+        cartId: input.cartId,
+        token: input.token,
+        expectedVersion: input.expectedVersion,
+        idempotencyKey: `revalidate-pricing:${crypto.randomUUID()}`,
+        correlationId: input.correlationId,
+        now: input.now,
+        ownerSession: input.ownerSession
+      })
+      if (
+        fresh.outcome !== 'quoted' ||
+        fresh.quote.lines.length !== storedQuoteLines.length ||
+        storedQuoteLines.some(
+          (line) =>
+            !fresh.quote.lines.some(
+              (live) =>
+                live.variantId === line.variantId &&
+                live.quantity === line.quantity &&
+                live.priceVersionId === line.priceVersionId &&
+                live.unitGrossCents === line.unitGrossCents &&
+                live.netCents === line.netCents &&
+                live.taxCents === line.taxCents &&
+                live.grossCents === line.grossCents &&
+                (live.discountGrossCents ?? 0) === line.discountGrossCents
+            )
+        )
+      ) {
+        await compensateAttempt(database, attempt, input.now, inventory)
+        return revalidate(database, input, 'pricing_changed')
+      }
+    }
     if (!attempt.reservation_expires_at || !attempt.reservation_lines_json)
       throw new CartInfrastructureError('checkout attempt is missing its reservation plan')
     reservationExpiresAt = attempt.reservation_expires_at
     reservationLines = JSON.parse(attempt.reservation_lines_json) as ReservationLineInput[]
+  }
+
+  // PRI-018: plan the credit before any stock is reserved (a recovered saga re-plans against live grants).
+  let creditPlan: CheckoutCreditPlan | null = null
+  if (input.storeCreditCents !== undefined) {
+    if (!customerId) throw new CartError('unauthorized', 'Customer session is no longer active')
+    creditPlan = await planCheckoutRedemption(database, customerId, input.storeCreditCents, input.now)
+    if (!creditPlan) {
+      await compensateAttempt(database, attempt, input.now, inventory)
+      return revalidate(database, input, 'store_credit_unavailable')
+    }
   }
 
   if (reservationExpiresAt <= input.now) {
@@ -1345,7 +1447,7 @@ export async function placeOrder(
       taxRateBasisPoints: stored.taxRateBasisPoints,
       unitGrossCents: stored.unitGrossCents,
       variantId: stored.variantId,
-      ...(appliedPromotion ? { discountGrossCents: stored.discountGrossCents } : {})
+      ...(lineDiscountColumn ? { discountGrossCents: stored.discountGrossCents } : {})
     })),
     reservationExpiresAt,
     shippingGrossCents: ledgerShipping.grossCents,
@@ -1361,8 +1463,62 @@ export async function placeOrder(
     totalGrossCents: totalGross,
     totalNetCents: totalNet,
     totalTaxCents: totalTax,
+    ...(creditPlan
+      ? { storeCreditCents: creditPlan.totalCents, amountDueCents: totalGross - creditPlan.totalCents }
+      : {}),
     ...(marketOrder ? { market: marketOrder.view } : {})
   }
+  const redemption = creditPlan
+    ? await checkoutRedemptionStatements(database, {
+        plan: creditPlan,
+        actorId: input.ownerSession!.identityId,
+        orderId,
+        attemptId: attempt.id,
+        now: input.now
+      })
+    : null
+  const freeShipping = await readShippingFreeEvidence(database, input.shippingQuoteId)
+  const pricingFacts = {
+    now: input.now,
+    quoteId: input.quoteId,
+    shippingQuoteId: input.shippingQuoteId,
+    coupon: appliedPromotion
+      ? {
+          ruleId: appliedPromotion.rule.id,
+          version: appliedPromotion.rule.version,
+          code: appliedPromotion.rule.code,
+          ruleHash: appliedPromotion.ruleHash,
+          discountGrossCents: appliedPromotion.discountGrossCents
+        }
+      : null,
+    b2bContractLines: storedQuoteLines
+      .filter((line) => line.priceVersionId.startsWith('b2b:'))
+      .map((line) => ({ variantId: line.variantId, priceVersionId: line.priceVersionId })),
+    creditTerms: creditTerms
+      ? { companyId: creditTerms.companyId, paymentDays: creditTerms.paymentDays, termsVersion: creditTerms.version }
+      : null,
+    autoDiscounts,
+    freeShipping,
+    shipping: {
+      methodCode: selected.methodCode,
+      rateVersion: selected.rateVersion,
+      netCents: ledgerShipping.netCents,
+      grossCents: ledgerShipping.grossCents,
+      optionHash: selected.optionHash
+    },
+    storeCredit: creditPlan
+      ? {
+          totalCents: creditPlan.totalCents,
+          commandKey: redemption!.commandKey,
+          allocations: creditPlan.allocations,
+          accountVersionBefore: creditPlan.accountVersion
+        }
+      : null,
+    goodsGrossCents: goodsGross,
+    goodsDiscountGrossCents: lineDiscountTotal,
+    orderTotalGrossCents: totalGross
+  }
+  const pricingSnapshot = snapshotRequired(pricingFacts) ? await buildOrderPricingSnapshot(pricingFacts) : null
   const storedResult: PlaceOrderResult = { body: orderViewBody, outcome: 'order_created' }
   const orderEventId = crypto.randomUUID()
   const emailOutbox = await prepareEmailOutboxEnqueue(database, {
@@ -1460,8 +1616,8 @@ export async function placeOrder(
             `INSERT INTO order_lines (
                order_id, line_index, variant_id, sku, name, quantity,
                unit_gross_cents, net_cents, tax_cents, gross_cents, tax_rate_basis_points,
-               price_version_id, location_id, created_at${appliedPromotion ? ', discount_gross_cents' : ''}
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14${appliedPromotion ? ', ?15' : ''})`
+               price_version_id, location_id, created_at${lineDiscountColumn ? ', discount_gross_cents' : ''}
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14${lineDiscountColumn ? ', ?15' : ''})`
           )
           .bind(
             orderId,
@@ -1478,12 +1634,14 @@ export async function placeOrder(
             stored.priceVersionId,
             reservationLines[index]!.locationId,
             input.now,
-            ...(appliedPromotion ? [stored.discountGrossCents] : [])
+            ...(lineDiscountColumn ? [stored.discountGrossCents] : [])
           )
       ),
       ...(appliedPromotion
         ? promotionOrderStatements(database, { orderId, quoteId: input.quoteId, now: input.now })
         : []),
+      ...(pricingSnapshot ? [orderPricingSnapshotStatement(database, orderId, pricingSnapshot, input.now)] : []),
+      ...(redemption ? redemption.statements : []),
       addressInsert(database, orderId, 'order_shipping_address', input.shippingAddress, input.now),
       addressInsert(database, orderId, 'order_billing_address', billingAddress, input.now),
       ...(marketOrder ? [marketSnapshotInsert(database, orderId, marketOrder, input.now)] : []),
@@ -1595,6 +1753,17 @@ export async function placeOrder(
         )
     ])
   } catch (error) {
+    // Another writer spent, froze or voided the credit after it was planned: the whole order rolled back.
+    if (
+      creditPlan &&
+      error instanceof Error &&
+      /pricing_version_conflict|pricing_credit_unusable|pricing_over_redeem|UNIQUE constraint failed: (pricing_commands|store_credit_ledger)|remaining_cents/.test(
+        error.message
+      )
+    ) {
+      await compensateAttempt(database, { id: attempt.id, reservation_id: reservationId }, input.now, inventory)
+      return revalidate(database, input, 'store_credit_unavailable')
+    }
     if (input.paymentMethod === 'credit' && isD1CheckConstraintFailure(error)) {
       const stillValid = await database
         .prepare(`SELECT ${creditEligibility} AS valid`)

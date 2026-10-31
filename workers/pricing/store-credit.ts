@@ -196,6 +196,9 @@ export async function redeemStoreCredit(
     .first<{ status: string; total_gross_cents: number; customer_id: string | null }>()
   if (!order || order.customer_id !== customerId) fail('not_found')
   if (order.status !== 'awaiting_payment') fail('invalid_transition')
+  // The amount to charge is fixed when a payment intent is created: credit can only be applied before that.
+  const payment = await db.prepare('SELECT 1 AS ok FROM payment_intents WHERE order_id = ?').bind(input.orderId).first()
+  if (payment) fail('invalid_transition')
   const failed = await db
     .prepare(
       "SELECT count(*) AS n FROM pricing_audit WHERE domain = 'store_credit' AND target_id = ? AND action = 'redeem_blocked' AND created_at > ?"

@@ -1,6 +1,7 @@
 /** Payment intent and provider-notification saga for D1/Workers. */
 
 import { canonicalPayloadHash } from './cart'
+import { redeemedStoreCreditCents } from '../pricing/checkout-store-credit'
 import { prepareOrderPaymentEnqueue } from '../communications/order-payment-email'
 import { publicationValidityExpression } from './publication-validity'
 import { isD1CheckConstraintFailure } from '../runtime/d1-errors'
@@ -239,6 +240,10 @@ export async function initiateRedsysPayment(
     .first<{ id: string }>()
   if (active) throw new PaymentError('payment_in_progress', 'A payment is already in progress')
 
+  // PRI-018: store credit applied to the order is deducted from the amount charged (never from the order total).
+  const amountDueCents = order.total_gross_cents - (await redeemedStoreCreditCents(database, order.id))
+  if (!Number.isSafeInteger(amountDueCents) || amountDueCents < 1)
+    throw new PaymentError('not_payable', 'Order has no amount to charge')
   const intentId = input.randomUUID ? input.randomUUID() : crypto.randomUUID()
   const merchantOrder = await merchantOrderForIntent(intentId)
   const baseUrl = new URL(configuration.publicBaseUrl)
@@ -247,7 +252,7 @@ export async function initiateRedsysPayment(
   returnUrl.searchParams.set('order', order.id)
   const notificationUrl = new URL('/api/payments/redsys/notification', baseUrl)
   const redirect = await createRedsysRedirect(configuration, {
-    amountCents: order.total_gross_cents,
+    amountCents: amountDueCents,
     expiresAt: order.reservation_expires_at,
     merchantOrder,
     method: input.method,
@@ -281,7 +286,7 @@ export async function initiateRedsysPayment(
           order.id,
           merchantOrder,
           input.method,
-          order.total_gross_cents,
+          amountDueCents,
           payloadHash,
           envelopeHash,
           order.reservation_expires_at,
