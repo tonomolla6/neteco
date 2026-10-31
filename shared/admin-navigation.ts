@@ -48,6 +48,12 @@ const sections: Array<{
       },
       { to: '/admin/pedidos', label: 'Pedidos', icon: 'i-lucide-receipt-text', permission: 'administration.manage' },
       {
+        to: '/admin/operaciones-pedidos',
+        label: 'Compras B2B y Contingencia',
+        icon: 'i-lucide-boxes',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/pedidos-borrador',
         label: 'Pedidos en borrador',
         icon: 'i-lucide-file-clock',

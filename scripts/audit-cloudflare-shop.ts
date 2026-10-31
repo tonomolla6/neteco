@@ -539,6 +539,7 @@ try {
   assert(migrations.includes('0142_browse_recovery_welcome_coupon_recommendations.sql'))
   assert(migrations.includes('0143_seasonal_sector_campaigns.sql'))
   assert(migrations.includes('0144_game_day_and_marketing_automation_observability.sql'))
+  assert(migrations.includes('0145_orders_procurement_split_contingency.sql'))
   assert(migrations.includes('0148_pricing_auto_discounts_credit_deposits.sql'))
   assert(migrations.includes('0149_category_merchandising_promo_fraud.sql'))
   assert(migrations.includes('0150_search_gap_programme.sql'))
