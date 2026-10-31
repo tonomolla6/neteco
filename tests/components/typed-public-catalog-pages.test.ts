@@ -137,6 +137,9 @@ function product() {
     ]
   }
 }
+// useFetch receives a string or a getter (reactive URL); normalise before inspecting it.
+const fetchPath = (source: string | (() => string)) => (typeof source === 'function' ? source() : source)
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
@@ -146,11 +149,20 @@ beforeEach(() => {
     fullPath: '/catalogo?typed=initial'
   })
   routeMock.mockReturnValue(route)
-  fetchMock.mockImplementation((path: string) => ({
-    data: ref(path.startsWith('/api/products/') ? product() : { roots: [node], flat: [node] }),
-    error: ref(null),
-    status: ref('success')
-  }))
+  fetchMock.mockImplementation((source: string | (() => string)) => {
+    const path = fetchPath(source)
+    return {
+      data: ref(
+        path.endsWith('/reviews/summary')
+          ? null
+          : path.startsWith('/api/products/')
+            ? product()
+            : { roots: [node], flat: [node] }
+      ),
+      error: ref(null),
+      status: ref('success')
+    }
+  })
   infiniteMock.mockImplementation(() => ({
     items: ref([]),
     total: ref(0),
@@ -250,7 +262,7 @@ describe('catalogue contextual support navigation', () => {
     const wrapper = await mount(Category)
     const link = wrapper.findAll('a').find((item) => item.text() === 'Consultar sobre esta categoría')!
     expect(link?.attributes('href')).toBe('/contacto?categoria=higiene')
-    expect(fetchMock.mock.calls.every(([path]) => !String(path).startsWith('/api/support'))).toBe(true)
+    expect(fetchMock.mock.calls.every(([path]) => !fetchPath(path).startsWith('/api/support'))).toBe(true)
   })
   it('product support uses the returned canonical slug, not a route alias', async () => {
     route.params.slug = 'alias-producto'
@@ -263,7 +275,7 @@ describe('catalogue contextual support navigation', () => {
         .find((item) => item.text() === 'Pídenosla')
         ?.attributes('href')
     ).toBe('/contacto?producto=producto')
-    expect(fetchMock.mock.calls.every(([path]) => !String(path).startsWith('/api/support'))).toBe(true)
+    expect(fetchMock.mock.calls.every(([path]) => !fetchPath(path).startsWith('/api/support'))).toBe(true)
   })
   it('Node keeps its existing contact link without introducing native support', async () => {
     runtimeMock.mockReturnValueOnce({

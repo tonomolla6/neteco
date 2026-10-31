@@ -106,7 +106,15 @@ export function createUiStateHarness(surface: UiStateSurface, state: UiState) {
       ? {
           source: 'cloudflare',
           items: Array.from({ length: count }, (_, index) => adminOrder(index)),
-          pagination: { page: 1, perPage: 25, total: count, pages: count ? 1 : 0 },
+          pagination: {
+            page: 1,
+            perPage: 25,
+            total: count,
+            pages: count ? 1 : 0,
+            mode: 'cursor',
+            nextCursor: null,
+            previousCursor: null
+          },
           capabilities: {
             orderStatusUpdate: false,
             shipments: false,

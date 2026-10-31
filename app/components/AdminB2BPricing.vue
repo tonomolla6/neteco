@@ -32,10 +32,27 @@ const listSchema = z
   })
   .strict()
 const responseSchema = z.object({ companies: z.array(companySchema), priceLists: z.array(listSchema) }).strict()
+const transferOrderSchema = z
+  .object({
+    orderId: z.string(),
+    companyId: z.string(),
+    companyName: z.string(),
+    totalCents: z.number(),
+    outstandingCents: z.number(),
+    simulatedOutstandingCents: z.number(),
+    paymentDueAt: z.string().nullable()
+  })
+  .strict()
+const transfersSchema = z.object({ enabled: z.boolean(), orders: z.array(transferOrderSchema) }).strict()
+type TransferOrder = z.infer<typeof transferOrderSchema>
 type Company = z.infer<typeof companySchema>
 type PriceList = z.infer<typeof listSchema>
 const companies = ref<Company[]>([]),
   priceLists = ref<PriceList[]>([])
+const transfers = ref<TransferOrder[]>([]),
+  transfersLoaded = ref(false),
+  transfersEnabled = ref(false)
+const transfer = reactive({ orderId: '', amountCents: '', bankReference: '', reason: '' })
 const selectedCompany = ref(''),
   selectedList = ref(''),
   loading = ref(false),
@@ -124,10 +141,26 @@ async function load(expected = generation) {
     if (expected === generation) loading.value = false
   }
 }
+async function loadTransfers(expected = generation) {
+  error.value = ''
+  try {
+    const data = transfersSchema.parse(await request('/api/admin/b2b/transfers'))
+    if (expected !== generation || !props.enabled) return
+    transfers.value = data.orders
+    transfersEnabled.value = data.enabled
+    transfersLoaded.value = true
+  } catch {
+    if (expected === generation) error.value = 'No se han podido cargar las transferencias.'
+  }
+}
 watch(
   () => [props.enabled, props.scopeKey],
   () => {
     generation++
+    transfers.value = []
+    transfersLoaded.value = false
+    transfersEnabled.value = false
+    Object.assign(transfer, { orderId: '', amountCents: '', bankReference: '', reason: '' })
     companies.value = []
     priceLists.value = []
     selectedCompany.value = ''
@@ -158,6 +191,7 @@ async function send(url?: string, body?: Record<string, unknown>) {
     uncertain.value = false
     notice.value = 'Cambios guardados.'
     await load(expected)
+    if (command.url.startsWith('/api/admin/b2b/transfers/')) await loadTransfers(expected)
     const selected = selectedCompany.value
     selectedCompany.value = ''
     await nextTick()
@@ -205,6 +239,17 @@ function saveAssignment(remove = false) {
           reason: assignment.reason.trim()
         }
   )
+}
+const selectedTransfer = computed(() => transfers.value.find((order) => order.orderId === transfer.orderId))
+function reconcileTransfer() {
+  const order = selectedTransfer.value
+  if (!order) return
+  void send(`/api/admin/b2b/transfers/${encodeURIComponent(order.orderId)}`, {
+    expectedOutstandingCents: order.simulatedOutstandingCents,
+    amountCents: Number(transfer.amountCents),
+    bankReference: transfer.bankReference.trim(),
+    reason: transfer.reason.trim()
+  })
 }
 function saveList() {
   void send('/api/admin/b2b/price-lists', {
@@ -322,6 +367,40 @@ function saveList() {
           ><label>Motivo <input v-model="list.reason" minlength="3" required /></label
           ><button type="submit">Guardar tarifa</button>
         </form>
+        <section class="space-y-2" aria-label="Conciliación de transferencias">
+          <h2>Transferencias de crédito B2B</h2>
+          <button type="button" data-test="load-transfers" @click="loadTransfers()">Cargar transferencias</button>
+          <template v-if="transfersLoaded">
+            <p v-if="!transfersEnabled">
+              La conciliación real de transferencias bancarias aún no está disponible; solo existe una simulación en
+              entorno local.
+            </p>
+            <template v-else>
+              <p>Simulación local: no se registra ningún cobro real ni se modifica ningún pedido.</p>
+              <p v-if="!transfers.length">No hay pedidos a crédito pendientes de transferencia.</p>
+              <form v-else data-test="transfer-form" class="space-y-2" @submit.prevent="reconcileTransfer">
+                <label
+                  >Pedido
+                  <select v-model="transfer.orderId" name="transfer-order" required>
+                    <option value="">Selecciona un pedido</option>
+                    <option v-for="order in transfers" :key="order.orderId" :value="order.orderId">
+                      {{ order.companyName }} · pendiente {{ (order.simulatedOutstandingCents / 100).toFixed(2) }} €
+                    </option>
+                  </select></label
+                >
+                <label
+                  >Importe en céntimos
+                  <input v-model="transfer.amountCents" name="transfer-amount" type="number" min="1" step="1" required
+                /></label>
+                <label
+                  >Referencia bancaria <input v-model="transfer.bankReference" name="transfer-reference" required
+                /></label>
+                <label>Motivo <input v-model="transfer.reason" name="transfer-reason" minlength="3" required /></label>
+                <button type="submit">Simular conciliación</button>
+              </form>
+            </template>
+          </template>
+        </section>
       </fieldset>
     </template>
   </section>

@@ -163,7 +163,8 @@ beforeEach(() => {
         bytes: new TextEncoder().encode(text).byteLength,
         digest: await adminAuditHash(text),
         filterHash: await adminAuditFilterHash(input.filters),
-        expiresAt: '2026-10-10T20:00:00Z'
+        // Relative to the real clock: download() rejects receipts whose expiry already passed.
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       })
       return receipt
     }

@@ -11,6 +11,10 @@ import {
   readSupportKnowledgeFeedback
 } from '../../workers/support/knowledge'
 
+// support_knowledge_feedback_current compares reviewDueAt with SQLite's real clock, so the
+// frozen JS clock must be anchored at the real present (a fixed past date would age out).
+const ANCHOR = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString()
+
 describe('published CMS help knowledge and anonymous bounded feedback', () => {
   let f: Awaited<ReturnType<typeof cmsFixture>> & {
     deps: { database: D1Database; enabled: boolean; now: () => string }
@@ -18,9 +22,9 @@ describe('published CMS help knowledge and anonymous bounded feedback', () => {
   const now = () => data.date().toISOString().replace('.000Z', 'Z')
   const executeD1CmsDraftCommand: typeof draftCommand = (database, claims, action, target, body, options) =>
     draftCommand(database, claims, action, target, body, { ...options, now: now() })
-  let data = deterministicTestData('support-knowledge', '2026-10-08T12:00:00.000Z')
+  let data = deterministicTestData('support-knowledge', ANCHOR)
   beforeEach(async () => {
-    data = deterministicTestData('support-knowledge', '2026-10-08T12:00:00.000Z')
+    data = deterministicTestData('support-knowledge', ANCHOR)
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(data.date())
     const fixture = await cmsFixture()

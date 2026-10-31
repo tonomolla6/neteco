@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
 import { dispatchTransactionalEmails } from '../../workers/communications/transactional-email-delivery'
 import { openMigratedDatabase, d1OverSqlite } from '../support/d1-sqlite'
+import { applyScheduledAuthStageSchema } from '../support/scheduled-auth-stages'
 
 // Observe the real scheduled entrypoint's configuration boundary. The issuer,
 // durable delivery and fake-sender behavior have separate database tests.
@@ -22,6 +23,7 @@ afterEach(() => {
 
 it.each(['true', 'false'])('only supplies guest-order link authority when authentication is %s', async (auth) => {
   const sqlite = await openMigratedDatabase()
+  await applyScheduledAuthStageSchema(sqlite)
   const database = d1OverSqlite(sqlite)
   const outbound = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('external_forbidden'))
   vi.spyOn(console, 'log').mockImplementation(() => undefined)

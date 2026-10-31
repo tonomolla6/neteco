@@ -140,8 +140,10 @@ describe('AdminMarketingModals page and component (MKT-009 + MKT-010)', () => {
     })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     mounted.splice(0).forEach((w) => w.unmount())
+    // Let in-flight reads of the unmounted page settle before the next test resets the request mock.
+    await flushPromises()
   })
 
   async function mountPage() {

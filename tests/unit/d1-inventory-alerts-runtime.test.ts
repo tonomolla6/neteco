@@ -7,6 +7,7 @@ import {
   INVENTORY_FIXTURE_ACTOR,
   INVENTORY_FIXTURE_SESSION
 } from '../support/admin-inventory-fixture'
+import { applyScheduledAuthStageSchema } from '../support/scheduled-auth-stages'
 
 const origin = 'https://inventory-alerts-runtime.neteco.test'
 const password = 'synthetic-alerts-runtime-session-password-more-than-32'
@@ -55,6 +56,7 @@ beforeEach(async () => {
   fixture.sqlite.exec(
     await readFile(new URL('../../db/d1/migrations/0067_inventory_alerts.sql', import.meta.url), 'utf8')
   )
+  await applyScheduledAuthStageSchema(fixture.sqlite)
   cookie = (await issueD1SessionCookie(
     fixture.database,
     { identityId: INVENTORY_FIXTURE_ACTOR, sessionId: INVENTORY_FIXTURE_SESSION, sessionVersion: 1 },

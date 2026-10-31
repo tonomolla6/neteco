@@ -193,12 +193,13 @@ async function renderPdp(
   scheduler: 'timeout' | 'idle' = 'timeout'
 ) {
   currentPdpData = ref({ ...pdpFixture(image), ...patch })
-  fetchMock.mockReturnValue({
-    data: currentPdpData,
+  // The PDP also fetches the review summary (reactive-URL getter); it has no data here.
+  fetchMock.mockImplementation((source: string | (() => string)) => ({
+    data: (typeof source === 'function' ? source() : source).endsWith('/reviews/summary') ? ref(null) : currentPdpData,
     error: ref(null),
     pending: ref(false),
     status: ref('success')
-  })
+  }))
   vi.stubGlobal('Image', ControlledPreload)
   const idle = (callback: () => void) => {
     const id = ++idleSequence

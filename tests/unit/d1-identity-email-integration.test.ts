@@ -6,7 +6,7 @@ import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { handleIdentityLifecycleHttp } from '../../workers/auth/lifecycle-http'
 import { dispatchIdentityEmailDeliveries } from '../../workers/communications/identity-email-delivery'
 import type { TransactionalEmailSender } from '../../workers/communications/transactional-email-delivery'
-import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { d1OverSqlite, openAccountSecurityDatabase } from '../support/d1-sqlite'
 
 const NOW = '2026-09-30T12:00:00Z'
 const EMAIL = 'integration@example.test'
@@ -52,7 +52,7 @@ describe('D1 HTTP / durable identity-email integration', () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(NOW))
-    sqlite = await openMigratedDatabase()
+    sqlite = await openAccountSecurityDatabase()
     database = d1OverSqlite(sqlite)
     edgeLimiter.limit.mockClear()
   })

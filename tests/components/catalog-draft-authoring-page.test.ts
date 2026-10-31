@@ -33,7 +33,17 @@ const { fetchMock, requestMock, navigateMock, runtimeMock, routeMock, refreshDat
   })
 )
 mockNuxtImport('useFetch', () => fetchMock)
-mockNuxtImport('$fetch', () => requestMock)
+// ProductRelationsEditor reads /api/admin/capabilities through useAdminNavigation on mount. That GET is
+// read-only navigation metadata (answered "unavailable" here); everything else still reaches requestMock,
+// whose "no writes" assertions stay intact.
+mockNuxtImport(
+  '$fetch',
+  () =>
+    (path: unknown, ...rest: unknown[]) =>
+      path === '/api/admin/capabilities'
+        ? Promise.resolve(undefined)
+        : (requestMock as (...args: unknown[]) => unknown)(path, ...rest)
+)
 mockNuxtImport('navigateTo', () => navigateMock)
 mockNuxtImport('refreshNuxtData', () => refreshDataMock)
 mockNuxtImport('useRuntimeConfig', () => runtimeMock)
