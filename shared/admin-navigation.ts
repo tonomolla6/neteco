@@ -446,6 +446,12 @@ const sections: Array<{
         permission: 'administration.manage'
       },
       {
+        to: '/admin/integraciones',
+        label: 'Integraciones, Sandboxes y Webhooks',
+        icon: 'i-lucide-webhook',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/despliegues',
         label: 'Release gates y despliegues',
         icon: 'i-lucide-rocket',

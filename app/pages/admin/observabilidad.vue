@@ -5,11 +5,15 @@ import AdminCapacityPlanningPanel from '~/components/AdminCapacityPlanningPanel.
 import AdminB2BContractSloPanel from '~/components/AdminB2BContractSloPanel.vue'
 import AdminAiopsPanel from '~/components/AdminAiopsPanel.vue'
 import AdminWarehouseRouteTelemetryPanel from '~/components/AdminWarehouseRouteTelemetryPanel.vue'
+import AdminAnomalyDetectionPanel from '~/components/AdminAnomalyDetectionPanel.vue'
+import AdminGameDayPanel from '~/components/AdminGameDayPanel.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Observabilidad, SRE y Capacidad · Admin' })
 
-const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops' | 'telemetry'>('error_budget')
+const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops' | 'telemetry' | 'anomalies' | 'game_day'>(
+  'error_budget'
+)
 </script>
 
 <template>
@@ -76,6 +80,26 @@ const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops' | 'telem
         >
           Telemetría Almacén
         </button>
+        <button
+          class="rounded-md px-3 py-1.5 transition-colors"
+          :class="
+            activeTab === 'anomalies'
+              ? 'bg-white text-neutral-900 shadow-sm'
+              : 'text-neutral-600 hover:text-neutral-900'
+          "
+          @click="activeTab = 'anomalies'"
+        >
+          Detección Anomalías (DAT-024)
+        </button>
+        <button
+          class="rounded-md px-3 py-1.5 transition-colors"
+          :class="
+            activeTab === 'game_day' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600 hover:text-neutral-900'
+          "
+          @click="activeTab = 'game_day'"
+        >
+          Game Day y Resiliencia (OBS-024)
+        </button>
       </div>
     </div>
 
@@ -86,6 +110,8 @@ const activeTab = ref<'error_budget' | 'capacity' | 'b2b_slo' | 'aiops' | 'telem
       <AdminB2BContractSloPanel v-else-if="activeTab === 'b2b_slo'" />
       <AdminAiopsPanel v-else-if="activeTab === 'aiops'" />
       <AdminWarehouseRouteTelemetryPanel v-else-if="activeTab === 'telemetry'" />
+      <AdminAnomalyDetectionPanel v-else-if="activeTab === 'anomalies'" />
+      <AdminGameDayPanel v-else-if="activeTab === 'game_day'" />
     </div>
   </div>
 </template>
