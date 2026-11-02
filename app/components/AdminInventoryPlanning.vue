@@ -69,6 +69,29 @@ const counts = ref<Record<string, number>>({})
 const rootCause = ref<Record<string, string>>({})
 const lineNote = ref<Record<string, string>>({})
 
+const policyForm = ref({
+  variantId: '',
+  leadTimeDays: 7,
+  reviewDays: 7,
+  demandWindowDays: 30,
+  orderMultiple: 1,
+  minOrderQuantity: 1,
+  expectedVersion: 0
+})
+
+const planForm = ref({
+  name: '',
+  blind: 1,
+  variantsRaw: ''
+})
+
+const taskForm = ref({
+  stage: 'receiving',
+  reference: '',
+  variantId: '',
+  expectedQuantity: 1
+})
+
 const newKey = () => globalThis.crypto.randomUUID()
 
 function message(cause: any) {
@@ -113,6 +136,58 @@ const evaluate = () =>
   guarded(async () => {
     const r = await post('/api/admin/inventory/reorder/evaluate', {})
     notice.value = `Evaluadas ${r.evaluated} políticas; ${r.created.length} sugerencias nuevas.`
+    await loadAll()
+  })
+
+const savePolicy = () =>
+  guarded(async () => {
+    if (!policyForm.value.variantId.trim()) return
+    await post('/api/admin/inventory/reorder/policies', {
+      variantId: policyForm.value.variantId.trim(),
+      leadTimeDays: Number(policyForm.value.leadTimeDays),
+      reviewDays: Number(policyForm.value.reviewDays),
+      demandWindowDays: Number(policyForm.value.demandWindowDays),
+      orderMultiple: Number(policyForm.value.orderMultiple),
+      minOrderQuantity: Number(policyForm.value.minOrderQuantity),
+      expectedVersion: Number(policyForm.value.expectedVersion)
+    })
+    notice.value = 'Política de reposición guardada.'
+  })
+
+const savePlan = () =>
+  guarded(async () => {
+    if (!planForm.value.name.trim()) return
+    const ids = planForm.value.variantsRaw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    await post('/api/admin/inventory/cycle-counts', {
+      name: planForm.value.name.trim(),
+      blind: Number(planForm.value.blind),
+      variantIds: ids
+    })
+    notice.value = 'Plan de conteo creado.'
+    planForm.value.name = ''
+    planForm.value.variantsRaw = ''
+    await loadAll()
+  })
+
+const saveTask = () =>
+  guarded(async () => {
+    if (!taskForm.value.reference.trim() || !taskForm.value.variantId.trim()) return
+    await post('/api/admin/warehouse/barcode-tasks', {
+      stage: taskForm.value.stage,
+      reference: taskForm.value.reference.trim(),
+      lines: [
+        {
+          variantId: taskForm.value.variantId.trim(),
+          expectedQuantity: Number(taskForm.value.expectedQuantity)
+        }
+      ]
+    })
+    notice.value = 'Tarea de escaneo creada.'
+    taskForm.value.reference = ''
+    taskForm.value.variantId = ''
     await loadAll()
   })
 const decideSuggestion = (s: Suggestion, decision: 'approve' | 'reject') =>
@@ -243,6 +318,42 @@ onMounted(loadAll)
 
     <!-- INV-017 -->
     <div v-if="tab === 'reorder'" role="tabpanel" data-testid="panel-reorder" class="space-y-3">
+      <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+        <h3 class="font-semibold text-slate-800 text-sm">Configurar política de reposición</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div>
+            <label class="block text-slate-600">UUID Variante</label>
+            <input v-model="policyForm.variantId" data-testid="policy-variant-id" class="w-full rounded border p-1" />
+          </div>
+          <div>
+            <label class="block text-slate-600">Plazo entrega (días)</label>
+            <input
+              v-model.number="policyForm.leadTimeDays"
+              data-testid="policy-lead-time"
+              type="number"
+              class="w-full rounded border p-1"
+            />
+          </div>
+          <div>
+            <label class="block text-slate-600">Pedido mínimo</label>
+            <input
+              v-model.number="policyForm.minOrderQuantity"
+              data-testid="policy-min-order"
+              type="number"
+              class="w-full rounded border p-1"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="save-policy-btn"
+          class="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+          @click="savePolicy"
+        >
+          Guardar política
+        </button>
+      </div>
+
       <button
         type="button"
         class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
@@ -309,6 +420,51 @@ onMounted(loadAll)
 
     <!-- INV-018 -->
     <div v-if="tab === 'scan'" role="tabpanel" data-testid="panel-scan" class="space-y-3">
+      <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+        <h3 class="font-semibold text-slate-800 text-sm">Crear tarea de escaneo</h3>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
+          <div>
+            <label class="block text-slate-600">Etapa</label>
+            <select v-model="taskForm.stage" class="w-full rounded border p-1">
+              <option value="receiving">Recepción</option>
+              <option value="picking">Picking</option>
+              <option value="packing">Packing</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-slate-600">Referencia</label>
+            <input
+              v-model="taskForm.reference"
+              data-testid="new-task-reference"
+              placeholder="ALB-..."
+              class="w-full rounded border p-1"
+            />
+          </div>
+          <div>
+            <label class="block text-slate-600">UUID Variante</label>
+            <input v-model="taskForm.variantId" data-testid="new-task-variant" class="w-full rounded border p-1" />
+          </div>
+          <div>
+            <label class="block text-slate-600">Cantidad esperada</label>
+            <input
+              v-model.number="taskForm.expectedQuantity"
+              data-testid="new-task-quantity"
+              type="number"
+              min="1"
+              class="w-full rounded border p-1"
+            />
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="save-task-btn"
+          class="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+          @click="saveTask"
+        >
+          Crear tarea
+        </button>
+      </div>
+
       <p v-if="!loading && !tasks.length" data-testid="scan-empty" class="text-sm text-slate-500">
         No hay tareas de escaneo abiertas.
       </p>
@@ -406,6 +562,43 @@ onMounted(loadAll)
 
     <!-- INV-020 -->
     <div v-if="tab === 'counts'" role="tabpanel" data-testid="panel-counts" class="space-y-3">
+      <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+        <h3 class="font-semibold text-slate-800 text-sm">Crear plan de conteo cíclico</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+          <div>
+            <label class="block text-slate-600">Nombre del plan</label>
+            <input
+              v-model="planForm.name"
+              data-testid="new-plan-name"
+              placeholder="Conteo Pasillo..."
+              class="w-full rounded border p-1"
+            />
+          </div>
+          <div>
+            <label class="block text-slate-600">UUIDs Variantes (separados por coma)</label>
+            <input
+              v-model="planForm.variantsRaw"
+              data-testid="new-plan-variants"
+              placeholder="uuid1, uuid2"
+              class="w-full rounded border p-1"
+            />
+          </div>
+          <div class="flex items-center gap-2 pt-4">
+            <label class="flex items-center gap-1 text-slate-700">
+              <input v-model="planForm.blind" type="checkbox" :true-value="1" :false-value="0" /> Conteo ciego
+            </label>
+          </div>
+        </div>
+        <button
+          type="button"
+          data-testid="save-plan-btn"
+          class="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
+          @click="savePlan"
+        >
+          Crear plan
+        </button>
+      </div>
+
       <p v-if="!loading && !plans.length" data-testid="counts-empty" class="text-sm text-slate-500">
         No hay planes de conteo.
       </p>

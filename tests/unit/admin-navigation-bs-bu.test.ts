@@ -19,7 +19,15 @@ const links = (permissions: AdminCapabilities['permissions']) =>
 const EXPECTED = {
   '/admin/orden-categorias': 'catalog.write',
   '/admin/gobernanza-contenido': 'catalog.write',
-  '/admin/fraude-promocional': 'administration.manage'
+  '/admin/fraude-promocional': 'administration.manage',
+  '/admin/comunicaciones-multicanal': 'administration.manage',
+  '/admin/preautorizaciones': 'administration.manage',
+  '/admin/pedidos-compra': 'inventory.read',
+  '/admin/busquedas-sin-resultado': 'catalog.write',
+  '/admin/reglas-precios': 'administration.manage',
+  '/admin/aprendizaje': 'administration.manage',
+  '/admin/incentivos-recurrentes': 'administration.manage',
+  '/admin/garantia-calidad': 'administration.manage'
 } as const
 
 describe('BS/BU administrative navigation', () => {

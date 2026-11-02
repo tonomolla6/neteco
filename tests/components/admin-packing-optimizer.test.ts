@@ -179,4 +179,56 @@ describe('SHP-030 AdminPackingOptimizer', () => {
     await flushPromises()
     expect(wrapper.find('[role="alert"]').text()).toContain('se desvía')
   })
+
+  it('allows adding/editing boxes, product profiles and incompatibilities', async () => {
+    mocks.request.mockResolvedValueOnce(config)
+    const wrapper = await mount()
+
+    // Add box
+    mocks.request.mockResolvedValueOnce({ box: { code: 'M', name: 'Caja mediana' } }).mockResolvedValueOnce(config)
+    await wrapper.find('[data-test="new-box-code"]').setValue('M')
+    await wrapper.find('[data-test="new-box-name"]').setValue('Caja mediana')
+    await wrapper.find('[data-test="new-box-width"]').setValue(300)
+    await wrapper.find('[data-test="new-box-height"]').setValue(200)
+    await wrapper.find('[data-test="new-box-depth"]').setValue(200)
+    await wrapper.find('[data-test="new-box-tare"]').setValue(250)
+    await wrapper.find('[data-test="new-box-max-weight"]').setValue(10000)
+    await wrapper.find('[data-test="save-box-btn"]').trigger('click')
+    await flushPromises()
+
+    const boxCall = mocks.request.mock.calls.find(([url]) => url === '/api/admin/packing-optimizer/boxes/M')!
+    expect(boxCall[1].method).toBe('PUT')
+    expect(boxCall[1].body.name).toBe('Caja mediana')
+
+    // Add profile
+    mocks.request.mockResolvedValueOnce({ profile: { sku: 'BLEACH' } }).mockResolvedValueOnce(config)
+    await wrapper.find('[data-test="new-profile-sku"]').setValue('BLEACH')
+    await wrapper.find('[data-test="new-profile-weight"]').setValue(1200)
+    await wrapper.find('[data-test="new-profile-width"]').setValue(100)
+    await wrapper.find('[data-test="new-profile-height"]').setValue(250)
+    await wrapper.find('[data-test="new-profile-depth"]').setValue(100)
+    await wrapper.find('[data-test="new-profile-hazard"]').setValue('corrosive')
+    await wrapper.find('[data-test="save-profile-btn"]').trigger('click')
+    await flushPromises()
+
+    const profileCall = mocks.request.mock.calls.find(
+      ([url]) => url === '/api/admin/packing-optimizer/profiles/BLEACH'
+    )!
+    expect(profileCall[1].method).toBe('PUT')
+    expect(profileCall[1].body.hazardClass).toBe('corrosive')
+
+    // Add incompatibility
+    mocks.request.mockResolvedValueOnce({ ok: true }).mockResolvedValueOnce(config)
+    await wrapper.find('[data-test="new-incomp-a"]').setValue('corrosive')
+    await wrapper.find('[data-test="new-incomp-b"]').setValue('flammable')
+    await wrapper.find('[data-test="new-incomp-reason"]').setValue('Reacción exotérmica peligrosa')
+    await wrapper.find('[data-test="save-incomp-btn"]').trigger('click')
+    await flushPromises()
+
+    const incompCall = mocks.request.mock.calls.find(
+      ([url]) => url === '/api/admin/packing-optimizer/incompatibilities'
+    )!
+    expect(incompCall[1].method).toBe('PUT')
+    expect(incompCall[1].body.reason).toBe('Reacción exotérmica peligrosa')
+  })
 })

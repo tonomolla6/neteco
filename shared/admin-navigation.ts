@@ -85,6 +85,12 @@ const sections: Array<{
         permission: 'administration.manage'
       },
       {
+        to: '/admin/preautorizaciones',
+        label: 'Preautorizaciones de pago',
+        icon: 'i-lucide-credit-card',
+        permission: 'administration.manage'
+      },
+      {
         to: '/admin/devoluciones',
         label: 'Devoluciones',
         icon: 'i-lucide-rotate-ccw',
@@ -124,6 +130,12 @@ const sections: Array<{
         to: '/admin/alertas-operativas',
         label: 'Alertas operativas',
         icon: 'i-lucide-bell-ring',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/comunicaciones-multicanal',
+        label: 'Comunicaciones multicanal',
+        icon: 'i-lucide-message-square-more',
         permission: 'administration.manage'
       },
       {
@@ -189,6 +201,12 @@ const sections: Array<{
         permission: 'inventory.read'
       },
       {
+        to: '/admin/pedidos-compra',
+        label: 'Pedidos de compra',
+        icon: 'i-lucide-clipboard-pen',
+        permission: 'inventory.read'
+      },
+      {
         to: '/admin/almacen-adr',
         label: 'Gestión ADR y Etiquetas',
         icon: 'i-lucide-shield-alert',
@@ -226,6 +244,12 @@ const sections: Array<{
         permission: 'catalog.publish'
       },
       { to: '/admin/precios', label: 'Precios', icon: 'i-lucide-badge-euro', permission: 'catalog.write' },
+      {
+        to: '/admin/reglas-precios',
+        label: 'Reglas de precios y envío',
+        icon: 'i-lucide-percent',
+        permission: 'administration.manage'
+      },
       { to: '/admin/medios', label: 'Medios', icon: 'i-lucide-images', permission: 'catalog.write' },
       {
         to: '/admin/medios/guias-producto',
@@ -275,6 +299,12 @@ const sections: Array<{
         label: 'Motor de recomendaciones',
         icon: 'i-lucide-sparkles',
         permission: ['catalog.write', 'administration.manage']
+      },
+      {
+        to: '/admin/busquedas-sin-resultado',
+        label: 'Búsquedas sin resultado',
+        icon: 'i-lucide-search-x',
+        permission: 'catalog.write'
       }
     ]
   },
@@ -363,6 +393,18 @@ const sections: Array<{
         to: '/admin/marketing/eventos',
         label: 'Webinars y Eventos',
         icon: 'i-lucide-calendar-days',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/aprendizaje',
+        label: 'Centro de aprendizaje',
+        icon: 'i-lucide-graduation-cap',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/incentivos-recurrentes',
+        label: 'Incentivos por recurrencia',
+        icon: 'i-lucide-trending-up',
         permission: 'administration.manage'
       },
       {
@@ -503,6 +545,12 @@ const sections: Array<{
         to: '/admin/evaluacion-modelos',
         label: 'Evaluación IA y Quality Gate',
         icon: 'i-lucide-shield-check',
+        permission: 'administration.manage'
+      },
+      {
+        to: '/admin/garantia-calidad',
+        label: 'Garantía de calidad y tests',
+        icon: 'i-lucide-check-check',
         permission: 'administration.manage'
       },
       {

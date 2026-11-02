@@ -18,6 +18,33 @@ const rejectNote = ref('')
 const rejectError = ref<string | null>(null)
 const actual = ref<number[]>([])
 
+const newBox = ref({
+  code: '',
+  name: '',
+  widthMm: 200,
+  heightMm: 150,
+  depthMm: 150,
+  tareGrams: 150,
+  maxWeightGrams: 5000,
+  hazmatAllowed: true,
+  active: true
+})
+
+const newProfile = ref({
+  sku: '',
+  weightGrams: 1000,
+  widthMm: 100,
+  heightMm: 100,
+  depthMm: 100,
+  hazardClass: 'none'
+})
+
+const newIncomp = ref({
+  classA: '',
+  classB: '',
+  reason: ''
+})
+
 const statusLabel = { suggested: 'Pendiente de validar', validated: 'Validada', rejected: 'Rechazada' } as const
 
 async function loadConfig() {
@@ -110,6 +137,91 @@ async function decide(decision: 'accept' | 'reject') {
   }
 }
 
+async function saveBox() {
+  if (!newBox.value.code || !newBox.value.name) return
+  busy.value = true
+  error.value = null
+  try {
+    await requestFetch(`${BASE}/boxes/${encodeURIComponent(newBox.value.code)}`, {
+      method: 'PUT',
+      body: {
+        name: newBox.value.name,
+        widthMm: Number(newBox.value.widthMm),
+        heightMm: Number(newBox.value.heightMm),
+        depthMm: Number(newBox.value.depthMm),
+        tareGrams: Number(newBox.value.tareGrams),
+        maxWeightGrams: Number(newBox.value.maxWeightGrams),
+        hazmatAllowed: Boolean(newBox.value.hazmatAllowed),
+        active: Boolean(newBox.value.active)
+      }
+    })
+    await loadConfig()
+  } catch (caught) {
+    error.value = opsErrorMessage(caught)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function saveProfile() {
+  if (!newProfile.value.sku) return
+  busy.value = true
+  error.value = null
+  try {
+    await requestFetch(`${BASE}/profiles/${encodeURIComponent(newProfile.value.sku)}`, {
+      method: 'PUT',
+      body: {
+        weightGrams: Number(newProfile.value.weightGrams),
+        widthMm: Number(newProfile.value.widthMm),
+        heightMm: Number(newProfile.value.heightMm),
+        depthMm: Number(newProfile.value.depthMm),
+        hazardClass: newProfile.value.hazardClass
+      }
+    })
+    await loadConfig()
+  } catch (caught) {
+    error.value = opsErrorMessage(caught)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function saveIncompatibility() {
+  if (!newIncomp.value.classA || !newIncomp.value.classB || !newIncomp.value.reason) return
+  busy.value = true
+  error.value = null
+  try {
+    await requestFetch(`${BASE}/incompatibilities`, {
+      method: 'PUT',
+      body: {
+        classA: newIncomp.value.classA,
+        classB: newIncomp.value.classB,
+        reason: newIncomp.value.reason
+      }
+    })
+    await loadConfig()
+  } catch (caught) {
+    error.value = opsErrorMessage(caught)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function deleteIncomp(classA: string, classB: string) {
+  busy.value = true
+  error.value = null
+  try {
+    await requestFetch(`${BASE}/incompatibilities/${encodeURIComponent(classA)}/${encodeURIComponent(classB)}`, {
+      method: 'DELETE'
+    })
+    await loadConfig()
+  } catch (caught) {
+    error.value = opsErrorMessage(caught)
+  } finally {
+    busy.value = false
+  }
+}
+
 onMounted(() => void loadConfig())
 </script>
 
@@ -130,7 +242,7 @@ onMounted(() => void loadConfig())
 
     <template v-if="config">
       <div class="grid gap-4 md:grid-cols-3">
-        <section aria-labelledby="boxes-title">
+        <section aria-labelledby="boxes-title" class="space-y-3">
           <h3 id="boxes-title" class="font-medium">Cajas</h3>
           <ul class="text-sm">
             <li v-for="b in config.boxes" :key="b.code">
@@ -139,8 +251,69 @@ onMounted(() => void loadConfig())
               }}{{ b.hazmatAllowed ? '' : ' · sin mercancía peligrosa' }}
             </li>
           </ul>
+
+          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
+            <h4 class="font-medium text-slate-800">Añadir / editar caja</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <input
+                v-model="newBox.code"
+                data-test="new-box-code"
+                placeholder="Código (ej. S)"
+                class="rounded border p-1"
+              />
+              <input v-model="newBox.name" data-test="new-box-name" placeholder="Nombre" class="rounded border p-1" />
+              <input
+                v-model.number="newBox.widthMm"
+                data-test="new-box-width"
+                type="number"
+                placeholder="Ancho mm"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newBox.heightMm"
+                data-test="new-box-height"
+                type="number"
+                placeholder="Alto mm"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newBox.depthMm"
+                data-test="new-box-depth"
+                type="number"
+                placeholder="Fondo mm"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newBox.tareGrams"
+                data-test="new-box-tare"
+                type="number"
+                placeholder="Tara g"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newBox.maxWeightGrams"
+                data-test="new-box-max-weight"
+                type="number"
+                placeholder="Máx g"
+                class="rounded border p-1"
+              />
+              <label class="flex items-center gap-1">
+                <input v-model="newBox.hazmatAllowed" type="checkbox" /> ADR
+              </label>
+            </div>
+            <button
+              type="button"
+              data-test="save-box-btn"
+              :disabled="busy || !newBox.code || !newBox.name"
+              class="w-full rounded bg-slate-800 py-1 text-white hover:bg-slate-700 disabled:opacity-50"
+              @click="saveBox"
+            >
+              Guardar caja
+            </button>
+          </div>
         </section>
-        <section aria-labelledby="profiles-title">
+
+        <section aria-labelledby="profiles-title" class="space-y-3">
           <h3 id="profiles-title" class="font-medium">Perfiles de producto</h3>
           <ul class="text-sm">
             <li v-for="p in config.profiles" :key="p.sku">{{ p.sku }} · {{ p.weightGrams }} g · {{ p.hazardClass }}</li>
@@ -148,14 +321,117 @@ onMounted(() => void loadConfig())
           <p v-if="!config.profiles.length" class="text-sm text-slate-500">
             Sin perfiles: añade peso y dimensiones por SKU.
           </p>
+
+          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
+            <h4 class="font-medium text-slate-800">Añadir / editar perfil</h4>
+            <div class="grid grid-cols-2 gap-2">
+              <input
+                v-model="newProfile.sku"
+                data-test="new-profile-sku"
+                placeholder="SKU"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newProfile.weightGrams"
+                data-test="new-profile-weight"
+                type="number"
+                placeholder="Peso g"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newProfile.widthMm"
+                data-test="new-profile-width"
+                type="number"
+                placeholder="Ancho mm"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newProfile.heightMm"
+                data-test="new-profile-height"
+                type="number"
+                placeholder="Alto mm"
+                class="rounded border p-1"
+              />
+              <input
+                v-model.number="newProfile.depthMm"
+                data-test="new-profile-depth"
+                type="number"
+                placeholder="Fondo mm"
+                class="rounded border p-1"
+              />
+              <select v-model="newProfile.hazardClass" data-test="new-profile-hazard" class="rounded border p-1">
+                <option value="none">Sin peligro</option>
+                <option value="corrosive">Corrosivo</option>
+                <option value="flammable">Inflamable</option>
+                <option value="toxic">Tóxico</option>
+                <option value="oxidizer">Comburente</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              data-test="save-profile-btn"
+              :disabled="busy || !newProfile.sku"
+              class="w-full rounded bg-slate-800 py-1 text-white hover:bg-slate-700 disabled:opacity-50"
+              @click="saveProfile"
+            >
+              Guardar perfil
+            </button>
+          </div>
         </section>
-        <section aria-labelledby="rules-title">
+
+        <section aria-labelledby="rules-title" class="space-y-3">
           <h3 id="rules-title" class="font-medium">Incompatibilidades</h3>
           <ul class="text-sm">
-            <li v-for="r in config.incompatibilities" :key="`${r.classA}-${r.classB}`">
-              {{ r.classA }} + {{ r.classB }}: {{ r.reason }}
+            <li
+              v-for="r in config.incompatibilities"
+              :key="`${r.classA}-${r.classB}`"
+              class="flex justify-between items-center py-0.5"
+            >
+              <span>{{ r.classA }} + {{ r.classB }}: {{ r.reason }}</span>
+              <button
+                type="button"
+                class="text-red-600 hover:text-red-800 ml-2"
+                @click="deleteIncomp(r.classA, r.classB)"
+              >
+                ✕
+              </button>
             </li>
           </ul>
+
+          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
+            <h4 class="font-medium text-slate-800">Añadir incompatibilidad</h4>
+            <div class="space-y-2">
+              <div class="grid grid-cols-2 gap-2">
+                <input
+                  v-model="newIncomp.classA"
+                  data-test="new-incomp-a"
+                  placeholder="Clase A"
+                  class="rounded border p-1"
+                />
+                <input
+                  v-model="newIncomp.classB"
+                  data-test="new-incomp-b"
+                  placeholder="Clase B"
+                  class="rounded border p-1"
+                />
+              </div>
+              <input
+                v-model="newIncomp.reason"
+                data-test="new-incomp-reason"
+                placeholder="Motivo técnico"
+                class="w-full rounded border p-1"
+              />
+            </div>
+            <button
+              type="button"
+              data-test="save-incomp-btn"
+              :disabled="busy || !newIncomp.classA || !newIncomp.classB || !newIncomp.reason"
+              class="w-full rounded bg-slate-800 py-1 text-white hover:bg-slate-700 disabled:opacity-50"
+              @click="saveIncompatibility"
+            >
+              Guardar regla
+            </button>
+          </div>
         </section>
       </div>
 

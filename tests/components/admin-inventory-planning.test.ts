@@ -174,4 +174,63 @@ describe('INV-017/018/020 AdminInventoryPlanning', () => {
       expectedLineVersion: 2
     })
   })
+
+  it('provides forms to create replenishment policies, cycle count plans and scan tasks', async () => {
+    respond()
+    const w = await mount()
+
+    // 1. Reorder policy creation form
+    await w.find('[data-testid="policy-variant-id"]').setValue('11111111-1111-4111-8111-111111111111')
+    await w.find('[data-testid="policy-lead-time"]').setValue(14)
+    await w.find('[data-testid="policy-min-order"]').setValue(50)
+    await w.find('[data-testid="save-policy-btn"]').trigger('click')
+    await flushPromises()
+
+    const policyCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/reorder/policies'))!
+    expect(policyCall[1]).toMatchObject({
+      method: 'POST',
+      body: {
+        variantId: '11111111-1111-4111-8111-111111111111',
+        leadTimeDays: 14,
+        minOrderQuantity: 50
+      }
+    })
+
+    // 2. Count plan creation form
+    await w.find('[data-testid="tab-counts"]').trigger('click')
+    await w.find('[data-testid="new-plan-name"]').setValue('Conteo Pasillo Químicos')
+    await w.find('[data-testid="new-plan-variants"]').setValue('11111111-1111-4111-8111-111111111111')
+    await w.find('[data-testid="save-plan-btn"]').trigger('click')
+    await flushPromises()
+
+    const planCall = fetchMock.mock.calls.find(
+      ([url, init]) => String(url).endsWith('/cycle-counts') && init?.method === 'POST'
+    )!
+    expect(planCall[1]).toMatchObject({
+      method: 'POST',
+      body: {
+        name: 'Conteo Pasillo Químicos',
+        variantIds: ['11111111-1111-4111-8111-111111111111']
+      }
+    })
+
+    // 3. Scan task creation form
+    await w.find('[data-testid="tab-scan"]').trigger('click')
+    await w.find('[data-testid="new-task-reference"]').setValue('ALB-2026-99')
+    await w.find('[data-testid="new-task-variant"]').setValue('11111111-1111-4111-8111-111111111111')
+    await w.find('[data-testid="new-task-quantity"]').setValue(10)
+    await w.find('[data-testid="save-task-btn"]').trigger('click')
+    await flushPromises()
+
+    const taskCall = fetchMock.mock.calls.find(
+      ([url, init]) => String(url).endsWith('/barcode-tasks') && init?.method === 'POST'
+    )!
+    expect(taskCall[1]).toMatchObject({
+      method: 'POST',
+      body: {
+        reference: 'ALB-2026-99',
+        lines: [{ variantId: '11111111-1111-4111-8111-111111111111', expectedQuantity: 10 }]
+      }
+    })
+  })
 })
