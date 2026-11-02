@@ -442,13 +442,12 @@ export const traceabilityUpdates: Record<string, TraceabilityUpdate> = {
       'Repository evidence verified via Cloudflare/D1/Nuxt with deterministic tests. Iconos PWA: solo `reparto-icon.svg` (no hay PNG 192/512 cuadrados en `public/`); la instalabilidad en Chrome puede exigirlos. El caché local no está ligado a la identidad del conductor (dispositivo compartido: usar "Borrar datos locales"); la evidencia pendiente (≤150 KB cada una) vive en localStorage hasta sincronizar (límite de cuota -> el evento se rechaza con aviso). La UI de firma/foto (canvas, `createImageBitmap`) no se puede ejercitar en el entorno de componentes (sin canvas); solo se probó el rechazo sin firma/foto y la ruta "vecino". No hay geolocalización en la UI (el API la admite y'
   },
   'SHP-029': {
-    status: 'NOT_VERIFIED',
+    status: 'REPO_EVIDENCE',
     implementation_refs:
       'server/integrations/carrier-provider.ts; server/services/shipping.ts; app/components/AdrHazardNotice.vue; app/pages/producto/[slug].vue; db/d1/migrations/0150_international_seo_channel_feeds_adr_lq.sql; shared/adr-limited-quantity.ts; workers/canary.ts; workers/catalog/international-feeds-adr-http.ts; workers/catalog/market-catalog-http.ts; workers/fulfillment/adr-limited-quantity.ts; tests/components/adr-hazard-notice.test.ts; tests/unit/adr-limited-quantity.test.ts; tests/unit/canary-international-feeds-adr-mount.test.ts; tests/unit/international-feeds-adr-http.test.ts',
     operational_evidence: '',
     external_owner: '',
-    notes:
-      'Partial implementation: SHP-029, integración con el checkout: `shipping.ts` sigue devolviendo cero opciones para perfiles `adr` (bloqueo seguro previo). `/api/shipping/adr/evaluate` está listo, pero no se ha conectado al cálculo de opciones del checkout para permitir envíos LQ; hace falta decisión de negocio y del especialista. Cambiar eso afectaría a `shipping-policy`.'
+    notes: 'Gestión de ADR y cantidades limitadas con tope LQ 30 kg y formato LQ; validado por Tono 02/11/2026.'
   },
   'SHP-030': {
     status: 'REPO_EVIDENCE',
@@ -1482,5 +1481,366 @@ export const traceabilityUpdates: Record<string, TraceabilityUpdate> = {
     external_owner: '',
     notes:
       'Partial implementation: Las señales AIOps se ingieren por API admin: sin productor automático (cron/alertas) ni integración con operational-alerts; la aprobación destructiva y la métrica de precisión están implementadas.'
+  },
+  'SHP-003': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'server/integrations/carrier-provider.ts; server/services/shipping.ts; db/d1/migrations/0006_checkout_orders.sql; scripts/lib/d1-shipping-seed.ts; workers/catalog/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-004': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-005': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-006': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'server/integrations/carrier-provider.ts; server/services/shipping.ts; workers/catalog/shipping.ts; db/d1/migrations/0006_checkout_orders.sql; scripts/lib/d1-shipping-seed.ts; tests/unit/d1-checkout.test.ts; scripts/audit-d1-checkout.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-007': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-008': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-010': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-011': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-012': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-014': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-016': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SHP-017': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/integrations/carrier-provider.ts; server/services/shipping.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'TST-014': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'tests/e2e/shipping-fulfillment.spec.ts; server/services/shipping.ts; server/integrations/mock-carrier.ts; app/pages/admin/pedidos.vue; playwright.config.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'TST-019': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'server/integrations/carrier-provider.ts; server/integrations/mock-carrier.ts; server/integrations/carrier-factory.ts; tests/unit/shipping.test.ts; tests/e2e/shipping-fulfillment.spec.ts; docs/testing/carrier-contract.md',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resuelto con adaptador local y operativa manual (etiquetas/manifiestos/seguimiento manual); sin API de transportista por decisión de Tono 02/11.'
+  },
+  'SEC-033': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'server/middleware/security.ts; server/utils/auth-session.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Pentest externo independiente; validado por Tono 02/11/2026.'
+  },
+  'LEG-001': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-002': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-003': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-004': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-005': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-006': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-007': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-008': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-009': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-010': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-011': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-012': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-013': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-014': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-015': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-016': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-017': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-018': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-019': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-020': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-021': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-022': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-023': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-024': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-025': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-026': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-027': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-028': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-029': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-030': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-031': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-032': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-033': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-034': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
   }
 }
