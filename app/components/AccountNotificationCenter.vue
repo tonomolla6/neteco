@@ -62,7 +62,7 @@ async function loadNotifications() {
 async function markSingleAsRead(id: string) {
   try {
     markingRead.value = true
-    await $fetch('/api/account/notifications/mark-read', {
+    await $fetch<unknown, string>('/api/account/notifications/mark-read', {
       method: 'POST',
       body: { notificationIds: [id] }
     })
@@ -82,7 +82,7 @@ async function markSingleAsRead(id: string) {
 async function markAllAsRead() {
   try {
     markingRead.value = true
-    await $fetch('/api/account/notifications/mark-read', {
+    await $fetch<unknown, string>('/api/account/notifications/mark-read', {
       method: 'POST',
       body: { all: true }
     })

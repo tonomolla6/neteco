@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AdminAudiences from '~/components/AdminAudiences.vue'
 
-definePageMeta({ layout: 'admin', middleware: 'administration-access' })
+definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Segmentos y Audiencias · Admin' })
 </script>
 

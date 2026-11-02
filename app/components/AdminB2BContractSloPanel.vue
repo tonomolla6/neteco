@@ -65,7 +65,7 @@ async function loadContracts() {
   try {
     const res = (await requestFetch('/api/admin/observability/b2b-slo/contracts')) as { contracts: B2BContract[] }
     contracts.value = res?.contracts ?? []
-    if (contracts.value.length > 0 && !selectedContract.value) {
+    if (contracts.value[0] && !selectedContract.value) {
       selectedContract.value = contracts.value[0]
     }
   } catch (err: unknown) {

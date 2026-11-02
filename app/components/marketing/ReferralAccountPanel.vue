@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { CustomerReferralOverview } from '../../shared/referrals'
+import type { CustomerReferralOverview } from '../../../shared/referrals'
 
 const requestFetch = useRequestFetch()
 
@@ -34,7 +34,7 @@ async function handleEnroll() {
   enrolling.value = true
   error.value = null
   try {
-    await requestFetch('/api/account/referrals/enroll', {
+    await requestFetch<unknown, string>('/api/account/referrals/enroll', {
       method: 'POST',
       body: {
         termsVersion: 'terms-2026-v1'

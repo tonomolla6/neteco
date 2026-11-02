@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useUgcReviews } from '../composables/useUgcReviews'
 
-const { adminReviews, loading, submitting, error, fetchAdminReviews, moderateReview } = useUgcReviews()
+const { adminReviews: rawAdminReviews, loading, submitting, error, fetchAdminReviews, moderateReview } = useUgcReviews()
 
 const activeTab = ref<'pending' | 'pii' | 'incentive' | 'all'>('pending')
 const notice = ref<string | null>(null)
@@ -30,12 +30,36 @@ const handleTabChange = (tab: typeof activeTab.value) => {
   loadReviews()
 }
 
+interface ModerationPhoto {
+  id: string
+  photoUrl: string
+  antivirusStatus: string
+  moderationStatus: string
+}
+
 interface ModerationItem {
   id: string
   version: number
+  rating?: number
+  title?: string
+  moderationStatus?: string
+  displayName?: string
+  productId?: string
+  createdAt?: string
+  isVerifiedBuyer?: boolean
+  piiDetected?: boolean
   piiRedactedContent?: string | null
+  hiddenIncentiveSuspected?: boolean
+  content?: string
+  photos?: ModerationPhoto[]
   [key: string]: unknown
 }
+
+function isModerationItem(r: Record<string, unknown>): r is ModerationItem {
+  return typeof r.id === 'string' && typeof r.version === 'number'
+}
+
+const adminReviews = computed<ModerationItem[]>(() => rawAdminReviews.value.filter(isModerationItem))
 
 const handleModerate = async (review: ModerationItem, action: 'approve' | 'reject' | 'quarantine') => {
   try {

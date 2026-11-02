@@ -57,7 +57,7 @@ async function createAlert() {
   try {
     const alertId = crypto.randomUUID()
     const commandId = crypto.randomUUID()
-    await requestFetch('/api/admin/operations/alerts', {
+    await requestFetch<unknown, string>('/api/admin/operations/alerts', {
       method: 'POST',
       body: {
         alertId,
@@ -114,7 +114,7 @@ async function submitAction() {
       body.resolutionNote = actionNote.value || 'Incidencia resuelta'
     }
 
-    await requestFetch(`/api/admin/operations/alerts/${alertId}/${actionType.value}`, {
+    await requestFetch<unknown, string>(`/api/admin/operations/alerts/${alertId}/${actionType.value}`, {
       method: 'POST',
       body
     })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { BundleDetailView } from '../../shared/bundles'
+import type { BundleDetailView } from '../../../shared/bundles'
 
 const props = defineProps<{
   bundle: BundleDetailView

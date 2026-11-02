@@ -74,7 +74,7 @@ async function handleReviewSubmit() {
     submitting.value = true
     errorMessage.value = ''
     successMessage.value = ''
-    await request(`/api/products/${props.productId}/reviews`, {
+    await request<unknown, string>(`/api/products/${props.productId}/reviews`, {
       method: 'POST',
       body: {
         rating: Number(newRating.value),
@@ -104,7 +104,7 @@ async function handleQuestionSubmit() {
     submitting.value = true
     errorMessage.value = ''
     successMessage.value = ''
-    await request(`/api/products/${props.productId}/questions`, {
+    await request<unknown, string>(`/api/products/${props.productId}/questions`, {
       method: 'POST',
       body: {
         title: newTitle.value.trim(),

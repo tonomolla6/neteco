@@ -371,7 +371,9 @@ async function fetchCalendar() {
   loading.value = true
   error.value = null
   try {
-    const data = await requestFetch(`/api/admin/cms/editorial-calendar-briefings?month=${currentMonth.value}`)
+    const data = await requestFetch<UnifiedEditorialCalendar>(
+      `/api/admin/cms/editorial-calendar-briefings?month=${currentMonth.value}`
+    )
     calendarData.value = data
   } catch (err: unknown) {
     error.value = err instanceof Error ? err.message : 'Error cargando datos'
@@ -381,7 +383,9 @@ async function fetchCalendar() {
 }
 
 function changeMonth(delta: number) {
-  const [year, month] = currentMonth.value.split('-').map(Number)
+  const parts = currentMonth.value.split('-').map(Number)
+  const year = parts[0] ?? new Date().getUTCFullYear()
+  const month = parts[1] ?? 1
   const d = new Date(Date.UTC(year, month - 1 + delta, 1))
   currentMonth.value = d.toISOString().slice(0, 7)
   fetchCalendar()

@@ -203,7 +203,7 @@ useSeoMeta({
         <button
           type="button"
           class="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm border border-slate-200 hover:bg-slate-50"
-          @click="refresh"
+          @click="() => refresh()"
         >
           Reintentar
         </button>

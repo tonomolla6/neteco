@@ -41,8 +41,9 @@ async function loadCourse() {
       course: Course & { lessons: Lesson[] }
     }
     course.value = res?.course ?? null
-    if (course.value?.lessons?.length && !activeLessonId.value) {
-      activeLessonId.value = course.value.lessons[0].id
+    const firstLesson = course.value?.lessons[0]
+    if (firstLesson && !activeLessonId.value) {
+      activeLessonId.value = firstLesson.id
     }
   } catch (error) {
     errorMessage.value = errorText(error, 'Error al cargar el curso formativo')

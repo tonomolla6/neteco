@@ -56,7 +56,12 @@ async function open(id: string) {
     error.value = opsErrorMessage(caught)
   }
 }
-async function act(path: string, body: Record<string, unknown>, done: string, method = 'POST') {
+async function act(
+  path: string,
+  body: Record<string, unknown>,
+  done: string,
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE' = 'POST'
+) {
   busy.value = true
   error.value = null
   notice.value = null

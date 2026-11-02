@@ -79,6 +79,7 @@ function moveWidget(index: number, direction: 'up' | 'down') {
   if (targetIndex < 0 || targetIndex >= currentConfig.value.widgets.length) return
 
   const item = currentConfig.value.widgets[index]
+  if (!item) return
   currentConfig.value.widgets.splice(index, 1)
   currentConfig.value.widgets.splice(targetIndex, 0, item)
 

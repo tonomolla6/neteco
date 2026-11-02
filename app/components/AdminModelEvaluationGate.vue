@@ -48,7 +48,7 @@ async function loadModels() {
       models: MlModelRegistryItem[]
     }
     models.value = res?.models ?? []
-    if (models.value.length > 0 && !selectedModel.value) {
+    if (models.value[0] && !selectedModel.value) {
       await selectModel(models.value[0])
     }
   } catch (error) {

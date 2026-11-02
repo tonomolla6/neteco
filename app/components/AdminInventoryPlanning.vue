@@ -99,7 +99,7 @@ function message(cause: any) {
   return typeof code === 'string' ? code : 'service_unavailable'
 }
 
-async function post(path: string, body: unknown) {
+async function post(path: string, body: Record<string, unknown>) {
   return requestFetch(path, { method: 'POST', body, headers: { 'Idempotency-Key': newKey() } }) as Promise<any>
 }
 

@@ -190,10 +190,10 @@ async function testGroundedSearch() {
   actionLoading.value = true
   errorMessage.value = ''
   try {
-    const res = (await requestFetch('/api/search/ai', {
+    const res = await requestFetch<AiSearchAnswer, string>('/api/search/ai', {
       method: 'POST',
       body: { query: testQuery.value }
-    })) as AiSearchAnswer
+    })
     aiResult.value = res
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : 'Error al consultar búsqueda IA'

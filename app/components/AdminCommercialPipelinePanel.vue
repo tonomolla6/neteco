@@ -73,13 +73,13 @@
               {{ stageKey.replace('_', ' ') }}
             </span>
             <span class="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">
-              {{ stageData.count }}
+              {{ stageData?.count }}
             </span>
           </div>
           <div class="mt-2 text-sm font-semibold text-slate-900">
-            {{ formatEuros(stageData.totalGrossCents) }}
+            {{ formatEuros(stageData?.totalGrossCents ?? 0) }}
           </div>
-          <div class="text-[10px] text-slate-500">Ponderado: {{ formatEuros(stageData.weightedValueCents) }}</div>
+          <div class="text-[10px] text-slate-500">Ponderado: {{ formatEuros(stageData?.weightedValueCents ?? 0) }}</div>
         </div>
       </div>
     </div>
@@ -271,9 +271,9 @@ async function fetchPipeline() {
   loading.value = true
   error.value = null
   try {
-    const data = await requestFetch('/api/admin/commercial/pipeline')
+    const data = await requestFetch<CommercialPipelineSummary>('/api/admin/commercial/pipeline')
     pipelineData.value = data
-    if (data.accounts?.length && !newAction.value.customerId) {
+    if (data?.accounts?.[0] && !newAction.value.customerId) {
       newAction.value.customerId = data.accounts[0].customerId
     }
   } catch (err: unknown) {

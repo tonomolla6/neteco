@@ -91,7 +91,7 @@ async function submitRca() {
       })
     }
 
-    await requestFetch('/api/admin/support/rca', {
+    await requestFetch<unknown, string>('/api/admin/support/rca', {
       method: 'POST',
       body: {
         incidentCategory: form.value.incidentCategory,
@@ -117,7 +117,7 @@ async function verifyRca(rca: RcaItem) {
   saving.value = true
   errorMessage.value = ''
   try {
-    await requestFetch(`/api/admin/support/rca/${rca.id}/verify`, {
+    await requestFetch<unknown, string>(`/api/admin/support/rca/${rca.id}/verify`, {
       method: 'POST',
       body: {
         expectedVersion: rca.version,

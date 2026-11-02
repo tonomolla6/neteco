@@ -93,7 +93,7 @@ async function submit() {
   error.value = ''
   notice.value = ''
   try {
-    await request(`/api/account/promo-fraud/cases/${item.id}/appeal`, {
+    await request<unknown, string>(`/api/account/promo-fraud/cases/${item.id}/appeal`, {
       method: 'POST',
       body: { caseVersion: item.version, statement: statement.value.trim() },
       cache: 'no-store',

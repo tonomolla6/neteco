@@ -151,7 +151,7 @@ async function create() {
   busy.value = true
   notice.value = ''
   try {
-    await request('/api/account/b2b-requests', {
+    await request<unknown, string>('/api/account/b2b-requests', {
       method: 'POST',
       headers: { 'idempotency-key': randomId() },
       body: payload()
@@ -174,7 +174,7 @@ async function act(path: 'reply' | 'cancel', body: Record<string, unknown>) {
   notice.value = ''
   const id = detail.value.request.id
   try {
-    await request(`/api/account/b2b-requests/${id}/${path}`, {
+    await request<unknown, string>(`/api/account/b2b-requests/${id}/${path}`, {
       method: 'POST',
       headers: { 'idempotency-key': randomId() },
       body
@@ -196,7 +196,7 @@ async function attach(event: Event) {
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
     const sha256 = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
     const id = detail.value.request.id
-    await request(`/api/account/b2b-requests/${id}/documents`, {
+    await request<unknown, string>(`/api/account/b2b-requests/${id}/documents`, {
       method: 'POST',
       headers: { 'idempotency-key': randomId() },
       body: { kind: 'other', fileName: file.name, contentType: file.type, sizeBytes: file.size, sha256 }

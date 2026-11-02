@@ -72,7 +72,7 @@ async function remove(token?: Token) {
     identity = scope.value
   try {
     const receipt = receiptSchema.parse(
-      await request('/api/account/payment-tokens', {
+      await request<unknown, string>('/api/account/payment-tokens', {
         method: 'POST',
         headers: { 'Idempotency-Key': command.commandId },
         body: command

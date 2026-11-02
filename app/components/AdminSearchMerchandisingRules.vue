@@ -142,7 +142,7 @@ const receiptSchema = z
 export type SearchMerchandisingRuleReceipt = z.infer<typeof receiptSchema>
 type CommandPayload = z.infer<typeof saveInputSchema> | z.infer<typeof retireInputSchema>
 
-const props = withDefaults(defineProps<{ runtime?: unknown }>(), { runtime: 'cloudflare' })
+const props = withDefaults(defineProps<{ runtime?: string }>(), { runtime: 'cloudflare' })
 const session = useUserSession(),
   request = useRequestFetch(),
   prefix = useId()

@@ -312,7 +312,7 @@ async function validate() {
   const body = { lines: lines.value.map(({ reference, quantity }) => ({ reference, quantity })) }
   validating.value = true
   try {
-    const value: unknown = await request('/api/account/quick-order/company', {
+    const value: unknown = await request<unknown, string>('/api/account/quick-order/company', {
       method: 'POST',
       body,
       cache: 'no-store',

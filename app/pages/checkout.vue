@@ -1081,7 +1081,7 @@ async function submit() {
 
     // PAY-022: One-click payment with an active saved card token
     if (order.cloudflare && command.savedToken) {
-      const oneClickRaw = await $fetch('/api/account/saved-cards/one-click', {
+      const oneClickRaw = await $fetch<unknown, string>('/api/account/saved-cards/one-click', {
         method: 'POST',
         headers: orderAuthHeaders(command.paymentKey),
         body: {

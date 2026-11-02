@@ -22,9 +22,9 @@ async function loadDraftOrders() {
   loading.value = true
   loadError.value = null
   try {
-    const res = await requestFetch('/api/admin/draft-orders/list')
+    const res = await requestFetch<DraftOrder[]>('/api/admin/draft-orders/list')
     draftOrders.value = Array.isArray(res) ? res : []
-    if (draftOrders.value.length > 0 && !selectedDraft.value) {
+    if (draftOrders.value[0] && !selectedDraft.value) {
       selectedDraft.value = draftOrders.value[0]
     }
   } catch (err: unknown) {
@@ -37,7 +37,7 @@ async function loadDraftOrders() {
 async function handleReview(draft: DraftOrder, decision: 'approved' | 'rejected') {
   actionMessage.value = null
   try {
-    const updated = await requestFetch('/api/admin/draft-orders/review', {
+    const updated = await requestFetch<DraftOrder>('/api/admin/draft-orders/review', {
       method: 'POST',
       body: {
         draftOrderId: draft.id,
@@ -61,7 +61,7 @@ async function handleConvert(draft: DraftOrder) {
   actionMessage.value = null
   try {
     const orderNumber = `ORD-CONF-${Math.floor(100000 + Math.random() * 900000)}`
-    const updated = await requestFetch('/api/admin/draft-orders/convert', {
+    const updated = await requestFetch<DraftOrder>('/api/admin/draft-orders/convert', {
       method: 'POST',
       body: {
         draftOrderId: draft.id,
@@ -83,7 +83,7 @@ async function handleConvert(draft: DraftOrder) {
 async function handleSweepExpired() {
   actionMessage.value = null
   try {
-    const res = await requestFetch('/api/admin/draft-orders/sweep', {
+    const res = await requestFetch<{ expiredCount: number }>('/api/admin/draft-orders/sweep', {
       method: 'POST'
     })
     actionType.value = 'success'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { EventItemView, EventQuestionView } from '../../shared/events'
+import type { EventItemView, EventQuestionView } from '../../../shared/events'
 
 const props = defineProps<{
   event: EventItemView

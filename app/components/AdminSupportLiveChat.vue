@@ -123,7 +123,7 @@ async function executeHandoff() {
 async function executeEscalate() {
   if (!activeSession.value || !escalateSummary.value.trim()) return
   try {
-    await $fetch(`/api/admin/support/live-chat/sessions/${activeSession.value.id}/escalate`, {
+    await $fetch<unknown, string>(`/api/admin/support/live-chat/sessions/${activeSession.value.id}/escalate`, {
       method: 'POST',
       body: {
         expectedVersion: activeSession.value.currentVersion,
@@ -141,7 +141,7 @@ async function executeEscalate() {
 async function executeClose() {
   if (!activeSession.value) return
   try {
-    await $fetch(`/api/admin/support/live-chat/sessions/${activeSession.value.id}/close`, {
+    await $fetch<unknown, string>(`/api/admin/support/live-chat/sessions/${activeSession.value.id}/close`, {
       method: 'POST',
       body: {
         expectedVersion: activeSession.value.currentVersion,

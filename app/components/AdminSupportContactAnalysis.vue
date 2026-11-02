@@ -91,7 +91,7 @@ async function addToBacklog(s: Suggestion) {
   busy.value = true
   notice.value = ''
   try {
-    await request('/api/admin/support/contact-analysis/backlog', {
+    await request<unknown, string>('/api/admin/support/contact-analysis/backlog', {
       method: 'POST',
       headers: { 'idempotency-key': randomId() },
       body: {
@@ -121,7 +121,7 @@ async function move(item: BacklogItem, action: 'plan' | 'complete' | 'dismiss') 
   busy.value = true
   notice.value = ''
   try {
-    await request(`/api/admin/support/contact-analysis/backlog/${item.id}/commands`, {
+    await request<unknown, string>(`/api/admin/support/contact-analysis/backlog/${item.id}/commands`, {
       method: 'POST',
       headers: { 'idempotency-key': randomId() },
       body: { action, expectedVersion: item.version }

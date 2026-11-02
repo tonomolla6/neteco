@@ -14,7 +14,7 @@ const categories = computed(() =>
   (categoryData.value?.flat ?? []).map((category) => ({ id: category.id, slug: category.slug, name: category.name }))
 )
 
-function openProduct(productId: string) {
+function openProduct(productId: number | string) {
   return navigateTo(`/admin/productos/${encodeURIComponent(productId)}`)
 }
 </script>

@@ -82,7 +82,7 @@ async function load() {
     state.value = 'error'
   }
 }
-async function post(url: string, body: unknown, done: string) {
+async function post(url: string, body: Record<string, unknown>, done: string) {
   busy.value = true
   notice.value = ''
   try {

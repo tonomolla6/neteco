@@ -65,8 +65,8 @@ async function loadData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const ov = await requestFetch('/api/admin/marketing-automations/overview')
-    overview.value = ov as OverviewData
+    const ov = await requestFetch<OverviewData>('/api/admin/marketing-automations/overview')
+    overview.value = ov
     if (ov?.policy) {
       policy.value = { ...ov.policy }
     }
@@ -87,7 +87,7 @@ async function savePolicy() {
   saving.value = true
   errorMessage.value = ''
   try {
-    const res = await requestFetch('/api/admin/marketing-automations/policy', {
+    const res = await requestFetch<{ appliedVersion?: number }>('/api/admin/marketing-automations/policy', {
       method: 'PUT',
       body: {
         ...policy.value,
@@ -127,7 +127,7 @@ async function triggerWinbackSimulation() {
   winbackStatus.value = ''
   winbackCode.value = ''
   try {
-    const res = await requestFetch('/api/admin/marketing-automations/winback/evaluate', {
+    const res = await requestFetch<{ discountCode?: string }>('/api/admin/marketing-automations/winback/evaluate', {
       method: 'POST',
       body: {
         customerId: '30000000-0000-4000-8000-000000000001',

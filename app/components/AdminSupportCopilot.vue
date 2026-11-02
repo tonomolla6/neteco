@@ -44,13 +44,13 @@ async function generateDraft() {
   errorMessage.value = ''
   statusMessage.value = ''
   try {
-    const res = await requestFetch('/api/admin/support/copilot/draft', {
+    const res = await requestFetch<DraftResponse, string>('/api/admin/support/copilot/draft', {
       method: 'POST',
       body: {
         ticketId: props.ticketId
       }
     })
-    draft.value = res as DraftResponse
+    draft.value = res
     editableReply.value = draft.value?.proposedReply || ''
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : 'Error al generar borrador con el copiloto'
@@ -65,14 +65,17 @@ async function approveDraft() {
   errorMessage.value = ''
   try {
     const isModified = editableReply.value.trim() !== draft.value.proposedReply.trim()
-    const res = (await requestFetch(`/api/admin/support/copilot/${draft.value.interactionId}/decision`, {
-      method: 'POST',
-      body: {
-        expectedVersion: 1,
-        decision: isModified ? 'modify_and_approve' : 'approve',
-        modifiedReply: isModified ? editableReply.value : undefined
+    const res = (await requestFetch<unknown, string>(
+      `/api/admin/support/copilot/${draft.value.interactionId}/decision`,
+      {
+        method: 'POST',
+        body: {
+          expectedVersion: 1,
+          decision: isModified ? 'modify_and_approve' : 'approve',
+          modifiedReply: isModified ? editableReply.value : undefined
+        }
       }
-    })) as { approvalStatus: string }
+    )) as { approvalStatus: string }
 
     draft.value.approvalStatus = res.approvalStatus || 'approved'
     statusMessage.value = 'Respuesta aprobada por el operador'
@@ -88,7 +91,7 @@ async function rejectDraft() {
   approving.value = true
   errorMessage.value = ''
   try {
-    await requestFetch(`/api/admin/support/copilot/${draft.value.interactionId}/decision`, {
+    await requestFetch<unknown, string>(`/api/admin/support/copilot/${draft.value.interactionId}/decision`, {
       method: 'POST',
       body: {
         expectedVersion: 1,
@@ -108,7 +111,7 @@ async function rejectDraft() {
 async function rateAccuracy(score: number) {
   if (!draft.value) return
   try {
-    await requestFetch(`/api/admin/support/copilot/${draft.value.interactionId}/evaluate`, {
+    await requestFetch<unknown, string>(`/api/admin/support/copilot/${draft.value.interactionId}/evaluate`, {
       method: 'POST',
       body: {
         score,

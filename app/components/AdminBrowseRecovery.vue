@@ -27,11 +27,13 @@ async function loadData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const policyRes = await requestFetch('/api/admin/browse-recovery/policy')
+    const policyRes = await requestFetch<{ policy?: BrowseRecoveryPolicy }>('/api/admin/browse-recovery/policy')
     if (policyRes?.policy) {
       policy.value = { ...policyRes.policy }
     }
-    const metricsRes = await requestFetch('/api/admin/browse-recovery/metrics')
+    const metricsRes = await requestFetch<{ metrics?: BrowseIncrementalityMetrics }>(
+      '/api/admin/browse-recovery/metrics'
+    )
     if (metricsRes?.metrics) {
       metrics.value = metricsRes.metrics
     }
@@ -47,7 +49,7 @@ async function savePolicy() {
   errorMessage.value = ''
   successMessage.value = ''
   try {
-    const res = await requestFetch('/api/admin/browse-recovery/policy', {
+    const res = await requestFetch<{ policy?: BrowseRecoveryPolicy }>('/api/admin/browse-recovery/policy', {
       method: 'PUT',
       body: {
         expectedVersion: policy.value.version,

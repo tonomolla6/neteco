@@ -92,7 +92,7 @@ const product = computed(() => productData.value!)
 // SEO-026: la valoración agregada sale solo de opiniones propias verificadas y se muestra tal cual en la ficha
 const { data: reviewSeo } = await useFetch<ProductReviewSeoSummary>(
   () => `/api/products/${product.value.id}/reviews/summary`,
-  { key: `review-seo-${route.params.slug}`, default: () => null }
+  { key: `review-seo-${route.params.slug}` }
 )
 const aggregateRating = computed(() => (reviewSeo.value ? buildAggregateRatingJsonLd(reviewSeo.value) : null))
 const runtime = useRuntimeConfig()
@@ -1098,7 +1098,7 @@ async function addToCart(goToCart = false) {
           </ul>
         </div>
         <!-- SHP-029: peligros químicos/ADR de la variante elegida, siempre visibles -->
-        <AdrHazardNotice v-if="engagementEnabled" :variant-id="selected.id" />
+        <AdrHazardNotice v-if="engagementEnabled" :variant-id="String(selected.id)" />
       </div>
     </div>
 

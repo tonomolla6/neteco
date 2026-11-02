@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AdminBrowseRecovery from '~/components/AdminBrowseRecovery.vue'
 
-definePageMeta({ layout: 'admin', middleware: 'administration-access' })
+definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Recuperación de Navegación · Admin', robots: 'noindex, nofollow, noarchive' })
 </script>
 

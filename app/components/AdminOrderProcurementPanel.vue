@@ -58,7 +58,7 @@ async function handleApprove() {
   if (!data.value) return
   submitting.value = true
   try {
-    const res = await requestFetch('/api/admin/orders/procurement/approve', {
+    const res = await requestFetch<ProcurementData, string>('/api/admin/orders/procurement/approve', {
       method: 'POST',
       body: {
         orderId: props.orderId,
@@ -66,7 +66,7 @@ async function handleApprove() {
         notes: approvalNotes.value || 'Aprobado desde panel administrativo'
       }
     })
-    data.value = res as ProcurementData
+    data.value = res
   } catch (err: unknown) {
     const fetchErr = err as { data?: { error?: { code?: string } } }
     error.value = fetchErr?.data?.error?.code ?? 'error_approving'
@@ -79,7 +79,7 @@ async function handleReject() {
   if (!data.value || !rejectionReason.value.trim()) return
   submitting.value = true
   try {
-    const res = await requestFetch('/api/admin/orders/procurement/reject', {
+    const res = await requestFetch<ProcurementData, string>('/api/admin/orders/procurement/reject', {
       method: 'POST',
       body: {
         orderId: props.orderId,
@@ -87,7 +87,7 @@ async function handleReject() {
         rejectionReason: rejectionReason.value.trim()
       }
     })
-    data.value = res as ProcurementData
+    data.value = res
     showRejectModal.value = false
   } catch (err: unknown) {
     const fetchErr = err as { data?: { error?: { code?: string } } }

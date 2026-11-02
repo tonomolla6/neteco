@@ -217,7 +217,7 @@ function convert() {
   sendEvent(current, 'convert')
   const destination = current.ctaPath
   close()
-  void navigateTo(destination).catch(() => undefined)
+  void Promise.resolve(navigateTo(destination)).catch(() => undefined)
 }
 
 function onKeydown(event: KeyboardEvent) {

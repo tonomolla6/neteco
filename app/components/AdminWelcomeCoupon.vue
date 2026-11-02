@@ -33,7 +33,7 @@ async function loadData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const res = await requestFetch('/api/admin/welcome-coupon/policy')
+    const res = await requestFetch<{ policy?: WelcomeCouponPolicy }>('/api/admin/welcome-coupon/policy')
     if (res?.policy) {
       policy.value = { ...res.policy }
       excludedCategoryText.value = (res.policy.excludedCategoryIds ?? []).join(', ')
@@ -60,7 +60,7 @@ async function savePolicy() {
       .map((s) => s.trim())
       .filter(Boolean)
 
-    const res = await requestFetch('/api/admin/welcome-coupon/policy', {
+    const res = await requestFetch<{ policy?: WelcomeCouponPolicy }>('/api/admin/welcome-coupon/policy', {
       method: 'PUT',
       body: {
         expectedVersion: policy.value.version,

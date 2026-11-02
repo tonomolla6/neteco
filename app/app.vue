@@ -45,8 +45,12 @@ useHead(() => ({
     canonicalPath(route.path, {}) === '/buscar'
       ? []
       : [
-          { rel: 'canonical', href: canonicalUrl.value },
-          ...alternateLinks.value.map((link) => ({ rel: 'alternate', hreflang: link.hreflang, href: link.href }))
+          { rel: 'canonical' as const, href: canonicalUrl.value },
+          ...alternateLinks.value.map((link) => ({
+            rel: 'alternate' as const,
+            hreflang: link.hreflang,
+            href: link.href
+          }))
         ],
   script: [
     {

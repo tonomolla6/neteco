@@ -65,7 +65,7 @@ async function loadSourcingData() {
 async function handleRecordDecision() {
   actionMessage.value = null
   try {
-    const res = await requestFetch('/api/admin/supplier-sourcing/decision', {
+    const res = await requestFetch<SourcingDecision>('/api/admin/supplier-sourcing/decision', {
       method: 'POST',
       body: {
         variantId: props.variantId,

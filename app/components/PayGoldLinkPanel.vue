@@ -201,7 +201,7 @@ async function issue() {
   error.value = ''
   try {
     const result = resultSchema.parse(
-      await request('/api/account/paygold-links', {
+      await request<unknown, string>('/api/account/paygold-links', {
         method: 'POST',
         headers: { 'Idempotency-Key': command.commandId },
         body: command,

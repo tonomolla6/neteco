@@ -88,7 +88,7 @@ async function run(action: string) {
   notice.value = ''
   const id = detail.value.request.id
   try {
-    await request(`/api/admin/support/b2b-requests/${id}/commands`, {
+    await request<unknown, string>(`/api/admin/support/b2b-requests/${id}/commands`, {
       method: 'POST',
       headers: { 'idempotency-key': randomId() },
       body: {

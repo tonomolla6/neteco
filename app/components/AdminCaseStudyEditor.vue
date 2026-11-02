@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useCustomerCaseStudies } from '../composables/useCustomerCaseStudies'
 
-const { adminCases, loading, saving, error, fetchAdminCases, createCase, publishCase, performReview } =
-  useCustomerCaseStudies()
+const {
+  adminCases: rawAdminCases,
+  loading,
+  saving,
+  error,
+  fetchAdminCases,
+  createCase,
+  publishCase,
+  performReview
+} = useCustomerCaseStudies()
 
 interface AdminCaseItem {
   id: string
@@ -12,14 +20,25 @@ interface AdminCaseItem {
   slug: string
   publicationStatus?: string
   reviewStatus?: string
-  nextReviewDueAt?: string
-  signedPermission?: {
+  nextReviewDueAt: string
+  signedPermission: {
     companyName: string
     companyCif: string
     signerName: string
   }
   [key: string]: unknown
 }
+
+function isAdminCaseItem(c: Record<string, unknown>): c is AdminCaseItem {
+  return (
+    typeof c.id === 'string' &&
+    typeof c.version === 'number' &&
+    typeof c.title === 'string' &&
+    typeof c.slug === 'string'
+  )
+}
+
+const adminCases = computed<AdminCaseItem[]>(() => rawAdminCases.value.filter(isAdminCaseItem))
 
 const view = ref<'list' | 'create' | 'review'>('list')
 const selectedCase = ref<AdminCaseItem | null>(null)
@@ -148,7 +167,7 @@ const openReviewModal = (c: AdminCaseItem) => {
 }
 
 const handleExecuteReview = async () => {
-  if (!selectedCase.value) return
+  if (!selectedCase.value || !confirmedPermissionValid.value) return
   notice.value = null
   try {
     await performReview({

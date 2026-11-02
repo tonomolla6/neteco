@@ -77,7 +77,7 @@ async function loadArticle() {
   loading.value = true
   loadError.value = null
   try {
-    const res = await requestFetch(
+    const res = await requestFetch<CatalogEditorialArticle | null>(
       `/api/admin/catalog-editorial/article?targetType=${props.targetType}&targetId=${encodeURIComponent(props.targetId)}`
     )
     if (res && res.title) {
@@ -147,7 +147,7 @@ async function handleSave() {
       expectedVersion: currentArticle.value?.version
     }
 
-    const saved = await requestFetch('/api/admin/catalog-editorial/upsert', {
+    const saved = await requestFetch<CatalogEditorialArticle>('/api/admin/catalog-editorial/upsert', {
       method: 'POST',
       body: payload
     })

@@ -146,7 +146,7 @@ async function createSegment() {
   }
 }
 
-function selectSegment(seg: AudienceSegmentRecord) {
+function selectSegment(seg: AudienceSegment) {
   activeSegment.value = seg
   estimationResult.value = null
   previewUsers.value = []

@@ -70,7 +70,7 @@ async function proposeEnrichment() {
   errorMessage.value = ''
   statusMessage.value = ''
   try {
-    const res = (await requestFetch('/api/admin/media/ai-enrich/propose', {
+    const res = (await requestFetch<unknown, string>('/api/admin/media/ai-enrich/propose', {
       method: 'POST',
       body: {
         assetId: targetAssetId.value.trim(),
@@ -95,14 +95,17 @@ async function recordDecision(decision: 'approve' | 'reject') {
   deciding.value = true
   errorMessage.value = ''
   try {
-    const res = (await requestFetch(`/api/admin/media/ai-enrich/enrichments/${enrichment.value.id}/decision`, {
-      method: 'POST',
-      body: {
-        expectedVersion: enrichment.value.version,
-        decision,
-        humanNotes: 'Verificación humana de no invención de elementos visuales completada'
+    const res = (await requestFetch<unknown, string>(
+      `/api/admin/media/ai-enrich/enrichments/${enrichment.value.id}/decision`,
+      {
+        method: 'POST',
+        body: {
+          expectedVersion: enrichment.value.version,
+          decision,
+          humanNotes: 'Verificación humana de no invención de elementos visuales completada'
+        }
       }
-    })) as { enrichment: EnrichmentResponse }
+    )) as { enrichment: EnrichmentResponse }
 
     enrichment.value = res.enrichment
     if (res.enrichment.approvalStatus === 'approved') {
@@ -122,7 +125,7 @@ async function applyEnrichment() {
   applying.value = true
   errorMessage.value = ''
   try {
-    await requestFetch(`/api/admin/media/ai-enrich/enrichments/${enrichment.value.id}/apply`, {
+    await requestFetch<unknown, string>(`/api/admin/media/ai-enrich/enrichments/${enrichment.value.id}/apply`, {
       method: 'POST',
       body: {
         expectedVersion: enrichment.value.version,

@@ -138,6 +138,11 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   withdrawn: { label: 'Retirado', color: 'bg-slate-100 text-slate-500 border-slate-300' }
 }
 
+const DEFAULT_STATUS_LABEL = { label: 'Borrador', color: 'bg-slate-100 text-slate-700 border-slate-300' }
+function getStatusLabel(status: string) {
+  return STATUS_LABELS[status] ?? DEFAULT_STATUS_LABEL
+}
+
 const isAuthorOfSelected = computed(() => {
   return !!props.operatorId && !!selectedReview.value && props.operatorId === selectedReview.value.authorId
 })
@@ -173,11 +178,11 @@ async function fetchReviews() {
     const query = params.toString() ? `?${params.toString()}` : ''
     const res = await fetch(`/api/admin/content/editorial-reviews${query}`)
     if (!res.ok) throw new Error('error_loading_reviews')
-    const data = await res.json()
+    const data = (await res.json()) as { items?: ReviewSummary[] }
     reviews.value = data.items || []
 
     // If reviews exist and nothing selected, select the first one
-    if (reviews.value.length > 0 && !selectedReview.value) {
+    if (reviews.value[0] && !selectedReview.value) {
       await selectReview(reviews.value[0].id)
     } else if (reviews.value.length === 0) {
       selectedReview.value = null
@@ -195,7 +200,7 @@ async function selectReview(id: string) {
   try {
     const res = await fetch(`/api/admin/content/editorial-reviews/${id}`)
     if (!res.ok) throw new Error('error_loading_detail')
-    selectedReview.value = await res.json()
+    selectedReview.value = (await res.json()) as ReviewDetail
   } catch {
     errorMessage.value = 'Error al cargar el detalle de la revisión.'
   } finally {
@@ -222,10 +227,10 @@ async function toggleChecklistItem(item: ChecklistItem) {
       })
     })
     if (!res.ok) {
-      const errData = await res.json().catch(() => ({}))
+      const errData = (await res.json().catch(() => ({}))) as { error?: { code?: string } }
       throw new Error(errData?.error?.code || 'error_updating_checklist')
     }
-    selectedReview.value = await res.json()
+    selectedReview.value = (await res.json()) as ReviewDetail
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     errorMessage.value = `Error al actualizar checklist: ${msg}`
@@ -248,7 +253,7 @@ async function addComment() {
       body: JSON.stringify({ comment: newComment.value.trim() })
     })
     if (!res.ok) throw new Error('error_adding_comment')
-    const added = await res.json()
+    const added = (await res.json()) as ReviewComment
     selectedReview.value.comments.push(added)
     newComment.value = ''
   } catch (err: unknown) {
@@ -276,7 +281,7 @@ async function approveReview() {
       })
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
+      const err = (await res.json().catch(() => ({}))) as { error?: { code?: string } }
       if (err?.error?.code === 'author_cannot_approve') {
         throw new Error('Separación de funciones: no puedes autoaprobar tu propio cambio crítico.')
       }
@@ -288,7 +293,7 @@ async function approveReview() {
       }
       throw new Error(err?.error?.code || 'error_approving')
     }
-    selectedReview.value = await res.json()
+    selectedReview.value = (await res.json()) as ReviewDetail
     showApproveModal.value = false
     approveNote.value = ''
     successMessage.value = 'Revisión aprobada correctamente.'
@@ -317,10 +322,10 @@ async function rejectReview() {
       })
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
+      const err = (await res.json().catch(() => ({}))) as { error?: { code?: string } }
       throw new Error(err?.error?.code || 'error_rejecting')
     }
-    selectedReview.value = await res.json()
+    selectedReview.value = (await res.json()) as ReviewDetail
     showRejectModal.value = false
     rejectReason.value = ''
     successMessage.value = 'Revisión rechazada con motivo.'
@@ -349,10 +354,10 @@ async function withdrawReview() {
       })
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
+      const err = (await res.json().catch(() => ({}))) as { error?: { code?: string } }
       throw new Error(err?.error?.code || 'error_withdrawing')
     }
-    selectedReview.value = await res.json()
+    selectedReview.value = (await res.json()) as ReviewDetail
     showWithdrawModal.value = false
     withdrawReason.value = ''
     successMessage.value = 'Revisión retirada.'
@@ -381,10 +386,10 @@ async function assignReviewer() {
       })
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
+      const err = (await res.json().catch(() => ({}))) as { error?: { code?: string } }
       throw new Error(err?.error?.code || 'error_assigning')
     }
-    selectedReview.value = await res.json()
+    selectedReview.value = (await res.json()) as ReviewDetail
     showAssignModal.value = false
     assignReviewerId.value = ''
     successMessage.value = 'Revisor asignado con éxito.'
@@ -480,9 +485,9 @@ onMounted(() => {
               <span class="truncate font-semibold text-slate-900 text-xs">{{ rev.pageTitle }}</span>
               <span
                 class="rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                :class="(STATUS_LABELS[rev.status] || STATUS_LABELS.draft).color"
+                :class="getStatusLabel(rev.status).color"
               >
-                {{ (STATUS_LABELS[rev.status] || STATUS_LABELS.draft).label }}
+                {{ getStatusLabel(rev.status).label }}
               </span>
             </div>
 
@@ -518,9 +523,9 @@ onMounted(() => {
                 <h3 class="text-lg font-bold text-slate-900">{{ selectedReview.pageTitle }}</h3>
                 <span
                   class="rounded-full border px-2 py-0.5 text-xs font-semibold"
-                  :class="(STATUS_LABELS[selectedReview.status] || STATUS_LABELS.draft).color"
+                  :class="getStatusLabel(selectedReview.status).color"
                 >
-                  {{ (STATUS_LABELS[selectedReview.status] || STATUS_LABELS.draft).label }}
+                  {{ getStatusLabel(selectedReview.status).label }}
                 </span>
                 <span
                   v-if="selectedReview.isCritical"

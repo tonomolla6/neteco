@@ -94,7 +94,7 @@
         </div>
       </div>
       <button
-        v-if="printers.length"
+        v-if="printers[0]"
         type="button"
         class="rounded border border-slate-300 px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50"
         @click="testPrintLabel(printers[0].id)"
@@ -374,9 +374,9 @@ async function fetchAll() {
   loading.value = true
   try {
     const [qData, mData, pData] = await Promise.all([
-      requestFetch('/api/admin/warehouse/queues'),
-      requestFetch('/api/admin/warehouse/metrics'),
-      requestFetch('/api/admin/warehouse/printers')
+      requestFetch<WarehouseQueuesData>('/api/admin/warehouse/queues'),
+      requestFetch<WarehouseMetricsSummary>('/api/admin/warehouse/metrics'),
+      requestFetch<WarehousePrinter[]>('/api/admin/warehouse/printers')
     ])
     queues.value = qData
     metrics.value = mData

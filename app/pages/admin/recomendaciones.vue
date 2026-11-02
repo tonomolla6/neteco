@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import AdminRecommendationEngine from '~/components/AdminRecommendationEngine.vue'
 
-definePageMeta({ layout: 'admin', middleware: 'administration-access' })
+definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Motor de Recomendaciones · Admin', robots: 'noindex, nofollow, noarchive' })
 </script>
 

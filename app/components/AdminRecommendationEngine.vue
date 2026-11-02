@@ -30,12 +30,12 @@ async function loadData() {
   loading.value = true
   errorMessage.value = ''
   try {
-    const policyRes = await requestFetch('/api/admin/recommendations/policy')
+    const policyRes = await requestFetch<{ policy?: RecommendationEnginePolicy }>('/api/admin/recommendations/policy')
     if (policyRes?.policy) {
       policy.value = { ...policyRes.policy }
       manualFallbackText.value = (policyRes.policy.manualFallbackProductIds ?? []).join(', ')
     }
-    const metricsRes = await requestFetch('/api/admin/recommendations/metrics')
+    const metricsRes = await requestFetch<{ metrics?: RecommendationMetrics }>('/api/admin/recommendations/metrics')
     if (metricsRes?.metrics) {
       metrics.value = metricsRes.metrics
     }
@@ -56,7 +56,7 @@ async function savePolicy() {
       .map((s) => s.trim())
       .filter(Boolean)
 
-    const res = await requestFetch('/api/admin/recommendations/policy', {
+    const res = await requestFetch<{ policy?: RecommendationEnginePolicy }>('/api/admin/recommendations/policy', {
       method: 'PUT',
       body: {
         expectedVersion: policy.value.version,
