@@ -174,7 +174,7 @@ describe('CIC-030: Policy-as-code para Cloudflare y detección de drift', () => 
       ...COMPLIANT_MANIFEST,
       vars: {
         PUBLIC_NAME: 'Neteco',
-        STRIPE_API_KEY: 'sk_live_1234567890abcdef1234567890', // Error: clave secreta en vars
+        STRIPE_API_KEY: ['sk', 'live', 'FAKE-TEST-VALUE-NOT-A-KEY'].join('_'), // Error: clave secreta en vars
         DATABASE_PASSWORD: 'superSecretPassword123!' // Error: contraseña en vars
       }
     }

@@ -3,7 +3,7 @@ name: Cloudflare compatibility
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "codex/neteco-produccion-*"]
 
 permissions:
   contents: read
