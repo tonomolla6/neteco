@@ -664,6 +664,7 @@ async function revokeCloudflareSession() {
       <form v-if="!user?.mfaVerified && !enrollment" class="mt-4 max-w-sm space-y-3" @submit.prevent="beginMfa">
         <fieldset class="contents" :disabled="cloudflare && !canMutate">
           <PasswordField
+            id="account-mfa-current-password"
             v-model="mfaCurrentPassword"
             label="Contraseña actual"
             autocomplete="current-password"
@@ -771,13 +772,21 @@ async function revokeCloudflareSession() {
       <form class="mt-5 grid max-w-xl gap-4" @submit.prevent="changePassword">
         <fieldset class="contents" :disabled="cloudflare && !canMutate">
           <PasswordField
+            id="account-current-password"
             v-model="passwordForm.currentPassword"
             label="Contraseña actual"
             autocomplete="current-password"
             required
           />
-          <PasswordField v-model="passwordForm.newPassword" label="Nueva contraseña" required show-rules />
           <PasswordField
+            id="account-new-password"
+            v-model="passwordForm.newPassword"
+            label="Nueva contraseña"
+            required
+            show-rules
+          />
+          <PasswordField
+            id="account-confirm-password"
             v-model="passwordForm.confirmation"
             label="Repite la nueva contraseña"
             required

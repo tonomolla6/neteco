@@ -54,7 +54,10 @@ async function createGuestTransferOrder(page: Page, email: string) {
   const order = (await response.json()) as { id: string; total: number; expiresAt: string }
   await expect(page).toHaveURL(new RegExp(`/pedido/${order.id}$`))
   await expect(page.getByText('Datos para la transferencia')).toBeVisible()
-  await expect(page.getByText(`Concepto: ${order.id}`, { exact: true })).toBeVisible()
+  await expect(page.getByText('Concepto', { exact: true })).toBeVisible()
+  await expect(page.locator('dt', { hasText: 'Concepto' }).locator('xpath=following-sibling::dd[1]')).toHaveText(
+    order.id
+  )
   await expect(page.getByText('ES91 2100 0418 4502 0005 1332', { exact: true })).toBeVisible()
   return order
 }
@@ -104,7 +107,7 @@ async function createFinanceAdministrator(
   await page.getByLabel('Teléfono').fill('600000001')
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Contraseña', { exact: true }).fill(password)
-  await page.getByLabel('Repite la contraseña').fill(password)
+  await page.getByLabel('Repite la contraseña', { exact: true }).fill(password)
   await page.getByRole('checkbox', { name: 'Acepto las condiciones de la cuenta' }).check()
   const registrationPromise = page.waitForResponse(
     (response) => response.url().endsWith('/api/auth/register') && response.request().method() === 'POST'
@@ -123,11 +126,17 @@ async function createFinanceAdministrator(
     })
   expect(withoutMfa.status()).toBe(403)
 
-  await page.goto('/cuenta')
+  await page.goto('/cuenta/seguridad')
+  // The field is server-rendered before hydration; a value typed too early is reset by Vue, so retry
+  // until the model is bound (the submit button only enables once it holds the password).
+  await expect(async () => {
+    await page.locator('#account-mfa-current-password').fill(password)
+    await expect(page.getByRole('button', { name: 'Activar verificación en dos pasos' })).toBeEnabled({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
   const setupPromise = page.waitForResponse(
     (response) => response.url().endsWith('/api/auth/mfa/setup') && response.request().method() === 'POST'
   )
-  await page.getByRole('button', { name: 'Activar MFA' }).click()
+  await page.getByRole('button', { name: 'Activar verificación en dos pasos' }).click()
   const setupResponse = await setupPromise
   expect(setupResponse.status(), await setupResponse.text()).toBe(200)
   const enrollment = (await setupResponse.json()) as { manualKey: string; recoveryCodes: string[] }
@@ -139,9 +148,10 @@ async function createFinanceAdministrator(
     period: 30,
     secret: OTPAuth.Secret.fromBase32(enrollment.manualKey)
   })
-  await page.getByPlaceholder('Código de 6 cifras').fill(totp.generate())
-  await page.getByRole('button', { name: 'Confirmar', exact: true }).click()
-  await expect(page.getByText('Autenticación multifactor activada.')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'He guardado los códigos en un sitio seguro' }).check()
+  await page.getByPlaceholder('000000').fill(totp.generate())
+  await page.getByRole('button', { name: 'Activar', exact: true }).click()
+  await expect(page.getByText('Verificación en dos pasos activada.')).toBeVisible()
 
   const withoutPermission = await page
     .context()
@@ -318,11 +328,16 @@ test('covers bank-transfer reservation, automatic/manual reconciliation and idem
       movementId: movementIds.manual,
       orderNumber: manual.id
     })
-    const manualRow = page.getByRole('row').filter({ hasText: manualMovement.externalId })
-    await manualRow.getByLabel(`Pedido para movimiento ${manualMovement.externalId}`).fill(manual.id)
-    page.once('dialog', (dialog) => dialog.accept('Ingreso bancario comprobado por Finanzas'))
+    // The pending-review list shows amount, received reference and review reason (not the provider
+    // id). The manual movement has an unmatchable reference; the divergent one has the order reference.
+    const manualRow = page.getByRole('listitem').filter({ hasText: 'reference_not_found' })
+    await expect(manualRow).toHaveCount(1)
     await manualRow.getByRole('button', { name: 'Conciliar' }).click()
-    await expect(page.getByText(manualMovement.externalId, { exact: true })).toBeHidden()
+    const reconcileDialog = page.getByRole('dialog', { name: 'Conciliar la transferencia' })
+    await reconcileDialog.getByLabel('Número de pedido').fill(manual.id)
+    await reconcileDialog.getByLabel('Motivo').fill('Ingreso bancario comprobado por Finanzas')
+    await reconcileDialog.getByRole('button', { name: 'Conciliar', exact: true }).click()
+    await expect(manualRow).toHaveCount(0)
 
     const rejected = await page
       .context()
@@ -387,7 +402,7 @@ test('covers bank-transfer reservation, automatic/manual reconciliation and idem
     }>
     expect(expiryResults.reduce((total, result) => total + result.expiredOrders, 0)).toBe(1)
     await page.reload()
-    await expect(page.getByText('Cancelado', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Pedido cancelado', level: 1 })).toBeVisible()
     await expect(page.getByText('Datos para la transferencia')).toBeHidden()
 
     const expiredState = await databaseQuery(async (sql) => {

@@ -4,6 +4,7 @@ import { assertTransition, returnTransitions, type ReturnState } from '../domain
 import { splitGross } from '../domain/money'
 import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
+import { applicationNow } from '../utils/application-clock'
 
 function publicReturnNumber() {
   return `RMA${randomBytes(7).toString('hex').slice(0, 10).toUpperCase()}`
@@ -76,7 +77,7 @@ export async function requestReturn(
     if (order.fulfillment_status !== 'delivered') {
       throw createError({ statusCode: 409, statusMessage: 'La devolución se solicita después de la entrega' })
     }
-    if (!order.delivered_at || order.delivered_at.getTime() < Date.now() - 30 * 24 * 60 * 60_000) {
+    if (!order.delivered_at || order.delivered_at.getTime() < applicationNow().getTime() - 30 * 24 * 60 * 60_000) {
       throw createError({ statusCode: 409, statusMessage: 'El plazo de devolución requiere revisión de soporte' })
     }
 

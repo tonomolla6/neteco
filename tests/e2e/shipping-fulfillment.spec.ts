@@ -1,4 +1,4 @@
-import type { Dialog, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import * as OTPAuth from 'otpauth'
@@ -8,6 +8,7 @@ import {
   REDSYS_REDIRECT_URLS,
   signMerchantParameters
 } from '../../server/integrations/redsys'
+import { ORDER_STATUS } from '../../app/utils/shop'
 import { decryptSecret } from '../../server/utils/secrets'
 import { expect, test } from '../fixtures/playwright'
 import type { DeterministicTestData } from '../fixtures/deterministic'
@@ -50,7 +51,7 @@ async function registerAndVerify(page: Page, email: string, password: string) {
   await page.getByLabel('Teléfono').fill('600000002')
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Contraseña', { exact: true }).fill(password)
-  await page.getByLabel('Repite la contraseña').fill(password)
+  await page.getByLabel('Repite la contraseña', { exact: true }).fill(password)
   await page.getByRole('checkbox', { name: 'Acepto las condiciones de la cuenta' }).check()
   const registration = page.waitForResponse(
     (response) => response.url().endsWith('/api/auth/register') && response.request().method() === 'POST'
@@ -181,11 +182,17 @@ async function purchase(
 }
 
 async function makeAdministrator(page: Page, email: string) {
-  await page.goto('/cuenta')
+  await page.goto('/cuenta/seguridad')
+  // The field is server-rendered before hydration; a value typed too early is reset by Vue, so retry
+  // until the model is bound (the submit button only enables once it holds the password).
+  await expect(async () => {
+    await page.locator('#account-mfa-current-password').fill('Neteco-Logistica-E2E-2026')
+    await expect(page.getByRole('button', { name: 'Activar verificación en dos pasos' })).toBeEnabled({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
   const setup = page.waitForResponse(
     (response) => response.url().endsWith('/api/auth/mfa/setup') && response.request().method() === 'POST'
   )
-  await page.getByRole('button', { name: 'Activar MFA' }).click()
+  await page.getByRole('button', { name: 'Activar verificación en dos pasos' }).click()
   const setupHttp = await setup
   expect(setupHttp.status(), await setupHttp.text()).toBe(200)
   const enrollment = (await setupHttp.json()) as { manualKey: string; recoveryCodes: string[] }
@@ -197,9 +204,10 @@ async function makeAdministrator(page: Page, email: string) {
     period: 30,
     secret: OTPAuth.Secret.fromBase32(enrollment.manualKey)
   })
-  await page.getByPlaceholder('Código de 6 cifras').fill(totp.generate())
-  await page.getByRole('button', { name: 'Confirmar', exact: true }).click()
-  await expect(page.getByText('Autenticación multifactor activada.')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'He guardado los códigos en un sitio seguro' }).check()
+  await page.getByPlaceholder('000000').fill(totp.generate())
+  await page.getByRole('button', { name: 'Activar', exact: true }).click()
+  await expect(page.getByText('Verificación en dos pasos activada.')).toBeVisible()
   await databaseQuery(async (sql) => {
     const [identity] = await sql<{ id: string }[]>`SELECT id FROM identities WHERE email = ${email}`
     expect(identity).toBeTruthy()
@@ -208,6 +216,7 @@ async function makeAdministrator(page: Page, email: string) {
       ON CONFLICT (identity_id, role_code) DO NOTHING
     `
   })
+  await page.goto('/cuenta')
   await page.getByRole('button', { name: 'Cerrar sesión' }).click()
   await expect(page).toHaveURL(`${STOREFRONT_ORIGIN}/`)
   await page.goto('/login?redirect=/admin/pedidos')
@@ -228,28 +237,41 @@ function adminPut(page: Page, url: string, data: Record<string, unknown>) {
   return page.context().request.put(url, { data, headers: { origin: STOREFRONT_ORIGIN } })
 }
 
-async function transitionOrder(page: Page, orderId: string, status: string, reason: string) {
-  const row = page.getByRole('row').filter({ hasText: orderId })
-  page.once('dialog', (dialog) => dialog.accept(reason))
+async function changeOrderStatus(page: Page, orderId: string, status: string, reason: string) {
+  const dialog = page.getByRole('dialog', { name: 'Cambiar el estado del pedido' })
+  // The button only works once the page is hydrated: retry the click until the dialog opens.
+  await expect(async () => {
+    await page.getByRole('button', { name: `Cambiar el estado del pedido ${orderId}` }).click()
+    await expect(dialog).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
+  const option = page.getByRole('option', { name: ORDER_STATUS[status]!.label, exact: true })
+  await expect(async () => {
+    if (!(await option.isVisible())) {
+      await dialog.getByRole('combobox').focus()
+      await page.keyboard.press('Enter')
+    }
+    await expect(option).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
+  await option.click()
+  await dialog.getByLabel('Motivo del cambio').fill(reason)
   const response = page.waitForResponse(
     (candidate) => candidate.url().endsWith(`/api/admin/orders/${orderId}`) && candidate.request().method() === 'PUT'
   )
-  await row.getByLabel(`Estado del pedido ${orderId}`).selectOption(status)
+  await dialog.getByRole('button', { name: 'Cambiar estado' }).click()
   const http = await response
   expect(http.status(), await http.text()).toBe(200)
-  await expect.poll(async () => row.getByLabel(`Estado del pedido ${orderId}`).inputValue()).toBe(status)
+  await expect(dialog).toBeHidden()
+  return http
+}
+
+async function transitionOrder(page: Page, orderId: string, status: string, reason: string) {
+  const http = await changeOrderStatus(page, orderId, status, reason)
+  await expect(page.getByRole('row').filter({ hasText: orderId })).toContainText(ORDER_STATUS[status]!.label)
   return http.json()
 }
 
 async function cancelOrderFromPanel(page: Page, orderId: string, reason: string) {
-  const row = page.getByRole('row').filter({ hasText: orderId })
-  page.once('dialog', (dialog) => dialog.accept(reason))
-  const response = page.waitForResponse(
-    (candidate) => candidate.url().endsWith(`/api/admin/orders/${orderId}`) && candidate.request().method() === 'PUT'
-  )
-  await row.getByLabel(`Estado del pedido ${orderId}`).selectOption('cancelado')
-  const http = await response
-  expect(http.status(), await http.text()).toBe(200)
+  const http = await changeOrderStatus(page, orderId, 'cancelado', reason)
   return http.json() as Promise<{
     id: string
     orderStatus: string
@@ -344,17 +366,22 @@ test('covers own delivery, carrier and warehouse pickup fulfillment end to end',
   ])
   expect(ownCreations.map((response) => response.status())).toEqual([200, 200])
   const ownCreationBodies = await Promise.all(
-    ownCreations.map((response) => response.json() as Promise<{ duplicate: boolean }>)
+    ownCreations.map((response) => response.json() as Promise<{ id: string; duplicate: boolean }>)
   )
   expect(ownCreationBodies.filter((result) => result.duplicate)).toHaveLength(1)
 
   await page.reload()
   const carrierRow = page.getByRole('row').filter({ hasText: carrier.id })
-  page.once('dialog', (dialog) => dialog.accept('STANDARD-PARCEL'))
   const creation = page.waitForResponse((response) =>
     response.url().endsWith(`/api/admin/orders/${carrier.id}/shipment`)
   )
-  await carrierRow.getByRole('button', { name: 'Crear' }).click()
+  const shipmentDialog = page.getByRole('dialog', { name: 'Crear expedición' })
+  await expect(async () => {
+    await carrierRow.getByRole('button', { name: 'Crear' }).click()
+    await expect(shipmentDialog).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
+  await shipmentDialog.getByLabel('Código de servicio cotizado').fill('STANDARD-PARCEL')
+  await shipmentDialog.getByRole('button', { name: 'Crear expedición' }).click()
   const creationHttp = await creation
   expect(creationHttp.status(), await creationHttp.text()).toBe(200)
   const created = (await creationHttp.json()) as { id: string; trackingNumber: string; duplicate: boolean }
@@ -369,7 +396,7 @@ test('covers own delivery, carrier and warehouse pickup fulfillment end to end',
   const firstTracking = page.waitForResponse((response) =>
     response.url().endsWith(`/api/admin/shipments/${created.id}/tracking`)
   )
-  await carrierRow.getByRole('button', { name: 'Sincronizar tracking' }).click()
+  await carrierRow.getByRole('button', { name: 'Actualizar seguimiento' }).click()
   expect((await firstTracking).status()).toBe(200)
   await expect
     .poll(() =>
@@ -387,7 +414,7 @@ test('covers own delivery, carrier and warehouse pickup fulfillment end to end',
   const secondTracking = page.waitForResponse((response) =>
     response.url().endsWith(`/api/admin/shipments/${created.id}/tracking`)
   )
-  await carrierRow.getByRole('button', { name: 'Sincronizar tracking' }).click()
+  await carrierRow.getByRole('button', { name: 'Actualizar seguimiento' }).click()
   expect((await secondTracking).status()).toBe(200)
   const delivered = await databaseQuery(async (sql) => {
     const [state] = await sql<
@@ -414,14 +441,10 @@ test('covers own delivery, carrier and warehouse pickup fulfillment end to end',
   expect(deliveredCancellation.status()).toBe(409)
 
   await page.reload()
-  const ownRow = page.getByRole('row').filter({ hasText: own.id })
-  page.once('dialog', (dialog) => dialog.accept('Cancelación logística E2E'))
-  const cancellation = page.waitForResponse(
-    (response) => response.url().includes('/api/admin/shipments/') && response.url().endsWith('/cancel')
-  )
-  await ownRow.getByRole('button', { name: `Cancelar expedición ${own.id}` }).click()
-  const cancellationHttp = await cancellation
-  expect(cancellationHttp.status(), await cancellationHttp.text()).toBe(200)
+  // The rebuilt orders table has no shipment-cancel control; the cancellation contract is exercised via the API.
+  const cancellationHttp = await adminPost(page, `/api/admin/shipments/${ownCreationBodies[0]!.id}/cancel`, {
+    reason: 'Cancelación logística E2E'
+  })
   const cancelled = (await cancellationHttp.json()) as { id: string; duplicate: boolean }
   expect(cancelled.duplicate).toBe(false)
   const cancellationReplay = await adminPost(page, `/api/admin/shipments/${cancelled.id}/cancel`, {
@@ -644,7 +667,7 @@ test('reconciles cancellation, return and refund lifecycles before and after cap
   expect(returnHttp.status(), await returnHttp.text()).toBe(201)
   const returned = (await returnHttp.json()) as { id: string; status: string; duplicate: boolean }
   expect(returned).toMatchObject({ status: 'requested', duplicate: false })
-  await expect(page.getByText(`Referencia ${returned.id}.`, { exact: false })).toBeVisible()
+  await expect(page.getByText(`Guarda esta referencia: ${returned.id}.`, { exact: false })).toBeVisible()
   const internalReturnId = await databaseQuery(async (sql) => {
     const [record] = await sql<{ id: string }[]>`SELECT id FROM returns WHERE public_number = ${returned.id}`
     return record!.id
@@ -679,20 +702,21 @@ test('reconciles cancellation, return and refund lifecycles before and after cap
 
   await page.goto('/admin/devoluciones')
   const returnRow = page.getByRole('row').filter({ hasText: returned.id })
-  const promptAnswers = [
-    'resolved',
-    'Resolución parcial conciliada E2E',
-    'Unidad inspeccionada y aceptada',
-    (partialRefundCents / 100).toFixed(2).replace('.', ',')
-  ]
-  const dialogHandler = (dialog: Dialog) => dialog.accept(promptAnswers.shift() ?? '')
-  page.on('dialog', dialogHandler)
   const resolutionResponse = page.waitForResponse(
     (response) => response.url().endsWith(`/api/admin/returns/${returned.id}`) && response.request().method() === 'PUT'
   )
-  await returnRow.getByRole('button', { name: 'Cambiar estado' }).click()
+  const returnDialog = page.getByRole('dialog', { name: 'Avanzar la devolución' })
+  await expect(async () => {
+    await returnRow.getByRole('button', { name: 'Avanzar' }).click()
+    await expect(returnDialog).toBeVisible({ timeout: 1000 })
+  }).toPass({ timeout: 15_000 })
+  // From "inspected" the dialog preselects the only closing transition: "Resuelta".
+  await expect(returnDialog.getByRole('combobox')).toContainText('Resuelta')
+  await returnDialog.getByLabel('Motivo').fill('Resolución parcial conciliada E2E')
+  await returnDialog.getByLabel('Resolución aplicada').fill('Unidad inspeccionada y aceptada')
+  await returnDialog.getByLabel('Importe a reembolsar').fill((partialRefundCents / 100).toFixed(2))
+  await returnDialog.getByRole('button', { name: 'Guardar' }).click()
   const resolutionHttp = await resolutionResponse
-  page.off('dialog', dialogHandler)
   expect(resolutionHttp.status(), await resolutionHttp.text()).toBe(200)
   const resolution = (await resolutionHttp.json()) as { refundId: string; duplicate: boolean }
   expect(resolution.refundId).toMatch(/^[0-9a-f-]{36}$/)

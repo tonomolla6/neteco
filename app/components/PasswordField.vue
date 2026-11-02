@@ -11,6 +11,8 @@
  */
 const props = withDefaults(
   defineProps<{
+    /** Stable DOM id. Pages that hydrate after a client fetch pass one so label, input and reveal button never drift. */
+    id?: string
     label?: string
     autocomplete?: string
     required?: boolean
@@ -19,12 +21,20 @@ const props = withDefaults(
     /** Para el campo de repetición: valor con el que debe coincidir. */
     matches?: string
   }>(),
-  { label: 'Contraseña', autocomplete: 'new-password', required: false, showRules: false, matches: undefined }
+  {
+    id: undefined,
+    label: 'Contraseña',
+    autocomplete: 'new-password',
+    required: false,
+    showRules: false,
+    matches: undefined
+  }
 )
 
 const model = defineModel<string>({ default: '' })
 const visible = ref(false)
-const inputId = `password-${useId()}`
+const generatedId = `password-${useId()}`
+const inputId = computed(() => props.id ?? generatedId)
 // Existing/repeated passwords keep their exact value and their existing policy.
 const showNewPasswordRules = computed(
   () => props.showRules && props.matches === undefined && !/(?:^|\s)current-password(?:\s|$)/.test(props.autocomplete)

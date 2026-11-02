@@ -38,6 +38,13 @@ afterEach(() => {
 })
 
 describe('real Nuxt PasswordField native input and accessible password policy', () => {
+  it('uses a caller-supplied stable id for the input, its label and the reveal button', async () => {
+    const field = await render({ id: 'stable-password-id', label: 'Contraseña actual' })
+    const native = field.get('input').element as HTMLInputElement
+    expect(native.id).toBe('stable-password-id')
+    expect(field.get('label').attributes('for')).toBe('stable-password-id')
+    expect(field.get('button').attributes('aria-controls')).toBe('stable-password-id')
+  })
   it('forwards native required and leaves it absent by default', async () => {
     const optional = await render()
     expect((optional.get('input').element as HTMLInputElement).required).toBe(false)

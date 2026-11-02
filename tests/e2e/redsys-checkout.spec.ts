@@ -145,7 +145,7 @@ test('confirms a guest purchase when the signed callback arrives before the brow
 test('keeps the order pending until a callback arrives after the browser return', async ({ page, deterministic }) => {
   const order = await createGuestRedsysOrder(page, 'success-after-return', deterministic)
   await page.goto(`/pago/retorno?order=${order.id}&payment=returned`)
-  await expect(page.getByRole('heading', { name: 'Pedido registrado' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pedido pendiente de pago' })).toBeVisible()
   expect(await orderState(page.context().request, order)).toMatchObject({ paymentStatus: 'pending' })
 
   expect((await callback(page.context().request, signedCallback(order, '0000'))).status()).toBe(200)
@@ -194,9 +194,9 @@ test('records a signed bank rejection and offers a hosted payment retry', async 
   ).toBe(404)
   await page.context().addCookies([orderAccess!])
   await page.goto(`/pedido/${order.id}`)
-  await expect(page.getByRole('button', { name: 'Reintentar pago' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Reintentar el pago' })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Reintentar pago' }).click()
+  await page.getByRole('button', { name: 'Reintentar el pago' }).click()
   await expect(page.getByRole('heading', { name: 'Redsys sandbox simulado' })).toBeVisible()
   expect(order.sandboxPosts).toHaveLength(2)
   expect(order.sandboxPosts[1]).toContain('Ds_MerchantParameters=')

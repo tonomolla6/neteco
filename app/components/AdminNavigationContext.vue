@@ -93,7 +93,9 @@ watch(
       <p class="text-xs text-muted">Páginas visitadas en este panel</p>
       <ul class="flex min-w-0 flex-wrap gap-x-4 gap-y-2 text-sm [overflow-wrap:anywhere]">
         <li v-for="link in recent" :key="link.to">
-          <NuxtLink :to="link.to" class="underline focus-visible:outline-2">{{ link.label }}</NuxtLink>
+          <NuxtLink :to="link.to" class="inline-flex min-h-6 items-center underline focus-visible:outline-2">{{
+            link.label
+          }}</NuxtLink>
         </li>
       </ul>
     </nav>

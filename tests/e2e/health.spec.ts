@@ -78,8 +78,8 @@ test('keeps the selected product variant in a shareable SKU URL', async ({ page,
   const second = product.variants[1]!
 
   await page.goto(`/producto/${product.slug}?sku=${encodeURIComponent(second.sku)}`)
-  await expect(page.locator('button[aria-pressed="true"]').filter({ hasText: second.sku })).toBeVisible()
+  await expect(page.getByRole('radio', { name: new RegExp(`Ref\\. ${second.sku}\\b`), checked: true })).toBeVisible()
 
-  await page.getByRole('button').filter({ hasText: first.sku }).first().click()
+  await page.getByRole('radio', { name: new RegExp(`Ref\\. ${first.sku}\\b`) }).click()
   await expect(page).toHaveURL(new RegExp(`[?&]sku=${encodeURIComponent(first.sku)}(?:&|$)`))
 })

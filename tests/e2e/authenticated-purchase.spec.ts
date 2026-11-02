@@ -49,7 +49,7 @@ async function registerAndVerify(page: Page, email: string, password: string) {
   await page.getByLabel('Teléfono').fill('600000000')
   await page.getByLabel('Email', { exact: true }).fill(email)
   await page.getByLabel('Contraseña', { exact: true }).fill(password)
-  await page.getByLabel('Repite la contraseña').fill(password)
+  await page.getByLabel('Repite la contraseña', { exact: true }).fill(password)
   await page.getByRole('checkbox', { name: 'Acepto las condiciones de la cuenta' }).check()
   const registration = page.waitForResponse((response) => response.url().endsWith('/api/auth/register'))
   await page.getByRole('button', { name: 'Crear cuenta' }).click()
@@ -76,17 +76,22 @@ async function logout(page: Page) {
 }
 
 async function addAddress(page: Page, label: string) {
-  const section = page.getByRole('heading', { name: 'Agenda de direcciones' }).locator('..')
-  await section.getByLabel('Etiqueta').fill(label)
-  await section.getByLabel('Destinatario').fill('Cliente E2E autenticado')
-  await section.getByLabel('Teléfono').fill('600000000')
-  await section.getByLabel('Dirección', { exact: true }).fill('Calle autenticada 12')
-  await section.getByLabel('Código postal').fill('46800')
-  await section.getByLabel('Ciudad').fill('Xàtiva')
-  await section.getByLabel('Provincia/región').fill('Valencia')
-  await section.getByRole('checkbox', { name: 'Predeterminada' }).check()
-  await section.getByRole('button', { name: 'Añadir dirección' }).click()
-  await expect(section.getByText(label, { exact: true })).toBeVisible()
+  await page.goto('/cuenta/direcciones')
+  await page
+    .getByRole('button', { name: /^Añadir (la primera )?dirección$/ })
+    .first()
+    .click()
+  const dialog = page.getByRole('dialog', { name: 'Añadir dirección' })
+  await dialog.getByLabel('Etiqueta').fill(label)
+  await dialog.getByLabel('Destinatario').fill('Cliente E2E autenticado')
+  await dialog.getByLabel('Teléfono de contacto').fill('600000000')
+  await dialog.getByLabel('Dirección', { exact: true }).fill('Calle autenticada 12')
+  await dialog.getByLabel('Código postal').fill('46800')
+  await dialog.getByLabel('Población').fill('Xàtiva')
+  await dialog.getByLabel('Provincia', { exact: true }).fill('Valencia')
+  await dialog.getByRole('checkbox', { name: 'Usar como dirección predeterminada' }).check()
+  await dialog.getByRole('button', { name: 'Guardar dirección' }).click()
+  await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible()
 }
 
 async function fillCheckout(page: Page, email: string) {
@@ -245,8 +250,16 @@ test('covers the isolated authenticated account, purchase, invoice and password 
   await addCatalogProduct(page)
   await page.goto('/checkout')
   await fillCheckout(page, firstEmail)
+  const mismatch = page.waitForResponse(
+    (response) => response.url().endsWith('/api/orders') && response.request().method() === 'POST'
+  )
   await page.getByRole('button', { name: /^Pagar / }).click()
-  await expect(page.getByRole('alert')).toContainText('El email del pedido debe coincidir con tu cuenta')
+  // The server rejects the foreign email with 422; the legacy (non-Cloudflare) checkout contract
+  // deliberately keeps any failed command "uncertain" instead of interpreting server codes.
+  const mismatchResponse = await mismatch
+  expect(mismatchResponse.status()).toBe(422)
+  expect(await mismatchResponse.text()).toContain('El email del pedido debe coincidir con tu cuenta')
+  await expect(page.getByRole('alert')).toContainText('No hemos podido confirmar si se creó el pedido')
 
   const staleCartCookie = (await page.context().cookies()).find((cookie) => cookie.name === 'neteco-cart')
   expect(staleCartCookie).toBeTruthy()
@@ -268,8 +281,8 @@ test('covers the isolated authenticated account, purchase, invoice and password 
 
   const resetToken = await identityToken(firstEmail, 'identity.password_reset.requested')
   await page.goto(`/restablecer-clave?token=${encodeURIComponent(resetToken)}`)
-  await page.getByLabel('Nueva contraseña').fill(newPassword)
-  await page.getByLabel('Repite la contraseña').fill(newPassword)
+  await page.getByLabel('Nueva contraseña', { exact: true }).fill(newPassword)
+  await page.getByLabel('Repite la contraseña', { exact: true }).fill(newPassword)
   await page.getByRole('button', { name: 'Guardar contraseña' }).click()
   await expect(page.getByText('Contraseña actualizada')).toBeVisible()
   expect((await page.context().request.get('/api/account')).status()).toBe(401)

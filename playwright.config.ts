@@ -4,6 +4,8 @@ import { REDSYS_OFFICIAL_CONTRACT } from './tests/fixtures/redsys-official'
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 3100)
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`
+const authTokenPepper = process.env.AUTH_TOKEN_PEPPER ?? 'local-only-token-pepper-change-me'
+const authEncryptionKey = process.env.AUTH_ENCRYPTION_KEY ?? 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 const mediaStorageDirectory = resolve(process.cwd(), '.data/e2e-media')
 
 export default defineConfig({
@@ -51,8 +53,12 @@ export default defineConfig({
           DATABASE_URL: process.env.DATABASE_URL ?? 'postgres://neteco:neteco-local@localhost:56432/neteco',
           REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:56379/0',
           NUXT_SESSION_PASSWORD: process.env.NUXT_SESSION_PASSWORD ?? 'test-only-session-password-32-characters',
-          AUTH_TOKEN_PEPPER: process.env.AUTH_TOKEN_PEPPER ?? 'local-only-token-pepper-change-me',
-          AUTH_ENCRYPTION_KEY: process.env.AUTH_ENCRYPTION_KEY ?? 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+          AUTH_TOKEN_PEPPER: authTokenPepper,
+          AUTH_ENCRYPTION_KEY: authEncryptionKey,
+          // Nitro only overrides runtimeConfig from NUXT_* at runtime; without these the
+          // build-time values (e.g. from a local .env) win and specs cannot decrypt outbox tokens.
+          NUXT_AUTH_TOKEN_PEPPER: authTokenPepper,
+          NUXT_AUTH_ENCRYPTION_KEY: authEncryptionKey,
           NETECO_TEST_NOW: '2026-08-13T12:00:00.000Z',
           EMAIL_WEBHOOK_SECRET: 'test-email-webhook-secret-at-least-24-characters',
           PAYMENT_PROVIDER: 'redsys',

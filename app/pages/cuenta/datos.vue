@@ -537,10 +537,10 @@ async function saveCompany() {
             :disabled="!canSubmit"
           >
             <UFormField label="Nombre y apellidos" required>
-              <UInput v-model="profileForm.name" class="w-full" autocomplete="name" />
+              <UInput id="account-name" v-model="profileForm.name" class="w-full" autocomplete="name" />
             </UFormField>
             <UFormField label="Teléfono">
-              <UInput v-model="profileForm.phone" type="tel" class="w-full" autocomplete="tel" />
+              <UInput id="account-phone" v-model="profileForm.phone" type="tel" class="w-full" autocomplete="tel" />
             </UFormField>
             <div class="sm:col-span-2">
               <UButton type="submit" :disabled="!canSubmit" :loading="busy">Guardar datos</UButton>
@@ -566,10 +566,17 @@ async function saveCompany() {
             :disabled="!canSubmit"
           >
             <UFormField label="Nuevo correo electrónico" required>
-              <UInput v-model="emailForm.email" type="email" class="w-full" autocomplete="email" />
+              <UInput
+                id="account-new-email"
+                v-model="emailForm.email"
+                type="email"
+                class="w-full"
+                autocomplete="email"
+              />
             </UFormField>
             <UFormField label="Tu contraseña actual" required hint="Para confirmar que eres tú">
               <UInput
+                id="account-email-current-password"
                 v-model="emailForm.currentPassword"
                 type="password"
                 class="w-full"
@@ -620,19 +627,25 @@ async function saveCompany() {
             :disabled="!canSubmit"
           >
             <UFormField label="Razón social" required>
-              <UInput v-model="companyForm.legalName" class="w-full" autocomplete="organization" />
+              <UInput
+                id="account-legal-name"
+                v-model="companyForm.legalName"
+                class="w-full"
+                autocomplete="organization"
+              />
             </UFormField>
             <UFormField label="Nombre comercial" hint="Si es distinto de la razón social">
-              <UInput v-model="companyForm.tradeName" class="w-full" />
+              <UInput id="account-trade-name" v-model="companyForm.tradeName" class="w-full" />
             </UFormField>
             <UFormField label="NIF / CIF / VAT" required>
-              <UInput v-model="companyForm.taxId" class="w-full" />
+              <UInput id="account-tax-id" v-model="companyForm.taxId" class="w-full" />
             </UFormField>
             <UFormField label="País" required>
               <USelect v-model="companyForm.countryCode" :items="COUNTRIES" class="w-full" />
             </UFormField>
             <UFormField class="sm:col-span-2" label="Tu contraseña actual" required hint="Para confirmar que eres tú">
               <UInput
+                id="account-company-current-password"
                 v-model="companyForm.currentPassword"
                 type="password"
                 class="w-full"

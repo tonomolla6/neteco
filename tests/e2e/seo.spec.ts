@@ -80,7 +80,8 @@ test('canonicalizes SKU and faceted pagination while keeping index bloat out', a
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, follow')
 
   await page.goto('/buscar?q=detergente&page=2')
-  await expectCanonical(page, '/buscar')
+  // Real search results are noindex and deliberately publish no canonical/alternate targets.
+  await expect(page.locator('link[rel="canonical"], link[rel="alternate"]')).toHaveCount(0)
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, follow')
 })
 
@@ -95,13 +96,17 @@ test('exposes crawlable, self-canonical catalog pagination', async ({ page, requ
 
   await page.goto('/catalogo')
   await expect(page.locator('head link[rel="next"]')).toHaveAttribute('href', '/catalogo?page=2')
-  await expect(page.getByRole('link', { name: 'Página siguiente' })).toHaveAttribute('href', '/catalogo?page=2')
+  await expect(
+    page.getByRole('navigation', { name: 'Paginación del catálogo' }).getByRole('link', { name: 'Siguiente' })
+  ).toHaveAttribute('href', '/catalogo?page=2')
 
   await page.goto('/catalogo?page=2')
   await expectCanonical(page, '/catalogo?page=2')
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'index, follow')
   await expect(page.locator('head link[rel="prev"]')).toHaveAttribute('href', '/catalogo')
-  await expect(page.getByRole('link', { name: 'Página anterior' })).toHaveAttribute('href', '/catalogo')
+  await expect(
+    page.getByRole('navigation', { name: 'Paginación del catálogo' }).getByRole('link', { name: 'Anterior' })
+  ).toHaveAttribute('href', '/catalogo')
 })
 
 test('preserves canonical redirects without chains or query loss', async ({ request, deterministic }) => {
