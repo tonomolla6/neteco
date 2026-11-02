@@ -70,6 +70,16 @@ const form = reactive({
   phone: ''
 })
 const purchaseOrderReference = ref('')
+const CHECKOUT_COUNTRIES = [
+  { code: 'ES', label: 'España (ES)' },
+  { code: 'PT', label: 'Portugal (PT)' },
+  { code: 'FR', label: 'Francia (FR)' },
+  { code: 'DE', label: 'Alemania (DE)' },
+  { code: 'IT', label: 'Italia (IT)' },
+  { code: 'GB', label: 'Reino Unido (GB)' },
+  { code: 'CH', label: 'Suiza (CH)' }
+] as const
+
 const shippingAddress = reactive({
   recipientName: '',
   companyName: '',
@@ -79,7 +89,7 @@ const shippingAddress = reactive({
   postalCode: '',
   city: '',
   region: 'Valencia',
-  countryCode: 'ES' as const,
+  countryCode: 'ES' as string,
   phone: '',
   instructions: ''
 })
@@ -92,7 +102,7 @@ const billingAddress = reactive({
   postalCode: '',
   city: '',
   region: 'Valencia',
-  countryCode: 'ES' as const,
+  countryCode: 'ES' as string,
   phone: '',
   instructions: ''
 })
@@ -182,9 +192,15 @@ let shippingRateRequestId = 0
 let shippingRateIdempotencyKey = randomId()
 let rateTimer: ReturnType<typeof setTimeout> | undefined
 
+function isValidPostalCode(value: string, countryCode: string) {
+  const trimmed = value.trim()
+  if (countryCode === 'ES') return /^\d{5}$/.test(trimmed)
+  return /^[A-Za-z0-9][A-Za-z0-9 -]{1,14}$/.test(trimmed)
+}
+
 const shippingRateReady = computed(
   () =>
-    /^\d{5}$/.test(shippingAddress.postalCode.trim()) &&
+    isValidPostalCode(shippingAddress.postalCode, shippingAddress.countryCode) &&
     shippingAddress.recipientName.trim().length >= 2 &&
     shippingAddress.line1.trim().length >= 4 &&
     shippingAddress.city.trim().length >= 2 &&
@@ -218,6 +234,254 @@ const eligibleShippingMethods = computed(() =>
 )
 const selectedShippingRate = computed(() => methodRate(shippingMethod.value))
 const cloudflareCheckout = computed(() => !!selectedShippingRate.value && isCloudflareRate(selectedShippingRate.value))
+
+// CHK-023: Market / destination country checkout profile & presentment calculation
+const checkoutMarketProfileSchema = z
+  .object({
+    market: z.string().regex(/^[A-Z]{2}$/),
+    currency: z.string().regex(/^[A-Z]{3}$/),
+    version: z.number().int().positive(),
+    exchangeNumerator: z.number().int().positive(),
+    exchangeDenominator: z.number().int().positive(),
+    goodsTaxBps: z.number().int().min(0).max(5000),
+    shippingNetMinor: z.number().int().nonnegative(),
+    shippingTaxBps: z.number().int().min(0).max(5000),
+    termsVersion: z.string().min(1).max(64),
+    paymentMethods: z.array(z.enum(['card', 'credit', 'bank_transfer'])).min(1)
+  })
+  .strict()
+type CheckoutMarketProfile = z.infer<typeof checkoutMarketProfileSchema>
+const marketProfile = ref<CheckoutMarketProfile | null>(null)
+const marketProfileLoading = ref(false)
+const marketProfileError = ref('')
+let marketProfileReadGeneration = 0
+const isInternationalMarket = computed(() => shippingAddress.countryCode !== 'ES')
+
+function roundMarketMinor(amount: bigint, num: number, den: number): bigint {
+  return (amount * BigInt(num) + BigInt(Math.floor(den / 2))) / BigInt(den)
+}
+
+const marketPresentment = computed(() => {
+  const profile = marketProfile.value
+  if (!isInternationalMarket.value || !profile) return null
+  const goodsNetEurMinor = selectedShippingRate.value?.subtotalNetCents ?? cart.subtotalNet
+  const goodsNetMinor = roundMarketMinor(
+    BigInt(goodsNetEurMinor),
+    profile.exchangeNumerator,
+    profile.exchangeDenominator
+  )
+  const goodsTaxMinor = roundMarketMinor(goodsNetMinor, profile.goodsTaxBps, 10_000)
+  const shippingNetMinor = BigInt(profile.shippingNetMinor)
+  const shippingTaxMinor = roundMarketMinor(shippingNetMinor, profile.shippingTaxBps, 10_000)
+  const shippingGrossMinor = Number(shippingNetMinor + shippingTaxMinor)
+  const taxMinor = Number(goodsTaxMinor + shippingTaxMinor)
+  const totalMinor = Number(goodsNetMinor + goodsTaxMinor + shippingNetMinor + shippingTaxMinor)
+  return {
+    currency: profile.currency,
+    goodsNetMinor: Number(goodsNetMinor),
+    goodsTaxMinor: Number(goodsTaxMinor),
+    shippingNetMinor: Number(shippingNetMinor),
+    shippingTaxMinor: Number(shippingTaxMinor),
+    shippingGrossMinor,
+    taxMinor,
+    totalMinor
+  }
+})
+
+function formatMarketCurrency(cents: number, currency: string) {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2
+  }).format(cents / 100)
+}
+
+async function loadMarketProfile(countryCode: string) {
+  const generation = ++marketProfileReadGeneration
+  marketProfile.value = null
+  marketProfileError.value = ''
+  if (countryCode === 'ES' || runtime.public.serverRuntime !== 'cloudflare') {
+    marketProfileLoading.value = false
+    return
+  }
+  marketProfileLoading.value = true
+  try {
+    const raw = await $fetch(`/api/checkout-markets/${encodeURIComponent(countryCode)}`, {
+      method: 'GET',
+      retry: 0,
+      cache: 'no-store'
+    })
+    const parsed = checkoutMarketProfileSchema.parse(raw)
+    if (generation !== marketProfileReadGeneration) return
+    marketProfile.value = parsed
+    if (
+      paymentMethod.value === 'transferencia' &&
+      !parsed.paymentMethods.includes('credit') &&
+      !parsed.paymentMethods.includes('bank_transfer')
+    ) {
+      paymentMethod.value = 'tarjeta'
+    }
+  } catch {
+    if (generation !== marketProfileReadGeneration) return
+    marketProfile.value = null
+    marketProfileError.value =
+      'No hemos podido cargar las condiciones fiscales y de envío para este país de destino. Selecciona España o inténtalo más tarde.'
+  } finally {
+    if (generation === marketProfileReadGeneration) marketProfileLoading.value = false
+  }
+}
+
+watch(
+  () => shippingAddress.countryCode,
+  (countryCode) => {
+    if (billingSameAsShipping.value) billingAddress.countryCode = countryCode
+    if (countryCode !== 'ES' && paymentMethod.value === 'bizum' && !checkoutCommand.value) {
+      paymentMethod.value = 'tarjeta'
+    }
+    void loadMarketProfile(countryCode)
+  },
+  { flush: 'sync' }
+)
+
+// PAY-019: Apple Pay / Google Pay capabilities & state
+const walletCapabilitiesSchema = z
+  .object({
+    wallets: z
+      .object({
+        apple_pay: z.boolean(),
+        google_pay: z.boolean()
+      })
+      .strict(),
+    fallback: z.literal('redirect')
+  })
+  .strict()
+const walletCapabilities = ref<{ apple_pay: boolean; google_pay: boolean }>({
+  apple_pay: false,
+  google_pay: false
+})
+const walletDeviceAvailable = ref(true)
+const selectedWallet = ref<'apple_pay' | 'google_pay' | null>(null)
+const walletFallbackNotice = ref('')
+let walletCapabilitiesGeneration = 0
+
+async function loadWalletCapabilities() {
+  const generation = ++walletCapabilitiesGeneration
+  walletCapabilities.value = { apple_pay: false, google_pay: false }
+  if (runtime.public.serverRuntime !== 'cloudflare') return
+  try {
+    const raw = await $fetch('/api/payments/wallet-capabilities', {
+      method: 'GET',
+      retry: 0,
+      cache: 'no-store'
+    })
+    const parsed = walletCapabilitiesSchema.parse(raw)
+    if (generation === walletCapabilitiesGeneration) {
+      walletCapabilities.value = parsed.wallets
+    }
+  } catch {
+    if (generation === walletCapabilitiesGeneration) {
+      walletCapabilities.value = { apple_pay: false, google_pay: false }
+    }
+  }
+}
+
+watch(
+  () => runtime.public.serverRuntime,
+  () => {
+    void loadWalletCapabilities()
+  },
+  { immediate: true, flush: 'sync' }
+)
+
+// PAY-022: Explicit card saving consent, one-click tokens & revocation link
+const savedCardsAvailabilitySchema = z
+  .object({
+    available: z.boolean(),
+    consentVersion: z.string().min(1)
+  })
+  .strict()
+const savedPaymentTokenSchema = z
+  .object({
+    id: z.string().uuid(),
+    status: z.enum(['active', 'revoked']),
+    version: z.number().int().positive(),
+    createdAt: z.string()
+  })
+  .strict()
+const savedPaymentTokensResponseSchema = z
+  .object({
+    tokens: z.array(savedPaymentTokenSchema),
+    pending: z.array(z.unknown())
+  })
+  .strict()
+const oneClickResponseSchema = z
+  .object({
+    orderId: z.string().uuid(),
+    paymentIntentId: z.string(),
+    amountCents: z.number().int().positive(),
+    outcome: z.enum(['paid', 'declined', 'pending', 'review'])
+  })
+  .strict()
+type SavedPaymentToken = z.infer<typeof savedPaymentTokenSchema>
+const savedCardsAvailable = ref(false)
+const savedCardsConsentVersion = ref('')
+const savedCardsLoading = ref(false)
+const savedCardsError = ref('')
+const savedPaymentTokens = ref<SavedPaymentToken[]>([])
+const saveCardConsent = ref(false)
+const selectedSavedTokenId = ref<string | null>(null)
+let savedCardsGeneration = 0
+
+async function loadSavedCards() {
+  const generation = ++savedCardsGeneration
+  savedCardsAvailable.value = false
+  savedCardsConsentVersion.value = ''
+  savedPaymentTokens.value = []
+  saveCardConsent.value = false
+  selectedSavedTokenId.value = null
+  savedCardsError.value = ''
+  if (
+    runtime.public.serverRuntime !== 'cloudflare' ||
+    ready?.value !== true ||
+    loggedIn.value !== true ||
+    user.value?.emailVerified !== true ||
+    !z.string().uuid().safeParse(user.value?.id).success ||
+    !z.string().uuid().safeParse(session?.value?.sessionId).success ||
+    !Number.isSafeInteger(session?.value?.sessionVersion) ||
+    Number(session?.value?.sessionVersion) < 1
+  ) {
+    savedCardsLoading.value = false
+    return
+  }
+  savedCardsLoading.value = true
+  try {
+    const availRaw = await $fetch('/api/account/saved-cards/availability', {
+      method: 'GET',
+      retry: 0,
+      cache: 'no-store'
+    })
+    const avail = savedCardsAvailabilitySchema.parse(availRaw)
+    if (generation !== savedCardsGeneration) return
+    savedCardsAvailable.value = avail.available
+    savedCardsConsentVersion.value = avail.consentVersion
+    if (!avail.available) return
+    const tokensRaw = await $fetch('/api/account/payment-tokens', {
+      method: 'GET',
+      retry: 0,
+      cache: 'no-store'
+    })
+    const parsedTokens = savedPaymentTokensResponseSchema.parse(tokensRaw)
+    if (generation !== savedCardsGeneration) return
+    savedPaymentTokens.value = parsedTokens.tokens.filter((token) => token.status === 'active')
+  } catch {
+    if (generation !== savedCardsGeneration) return
+    savedCardsAvailable.value = false
+    savedPaymentTokens.value = []
+  } finally {
+    if (generation === savedCardsGeneration) savedCardsLoading.value = false
+  }
+}
+
 const creditTermsSchema = z
   .object({
     terms: z
@@ -252,6 +516,7 @@ watch(
     session?.value?.sessionVersion
   ],
   async () => {
+    void loadSavedCards()
     const generation = ++creditReadGeneration
     creditTerms.value = null
     if (
@@ -308,6 +573,10 @@ const checkoutCommand = shallowRef<{
   cloudflare: boolean
   paymentMethod: typeof paymentMethod.value
   paymentKey: string
+  walletMethod?: 'apple_pay' | 'google_pay' | null
+  walletDeviceAvailable?: boolean
+  saveCardConsent?: boolean
+  savedToken?: { id: string; version: number } | null
 } | null>(null)
 const uncertainOrder = computed(() => !!checkoutCommand.value && !pendingOrder.value)
 const checkingOrder = ref(false)
@@ -432,6 +701,9 @@ onBeforeUnmount(() => {
   clearTimeout(rateTimer)
   shippingRateRequestId++
   creditReadGeneration++
+  marketProfileReadGeneration++
+  walletCapabilitiesGeneration++
+  savedCardsGeneration++
 })
 
 async function refreshShippingRates() {
@@ -531,7 +803,10 @@ watch(
     billingAddress,
     billingSameAsShipping,
     marketingConsent,
-    purchaseOrderReference
+    purchaseOrderReference,
+    saveCardConsent,
+    selectedSavedTokenId,
+    selectedWallet
   ],
   () => {
     if (checkoutCommand.value || pendingOrder.value || submitting.value) return
@@ -592,22 +867,27 @@ function validate() {
   if (!form.email.trim()) errors.email = 'Indica el email'
   else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errors.email = 'El email no parece válido'
   if (!form.phone.trim()) errors.phone = 'Indica un teléfono de contacto'
-  if (form.nif.trim() && !isValidTaxId(form.nif)) errors.nif = 'Revisa el NIF, NIE o CIF'
+  if (form.nif.trim() && shippingAddress.countryCode === 'ES' && !isValidTaxId(form.nif))
+    errors.nif = 'Revisa el NIF, NIE o CIF'
   if (!shippingAddress.recipientName.trim()) errors.shippingRecipientName = 'Indica el destinatario'
   if (!shippingAddress.phone.trim()) errors.shippingPhone = 'Indica el teléfono de entrega'
   if (!shippingAddress.line1.trim()) errors.shippingLine1 = 'Indica la dirección'
   if (!shippingAddress.postalCode.trim()) errors.shippingPostalCode = 'Indica el código postal'
-  else if (!/^\d{5}$/.test(shippingAddress.postalCode.trim()))
-    errors.shippingPostalCode = 'El código postal debe tener 5 cifras'
+  else if (!isValidPostalCode(shippingAddress.postalCode, shippingAddress.countryCode))
+    errors.shippingPostalCode =
+      shippingAddress.countryCode === 'ES'
+        ? 'El código postal debe tener 5 cifras'
+        : 'Revisa el código postal del país seleccionado'
   if (!shippingAddress.city.trim()) errors.shippingCity = 'Indica la población'
   if (!billingSameAsShipping.value) {
     if (!billingAddress.recipientName.trim()) errors.billingRecipientName = 'Indica el titular de facturación'
     if (!billingAddress.line1.trim()) errors.billingLine1 = 'Indica la dirección fiscal'
     if (!billingAddress.postalCode.trim()) errors.billingPostalCode = 'Indica el código postal fiscal'
-    else if (!/^\d{5}$/.test(billingAddress.postalCode.trim()))
-      errors.billingPostalCode = 'El código postal debe tener 5 cifras'
+    else if (!isValidPostalCode(billingAddress.postalCode, billingAddress.countryCode))
+      errors.billingPostalCode =
+        billingAddress.countryCode === 'ES' ? 'El código postal debe tener 5 cifras' : 'Revisa el código postal fiscal'
     if (!billingAddress.city.trim()) errors.billingCity = 'Indica la población fiscal'
-    if (billingAddress.taxId.trim() && !isValidTaxId(billingAddress.taxId))
+    if (billingAddress.taxId.trim() && billingAddress.countryCode === 'ES' && !isValidTaxId(billingAddress.taxId))
       errors.billingTaxId = 'Revisa el NIF, NIE o CIF'
   }
   if (!acceptTerms.value) errors.terms = 'Debes aceptar las condiciones para continuar'
@@ -635,6 +915,24 @@ function scrollToFirstError() {
   else scrollTo('checkout-alert', 'center')
 }
 
+async function submitWithWallet(method: 'apple_pay' | 'google_pay') {
+  if (submitting.value || checkingOrder.value || uncertainOrder.value) return
+  if (!walletCapabilities.value[method]) return
+  paymentMethod.value = 'tarjeta'
+  selectedWallet.value = method
+  selectedSavedTokenId.value = null
+  await submit()
+}
+
+async function payWithOneClick(token: SavedPaymentToken) {
+  if (submitting.value || checkingOrder.value || uncertainOrder.value) return
+  paymentMethod.value = 'tarjeta'
+  selectedSavedTokenId.value = token.id
+  selectedWallet.value = null
+  saveCardConsent.value = false
+  await submit()
+}
+
 async function submit() {
   if (submitting.value || checkingOrder.value || uncertainOrder.value) return
   if (!pendingOrder.value && couponNeedsApply.value) {
@@ -645,8 +943,16 @@ async function submit() {
     errorMsg.value = cartMutationNotice
     return
   }
+  if (!pendingOrder.value && isInternationalMarket.value && (marketProfileLoading.value || !marketProfile.value)) {
+    errorMsg.value =
+      marketProfileError.value ||
+      'No hemos podido verificar el perfil de checkout del país seleccionado. Espera o selecciona otro destino.'
+    scrollTo('checkout-alert', 'center')
+    return
+  }
   submitting.value = true
   errorMsg.value = ''
+  walletFallbackNotice.value = ''
   try {
     if (!pendingOrder.value && !validate()) {
       errorMsg.value = 'Revisa los campos marcados.'
@@ -666,28 +972,46 @@ async function submit() {
       await cart.ensureLoaded()
       if (cart.pendingMutation) throw new Error(cartMutationNotice)
       if (!cart.id) throw new Error('El carrito no está disponible')
+      const cloudflare = isCloudflareRate(rate)
+      const activeMarket = isInternationalMarket.value && marketProfile.value ? marketProfile.value : null
+      const expectedTotal = marketPresentment.value ? marketPresentment.value.totalMinor : rate.totalGrossCents
+      const activeSavedToken = selectedSavedTokenId.value
+        ? (savedPaymentTokens.value.find((t) => t.id === selectedSavedTokenId.value) ?? null)
+        : null
       const common = {
         customer: { ...form },
         shippingAddress: { ...shippingAddress },
         billingAddress: effectiveBillingAddress(),
-        expectedTotalGrossCents: rate.totalGrossCents,
+        expectedTotalGrossCents: expectedTotal,
         paymentMethod: paymentMethod.value,
         cartId: cart.id,
         cartVersion: cart.version,
         termsAccepted: true,
         marketingConsent: marketingConsent.value
       }
-      const cloudflare = isCloudflareRate(rate)
       const reference = cloudflare ? normalizedPurchaseOrderReference() : undefined
       checkoutCommand.value = {
         cloudflare,
         paymentMethod: paymentMethod.value,
         paymentKey: checkoutAttempt.paymentKey,
+        walletMethod: selectedWallet.value,
+        walletDeviceAvailable: walletDeviceAvailable.value,
+        saveCardConsent: saveCardConsent.value,
+        savedToken: activeSavedToken ? { id: activeSavedToken.id, version: activeSavedToken.version } : null,
         ...(cloudflare ? { headers: { 'Idempotency-Key': checkoutAttempt.idempotencyKey } } : {}),
         body: cloudflare
           ? {
               ...common,
               ...(reference ? { purchaseOrderReference: reference } : {}),
+              ...(activeMarket
+                ? {
+                    marketCheckout: {
+                      market: activeMarket.market,
+                      version: activeMarket.version,
+                      termsVersion: activeMarket.termsVersion
+                    }
+                  }
+                : {}),
               quoteId: rate.quoteId,
               shippingQuoteId: rate.shippingQuoteId,
               optionIndex: rate.optionIndex,
@@ -714,9 +1038,109 @@ async function submit() {
     }
 
     if (cart.pendingMutation) throw new Error(cartMutationNotice)
-    const originalPaymentMethod = checkoutCommand.value!.paymentMethod
+    const command = checkoutCommand.value!
+    const originalPaymentMethod = command.paymentMethod
     if (originalPaymentMethod === 'transferencia') {
       await finish(order)
+      return
+    }
+
+    const orderAuthHeaders = (idempotencyKey: string): Record<string, string> => ({
+      'Idempotency-Key': idempotencyKey,
+      ...(order.token ? { Authorization: `Order ${order.token}` } : {})
+    })
+
+    // PAY-019: Apple Pay / Google Pay payment intent with automatic fallback to Redirect
+    if (order.cloudflare && command.walletMethod) {
+      const walletRes = await $fetch<{
+        paymentIntentId: string
+        status: string
+        redirect: { actionUrl: string; method: 'POST'; fields: Record<string, string> }
+        wallet: {
+          requested: 'apple_pay' | 'google_pay'
+          resolved: 'apple_pay' | 'google_pay' | 'redirect'
+          fallback: 'redirect'
+        }
+      }>(`/api/orders/${encodeURIComponent(order.id)}/wallet-payment-intents`, {
+        method: 'POST',
+        headers: orderAuthHeaders(command.paymentKey),
+        body: {
+          method: command.walletMethod,
+          deviceAvailable: command.walletDeviceAvailable !== false
+        }
+      })
+      if (walletRes.wallet.resolved === 'redirect') {
+        walletFallbackNotice.value =
+          'El pago con wallet no está disponible en este momento; continuamos en la pasarela segura de redirección.'
+      }
+      pendingOrder.value = order
+      cart.resetLocal()
+      submitHostedPayment(walletRes.redirect)
+      return
+    }
+
+    // PAY-022: One-click payment with an active saved card token
+    if (order.cloudflare && command.savedToken) {
+      const oneClickRaw = await $fetch('/api/account/saved-cards/one-click', {
+        method: 'POST',
+        headers: orderAuthHeaders(command.paymentKey),
+        body: {
+          tokenId: command.savedToken.id,
+          orderId: order.id,
+          commandId: command.paymentKey,
+          expectedVersion: command.savedToken.version
+        }
+      })
+      const oneClick = oneClickResponseSchema.parse(oneClickRaw)
+      if (oneClick.outcome === 'paid') {
+        await finish(order)
+        return
+      }
+      if (oneClick.outcome === 'declined') {
+        checkoutCommand.value = {
+          ...command,
+          savedToken: null,
+          paymentKey: randomId()
+        }
+        selectedSavedTokenId.value = null
+        errorMsg.value =
+          'El cobro con tarjeta guardada ha sido denegado. Puedes reintentar el pago del pedido mediante redirección segura.'
+        scrollTo('checkout-alert', 'center')
+        return
+      }
+      errorMsg.value =
+        'El pago con tarjeta guardada está en revisión o pendiente de confirmación. Comprueba el estado de tu pedido.'
+      await finish(order)
+      return
+    }
+
+    // PAY-022: Explicit consent to save card during Redirect payment
+    if (
+      order.cloudflare &&
+      originalPaymentMethod === 'tarjeta' &&
+      command.saveCardConsent &&
+      savedCardsAvailable.value &&
+      savedCardsConsentVersion.value
+    ) {
+      const consentPay = await $fetch<{
+        paymentIntentId: string
+        status: string
+        expiresAt: string
+        consentVersion: string
+        redirect: { actionUrl: string; method: 'POST'; fields: Record<string, string> }
+      }>('/api/account/saved-cards/consent-payments', {
+        method: 'POST',
+        headers: orderAuthHeaders(command.paymentKey),
+        body: {
+          orderId: order.id,
+          commandId: command.paymentKey,
+          consent: true,
+          consentVersion: savedCardsConsentVersion.value
+        }
+      })
+      pendingOrder.value = order
+      cart.resetLocal()
+      submitHostedPayment(consentPay.redirect)
       return
     }
 
@@ -725,7 +1149,7 @@ async function submit() {
       redirect: { actionUrl: string; method: 'POST'; fields: Record<string, string> } | null
     }>('/api/checkout/pay', {
       method: 'POST',
-      ...(order.cloudflare ? { headers: { 'Idempotency-Key': checkoutCommand.value!.paymentKey } } : {}),
+      ...(order.cloudflare ? { headers: { 'Idempotency-Key': command.paymentKey } } : {}),
       body: order.cloudflare
         ? { orderId: order.id, method: originalPaymentMethod }
         : { orderId: order.id, token: order.token, method: originalPaymentMethod }
@@ -740,15 +1164,48 @@ async function submit() {
   } catch (error) {
     const responseData =
       error && typeof error === 'object' && 'data' in error
-        ? (error as { data?: { data?: { code?: string }; code?: string; error?: { code?: string } } }).data
+        ? (
+            error as {
+              data?: {
+                data?: { code?: string; reason?: string }
+                code?: string
+                reason?: string
+                outcome?: string
+                error?: { code?: string; message?: string }
+              }
+            }
+          ).data
         : undefined
+    const reason = responseData?.reason ?? responseData?.data?.reason
     const quoteChanged =
       responseData?.code === 'CHECKOUT_QUOTE_CHANGED' ||
       responseData?.data?.code === 'CHECKOUT_QUOTE_CHANGED' ||
-      responseData?.error?.code === 'CHECKOUT_QUOTE_CHANGED'
+      responseData?.error?.code === 'CHECKOUT_QUOTE_CHANGED' ||
+      responseData?.outcome === 'revalidation_required' ||
+      reason === 'market_changed' ||
+      reason === 'terms_changed' ||
+      reason === 'display_total_changed'
     const failure = error && typeof error === 'object' ? (error as { status?: unknown; statusCode?: unknown }) : null
     const status = Number(failure?.statusCode ?? failure?.status)
     const code = responseData?.error?.code
+    // If a saved-card token was revoked or stale after order creation, allow fallback to standard Redirect on retry
+    if (
+      pendingOrder.value &&
+      checkoutCommand.value?.savedToken &&
+      (status === 404 || status === 409 || status === 422 || status === 503)
+    ) {
+      checkoutCommand.value = {
+        ...checkoutCommand.value,
+        savedToken: null,
+        paymentKey: randomId()
+      }
+      selectedSavedTokenId.value = null
+      void loadSavedCards()
+      errorMsg.value =
+        'La tarjeta guardada ya no está disponible. Puedes completar el pago del pedido mediante redirección segura.'
+      scrollTo('checkout-alert', 'center')
+      return
+    }
     // These exact Cloudflare rejections occur before order/reservation writes.
     // Other failures (including 401 after commit) must retain the original intent.
     const definitiveRejection =
@@ -763,24 +1220,39 @@ async function submit() {
     }
     if (quoteChanged && !pendingOrder.value) {
       checkoutCommand.value = null
+      resetUnsubmittedCheckoutKeys()
+      if (isInternationalMarket.value) {
+        await loadMarketProfile(shippingAddress.countryCode)
+      }
+      if (reason === 'terms_changed') {
+        acceptTerms.value = false
+      }
       await refreshShippingRates()
     }
     errorMsg.value =
-      definitiveRejection && code === 'credit_limit_exceeded' && !pendingOrder.value
-        ? 'El pedido supera tu límite de crédito disponible. Elige otro método de pago o contacta con nosotros.'
-        : definitiveRejection && code === 'credit_unavailable' && !pendingOrder.value
-          ? 'Tu crédito no está disponible. Elige otro método de pago o contacta con nosotros.'
-          : definitiveRejection && code === 'payment_total_non_positive' && !pendingOrder.value
-            ? 'El total a pagar debe ser mayor que cero. Quita o ajusta el cupón antes de continuar.'
-            : uncertainOrder.value
-              ? 'No hemos podido confirmar si se creó el pedido. Comprueba el pedido antes de volver a pagar; conservamos el intento original.'
-              : apiErrorMessage(
-                  error,
-                  'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.'
-                )
+      reason === 'terms_changed' && !pendingOrder.value
+        ? 'Las condiciones del mercado seleccionado se han actualizado. Revisa y vuelve a aceptar los términos antes de continuar.'
+        : (reason === 'market_changed' || reason === 'display_total_changed') && !pendingOrder.value
+          ? 'El perfil fiscal o el importe del mercado seleccionado ha cambiado. Revisa el nuevo total antes de confirmar.'
+          : definitiveRejection && code === 'credit_limit_exceeded' && !pendingOrder.value
+            ? 'El pedido supera tu límite de crédito disponible. Elige otro método de pago o contacta con nosotros.'
+            : definitiveRejection && code === 'credit_unavailable' && !pendingOrder.value
+              ? 'Tu crédito no está disponible. Elige otro método de pago o contacta con nosotros.'
+              : definitiveRejection && code === 'payment_total_non_positive' && !pendingOrder.value
+                ? 'El total a pagar debe ser mayor que cero. Quita o ajusta el cupón antes de continuar.'
+                : uncertainOrder.value
+                  ? 'No hemos podido confirmar si se creó el pedido. Comprueba el pedido antes de volver a pagar; conservamos el intento original.'
+                  : apiErrorMessage(
+                      error,
+                      'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.'
+                    )
     scrollTo('checkout-alert', 'center')
   } finally {
     submitting.value = false
+    if (!checkoutCommand.value) {
+      selectedWallet.value = null
+      selectedSavedTokenId.value = null
+    }
   }
 }
 
@@ -797,6 +1269,15 @@ async function finish(order: { id: string; token?: string }) {
 
     <ClientOnly>
       <CartRecoverySection stage="checkout" />
+      <p
+        v-if="walletFallbackNotice"
+        data-testid="wallet-fallback-notice"
+        role="status"
+        aria-live="polite"
+        class="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm font-medium text-amber-800"
+      >
+        {{ walletFallbackNotice }}
+      </p>
       <UAlert
         v-if="recoveryError"
         class="mt-6"
@@ -923,6 +1404,65 @@ async function finish(order: { id: string; token?: string }) {
               <UFormField label="Provincia">
                 <UInput v-model="shippingAddress.region" class="w-full" autocomplete="shipping address-level1" />
               </UFormField>
+              <div v-if="runtime.public.serverRuntime === 'cloudflare'" class="sm:col-span-2">
+                <label for="shipping-country" class="block text-sm font-medium text-slate-700"
+                  >País / mercado de destino</label
+                >
+                <select
+                  id="shipping-country"
+                  v-model="shippingAddress.countryCode"
+                  data-testid="checkout-market-select"
+                  :disabled="Boolean(checkoutCommand || pendingOrder || submitting)"
+                  class="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60"
+                >
+                  <option v-for="c in CHECKOUT_COUNTRIES" :key="c.code" :value="c.code">{{ c.label }}</option>
+                </select>
+                <p
+                  v-if="marketProfileLoading"
+                  data-testid="checkout-market-loading"
+                  role="status"
+                  aria-live="polite"
+                  class="mt-2 text-sm text-slate-600"
+                >
+                  Cargando perfil fiscal y de envío del mercado…
+                </p>
+                <p
+                  v-if="marketProfileError"
+                  data-testid="checkout-market-error"
+                  role="alert"
+                  class="mt-2 text-sm text-red-700"
+                >
+                  {{ marketProfileError }}
+                </p>
+                <div
+                  v-if="marketProfile && marketPresentment"
+                  data-testid="checkout-market-summary"
+                  role="region"
+                  aria-label="Condiciones del mercado de destino"
+                  class="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700"
+                >
+                  <p class="font-semibold text-slate-900">
+                    Mercado {{ marketProfile.market }} · Divisa {{ marketProfile.currency }} · Versión v{{
+                      marketProfile.version
+                    }}
+                  </p>
+                  <p class="mt-1" data-testid="checkout-market-tax">
+                    Impuestos aplicables ({{ (marketProfile.goodsTaxBps / 100).toFixed(2) }}%):
+                    {{ formatMarketCurrency(marketPresentment.goodsTaxMinor, marketPresentment.currency) }}
+                  </p>
+                  <p class="mt-0.5" data-testid="checkout-market-shipping">
+                    Envío internacional ({{ (marketProfile.shippingTaxBps / 100).toFixed(2) }}% imp. incl.):
+                    {{ formatMarketCurrency(marketPresentment.shippingGrossMinor, marketPresentment.currency) }}
+                  </p>
+                  <p class="mt-0.5" data-testid="checkout-market-terms">
+                    Versión de términos del mercado: <span class="font-mono">{{ marketProfile.termsVersion }}</span>
+                  </p>
+                  <p class="mt-1 font-semibold text-slate-900" data-testid="checkout-market-total">
+                    Total en divisa de destino:
+                    {{ formatMarketCurrency(marketPresentment.totalMinor, marketPresentment.currency) }}
+                  </p>
+                </div>
+              </div>
               <UFormField label="Notas para el reparto" hint="opcional">
                 <UInput v-model="shippingAddress.instructions" placeholder="Horario, muelle de carga…" class="w-full" />
               </UFormField>
@@ -1071,13 +1611,111 @@ async function finish(order: { id: string; token?: string }) {
                 <UIcon name="i-lucide-credit-card" class="size-5 text-slate-500" />
                 <span class="font-medium text-slate-800">Tarjeta de crédito / débito</span>
               </label>
-              <div v-if="paymentMethod === 'tarjeta'" class="ml-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
-                <UIcon name="i-lucide-shield-check" class="mr-1 inline size-4 text-emerald-600" />
-                Introducirás la tarjeta y completarás la autenticación bancaria en la página segura de Redsys. NETECO no
-                recibe ni almacena el número de tarjeta ni el CVC.
+              <div
+                v-if="paymentMethod === 'tarjeta'"
+                class="ml-2 space-y-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"
+              >
+                <p>
+                  <UIcon name="i-lucide-shield-check" class="mr-1 inline size-4 text-emerald-600" />
+                  Introducirás la tarjeta y completarás la autenticación bancaria en la página segura de Redsys. NETECO
+                  no recibe ni almacena el número de tarjeta ni el CVC.
+                </p>
+
+                <!-- PAY-022: Tarjetas guardadas elegibles para pago en un clic y consentimiento explícito -->
+                <div
+                  v-if="savedCardsAvailable"
+                  class="space-y-3 border-t border-slate-200 pt-3"
+                  data-testid="saved-cards-section"
+                >
+                  <div v-if="savedPaymentTokens.length" class="space-y-2" data-testid="saved-cards-list">
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-700">
+                      Tarjetas guardadas para pago rápido
+                    </p>
+                    <div
+                      v-for="token in savedPaymentTokens"
+                      :key="token.id"
+                      class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800"
+                    >
+                      <span>
+                        Referencia guardada <span class="font-mono">{{ token.id.slice(0, 8) }}</span> (v{{
+                          token.version
+                        }})
+                      </span>
+                      <UButton
+                        type="button"
+                        size="xs"
+                        :data-testid="`one-click-pay-${token.id}`"
+                        :loading="submitting && selectedSavedTokenId === token.id"
+                        :disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
+                        @click="payWithOneClick(token)"
+                      >
+                        Pagar en 1 clic
+                      </UButton>
+                    </div>
+                  </div>
+
+                  <label class="flex items-start gap-2 text-xs text-slate-700">
+                    <input
+                      v-model="saveCardConsent"
+                      type="checkbox"
+                      data-testid="save-card-consent"
+                      :disabled="Boolean(checkoutCommand || pendingOrder || submitting)"
+                      class="mt-0.5 accent-neteco-600"
+                    />
+                    <span>
+                      Autorizo guardar una referencia tokenizada de mi tarjeta tras este pago para futuras compras en un
+                      clic (versión <span class="font-mono">{{ savedCardsConsentVersion }}</span
+                      >). No almacenamos PAN ni CVV.
+                    </span>
+                  </label>
+
+                  <p class="text-xs text-slate-600">
+                    Puedes consultar o revocar tus tarjetas guardadas en cualquier momento desde
+                    <a
+                      href="/cuenta/metodos-de-pago"
+                      data-testid="revoke-saved-card-link"
+                      class="font-medium text-neteco-700 underline hover:text-neteco-600"
+                      >Mis métodos de pago</a
+                    >.
+                  </p>
+                </div>
+
+                <!-- PAY-019: Apple Pay / Google Pay solo cuando capabilities lo habilitan -->
+                <div
+                  v-if="walletCapabilities.apple_pay || walletCapabilities.google_pay"
+                  class="space-y-2 border-t border-slate-200 pt-3"
+                  data-testid="wallet-payment-options"
+                >
+                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-700">Pago rápido con wallet</p>
+                  <div class="flex flex-wrap gap-2">
+                    <UButton
+                      v-if="walletCapabilities.apple_pay"
+                      type="button"
+                      variant="outline"
+                      data-testid="wallet-pay-apple_pay"
+                      :loading="submitting && selectedWallet === 'apple_pay'"
+                      :disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
+                      @click="submitWithWallet('apple_pay')"
+                    >
+                      Pagar con Apple Pay
+                    </UButton>
+                    <UButton
+                      v-if="walletCapabilities.google_pay"
+                      type="button"
+                      variant="outline"
+                      data-testid="wallet-pay-google_pay"
+                      :loading="submitting && selectedWallet === 'google_pay'"
+                      :disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
+                      @click="submitWithWallet('google_pay')"
+                    >
+                      Pagar con Google Pay
+                    </UButton>
+                  </div>
+                </div>
               </div>
 
               <label
+                v-if="!isInternationalMarket"
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
                 :class="
                   paymentMethod === 'bizum'
@@ -1089,13 +1727,20 @@ async function finish(order: { id: string; token?: string }) {
                 <UIcon name="i-lucide-smartphone" class="size-5 text-slate-500" />
                 <span class="font-medium text-slate-800">Bizum</span>
               </label>
-              <div v-if="paymentMethod === 'bizum'" class="ml-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">
+              <div
+                v-if="!isInternationalMarket && paymentMethod === 'bizum'"
+                class="ml-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"
+              >
                 Te enviaremos a Redsys para autorizar el pago con Bizum de forma segura.
               </div>
 
               <label
                 v-if="
-                  (runtime.public.bankTransferEnabled && !cloudflareCheckout) || (cloudflareCheckout && creditEligible)
+                  ((runtime.public.bankTransferEnabled && !cloudflareCheckout) ||
+                    (cloudflareCheckout && creditEligible)) &&
+                  (!isInternationalMarket ||
+                    marketProfile?.paymentMethods.includes('credit') ||
+                    marketProfile?.paymentMethods.includes('bank_transfer'))
                 "
                 class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
                 :class="
@@ -1230,16 +1875,31 @@ async function finish(order: { id: string; token?: string }) {
                 Envío · {{ SHIPPING_METHODS.find((m) => m.value === shippingMethod)?.label }}
               </dt>
               <dd class="shrink-0">
-                {{ selectedShippingRate ? (shippingCost ? formatPrice(shippingCost) : 'Gratis') : 'Por calcular' }}
+                <template v-if="marketPresentment">
+                  {{ formatMarketCurrency(marketPresentment.shippingGrossMinor, marketPresentment.currency) }}
+                </template>
+                <template v-else>
+                  {{ selectedShippingRate ? (shippingCost ? formatPrice(shippingCost) : 'Gratis') : 'Por calcular' }}
+                </template>
               </dd>
             </div>
             <div class="flex justify-between text-xs text-slate-500">
               <dt>IVA incluido según producto y servicio</dt>
-              <dd>{{ formatPrice(tax) }}</dd>
+              <dd>
+                <template v-if="marketPresentment">
+                  {{ formatMarketCurrency(marketPresentment.taxMinor, marketPresentment.currency) }}
+                </template>
+                <template v-else>{{ formatPrice(tax) }}</template>
+              </dd>
             </div>
             <div class="flex justify-between border-t border-slate-100 pt-3">
               <dt class="text-base font-semibold">Total</dt>
-              <dd data-testid="checkout-total" class="text-xl font-bold">{{ formatPrice(total) }}</dd>
+              <dd data-testid="checkout-total" class="text-xl font-bold">
+                <template v-if="marketPresentment">
+                  {{ formatMarketCurrency(marketPresentment.totalMinor, marketPresentment.currency) }}
+                </template>
+                <template v-else>{{ formatPrice(total) }}</template>
+              </dd>
             </div>
           </dl>
 
@@ -1299,7 +1959,12 @@ async function finish(order: { id: string; token?: string }) {
             block
             class="mt-4"
             :loading="submitting"
-            :disabled="uncertainOrder || checkingOrder || cart.pendingMutation"
+            :disabled="
+              uncertainOrder ||
+              checkingOrder ||
+              cart.pendingMutation ||
+              (isInternationalMarket && (marketProfileLoading || !marketProfile))
+            "
             icon="i-lucide-lock"
           >
             {{
@@ -1307,7 +1972,9 @@ async function finish(order: { id: string; token?: string }) {
                 ? 'Reintentar el pago del pedido original'
                 : paymentMethod === 'transferencia'
                   ? 'Confirmar pedido'
-                  : `Pagar ${formatPrice(total)}`
+                  : marketPresentment
+                    ? `Pagar ${formatMarketCurrency(marketPresentment.totalMinor, marketPresentment.currency)}`
+                    : `Pagar ${formatPrice(total)}`
             }}
           </UButton>
           <!-- La confianza se pone donde está la duda: el momento anterior a introducir la
