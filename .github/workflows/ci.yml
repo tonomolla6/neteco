@@ -3,7 +3,7 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, "codex/neteco-produccion-*"]
+    branches: [main]
 
 permissions:
   contents: read
