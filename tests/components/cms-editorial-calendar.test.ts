@@ -60,6 +60,7 @@ beforeEach(() => {
   )
 })
 afterEach(() => {
+  vi.useRealTimers()
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
 })
 async function render(props: Record<string, unknown> = {}) {
@@ -147,6 +148,9 @@ describe('CMS editorial calendar actual Nuxt component', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
   it('shows both repeated Madrid times with unambiguous UTC offsets', async () => {
+    // The events are in the October DST change; pin only Date so the requested month is October.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(AS_OF))
     fetchMock.mockImplementation(async (_path, options) => {
       const result = calendar(options.query.month, 1, 2)
       return { ...result, events: [event('2026-10-25T00:30:00Z', 0), event('2026-10-25T01:30:00Z', 1)] }

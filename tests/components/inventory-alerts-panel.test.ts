@@ -437,6 +437,8 @@ describe('inventory alert reads and governed actions', () => {
     expect(wrapper.text()).toContain('Nuevo umbral: 7')
     await wrapper.get('[data-testid="alerts-confirm"]').trigger('click')
     await flushPromises()
+    // Hashing/receipt verification is genuinely asynchronous; wait for the outcome.
+    await vi.waitFor(() => expect(wrapper.emitted('confirmed')).toHaveLength(1))
     expect(writes()).toHaveLength(1)
     expect(writes()[0]).toMatchObject([
       '/api/admin/inventory/variants/11/alert-policy',
@@ -453,6 +455,7 @@ describe('inventory alert reads and governed actions', () => {
     expect(writes()).toHaveLength(0)
     await wrapper.get('[data-testid="alerts-confirm"]').trigger('click')
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.emitted('confirmed')).toHaveLength(1))
     expect(writes()).toHaveLength(1)
     expect(writes()[0]![1].body).toEqual({ expectedVersion: 1, reason: 'Revisión operativa documentada' })
     expect(mocks.request.mock.calls).toContainEqual([
@@ -477,10 +480,14 @@ describe('inventory alert reads and governed actions', () => {
     await prepareAck(wrapper)
     await wrapper.get('[data-testid="alerts-confirm"]').trigger('click')
     await flushPromises()
+    // The recover button stays disabled while the lost POST is still settling.
+    await vi.waitFor(() =>
+      expect(wrapper.find('[data-testid="alerts-recover"]').attributes('disabled')).toBeUndefined()
+    )
     expect(wrapper.emitted('confirmed')).toBeUndefined()
     expect(wrapper.emitted('pending')?.at(-1)).toEqual([true])
     await wrapper.get('[data-testid="alerts-recover"]').trigger('click')
-    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.emitted('confirmed')).toHaveLength(1))
     expect(writes()).toHaveLength(1)
     const lookup = mocks.request.mock.calls.find(([path]) => path.includes('/commands/'))!
     expect(lookup[0]).not.toContain('Revisión')
@@ -544,19 +551,17 @@ describe('inventory alert reads and governed actions', () => {
     const wrapper = await panel()
     await wrapper.get('[data-testid="alerts-evaluate"]').trigger('click')
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="alerts-confirm"]').exists()).toBe(true))
     const confirm = wrapper.get('[data-testid="alerts-confirm"]')
     await confirm.trigger('click')
     await confirm.trigger('click')
-    await flushPromises()
-    expect(writes()).toHaveLength(1)
+    await vi.waitFor(() => expect(writes()).toHaveLength(1))
     hold.resolve(undefined)
-    await flushPromises()
-    expect(wrapper.find('[data-testid="alerts-evaluate-next"]').exists()).toBe(true)
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="alerts-evaluate-next"]').exists()).toBe(true))
     expect(writes()).toHaveLength(1)
     await wrapper.get('[data-testid="alerts-evaluate-next"]').trigger('click')
-    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('después de la variante 11'))
     expect(writes()).toHaveLength(1)
-    expect(wrapper.text()).toContain('después de la variante 11')
   })
   it('does not clear a historical receipt if the current read fails', async () => {
     const service = api()
@@ -608,7 +613,7 @@ describe('inventory alert reads and governed actions', () => {
     const wrapper = await panel()
     await prepareAck(wrapper)
     await wrapper.get('[data-testid="alerts-confirm"]').trigger('click')
-    await flushPromises()
+    await vi.waitFor(() => expect(writes()).toHaveLength(1))
     await wrapper.setProps({ scopeKey: 'another-session', enabled: false })
     hold.resolve(committed)
     await flushPromises()

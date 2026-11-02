@@ -53,7 +53,7 @@ export async function aiTestFixture() {
   const database = d1OverSqlite(sqlite)
   seedInventoryFixture(sqlite, { initialPhysicalQuantity: 50 })
   const past = '2026-10-29T00:00:00Z'
-  const future = '2026-10-30T23:59:59Z'
+  const future = '2099-01-01T00:00:00Z'
 
   await provisionPublicationValidityFixture(database, { productIds: ['p-1'], now: past })
 

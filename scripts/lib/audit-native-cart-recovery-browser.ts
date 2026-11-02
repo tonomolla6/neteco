@@ -101,7 +101,17 @@ export function createCartRecoveryBrowserBridge(input: CartRecoveryBrowserBridge
           '/favicon.ico'
         ].includes(url.pathname) ||
           /^\/_nuxt\/[A-Za-z0-9_./-]+$/.test(url.pathname))
-      if (!read && !resolve && !resume && !privacy) return { action: 'abort', reason: 'unapproved_request' }
+      // The page's own navigation capabilities read: exact path, no query, and
+      // only the fixture owner's single session credential (never another's).
+      const cookieParts = (request.headers.get('cookie') ?? '').split(';').map((part) => part.trim()),
+        capabilities =
+          request.method === 'GET' &&
+          url.pathname === '/api/admin/capabilities' &&
+          !url.search &&
+          cookieParts.includes(input.fixture.customerCookie) &&
+          cookieParts.filter((part) => part.startsWith('neteco-session=')).length === 1
+      if (!read && !capabilities && !resolve && !resume && !privacy)
+        return { action: 'abort', reason: 'unapproved_request' }
       let body: CartRecoveryResumeInput | null = null
       if (resolve || resume) {
         assert.equal(request.headers.get('origin'), input.origin)

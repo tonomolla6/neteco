@@ -241,8 +241,9 @@ it('does not confirm resume against a different cart even with the same version 
   await w.get('[data-recovery-review-resume]').trigger('click')
   await vi.waitFor(() => expect(w.find('[data-recovery-confirm]').exists()).toBe(true))
   await w.get('[data-recovery-confirm]').trigger('click')
+  // The receipt projection is verified against the live cart after real async hashing.
+  await vi.waitFor(() => expect(mocks.request.mock.calls.some(([path]) => path === '/api/cart')).toBe(true))
   await flushPromises()
-  expect(mocks.request.mock.calls.some(([path]) => path === '/api/cart')).toBe(true)
   expect(w.emitted('confirmed')).toBeUndefined()
   expect(w.find('[data-recovery-check]').exists()).toBe(true)
 })
@@ -313,7 +314,7 @@ it('scrubs a new fragment while an ambiguous resume stays bound to its original 
   expect(w.find('[data-recovery-check]').exists()).toBe(true)
   expect(writes()).toHaveLength(1)
   await w.get('[data-recovery-check]').trigger('click')
-  await flushPromises()
+  await vi.waitFor(() => expect(mocks.request.mock.calls.some(([path]) => path.includes('/commands/'))).toBe(true))
   expect(mocks.request.mock.calls.find(([path]) => path.includes('/commands/'))?.[0]).toContain(
     sent.headers['Idempotency-Key']
   )

@@ -365,8 +365,9 @@ describe('short-lived sealed guest link exchange without payment authority', () 
       const database = (await runtime.getD1Database('DB')) as unknown as D1Database
       for (const name of (await readdir('db/d1/migrations')).filter((n) => /^\d+.*\.sql$/.test(n)).sort()) {
         const statements = splitDemoSql(await readFile('db/d1/migrations/' + name, 'utf8'))
-        for (let index = 0; index < statements.length; index += 50)
-          await database.batch(statements.slice(index, index + 50).map((sql) => database.prepare(sql)))
+        // Few large batches: per-batch workerd round-trips dominate as migrations accumulate.
+        for (let index = 0; index < statements.length; index += 1000)
+          await database.batch(statements.slice(index, index + 1000).map((sql) => database.prepare(sql)))
       }
       const seeds: D1PreparedStatement[] = []
       seedInventoryFixture({
@@ -509,5 +510,7 @@ describe('short-lived sealed guest link exchange without payment authority', () 
     } finally {
       await runtime.dispose()
     }
-  }, 20000)
+    // Applying all 152 migrations to real workerd D1 measures ~11.5 s alone (not reducible by
+    // batching: tried 50 vs 1000 statements) and grows with each migration; 20 s flaked under load.
+  }, 45000)
 })

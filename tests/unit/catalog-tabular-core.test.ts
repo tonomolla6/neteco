@@ -158,8 +158,10 @@ describe('catalog tabular pure Worker-compatible core', () => {
     const expected = [
       {
         path: '../../shared/catalog-tabular-core.ts',
-        allowed: ['zod', '../server/domain/catalog-publication', '../server/utils/csv']
+        allowed: ['zod', '../server/domain/catalog-publication', '../server/utils/csv', './catalog-typed-attributes']
       },
+      { path: '../../shared/catalog-typed-attributes.ts', allowed: ['zod', './catalog-publication-policy'] },
+      { path: '../../shared/catalog-publication-policy.ts', allowed: ['zod'] },
       { path: '../../server/domain/catalog-publication.ts', allowed: [] },
       { path: '../../server/utils/csv.ts', allowed: [] }
     ]

@@ -176,6 +176,8 @@ describe('D1 administrative order reads and frontend contract', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(NOW))
     sqlite = await openMigratedDatabase()
+    // Checkout pricing resolves contractual B2B prices, which needs the B2B schema.
+    sqlite.exec(await readFile('db/d1/migrations/0101_b2b_price_lists_credit.sql', 'utf8'))
     // This local SQL clock reads the current fake Date for each statement; no
     // captured instant or scanner lifetime extension enters production code.
     sqlite.function('synthetic_admin_order_clock', () => {

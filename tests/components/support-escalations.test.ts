@@ -199,7 +199,10 @@ describe('SUP-006 explicit review and private command recovery', () => {
       return result
     })
     await click('Comprobar operación interna')
-    expect(wrapper!.text()).toContain('Operación interna confirmada con recibo y lectura actual.')
+    // Receipt correlation hashes the payload with real async crypto.
+    await vi.waitFor(() =>
+      expect(wrapper!.text()).toContain('Operación interna confirmada con recibo y lectura actual.')
+    )
     expect(request.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1)
     expect(
       request.mock.calls.find(([path]) => path.includes('/commands/'))![1].headers['X-Neteco-Command-Payload-Hash']

@@ -26,6 +26,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
       new URL('../../db/d1/migrations/0098_delivery_surveys.sql', import.meta.url),
       'utf8'
     )
+    f.sqlite.exec(await readFile('db/d1/migrations/0101_b2b_price_lists_credit.sql', 'utf8'))
     f.sqlite.exec(migration)
 
     // Also ensure support migrations exist for support ticket linking

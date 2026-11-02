@@ -378,10 +378,10 @@ describe('AdminMarketingModals command safety matrix (MKT-009 + MKT-010)', () =>
     await flushPromises()
     const listsBefore = listCalls().length
     await w.get('[data-testid="modal-verify-receipt"]').trigger('click')
-    await flushPromises()
-    expect(w.find('[data-testid="modal-frozen"]').exists()).toBe(false)
+    // Receipt correlation hashes the payload with real async crypto.
+    await vi.waitFor(() => expect(w.find('[data-testid="modal-frozen"]').exists()).toBe(false))
     expect(w.find('[data-testid="modal-replay"]').exists()).toBe(false)
-    expect(listCalls().length).toBeGreaterThan(listsBefore)
+    await vi.waitFor(() => expect(listCalls().length).toBeGreaterThan(listsBefore))
   })
 
   it('replay after an absent receipt reuses the exact same Idempotency-Key', async () => {
@@ -467,7 +467,7 @@ describe('AdminMarketingModals command safety matrix (MKT-009 + MKT-010)', () =>
     // The review step hashes the intent with crypto.subtle; wait for it instead of assuming one tick.
     await vi.waitFor(() => w.get('[data-testid="modal-policy-confirm"]'))
     await w.get('[data-testid="modal-policy-confirm"]').trigger('click')
-    await flushPromises()
+    await vi.waitFor(() => expect(w.text()).toContain('Pausa global actualizada.'))
     const policyCalls = mocks.request.mock.calls.filter(
       ([path, opts]) => path === '/api/admin/marketing-modals/policy' && opts?.method === 'POST'
     )

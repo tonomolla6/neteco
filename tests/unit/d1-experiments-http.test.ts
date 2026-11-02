@@ -42,7 +42,7 @@ async function setupTestDatabase(): Promise<DatabaseSync> {
     INSERT OR REPLACE INTO identity_roles (identity_id, role_code, granted_at)
     VALUES ('${ADMIN_ID}', 'admin', '${PAST_START}');
     INSERT OR REPLACE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at)
-    VALUES ('${ADMIN_SESSION}', '${ADMIN_ID}', 1, 1, '${PAST_START}', '2026-10-30T12:00:00Z');
+    VALUES ('${ADMIN_SESSION}', '${ADMIN_ID}', 1, 1, '${PAST_START}', '2099-01-01T00:00:00Z');
   `)
 
   // Non-admin identity
@@ -52,7 +52,7 @@ async function setupTestDatabase(): Promise<DatabaseSync> {
     INSERT OR REPLACE INTO identity_roles (identity_id, role_code, granted_at)
     VALUES ('${NON_ADMIN_ID}', 'customer', '${PAST_START}');
     INSERT OR REPLACE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at)
-    VALUES ('${NON_ADMIN_SESSION}', '${NON_ADMIN_ID}', 1, 0, '${PAST_START}', '2026-10-30T12:00:00Z');
+    VALUES ('${NON_ADMIN_SESSION}', '${NON_ADMIN_ID}', 1, 0, '${PAST_START}', '2099-01-01T00:00:00Z');
   `)
 
   return sqlite

@@ -476,8 +476,9 @@ describe('editorial-only CSV profile v1, separate from the legacy full catalogue
       { path: '../../shared/catalog-publication-policy.ts', imports: ['zod'] },
       {
         path: '../../shared/catalog-tabular-core.ts',
-        imports: ['zod', '../server/domain/catalog-publication', '../server/utils/csv']
+        imports: ['zod', '../server/domain/catalog-publication', '../server/utils/csv', './catalog-typed-attributes']
       },
+      { path: '../../shared/catalog-typed-attributes.ts', imports: ['zod', './catalog-publication-policy'] },
       { path: '../../server/domain/catalog-publication.ts', imports: [] },
       { path: '../../server/utils/csv.ts', imports: [] }
     ]

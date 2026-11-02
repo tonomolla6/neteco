@@ -65,6 +65,12 @@ const isReached = computed(() => props.evaluation.status === 'reached')
           :style="{ width: `${evaluation.progressPercent}%` }"
         />
       </div>
+
+      <!-- La página no conoce el perfil logístico real: el umbral es una referencia, no una promesa. -->
+      <p data-free-shipping-qualifier class="text-xs text-slate-500">
+        Referencia para paquetería estándar elegible. Sujeto a cotización. Palés y mercancías peligrosas no están
+        incluidos.
+      </p>
     </div>
   </div>
 </template>

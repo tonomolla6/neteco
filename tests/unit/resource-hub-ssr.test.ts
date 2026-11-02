@@ -28,7 +28,7 @@ it('renders confirmed editorial content and author in initial SSR HTML from the 
               // Only the Nuxt Vue autoimports are supplied by this standalone harness.
               source = source.replace(
                 '<script setup lang="ts">',
-                '<script setup lang="ts">\nimport { ref, shallowRef, watch, onBeforeUnmount } from "vue"'
+                '<script setup lang="ts">\nimport { computed, ref, shallowRef, watch, onBeforeUnmount } from "vue"'
               )
             }
             const parsed = parse(source, { filename: path })
@@ -82,7 +82,16 @@ it('renders confirmed editorial content and author in initial SSR HTML from the 
   const renderer: typeof import('@vue/server-renderer') = require('@vue/server-renderer')
   const module = { exports: {} as { default: Component } }
   const code = bundled.outputFiles[0]!.text
-  new Function('require', 'module', 'useRequestFetch', code)(require, module, () => request)
+  // Nuxt supplies these composables; the initial SSR request has an empty query.
+  const route = { query: {}, fullPath: '/recursos' },
+    router = { resolve: () => ({ fullPath: '/recursos' }), replace: vi.fn(), push: vi.fn() }
+  new Function('require', 'module', 'useRequestFetch', 'useRoute', 'useRouter', code)(
+    require,
+    module,
+    () => request,
+    () => route,
+    () => router
+  )
   const app = vue.createSSRApp(module.exports.default, { enabled: true, slug: 'guia-profesional' })
   const html = await renderer.renderToString(app)
   expect(request).toHaveBeenCalledTimes(1)

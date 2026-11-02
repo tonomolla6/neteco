@@ -21,7 +21,7 @@ describe('requirements inventory evidence consistency', () => {
       encoding: 'utf8',
       timeout: 10000
     })
-    expect(output).toContain('active=695 repository_evidence_percent=19.57 (not production completion)')
+    expect(output).toContain('active=695 repository_evidence_percent=37.99 (not production completion)')
     expect(readFileSync(inventoryPath, 'utf8')).toBe(source)
   })
 
@@ -36,10 +36,10 @@ describe('requirements inventory evidence consistency', () => {
       { MISSING: 0 }
     )
     expect(counts).toEqual({
-      REPO_EVIDENCE: 136,
-      PARTIAL_EXTERNAL: 121,
-      NOT_VERIFIED: 242,
-      ROADMAP_NOT_STARTED: 196,
+      REPO_EVIDENCE: 264,
+      PARTIAL_EXTERNAL: 134,
+      NOT_VERIFIED: 265,
+      ROADMAP_NOT_STARTED: 32,
       MISSING: 0,
       DISCARDED: 7
     })

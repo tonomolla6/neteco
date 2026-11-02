@@ -111,7 +111,18 @@ describe('live read-only administrative navigation capabilities', () => {
       adminNavigationGroups(result!)
         .flatMap((g) => g.links)
         .map((l) => l.to)
-    ).toEqual(['/admin/soporte'])
+    ).toEqual([
+      '/admin/clientes/contexto',
+      '/admin/soporte',
+      '/admin/soporte-analisis',
+      '/admin/soporte-educacion',
+      '/admin/solicitudes-b2b',
+      '/admin/soporte-chat',
+      '/admin/soporte-rca',
+      '/admin/gestor-cuentas',
+      '/admin/aportaciones-productos',
+      '/admin/suplantacion-soporte'
+    ])
     expect(canNavigateAdmin('/admin/soporte/abc', result!)).toBe(true)
     expect(canNavigateAdmin('/admin/soporte-ajeno', result!)).toBe(false)
     expect(canNavigateAdmin('/admin/pedidos', result!)).toBe(false)

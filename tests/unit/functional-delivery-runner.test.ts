@@ -168,9 +168,8 @@ describe('functional delivery batch runner', () => {
     const ordered = [
       'npm ci',
       'npm run typecheck:audit',
-      'npm run build:cloudflare-ui',
-      'npm run build:worker-shop',
-      'npm run audit:shop-bundle',
+      'npm run build:shop:cloudflare',
+      'npm run test:compiled',
       'npx playwright install chromium',
       'npm run audit:shop:ci'
     ]
@@ -179,6 +178,18 @@ describe('functional delivery batch runner', () => {
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
     expect(shop.match(/- run: npm run typecheck:audit/g)).toHaveLength(1)
     expect(workflow).toContain('- run: npm run typecheck:worker')
+    // The consolidated build script must still compile the UI, bundle the Worker
+    // and audit the bundle, in that order, before artifacts are emitted/verified.
+    const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'))
+    const build = pkg.scripts['build:shop:cloudflare'] as string
+    const steps = [
+      'npm run build:cloudflare-ui',
+      'npm run build:worker-shop',
+      'npm run audit:shop-bundle',
+      'npm run artifacts:cloudflare:emit'
+    ].map((step) => build.indexOf(step))
+    expect(steps.every((position) => position >= 0)).toBe(true)
+    expect(steps).toEqual([...steps].sort((a, b) => a - b))
   })
 
   it('rejects unknown, duplicated, conflicting and incomplete CLI options', () => {

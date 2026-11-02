@@ -44,8 +44,8 @@ const liveRule = {
   weight: 6,
   redirectPath: null,
   reason: 'Campaña de desinfección Q4',
-  validFrom: '2026-10-01T00:00:00Z',
-  validUntil: '2026-12-01T00:00:00Z',
+  validFrom: isoFromNow(-30),
+  validUntil: isoFromNow(30),
   status: 'active' as const,
   state: 'live' as const,
   authorId: ACTOR_ID,
@@ -62,8 +62,8 @@ const scheduledRule = {
   weight: 3,
   redirectPath: null,
   reason: 'Fin de lote antiguo programado',
-  validFrom: '2026-11-15T00:00:00Z',
-  validUntil: '2027-01-15T00:00:00Z',
+  validFrom: isoFromNow(15),
+  validUntil: isoFromNow(75),
   status: 'active' as const,
   state: 'scheduled' as const,
   authorId: ACTOR_ID,
@@ -196,6 +196,43 @@ beforeEach(() => {
   mocks.request.mockReset().mockImplementation(async (path: string) => {
     if (path === '/api/admin/search-synonyms') {
       return { source: 'cloudflare', items: [], total: 0, page: 1, perPage: 25 }
+    }
+    // The sibling semantic-evaluation panel on the page reads its own contracts.
+    if (path === '/api/admin/search-evaluations/benchmark') {
+      return {
+        totalQueries: 0,
+        totalJudgments: 0,
+        ndcgAt5: 0,
+        ndcgAt10: 0,
+        precisionAt5: 0,
+        mrr: 0,
+        semanticCoverage: 0
+      }
+    }
+    if (path === '/api/admin/search-evaluations') return { items: [], total: 0 }
+    if (path === '/api/admin/search-personalization/experiments') return { items: [] }
+    if (path.startsWith('/api/admin/search-personalization/uplift')) {
+      const variant = {
+        impressions: 0,
+        clicks: 0,
+        ctr: 0,
+        conversions: 0,
+        cvr: 0,
+        revenueCents: 0,
+        avgOrderValueCents: 0
+      }
+      return {
+        experimentId: 'rerank_affinity_v1',
+        period: { from: '2026-10-01T00:00:00Z', to: '2026-10-31T00:00:00Z' },
+        control: variant,
+        treatment: variant,
+        ctrUpliftPercent: 0,
+        convUpliftPercent: 0,
+        revenueUpliftPercent: 0,
+        statisticallySignificant: false,
+        totalEvaluatedEvents: 0,
+        explicitSortBypassHonoredCount: 0
+      }
     }
     return listPayload()
   })
@@ -342,8 +379,10 @@ describe('governed search merchandising rules UI (SEA-013)', () => {
     await wrapper.get('[data-merchandising-kind]').setValue('boost')
     await wrapper.get('[data-merchandising-product-id]').setValue(PRODUCT_A)
     await wrapper.get('[data-merchandising-weight]').setValue('5')
-    await wrapper.get('[data-merchandising-valid-from]').setValue('2026-10-01T00:00:00Z')
-    await wrapper.get('[data-merchandising-valid-until]').setValue('2027-06-01T00:00:00Z') // > 180 days
+    const validFrom = isoFromNow(-1),
+      validUntil = isoFromNow(30)
+    await wrapper.get('[data-merchandising-valid-from]').setValue(validFrom)
+    await wrapper.get('[data-merchandising-valid-until]').setValue(isoFromNow(240)) // > 180 days
     await wrapper.get('[data-merchandising-reason]').setValue('Campaña demasiado larga')
     await wrapper.get('[data-merchandising-form]').trigger('submit')
     await flushPromises()
@@ -352,7 +391,7 @@ describe('governed search merchandising rules UI (SEA-013)', () => {
 
     // Client validation blocks external or disallowed redirect paths
     await wrapper.get('[data-merchandising-kind]').setValue('redirect')
-    await wrapper.get('[data-merchandising-valid-until]').setValue('2026-12-01T00:00:00Z')
+    await wrapper.get('[data-merchandising-valid-until]').setValue(validUntil)
     await wrapper.get('[data-merchandising-redirect-path]').setValue('https://evil.example/phish')
     await wrapper.get('[data-merchandising-form]').trigger('submit')
     await flushPromises()
@@ -370,8 +409,8 @@ describe('governed search merchandising rules UI (SEA-013)', () => {
       weight: null,
       redirectPath: '/catalogo?familia=cloro',
       reason: 'Redirección aprobada para campaña de piscina',
-      validFrom: '2026-10-01T00:00:00Z',
-      validUntil: '2026-12-01T00:00:00Z'
+      validFrom,
+      validUntil
     }
     mocks.request.mockImplementationOnce(async (_path: string, options: { body: Record<string, unknown> }) =>
       buildReceipt(options.body)
@@ -548,8 +587,8 @@ describe('governed search merchandising rules UI (SEA-013)', () => {
     await wrapper.get('[data-merchandising-kind]').setValue('boost')
     await wrapper.get('[data-merchandising-product-id]').setValue(PRODUCT_B)
     await wrapper.get('[data-merchandising-weight]').setValue('4')
-    await wrapper.get('[data-merchandising-valid-from]').setValue('2026-10-01T00:00:00Z')
-    await wrapper.get('[data-merchandising-valid-until]').setValue('2026-11-01T00:00:00Z')
+    await wrapper.get('[data-merchandising-valid-from]').setValue(isoFromNow(-1))
+    await wrapper.get('[data-merchandising-valid-until]').setValue(isoFromNow(30))
     await wrapper.get('[data-merchandising-reason]').setValue('Producto en borrador')
 
     // Server rejects with 409 product_unavailable even though client UUID/fields are syntactically valid

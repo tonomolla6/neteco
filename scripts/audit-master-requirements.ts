@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { csvCell } from '../server/utils/csv'
 import { discardedRequirements, scopedRequirements } from './lib/requirements-scope'
+import { traceabilityUpdates } from './lib/requirements-traceability-updates'
 
 const reportPath = resolve('INFORME_MAESTRO_NETECO_PRODUCCION.md')
 const outputPath = resolve('docs/production/requirements-traceability.csv')
@@ -119,6 +120,8 @@ const currentPartialImplementation = new Set([
 ])
 
 function statusFor(requirement: Requirement): Status {
+  const update = traceabilityUpdates[requirement.id]
+  if (update) return update.status
   if (discardedRequirements.has(requirement.id)) return 'DISCARDED'
   if (mvpRepoEvidence.includes(requirement.id)) return 'REPO_EVIDENCE'
   if (mvpExternal.includes(requirement.id)) return 'PARTIAL_EXTERNAL'
@@ -1397,13 +1400,16 @@ const functionalBatchCheckpointNotes: Record<string, string> = {
 const rows = requirements.map((requirement) => {
   const scoped = scopedRequirements[requirement.id]
   const status = statusFor(requirement)
-  const operationalEvidence = status === 'PARTIAL_EXTERNAL' ? 'Required before phase acceptance' : ''
+  const update = traceabilityUpdates[requirement.id]
+  const operationalEvidence =
+    update?.operational_evidence ?? (status === 'PARTIAL_EXTERNAL' ? 'Required before phase acceptance' : '')
   const externalOwner =
-    status === 'PARTIAL_EXTERNAL'
+    update?.external_owner ??
+    (status === 'PARTIAL_EXTERNAL'
       ? requirement.id === 'TST-040'
         ? 'Warehouse/Administration/Support/Release management'
         : 'Business/Operations/Legal/Provider (assign explicitly)'
-      : ''
+      : '')
   const defaultNotes =
     status === 'DISCARDED'
       ? 'Descartado por decisión del usuario el 2026-09-08; fuera del alcance activo, no completado. Ver docs/production/alcance-vigente.md.'
@@ -1435,10 +1441,12 @@ const rows = requirements.map((requirement) => {
     pricingCheckpointNotes[requirement.id] ??
     mediaCheckpointNotes[requirement.id] ??
     defaultNotes
-  const notes = currentPartialImplementation.has(requirement.id)
-    ? checkpointNotes.replace(/(?:roadmap )?status unchanged\./gi, '').trimEnd() +
-      ' Partial implementation; acceptance remains NOT_VERIFIED. last_verified records documentary review, not executed acceptance.'
-    : checkpointNotes
+  const notes = update
+    ? update.notes
+    : currentPartialImplementation.has(requirement.id)
+      ? checkpointNotes.replace(/(?:roadmap )?status unchanged\./gi, '').trimEnd() +
+        ' Partial implementation; acceptance remains NOT_VERIFIED. last_verified records documentary review, not executed acceptance.'
+      : checkpointNotes
   return [
     requirement.id,
     requirement.phase,
@@ -1447,7 +1455,7 @@ const rows = requirements.map((requirement) => {
     scoped?.requirement ?? requirement.requirement,
     scoped?.acceptance ?? requirement.acceptance,
     status,
-    evidenceFor(requirement.id),
+    update?.implementation_refs ?? evidenceFor(requirement.id),
     operationalEvidence,
     externalOwner,
     // Pagination records its executed local criterion; existing documentary

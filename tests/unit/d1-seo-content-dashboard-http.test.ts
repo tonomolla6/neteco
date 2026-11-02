@@ -190,4 +190,61 @@ describe('DAT-019: SEO & Content Dashboard HTTP Endpoints', () => {
     const err = await res?.json()
     expect(err.error.code).toBe('invalid_input')
   })
+
+  const syncBody = (clicks: number) =>
+    JSON.stringify({
+      syncDate: '2026-10-28',
+      dataThroughDate: '2026-10-28',
+      source: 'google_search_console',
+      metrics: [
+        {
+          landingPath: '/producto/desengrasante',
+          query: 'desengrasante industrial',
+          device: 'desktop',
+          impressions: 1500,
+          clicks,
+          avgPosition: 2.1,
+          assistedOrdersCount: 0,
+          assistedRevenueGrossCents: 0,
+          assistedRevenueNetCents: 0
+        }
+      ]
+    })
+  const post = (headers: Record<string, string>, body = syncBody(150)) =>
+    new Request(`${ORIGIN}/api/admin/seo/dashboard/sync`, {
+      method: 'POST',
+      headers: { Cookie: adminCookie, 'Content-Type': 'application/json', ...headers },
+      body
+    })
+
+  it('rejects state-changing requests without a matching Origin before touching data', async () => {
+    for (const headers of [
+      { 'Idempotency-Key': 'k-no-origin' },
+      { Origin: 'https://evil.example', 'Idempotency-Key': 'k-bad' }
+    ]) {
+      const res = await handleSeoContentDashboardHttp(post(headers), deps)
+      expect(res?.status).toBe(403)
+      expect((await res?.json()).error.code).toBe('csrf_rejected')
+    }
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM seo_content_performance_metrics').get()).toEqual({ n: 0 })
+  })
+
+  it('requires a client idempotency key instead of inventing a clock-based one', async () => {
+    const res = await handleSeoContentDashboardHttp(post({ Origin: ORIGIN }), deps)
+    expect(res?.status).toBe(400)
+    expect((await res?.json()).error.code).toBe('invalid_input')
+    expect(sqlite.prepare('SELECT COUNT(*) AS n FROM seo_content_sync_commands').get()).toEqual({ n: 0 })
+  })
+
+  it('replays the identical command and rejects a different payload under the same key with 409', async () => {
+    const headers = { Origin: ORIGIN, 'Idempotency-Key': 'k-replay' }
+    expect((await handleSeoContentDashboardHttp(post(headers), deps))?.status).toBe(200)
+    const replay = await handleSeoContentDashboardHttp(post(headers), deps)
+    expect(replay?.status).toBe(200)
+    expect((await replay?.json()).idempotentReplay).toBe(true)
+    const conflict = await handleSeoContentDashboardHttp(post(headers, syncBody(999)), deps)
+    expect(conflict?.status).toBe(409)
+    expect((await conflict?.json()).error.code).toBe('conflict')
+    expect(sqlite.prepare('SELECT clicks FROM seo_content_performance_metrics').get()).toEqual({ clicks: 150 })
+  })
 })

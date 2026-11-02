@@ -63,4 +63,65 @@ describe('AdminCaseStudyEditor.vue Component', () => {
     expect(wrapper.text()).toContain('Permiso Firmado por el Cliente')
     expect(wrapper.text()).toContain('Contexto, Solución y Métricas Verificables')
   })
+
+  it('creates a case with schema-valid operator-entered evidence and a unique command id, never fabricated values', async () => {
+    const calls: { url: string; init?: { method?: string; body?: string } }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: { method?: string; body?: string }) => {
+        calls.push({ url, init })
+        return init?.method === 'POST'
+          ? { ok: true, json: async () => ({ id: 'cs-new' }) }
+          : { ok: true, json: async () => ({ cases: [], total: 0 }) }
+      })
+    )
+    const wrapper = await mountSuspended(AdminCaseStudyEditor)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Nuevo caso de cliente'))!
+      .trigger('click')
+    await flushPromises()
+    const form = wrapper.get('form')
+    const fill = async (name: string, value: string) => wrapper.get(`[data-field="${name}"]`).setValue(value)
+    for (const [name, value] of Object.entries({
+      title: 'Caso de lavandería',
+      slug: 'caso-lavanderia',
+      companyName: 'Lavandería Turia SL',
+      companyCif: 'B12345678',
+      signerName: 'Laura Ortiz',
+      signerRole: 'Directora',
+      documentRef: 'DOC-AUTH-2026-01',
+      signedDate: '2026-10-20',
+      documentSha256: 'b'.repeat(64),
+      evidenceSha256: 'c'.repeat(64),
+      facilityDescription: 'Planta de lavado industrial',
+      initialSituation: 'Consumo elevado de producto',
+      dosageProtocol: 'Dosificación automática',
+      solutionSummary: 'Cambio de producto y protocolo'
+    }))
+      await fill(name, value)
+    await wrapper.get('[data-field="publishAuthorized"]').setValue(true)
+    await form.trigger('submit')
+    await flushPromises()
+    const post = calls.find((call) => call.init?.method === 'POST')!
+    const body = JSON.parse(post.init!.body!)
+    expect(body.signedPermission.signedAt).toBe('2026-10-20T00:00:00Z')
+    expect(body.signedPermission.documentSha256).toBe('b'.repeat(64))
+    expect(body.signedPermission.publishAuthorized).toBe(true)
+    expect(body.verifiableOutcome.evidenceSha256).toBe('c'.repeat(64))
+    expect(body.commandId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
+  it('does not pre-authorize publication or pre-confirm a periodic review', async () => {
+    const wrapper = await mountSuspended(AdminCaseStudyEditor)
+    await flushPromises()
+    await wrapper
+      .findAll('button')
+      .find((b) => b.text().includes('Nuevo caso de cliente'))!
+      .trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-field="publishAuthorized"]').element as HTMLInputElement).checked).toBe(false)
+    expect((wrapper.vm as unknown as { confirmedPermissionValid: boolean }).confirmedPermissionValid).toBe(false)
+  })
 })
