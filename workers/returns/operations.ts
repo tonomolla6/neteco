@@ -32,6 +32,7 @@ import { activeOrderCustomerId } from '../catalog/customer-orders'
 import { canonicalJson, sha256Hex } from '../catalog/inventory'
 import { guardedFiscalDatabase as guardedDatabase } from '../fiscal/d1-boundary'
 import { isD1CheckConstraintFailure } from '../runtime/d1-errors'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 export type ReturnsErrorCode =
   | 'invalid_input'
@@ -131,8 +132,8 @@ const factsSql = `scope AS MATERIALIZED (SELECT id FROM inventory_locations WHER
  UNION SELECT location_id FROM inventory_movements UNION SELECT location_id FROM inventory_reservation_lines), facts AS MATERIALIZED (
  SELECT o.id AS order_id,o.status AS order_status,o.currency,o.total_gross_cents,location.id AS location_id,location.name AS location_name,
  (SELECT count(*) FROM order_return_commands WHERE order_id=o.id) AS order_version,
- COALESCE((p.status='paid' AND p.active_intent_id=claim.payment_intent_id AND p.paid_gross_cents=o.total_gross_cents
-   AND payment.status='captured' AND payment.amount_gross_cents=o.total_gross_cents AND payment.currency=o.currency
+ COALESCE((p.status='paid' AND p.active_intent_id=claim.payment_intent_id AND p.paid_gross_cents=o.total_gross_cents-${orderStoreCreditSql('o.id')}
+   AND payment.status='captured' AND payment.amount_gross_cents=p.paid_gross_cents AND payment.currency=o.currency
    AND reservation.status='assigned' AND EXISTS(SELECT 1 FROM payment_recovery_jobs WHERE order_id=o.id AND payment_intent_id=payment.id AND status='completed')
    AND EXISTS(SELECT 1 FROM payment_events WHERE order_id=o.id AND payment_intent_id=payment.id AND event_type='captured')),0) AS payment_confirmed,
  COALESCE((fulfillment.status='delivered' AND EXISTS(SELECT 1 FROM order_fulfillment_commands delivered JOIN order_fulfillment_audit audit ON audit.command_id=delivered.id

@@ -85,6 +85,7 @@ export async function readD1OrderRefunds(
           generation: work.generation,
           contractFingerprint: fingerprint,
           amountCents: contract.amountCents,
+          ...(contract.tender ? { tender: contract.tender } : {}),
           components: contract.components,
           creditId: row.credit_id,
           currency: 'EUR',
@@ -136,6 +137,7 @@ export async function readD1OrderRefunds(
       source: 'cloudflare',
       orderId,
       capturedCents: source.capture.capturedCents,
+      ...(source.storeCreditCents > 0 ? { storeCreditCents: source.storeCreditCents } : {}),
       reservedCents: items
         .filter((item) => item.workflow !== 'cancelled')
         .reduce((sum, item) => sum + item.amountCents, 0),

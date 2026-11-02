@@ -31,6 +31,29 @@ describe('CUS017 canonical role-redacted customer360', () => {
     expect(dto.invoices).toMatchObject({ visibility: 'visible', data: { total: 0, items: [] } })
     expect(f.economic()).toEqual(before)
   })
+  it('PRI-018: counts an order paid as total minus the store credit applied to it as captured', async () => {
+    f.fullAccess()
+    const paid = (
+      f.sqlite.prepare('SELECT paid_gross_cents n FROM order_payment_states WHERE order_id=?').get(f.order) as {
+        n: number
+      }
+    ).n
+    // Simulate the same order having applied 400 cents of store credit at checkout: contractual total
+    // 400 higher and the redemption mirrored into the order history by migration 0153.
+    f.sqlite.exec('DROP TRIGGER orders_contractual_immutable')
+    f.sqlite
+      .prepare(
+        'UPDATE orders SET total_gross_cents=total_gross_cents+400,total_net_cents=total_net_cents+400 WHERE id=?'
+      )
+      .run(f.order)
+    f.sqlite
+      .prepare(
+        "INSERT INTO order_events(id,order_id,event_type,payload_json,correlation_id,created_at) VALUES('store-credit-ledger:1',?,'store_credit.applied','{\"appliedCents\":400}','credit-cmd',?)"
+      )
+      .run(f.order, utc(-60000))
+    const dto = await readD1Customer360(f.database, CLAIMS, f.customerId, query())
+    expect(dto.value).toMatchObject({ visibility: 'visible', data: { paidOrderCount: 1, paidGrossCents: paid } })
+  })
   it('redacts every financial and commercial section for support-only grants rather than claiming zero', async () => {
     const dto = await readD1Customer360(f.database, CLAIMS, f.customerId, query())
     for (const section of ['orders', 'invoices', 'value', 'consent'] as const)

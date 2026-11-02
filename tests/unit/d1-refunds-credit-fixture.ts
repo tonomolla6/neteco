@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { returnsFixture, CLAIMS, BUYER_CLAIMS, REQUEST, ADMISSION, REASON, utc } from './d1-returns-fixture'
+import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, REQUEST, ADMISSION, REASON, utc } from './d1-returns-fixture'
 import { requestD1CustomerReturn, executeD1AdminReturnCommand } from '../../workers/returns/operations'
 import { approveRefundPolicy, approveCreditPolicy } from '../../workers/refunds/policies'
 import {
@@ -17,6 +17,7 @@ import { hash } from '../../workers/refunds/authority'
 import { planD1Refund, confirmD1Refund, dispatchD1Refunds } from '../../workers/refunds/operations'
 import type { PromotionRule } from '../../shared/promotions'
 import { provisionPromotionFixture } from '../support/promotion-fixture'
+import { applyStoreCreditMigrations, fundStoreCredit } from './d1-store-credit-downstream-fixture'
 
 export { CLAIMS, BUYER_CLAIMS, REASON, utc }
 export async function refundsCreditFixture(
@@ -26,6 +27,8 @@ export async function refundsCreditFixture(
     originalPending?: boolean
     couponCode?: string
     couponRule?: PromotionRule
+    /** PRI-018: pay part of the order with store credit (the account is funded with this amount + 100). */
+    storeCreditCents?: number
   } = {}
 ) {
   const fixture = await returnsFixture(),
@@ -37,10 +40,16 @@ export async function refundsCreditFixture(
   if (options.shipping)
     sqlite.exec("UPDATE shipping_rates SET net_cents=100,tax_rate_basis_points=1000 WHERE id='pickup-rate'")
   if (options.couponRule) await provisionPromotionFixture(sqlite, options.couponRule, CLAIMS.identityId)
+  if (options.storeCreditCents !== undefined) {
+    await applyStoreCreditMigrations(sqlite)
+    await fundStoreCredit(database, CUSTOMER, options.storeCreditCents + 100)
+  }
   const orderId = await fixture.order(
-      options.couponCode === undefined && !options.couponRule
-        ? undefined
-        : { couponCode: options.couponCode ?? options.couponRule!.code }
+      options.storeCreditCents !== undefined
+        ? { storeCreditCents: options.storeCreditCents }
+        : options.couponCode === undefined && !options.couponRule
+          ? undefined
+          : { couponCode: options.couponCode ?? options.couponRule!.code }
     ),
     requested = await requestD1CustomerReturn(database, BUYER_CLAIMS, orderId, REQUEST, {
       idempotencyKey: 'rma-request'

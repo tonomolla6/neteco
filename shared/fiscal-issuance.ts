@@ -111,7 +111,9 @@ export const fiscalContractSchema = z
     shippingTaxRateBasisPoints: z.number().int().min(0).max(10000),
     totalNetCents: cents,
     totalTaxCents: cents,
-    totalGrossCents: cents.min(1)
+    totalGrossCents: cents.min(1),
+    /** PRI-018: part of the total paid with store credit (a means of payment, not a discount). */
+    storeCreditCents: cents.min(1).optional()
   })
   .strict()
 export type FiscalContract = z.infer<typeof fiscalContractSchema> & IssueInvoiceRequest

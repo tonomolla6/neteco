@@ -8,6 +8,7 @@ import {
   listUnifiedPaymentReconciliations
 } from './contingency-routing'
 import { AlternativeMarketPaymentProvider, ALTERNATIVE_PROVIDER_NAME } from './alternative-contingency-provider'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 export interface PaymentContingencyHttpDependencies {
   database: D1Database
@@ -68,9 +69,12 @@ export async function handlePaymentContingencyHttp(
 
       const verified = await provider.verifyNotification(payload)
 
-      // Verify order existence and expected server-side gross amount
+      // Verify order existence and expected server-side gross amount: the amount due after the
+      // store credit applied to the order (PRI-018), never the order total.
       const orderRow = await deps.database
-        .prepare('SELECT total_gross_cents, currency FROM orders WHERE id = ?1')
+        .prepare(
+          `SELECT total_gross_cents - ${orderStoreCreditSql('orders.id')} AS total_gross_cents, currency FROM orders WHERE id = ?1`
+        )
         .bind(verified.orderReference)
         .first<{ total_gross_cents: number; currency: string }>()
 

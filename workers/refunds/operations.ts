@@ -8,6 +8,7 @@ import {
   refundCommandReceiptSchema,
   refundWorkflowSchema,
   refundCents,
+  refundCardCents,
   type RefundContract,
   type RefundPlanInput,
   type RefundConfirmInput,
@@ -26,6 +27,8 @@ import { roundRatio } from '../../server/domain/money'
 import { safeRecordRefundAnomalySignal } from '../auth/security-anomalies'
 import { readFinancialPolicy } from './policies'
 import { capturedSource, captureMatchesPolicy } from './source'
+import { allocateRefundTender } from '../../shared/refund-tender'
+import { storeCreditOnlyReceipt, storeCreditRestitutionStatements } from './store-credit-restitution'
 import {
   admin,
   checked,
@@ -244,8 +247,34 @@ export async function planD1Refund(
   }
   const amount = components.reduce((sum, line) => sum + line.grossCents, 0),
     held = allocations.reduce((sum, line) => sum + line.gross_cents, 0)
-  if (amount > policy.maximumRefundCents || amount + held > source.capture.capturedCents)
+  if (amount > policy.maximumRefundCents || amount + held > source.capture.capturedCents + source.storeCreditCents)
     throw new RefundError('amount_unavailable')
+  // PRI-018: an order paid partly with store credit refunds card and credit by the rule of
+  // shared/refund-tender.ts; 0153 re-checks both budgets atomically against concurrent planners.
+  let tender: RefundContract['tender']
+  if (source.storeCreditCents > 0) {
+    const heldCard = checked(
+      z.object({ card: refundCents }).strict(),
+      await database
+        .prepare(
+          "SELECT COALESCE(SUM(COALESCE(json_extract(c.contract_json,'$.tender.cardCents'),c.amount_gross_cents)),0) AS card FROM refund_contracts c JOIN refund_work w ON w.refund_id=c.id WHERE c.order_id=?1 AND w.status<>'cancelled'"
+        )
+        .bind(returned.orderId)
+        .first(),
+      'read_unconfirmed'
+    ).card
+    try {
+      tender = allocateRefundTender({
+        cardCapturedCents: source.capture.capturedCents,
+        storeCreditCents: source.storeCreditCents,
+        heldCardCents: heldCard,
+        heldStoreCreditCents: held - heldCard,
+        amountCents: amount
+      })
+    } catch {
+      throw new RefundError('amount_unavailable')
+    }
+  }
   const id = crypto.randomUUID(),
     at = now(),
     contract = checked(refundContractSchema, {
@@ -269,6 +298,7 @@ export async function planD1Refund(
       sourceHash: source.sourceHash,
       components,
       amountCents: amount,
+      ...(tender ? { tender } : {}),
       currency: 'EUR',
       inventoryEffect: 'none',
       custody: 'non_sellable'
@@ -486,7 +516,7 @@ export async function cancelD1Refund(
 export function validateRefundReceipt(contract: RefundContract, fingerprint: string, raw: unknown): RefundReceipt {
   const value = checked(refundReceiptSchema, raw, 'receipt_unconfirmed')
   if (
-    value.amountCents !== contract.amountCents ||
+    value.amountCents !== refundCardCents(contract) ||
     value.currency !== contract.currency ||
     value.merchantOrder !== contract.capture.merchantOrder ||
     value.contractFingerprint !== fingerprint ||
@@ -508,6 +538,15 @@ export async function completeRefund(
   const { contract, fingerprint } = await readRefundContract(database, id),
     value = validateRefundReceipt(contract, fingerprint, raw),
     sourceEvent = crypto.randomUUID()
+  const restitution =
+    value.status === 'succeeded' && (contract.tender?.storeCreditCents ?? 0) > 0
+      ? await storeCreditRestitutionStatements(
+          database,
+          contract,
+          checked(fiscalUuid, (await readRefundWork(database, id)).confirmed_by, 'read_unconfirmed'),
+          now
+        )
+      : []
   const email =
     value.status === 'succeeded'
       ? await prepareEmailOutboxEnqueue(database, {
@@ -573,7 +612,8 @@ export async function completeRefund(
           database
             .prepare('INSERT INTO refund_credit_obligations(refund_id,source_event_id,created_at) VALUES(?1,?2,?3)')
             .bind(id, sourceEvent, now),
-          email!.statement
+          email!.statement,
+          ...restitution
         ]
       : []),
     ...extra
@@ -679,7 +719,12 @@ export async function dispatchD1Refunds(
       }
       checked(z.object({ refund_id: z.literal(id) }).strict(), marked, 'read_unconfirmed')
       submitted = true
-      const value = validateRefundReceipt(contract, fingerprint, await submit(contract))
+      // A refund whose card share is 0 is store credit only: the provider is never called.
+      const value = validateRefundReceipt(
+        contract,
+        fingerprint,
+        refundCardCents(contract) === 0 ? storeCreditOnlyReceipt(contract, fingerprint) : await submit(contract)
+      )
       await completeRefund(database, id, generation, token, value, now())
       if (value.status === 'succeeded') report.completed++
       else report.pending++
@@ -769,6 +814,7 @@ export async function reconcileD1Refund(
           checked(z.object({ receipt_json: z.string().max(16384) }).strict(), stored, 'read_unconfirmed').receipt_json
         )
       )
+    else if (refundCardCents(contract) === 0) value = storeCreditOnlyReceipt(contract, fingerprint)
     else if (provider) {
       const lookup = providerMethod<[string, string]>(provider, 'lookupByExternalKey', false)
       if (!lookup) throw new RefundError('lookup_unavailable')

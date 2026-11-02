@@ -23,6 +23,7 @@ import { readOrderPurchaseOrderReference } from '../catalog/order-customer-refer
 import { canonicalJson, sha256Hex } from '../catalog/inventory'
 import { isD1CheckConstraintFailure } from '../runtime/d1-errors'
 import { AdminInvitationError, authorizeD1AdminInvitationActor } from '../auth/admin-invitations'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 export type FulfillmentErrorCode =
   | 'invalid_input'
@@ -159,8 +160,8 @@ const factsSql = `scope AS MATERIALIZED (
    l.id AS location_id,l.code AS location_code,l.name AS location_name,
    ((SELECT count(*) FROM scope)=1 AND l.active=1 AND l.kind='warehouse'
      AND (SELECT count(DISTINCT location_id) FROM order_lines WHERE order_id=o.id)=1) AS warehouse_confirmed,
-   COALESCE((p.status='paid' AND p.paid_gross_cents=o.total_gross_cents AND p.active_intent_id=claim.payment_intent_id
-     AND pi.status='captured' AND pi.amount_gross_cents=o.total_gross_cents AND pi.currency=o.currency
+   COALESCE((p.status='paid' AND p.paid_gross_cents=o.total_gross_cents-${orderStoreCreditSql('o.id')} AND p.active_intent_id=claim.payment_intent_id
+     AND pi.status='captured' AND pi.amount_gross_cents=p.paid_gross_cents AND pi.currency=o.currency
      AND EXISTS(SELECT 1 FROM payment_recovery_jobs job WHERE job.order_id=o.id AND job.payment_intent_id=pi.id AND job.status='completed')
      AND EXISTS(SELECT 1 FROM payment_events e WHERE e.order_id=o.id AND e.payment_intent_id=pi.id AND e.event_type='captured')),0) AS payment_confirmed,
    COALESCE((r.status='assigned' AND r.idempotency_key=r.id AND r.assigned_at IS NOT NULL

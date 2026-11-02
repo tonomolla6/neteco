@@ -99,7 +99,7 @@ it('accepts all five account-security notices through compiled canary HTTP and d
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 152 }, (_, index) => index + 1)
+      Array.from({ length: 153 }, (_, index) => index + 1)
     )
     for (const name of migrations) {
       // Rebuild 0071 and its deferred foreign-key check MUST be one atomic D1

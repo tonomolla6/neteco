@@ -376,6 +376,39 @@ describe('PAY-023: Proveedor alternativo por mercado y contingencia', () => {
     })
   })
 
+  describe('PRI-018 store credit applied to the order', () => {
+    const webhook = async (event: string, amount: number) => {
+      const payload: Record<string, string> = {
+        provider_event_id: `evt-${event}`,
+        provider_reference: `ref-${event}`,
+        order_reference: testOrderId,
+        amount_cents: String(amount),
+        currency: 'EUR',
+        status: 'captured',
+        response_code: '0000'
+      }
+      payload.signature = await alternativeProvider.signPayload(payload)
+      const response = await handlePaymentContingencyHttp(
+        new Request('https://shop.invalid/api/payments/alternative/webhook', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload)
+        }),
+        { database, alternativeProvider, now }
+      )
+      const body = (await response!.json()) as { status: string }
+      return body.status
+    }
+
+    it('settles the amount due (total minus applied store credit) and flags the full total as a discrepancy', async () => {
+      // Order history mirror written by migration 0153 for a 4000-cent redemption.
+      sqlite.exec(`INSERT INTO order_events(id,order_id,event_type,payload_json,correlation_id,created_at)
+        VALUES('store-credit-ledger:1','${testOrderId}','store_credit.applied','{"appliedCents":4000}','credit-cmd','${now}')`)
+      expect(await webhook('credit-due', 6000)).toBe('settled')
+      expect(await webhook('credit-total', 10000)).toBe('discrepancy')
+    })
+  })
+
   describe('HTTP Endpoints & Routing', () => {
     it('owns payment contingency namespace paths', () => {
       expect(ownsPaymentContingencyNamespace('/api/admin/payments/contingency/status')).toBe(true)

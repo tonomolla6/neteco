@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { fiscalUuid, fiscalHash } from '../../shared/fiscal-issuance'
-import { refundContractSchema, refundReceiptSchema } from '../../shared/order-refunds'
+import { refundCardCents, refundContractSchema, refundReceiptSchema } from '../../shared/order-refunds'
 import { creditContractSchema, creditReceiptSchema } from '../../shared/fiscal-credit'
 import { checked, hash, parsedJson, guard } from '../refunds/authority'
 import { escapeEmailHtml } from './order-created-email'
@@ -67,6 +67,8 @@ function registration(credit: boolean): TransactionalEmailRenderer {
         )
           return { error: 'invalid_source' }
         let title: string, name: string, email: string, reference: string
+        // PRI-018: a refund of an order paid partly with store credit states each tender's share.
+        let tender: string[] = []
         if (credit && 'creditId' in contract) {
           const receipt = checked(creditReceiptSchema, parsedJson(row.receipt_json)),
             payload = checked(
@@ -122,7 +124,7 @@ function registration(credit: boolean): TransactionalEmailRenderer {
           if (
             receipt.status !== 'succeeded' ||
             receipt.contractFingerprint !== row.contract_fingerprint ||
-            receipt.amountCents !== contract.amountCents ||
+            receipt.amountCents !== refundCardCents(contract) ||
             receipt.merchantOrder !== contract.capture.merchantOrder ||
             receipt.validationOnly !== contract.validationOnly ||
             payload.refundId !== row.source_id ||
@@ -137,6 +139,11 @@ function registration(credit: boolean): TransactionalEmailRenderer {
           name = contract.contact.name
           email = contract.contact.email
           reference = `Reembolso: ${contract.refundId}\nDevolución: ${contract.returnPublicRef}`
+          if (contract.tender)
+            tender = [
+              `A la tarjeta: ${euros(contract.tender.cardCents)}`,
+              `Como saldo en tienda: ${euros(contract.tender.storeCreditCents)}`
+            ]
         } else return { error: 'invalid_source' }
         const rows = contract.components.map(
             (line) =>
@@ -148,8 +155,8 @@ function registration(credit: boolean): TransactionalEmailRenderer {
           to: email,
           from,
           subject: `NETECO: ${title}`,
-          text: `Hola ${plain(name)},\n\n${title}\nPedido: ${contract.orderId}\n${reference}\n\n${rows.join('\n')}\nImporte: ${euros(contract.amountCents)}\n\n${access}`,
-          html: `<!doctype html><html lang="es"><body><p>Hola ${escapeEmailHtml(plain(name))},</p><h1>${escapeEmailHtml(title)}</h1><p>Pedido: ${contract.orderId}</p><p>${escapeEmailHtml(reference)}</p><ul>${rows.map((value) => `<li>${escapeEmailHtml(value)}</li>`).join('')}</ul><p>Importe: ${euros(contract.amountCents)}</p><p>${escapeEmailHtml(access)}</p></body></html>`
+          text: `Hola ${plain(name)},\n\n${title}\nPedido: ${contract.orderId}\n${reference}\n\n${rows.join('\n')}\nImporte: ${euros(contract.amountCents)}${tender.map((value) => `\n${value}`).join('')}\n\n${access}`,
+          html: `<!doctype html><html lang="es"><body><p>Hola ${escapeEmailHtml(plain(name))},</p><h1>${escapeEmailHtml(title)}</h1><p>Pedido: ${contract.orderId}</p><p>${escapeEmailHtml(reference)}</p><ul>${rows.map((value) => `<li>${escapeEmailHtml(value)}</li>`).join('')}</ul><p>Importe: ${euros(contract.amountCents)}</p>${tender.map((value) => `<p>${escapeEmailHtml(value)}</p>`).join('')}<p>${escapeEmailHtml(access)}</p></body></html>`
         }
         return {
           message,

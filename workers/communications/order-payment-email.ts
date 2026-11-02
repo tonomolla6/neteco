@@ -4,10 +4,12 @@ import { canonicalJson, sha256Hex } from '../catalog/inventory'
 import { prepareEmailOutboxEnqueue } from './email-outbox'
 import { escapeEmailHtml } from './order-created-email'
 import type { TransactionalEmailRenderer } from './transactional-email-renderers'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 const version = 'order.payment.confirmed.v1'
 const hashSchema = z.string().regex(/^[a-f0-9]{64}$/)
-const proof = `p.status='captured' AND p.currency='EUR' AND p.amount_gross_cents=o.total_gross_cents AND o.status<>'cancelled'
+// PRI-018: the captured amount is the order total minus the store credit applied to it.
+const proof = `p.status='captured' AND p.currency='EUR' AND p.amount_gross_cents=o.total_gross_cents-${orderStoreCreditSql('o.id')} AND o.status<>'cancelled'
  AND EXISTS(SELECT 1 FROM order_payment_states s WHERE s.order_id=o.id AND s.active_intent_id=p.id AND s.status='paid' AND s.paid_gross_cents=p.amount_gross_cents AND s.response_code=p.response_code AND s.provider_reference IS p.provider_reference)
  AND EXISTS(SELECT 1 FROM payment_fulfilment_claims claim WHERE claim.order_id=o.id AND claim.payment_intent_id=p.id)
  AND EXISTS(SELECT 1 FROM inventory_reservations r WHERE r.id=o.reservation_id AND r.status='assigned')

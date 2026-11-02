@@ -17,6 +17,7 @@ import {
   signMerchantParameters,
   verifyMerchantSignature
 } from './redsys'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 export const PREAUTH_REASONS = ['made_to_order', 'stock_confirmation', 'assisted_sale', 'credit_review'] as const
 export const PREAUTH_NOTIFICATION_PATH = '/api/payments/redsys/preauth-notification'
@@ -298,6 +299,7 @@ async function commandFor(db: D1Database, id: string) {
     .first<{ action: string; preauth_id: string; payload_hash: string; result_version: number }>()
 }
 
+const AMOUNT_DUE = `(o.total_gross_cents-${orderStoreCreditSql('o.id')})`
 const LIVE_ORDER = `o.status='awaiting_payment' AND o.currency='EUR' AND o.access_revoked_at IS NULL
   AND EXISTS(SELECT 1 FROM inventory_reservations r WHERE r.id=o.reservation_id AND r.status='reserved' AND r.expires_at>?2)
   AND NOT EXISTS(SELECT 1 FROM payment_fulfilment_claims WHERE order_id=o.id)
@@ -328,7 +330,8 @@ export async function requestPreauthorization(
     )
   }
   const order = await deps.database
-    .prepare(`SELECT o.total_gross_cents AS total FROM orders o WHERE o.id=?1 AND ${LIVE_ORDER.replaceAll('?2', '?2')}`)
+    // PRI-018: only the amount due (total - store credit applied) is held on the card.
+    .prepare(`SELECT ${AMOUNT_DUE} AS total FROM orders o WHERE o.id=?1 AND ${LIVE_ORDER.replaceAll('?2', '?2')}`)
     .bind(input.orderId, now)
     .first<{ total: number }>()
   if (!order) throw new PreauthError('not_payable')
@@ -343,9 +346,9 @@ export async function requestPreauthorization(
         .prepare(
           `INSERT INTO payment_preauths(id,order_id,merchant_order,amount_cents,reason_code,justification,requested_by,status,version,
              redirect_expires_at,created_at,updated_at)
-           SELECT ?1,o.id,?3,o.total_gross_cents,?5,?6,?7,'requested',1,r.expires_at,?4,?4
+           SELECT ?1,o.id,?3,${AMOUNT_DUE},?5,?6,?7,'requested',1,r.expires_at,?4,?4
            FROM orders o JOIN inventory_reservations r ON r.id=o.reservation_id
-           WHERE o.id=?8 AND ${LIVE_ORDER.replaceAll('?2', '?4')} AND o.total_gross_cents=?12 AND ${authority}
+           WHERE o.id=?8 AND ${LIVE_ORDER.replaceAll('?2', '?4')} AND ${AMOUNT_DUE}=?12 AND ${authority}
              AND NOT EXISTS(SELECT 1 FROM payment_intents WHERE merchant_order=?3)`
         )
         .bind(

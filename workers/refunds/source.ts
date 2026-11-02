@@ -4,6 +4,7 @@ import { fiscalUuid, fiscalHash } from '../../shared/fiscal-issuance'
 import { REDSYS_REDIRECT_URLS, decodeMerchantParameters } from '../payments/redsys'
 import { guardedFiscalDatabase } from '../fiscal/d1-boundary'
 import { checked, hash, RefundError, parsedJson } from './authority'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 const rowSchema = z
   .object({
@@ -42,18 +43,27 @@ const lineSchema = z
   .strict()
 export async function capturedSource(database: D1Database, orderId: string) {
   database = guardedFiscalDatabase(database)
+  // PRI-018: the card captured total - store credit; the credit share is refundable as store credit.
+  const storeCreditCents = checked(
+    z.object({ cents: refundCents }).strict(),
+    await database
+      .prepare(`SELECT ${orderStoreCreditSql('?1')} AS cents`)
+      .bind(orderId)
+      .first(),
+    'read_unconfirmed'
+  ).cents
   const raw = await database
     .prepare(
       `SELECT o.id AS order_id,p.id AS payment_intent_id,p.merchant_order,p.amount_gross_cents,p.currency,p.provider_reference,p.redirect_envelope_hash,
     o.contact_email,o.contact_name,o.shipping_net_cents,o.shipping_tax_cents,o.shipping_gross_cents,o.shipping_method_code,o.shipping_rate_version,o.shipping_eta_min_days,o.shipping_eta_max_days,q.options_json
-    FROM orders o JOIN order_payment_states state ON state.order_id=o.id AND state.status='paid' AND state.paid_gross_cents=o.total_gross_cents
-    JOIN payment_intents p ON p.id=state.active_intent_id AND p.order_id=o.id AND p.status='captured' AND p.amount_gross_cents=o.total_gross_cents AND p.currency=o.currency
+    FROM orders o JOIN order_payment_states state ON state.order_id=o.id AND state.status='paid' AND state.paid_gross_cents=o.total_gross_cents-?2
+    JOIN payment_intents p ON p.id=state.active_intent_id AND p.order_id=o.id AND p.status='captured' AND p.amount_gross_cents=state.paid_gross_cents AND p.currency=o.currency
     JOIN payment_fulfilment_claims claim ON claim.order_id=o.id AND claim.payment_intent_id=p.id
     JOIN payment_recovery_jobs job ON job.payment_intent_id=p.id AND job.status='completed'
     JOIN shipping_quotes q ON q.id=o.shipping_quote_id
     WHERE o.id=?1 AND EXISTS(SELECT 1 FROM payment_events WHERE payment_intent_id=p.id AND order_id=o.id AND event_type='captured')`
     )
-    .bind(orderId)
+    .bind(orderId, storeCreditCents)
     .first()
   if (raw === null) throw new RefundError('capture_unconfirmed')
   const row = checked(rowSchema, raw, 'read_unconfirmed')
@@ -71,7 +81,8 @@ export async function capturedSource(database: D1Database, orderId: string) {
   )
   if (
     lines.some((line) => line.gross_cents !== line.net_cents + line.tax_cents) ||
-    lines.reduce((sum, line) => sum + line.gross_cents, row.shipping_gross_cents) !== row.amount_gross_cents
+    lines.reduce((sum, line) => sum + line.gross_cents, row.shipping_gross_cents) !==
+      row.amount_gross_cents + storeCreditCents
   )
     throw new RefundError('source_unbalanced')
   const commands = (
@@ -155,7 +166,12 @@ export async function capturedSource(database: D1Database, orderId: string) {
     mappings: matches[0]!.mapping,
     envelopeHash: row.redirect_envelope_hash
   }
-  return { row, lines, capture, shippingRate, sourceHash: await hash({ row, lines, capture, shippingRate }) }
+  // Orders without credit keep their historical source hash (in-flight refunds stay valid).
+  const evidence =
+    storeCreditCents > 0
+      ? { row, lines, capture, shippingRate, storeCreditCents }
+      : { row, lines, capture, shippingRate }
+  return { row, lines, capture, shippingRate, storeCreditCents, sourceHash: await hash(evidence) }
 }
 export function captureMatchesPolicy(capture: RefundContract['capture'], policy: RefundPolicy) {
   if (policy.provider !== 'local_fake' && capture.environment !== policy.environment)

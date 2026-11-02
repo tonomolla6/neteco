@@ -510,7 +510,7 @@ describe('short-lived sealed guest link exchange without payment authority', () 
     } finally {
       await runtime.dispose()
     }
-    // Applying all 152 migrations to real workerd D1 measures ~11.5 s alone (not reducible by
+    // Applying all 153 migrations to real workerd D1 measures ~11.5 s alone (not reducible by
     // batching: tried 50 vs 1000 statements) and grows with each migration; 20 s flaked under load.
   }, 45000)
 })

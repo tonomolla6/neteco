@@ -199,6 +199,9 @@ export async function redeemStoreCredit(
   // The amount to charge is fixed when a payment intent is created: credit can only be applied before that.
   const payment = await db.prepare('SELECT 1 AS ok FROM payment_intents WHERE order_id = ?').bind(input.orderId).first()
   if (payment) fail('invalid_transition')
+  // PRI-018 downstream: like checkout, credit never applies to credit-terms (bank transfer of the full
+  // total, B2B open amounts) or market-checkout orders, whose payment instructions are not the amount due.
+  if (await paidOutsideCardCheckout(db, input.orderId)) fail('invalid_transition')
   const failed = await db
     .prepare(
       "SELECT count(*) AS n FROM pricing_audit WHERE domain = 'store_credit' AND target_id = ? AND action = 'redeem_blocked' AND created_at > ?"
@@ -268,6 +271,25 @@ export async function redeemStoreCredit(
       refreshAccount(db, customerId, now)
     ]
   })
+}
+
+async function paidOutsideCardCheckout(db: D1Database, orderId: string): Promise<boolean> {
+  const terms = await db
+    .prepare(
+      "SELECT 1 AS ok FROM order_events WHERE order_id = ? AND event_type = 'order.created' AND json_extract(payload_json, '$.paymentMethod') = 'transferencia'"
+    )
+    .bind(orderId)
+    .first()
+  if (terms) return true
+  try {
+    return Boolean(
+      await db.prepare('SELECT 1 AS ok FROM order_market_snapshots WHERE order_id = ?').bind(orderId).first()
+    )
+  } catch (error) {
+    // Databases without market checkout (before 0118) have no market orders.
+    if (error instanceof Error && /no such table:?\s*(main\.)?order_market_snapshots/.test(error.message)) return false
+    throw error
+  }
 }
 
 /* ------------------------------------------------------------------ restore / void / freeze / expire */

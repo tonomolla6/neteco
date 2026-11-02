@@ -130,6 +130,9 @@ export const refundComponentSchema = z
       value.grossCents === value.netCents + value.taxCents &&
       (value.component === 'line') === (value.lineIndex !== null)
   )
+/** PRI-018: split of a refund of an order partly paid with store credit (rule in shared/refund-tender.ts). */
+export const refundTenderSchema = z.object({ cardCents: refundCents, storeCreditCents: refundCents }).strict()
+export type RefundTenderSplit = z.infer<typeof refundTenderSchema>
 export const refundContractSchema = z.preprocess(
   refundOwnJson,
   z
@@ -165,6 +168,8 @@ export const refundContractSchema = z.preprocess(
       sourceHash: fiscalHash,
       components: z.array(refundComponentSchema).min(1).max(101),
       amountCents: refundCents.min(1),
+      /** Present only for orders paid partly with store credit: card share + store-credit share = amountCents. */
+      tender: refundTenderSchema.optional(),
       currency: z.literal('EUR'),
       inventoryEffect: z.literal('none'),
       custody: z.literal('non_sellable')
@@ -175,18 +180,25 @@ export const refundContractSchema = z.preprocess(
         value.validationOnly === (value.provider === 'local_fake') &&
         (value.provider === 'local_fake') === (value.environment === 'local_validation') &&
         value.components.reduce((sum, item) => sum + item.grossCents, 0) === value.amountCents &&
-        value.amountCents <= value.capture.capturedCents &&
+        (value.tender === undefined
+          ? value.amountCents <= value.capture.capturedCents
+          : value.tender.cardCents + value.tender.storeCreditCents === value.amountCents &&
+            value.tender.cardCents <= value.capture.capturedCents) &&
         new Set(value.components.map((item) => `${item.component}:${item.lineIndex}`)).size === value.components.length
     )
 )
 export type RefundContract = z.infer<typeof refundContractSchema>
+/** Amount the payment provider refunds to the card: the whole refund unless part of it is store credit. */
+export const refundCardCents = (contract: Pick<RefundContract, 'amountCents' | 'tender'>) =>
+  contract.tender?.cardCents ?? contract.amountCents
 export const refundReceiptSchema = z.preprocess(
   refundOwnJson,
   z
     .object({
       providerReference: refundKey,
       status: z.enum(['pending', 'succeeded']),
-      amountCents: refundCents.min(1),
+      // Card amount refunded; 0 only for a store-credit-only refund (validated against the contract).
+      amountCents: refundCents,
       currency: z.literal('EUR'),
       merchantOrder: z.string().regex(/^\d{4}[A-Za-z0-9]{0,8}$/),
       contractFingerprint: fiscalHash,
@@ -214,7 +226,7 @@ export function refundProviderRequest(contract: RefundContract): RefundRequest {
   return {
     paymentReference: contract.capture.providerReference ?? contract.capture.merchantOrder,
     orderReference: contract.capture.merchantOrder,
-    amountCents: contract.amountCents,
+    amountCents: refundCardCents(contract),
     reason: contract.reason,
     idempotencyKey: contract.idempotencyKey
   }
@@ -259,6 +271,7 @@ export const refundViewSchema = z.preprocess(
       generation: refundVersion,
       contractFingerprint: fiscalHash,
       amountCents: refundCents.min(1),
+      tender: refundTenderSchema.optional(),
       components: z.array(refundComponentSchema).min(1).max(101),
       creditId: fiscalUuid.nullable(),
       currency: z.literal('EUR'),
@@ -298,6 +311,8 @@ export const orderRefundsViewSchema = z.preprocess(
       source: z.literal('cloudflare'),
       orderId: fiscalUuid,
       capturedCents: refundCents.min(1),
+      /** PRI-018: store credit applied to the order, refundable as store credit on top of capturedCents. */
+      storeCreditCents: refundCents.min(1).optional(),
       reservedCents: refundCents,
       confirmedCents: refundCents,
       simulatedConfirmedCents: refundCents,
@@ -308,7 +323,7 @@ export const orderRefundsViewSchema = z.preprocess(
     .strict()
     .refine(
       (value) =>
-        value.reservedCents <= value.capturedCents &&
+        value.reservedCents <= value.capturedCents + (value.storeCreditCents ?? 0) &&
         value.confirmedCents + value.simulatedConfirmedCents <= value.reservedCents
     )
 )

@@ -4,6 +4,7 @@ import { fiscalUuid, fiscalHash, fiscalInstant } from '../../shared/fiscal-issua
 import {
   refundMappingsSchema,
   refundPolicyInputSchema,
+  refundCardCents,
   refundContractSchema,
   refundReceiptSchema,
   type RefundPolicy,
@@ -234,6 +235,8 @@ export class WorkerRedsysRefundProvider implements GovernedRefundProvider {
       contract.policyFingerprint !== policy.fingerprint ||
       (await hash(contract.capture.mappings)) !== this.mappingFingerprint ||
       contract.amountCents > policy.maximumRefundCents ||
+      // PRI-018: only the card share goes to Redsys; a store-credit-only refund never reaches it.
+      refundCardCents(contract) < 1 ||
       (policy.shipping === 'excluded' && contract.components.some((component) => component.component === 'shipping'))
     )
       throw new WorkerRedsysRefundError('request')
@@ -253,7 +256,7 @@ export class WorkerRedsysRefundProvider implements GovernedRefundProvider {
         DS_MERCHANT_TERMINAL: configuration.terminal,
         DS_MERCHANT_TRANSACTIONTYPE: '3',
         DS_MERCHANT_CURRENCY: configuration.currency,
-        DS_MERCHANT_AMOUNT: String(contract.amountCents),
+        DS_MERCHANT_AMOUNT: String(refundCardCents(contract)),
         DS_MERCHANT_MERCHANTDATA: correlation,
         ...(authorization ? { DS_MERCHANT_AUTHORISATIONCODE: authorization } : {})
       }),
@@ -304,7 +307,7 @@ export class WorkerRedsysRefundProvider implements GovernedRefundProvider {
         controller.signal.aborted ||
         received.DS_ORDER !== order ||
         !/^\d{1,12}$/.test(received.DS_AMOUNT ?? '') ||
-        Number(received.DS_AMOUNT) !== contract.amountCents ||
+        Number(received.DS_AMOUNT) !== refundCardCents(contract) ||
         received.DS_CURRENCY !== configuration.currency ||
         received.DS_MERCHANTCODE !== configuration.merchantCode ||
         !/^\d{1,3}$/.test(received.DS_TERMINAL ?? '') ||
@@ -324,7 +327,7 @@ export class WorkerRedsysRefundProvider implements GovernedRefundProvider {
         {
           providerReference: `redsys-refund:${await sha256Hex(result.DS_MERCHANTPARAMETERS)}`,
           status: 'succeeded',
-          amountCents: contract.amountCents,
+          amountCents: refundCardCents(contract),
           currency: contract.currency,
           merchantOrder: order,
           contractFingerprint: fingerprint,

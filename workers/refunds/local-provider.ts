@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import {
+  refundCardCents,
   refundContractSchema,
   refundReceiptSchema,
   type RefundContract,
@@ -28,13 +29,14 @@ export class PersistentLocalRefundProvider implements GovernedRefundProvider {
       !contract.validationOnly ||
       contract.provider !== this.name ||
       contract.environment !== this.environment ||
-      (await hash(contract.capture.mappings)) !== this.mappingFingerprint
+      (await hash(contract.capture.mappings)) !== this.mappingFingerprint ||
+      refundCardCents(contract) < 1
     )
       throw new RefundError('provider_configuration_unconfirmed')
     const value = checked(refundReceiptSchema, {
       providerReference: `LOCAL-REFUND-${contract.refundId}`,
       status: this.faults.pending ? 'pending' : 'succeeded',
-      amountCents: contract.amountCents,
+      amountCents: refundCardCents(contract),
       currency: 'EUR',
       merchantOrder: contract.capture.merchantOrder,
       contractFingerprint: fingerprint,
@@ -49,7 +51,9 @@ export class PersistentLocalRefundProvider implements GovernedRefundProvider {
     const proof = await this.lookupByExternalKey(contract.idempotencyKey, fingerprint)
     if (proof.receipts.length !== 1) throw new RefundError('lookup_unconfirmed')
     if (this.faults.responseLost) throw new RefundError('synthetic_response_lost')
-    return this.faults.badAmount ? { ...proof.receipts[0]!, amountCents: contract.amountCents + 1 } : proof.receipts[0]!
+    return this.faults.badAmount
+      ? { ...proof.receipts[0]!, amountCents: refundCardCents(contract) + 1 }
+      : proof.receipts[0]!
   }
   async lookupByExternalKey(externalKey: string, fingerprint: string) {
     const raw = await this.database

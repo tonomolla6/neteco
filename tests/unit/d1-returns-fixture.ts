@@ -48,13 +48,16 @@ export async function returnsFixture() {
     paid = true,
     delivered = true,
     quantity = 2,
-    couponCode
+    couponCode,
+    storeCreditCents
   }: {
     owned?: boolean
     paid?: boolean
     delivered?: boolean
     quantity?: number
     couponCode?: string
+    /** PRI-018: requires the pricing/credit migrations (0146, 0152) and a funded account. */
+    storeCreditCents?: number
   } = {}) {
     const cart = await createCart(database, { correlationId: 'returns-fixture', now: utc() })
     await setCartLine(database, {
@@ -89,32 +92,39 @@ export async function returnsFixture() {
     const option = (
       shipping.body.options as Array<{ optionIndex: number; optionHash: string; methodCode: string }>
     ).find((item) => item.methodCode === 'pickup')!
-    const result = await placeOrder(database, {
-      cartId: cart.cartId,
-      token: cart.token,
-      expectedVersion: 2,
-      quoteId: quote.quote.quoteId,
-      shippingQuoteId: shipping.body.shippingQuoteId as string,
-      selectedOptionIndex: option.optionIndex,
-      selectedOptionHash: option.optionHash,
-      contactEmail: 'buyer@example.invalid',
-      contactName: 'Original buyer',
-      contactPhone: '+34600111222',
-      shippingAddress: {
-        recipientName: 'Original buyer',
-        line1: 'Carrer Major 1',
-        city: 'Ontinyent',
-        province: 'Valencia',
-        postalCode: '46870',
-        phone: '+34600111222'
+    const result = await placeOrder(
+      database,
+      {
+        cartId: cart.cartId,
+        token: cart.token,
+        expectedVersion: 2,
+        quoteId: quote.quote.quoteId,
+        shippingQuoteId: shipping.body.shippingQuoteId as string,
+        selectedOptionIndex: option.optionIndex,
+        selectedOptionHash: option.optionHash,
+        contactEmail: 'buyer@example.invalid',
+        contactName: 'Original buyer',
+        contactPhone: '+34600111222',
+        shippingAddress: {
+          recipientName: 'Original buyer',
+          line1: 'Carrer Major 1',
+          city: 'Ontinyent',
+          province: 'Valencia',
+          postalCode: '46870',
+          phone: '+34600111222'
+        },
+        consentTos: true,
+        consentPrivacy: true,
+        idempotencyKey: 'checkout',
+        correlationId: 'returns-fixture',
+        now: utc(),
+        ownerSession: owned ? BUYER_CLAIMS : null,
+        ...(storeCreditCents === undefined ? {} : { storeCreditCents })
       },
-      consentTos: true,
-      consentPrivacy: true,
-      idempotencyKey: 'checkout',
-      correlationId: 'returns-fixture',
-      now: utc(),
-      ownerSession: owned ? BUYER_CLAIMS : null
-    })
+      undefined,
+      null,
+      storeCreditCents === undefined ? {} : { storeCreditRedemptionEnabled: true }
+    )
     if (result.outcome !== 'order_created') throw new Error('returns_checkout_failed')
     const receipt = result.body as { id: string; orderToken: string },
       id = receipt.id

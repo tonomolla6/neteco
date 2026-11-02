@@ -22,6 +22,7 @@ import { canonicalJson, sha256Hex, isCanonicalInventoryInstant } from '../catalo
 import { splitGross, roundRatio } from '../../server/domain/money'
 import { prepareEmailOutboxEnqueue } from '../communications/email-outbox'
 import { fiscalBatchEvidence, guardedFiscalDatabase, FiscalD1EvidenceError } from './d1-boundary'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 export class FiscalIssuanceError extends Error {
   constructor(readonly code: string) {
@@ -330,12 +331,13 @@ export async function fiscalContractFromOrder(
     .prepare(
       `SELECT o.*,b.recipient_name,b.company_name,b.nif,b.line1,b.line2,
     b.city,b.province,b.postal_code,b.country_code,q.options_json,e.amount_gross_cents AS captured,
-    e.created_at AS captured_at FROM fiscal_outbox_events e JOIN orders o ON o.id=e.order_id
+    e.created_at AS captured_at,${orderStoreCreditSql('o.id')} AS store_credit_cents FROM fiscal_outbox_events e JOIN orders o ON o.id=e.order_id
     JOIN order_billing_address b ON b.order_id=o.id JOIN shipping_quotes q ON q.id=o.shipping_quote_id
     JOIN order_payment_states p ON p.order_id=o.id AND p.status='paid' AND p.active_intent_id=e.payment_intent_id
     JOIN payment_intents payment ON payment.id=e.payment_intent_id AND payment.status='captured'
     WHERE e.id=?1 AND e.event_type='invoice.evaluate.requested' AND e.schema_version=1
-      AND o.status<>'cancelled' AND e.currency=o.currency AND e.amount_gross_cents=o.total_gross_cents
+      AND o.status<>'cancelled' AND e.currency=o.currency
+      AND e.amount_gross_cents=o.total_gross_cents-${orderStoreCreditSql('o.id')}
       AND p.paid_gross_cents=e.amount_gross_cents AND payment.amount_gross_cents=e.amount_gross_cents`
     )
     .bind(eventId)
@@ -368,7 +370,8 @@ export async function fiscalContractFromOrder(
       country_code: z.literal('ES'),
       options_json: z.string().max(131072),
       captured: sourceCents,
-      captured_at: fiscalInstant
+      captured_at: fiscalInstant,
+      store_credit_cents: sourceCents
     })
       .passthrough()
       .parse(row)
@@ -495,7 +498,10 @@ export async function fiscalContractFromOrder(
     shippingTaxRateBasisPoints: rates[0],
     totalNetCents: row.total_net_cents,
     totalTaxCents: row.total_tax_cents,
-    totalGrossCents: row.total_gross_cents
+    totalGrossCents: row.total_gross_cents,
+    // PRI-018: store credit is a means of payment, never a discount: lines, tax base and total stay the
+    // order's; the evidence records which part of the total the card did not pay.
+    ...(Number(row.store_credit_cents) > 0 ? { storeCreditCents: row.store_credit_cents } : {})
   })
   validateFiscalContract(contract, policy)
   return contract
@@ -540,9 +546,16 @@ export function validateFiscalContract(contract: FiscalContract, policy: FiscalP
     tax += line.taxCents
     gross += line.grossCents
   })
-  if (net !== contract.totalNetCents || tax !== contract.totalTaxCents || gross !== contract.totalGrossCents)
+  if (
+    net !== contract.totalNetCents ||
+    tax !== contract.totalTaxCents ||
+    gross !== contract.totalGrossCents ||
+    (contract.storeCreditCents ?? 0) >= contract.totalGrossCents
+  )
     throw new FiscalIssuanceError('order_amount_mismatch')
 }
+/** Amount the card/provider paid for the invoiced order: total minus the store credit applied (PRI-018). */
+export const fiscalPaidCents = (contract: FiscalContract) => contract.totalGrossCents - (contract.storeCreditCents ?? 0)
 export async function queueFiscalInvoice(
   database: D1Database,
   claims: VerifiedSessionClaims,
@@ -600,7 +613,7 @@ export async function queueFiscalInvoice(
           `INSERT INTO fiscal_evaluation_inbox(event_id,order_id,received_at)
         SELECT e.id,e.order_id,?4 FROM fiscal_outbox_events e JOIN order_payment_states p ON p.order_id=e.order_id
         WHERE e.id=?5 AND e.order_id=?6 AND e.event_type='invoice.evaluate.requested' AND e.schema_version=1
-          AND p.status='paid' AND p.paid_gross_cents=e.amount_gross_cents AND e.amount_gross_cents=?7
+          AND p.status='paid' AND p.paid_gross_cents=e.amount_gross_cents AND e.amount_gross_cents=?9
           AND ${authPredicate()} AND NOT EXISTS(SELECT 1 FROM fiscal_policy_withdrawals WHERE policy_id=?8)
         ON CONFLICT(event_id) DO NOTHING`
         )
@@ -612,7 +625,8 @@ export async function queueFiscalInvoice(
           input.eventId,
           contract.orderId,
           contract.totalGrossCents,
-          policy.id
+          policy.id,
+          fiscalPaidCents(contract)
         ),
       database
         .prepare(
@@ -621,7 +635,7 @@ export async function queueFiscalInvoice(
       SELECT ?5,?6,?7,1,'ordinary',?8,?9,?10,?11,?12,?13,?14,'EUR',?4
       WHERE ${authPredicate()} AND EXISTS(SELECT 1 FROM fiscal_evaluation_inbox WHERE event_id=?6 AND order_id=?7)
         AND NOT EXISTS(SELECT 1 FROM fiscal_policy_withdrawals WHERE policy_id=?8)
-        AND EXISTS(SELECT 1 FROM order_payment_states WHERE order_id=?7 AND status='paid' AND paid_gross_cents=?14)
+        AND EXISTS(SELECT 1 FROM order_payment_states WHERE order_id=?7 AND status='paid' AND paid_gross_cents=?15)
       ON CONFLICT(event_id) DO NOTHING`
         )
         .bind(
@@ -638,7 +652,8 @@ export async function queueFiscalInvoice(
           json,
           fingerprint,
           contract.idempotencyKey,
-          contract.totalGrossCents
+          contract.totalGrossCents,
+          fiscalPaidCents(contract)
         ),
       database
         .prepare(

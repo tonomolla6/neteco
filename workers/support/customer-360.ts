@@ -12,6 +12,7 @@ import {
   catalogPolicyInstantSchema as instant,
   catalogPolicyUuidSchema as uuid
 } from '../../shared/catalog-publication-policy'
+import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 export class Customer360Error extends Error {
   constructor(
     readonly code:
@@ -161,10 +162,11 @@ export async function listD1Customer360(
     return dto
   })
 }
-const capture = `s.status='paid' AND s.paid_gross_cents=o.total_gross_cents AND EXISTS(SELECT 1 FROM payment_intents p
+// PRI-018: the card captured the order total minus the store credit applied to the order.
+const capture = `s.status='paid' AND s.paid_gross_cents=o.total_gross_cents-${orderStoreCreditSql('o.id')} AND EXISTS(SELECT 1 FROM payment_intents p
  JOIN payment_fulfilment_claims f ON f.payment_intent_id=p.id AND f.order_id=o.id
  JOIN payment_recovery_jobs j ON j.payment_intent_id=p.id AND j.order_id=o.id AND j.status='completed'
- WHERE p.id=s.active_intent_id AND p.order_id=o.id AND p.status='captured' AND p.amount_gross_cents=o.total_gross_cents AND p.currency=o.currency
+ WHERE p.id=s.active_intent_id AND p.order_id=o.id AND p.status='captured' AND p.amount_gross_cents=s.paid_gross_cents AND p.currency=o.currency
  AND p.updated_at<=(SELECT now FROM clock) AND j.updated_at<=(SELECT now FROM clock)
  AND EXISTS(SELECT 1 FROM payment_events e WHERE e.payment_intent_id=p.id AND e.order_id=o.id AND e.event_type='captured' AND e.created_at<=(SELECT now FROM clock)))`
 const ticketSelection = `SELECT t.* FROM support_tickets t WHERE t.customer_id=?5 AND t.created_at<=(SELECT now FROM clock) AND t.updated_at<=(SELECT now FROM clock) AND t.retention_until>(SELECT now FROM clock)`

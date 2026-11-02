@@ -100,6 +100,8 @@ export function storageError(error: unknown): never {
   if (/UNIQUE constraint failed: pricing_commands\./.test(message)) fail('idempotency_conflict')
   if (/pricing_over(payment|refund|invoice|credit|_redeem)/.test(message)) fail('overpayment')
   if (/pricing_credit_unusable/.test(message)) fail('insufficient_credit')
+  // 0152/0153: credit is frozen once a payment intent or pre-authorisation fixed the amount to charge.
+  if (/checkout_credit_after_payment/.test(message)) fail('invalid_transition')
   if (/CHECK constraint failed: remaining_cents|CHECK constraint failed: balance_cents/.test(message))
     fail('version_conflict')
   if (/UNIQUE constraint failed/.test(message)) fail('conflict')
