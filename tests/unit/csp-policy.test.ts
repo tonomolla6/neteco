@@ -6,6 +6,10 @@ import {
   getCspHeaderName,
   applyStrictCspHeaders,
   injectNonceIntoHtml,
+  applyCspNonceToRenderedHtml,
+  CSP_NONCE_PLACEHOLDER,
+  bindCspNonceToResponse,
+  stripConditionalHeadersForNoncedDocument,
   strictSecurityHeaders
 } from '../../shared/csp'
 import { applicationSecurityHeaders } from '../../shared/http-security'
@@ -234,5 +238,110 @@ describe('SEC-034: Strict Content Security Policy', () => {
       expect(strict['content-security-policy']).toContain("'nonce-nonce-up'")
       expect(strict['content-security-policy']).not.toMatch(/script-src[^;]*'unsafe-inline'/)
     })
+  })
+})
+
+describe('applyCspNonceToRenderedHtml', () => {
+  it('adds the response nonce to every executable script chunk Nuxt renders', () => {
+    const rendered = {
+      head: ['<script type="module" src="/_nuxt/entry.js" crossorigin></script>'],
+      bodyPrepend: [],
+      body: ['<div id="__nuxt"></div><script>window.__NUXT__={}</script>'],
+      bodyAppend: ['<script type="application/json" id="__NUXT_DATA__">[]</script>']
+    }
+
+    applyCspNonceToRenderedHtml(rendered, 'abc123')
+
+    expect(rendered.head[0]).toContain('<script nonce="abc123" type="module"')
+    expect(rendered.body[0]).toContain('<script nonce="abc123">window.__NUXT__')
+    expect(rendered.bodyAppend[0]).toBe('<script type="application/json" id="__NUXT_DATA__">[]</script>')
+  })
+
+  it('leaves the rendered HTML untouched without a nonce', () => {
+    const rendered = { head: ['<script src="/a.js"></script>'], bodyPrepend: [], body: [], bodyAppend: [] }
+    applyCspNonceToRenderedHtml(rendered, undefined)
+    expect(rendered.head[0]).toBe('<script src="/a.js"></script>')
+  })
+})
+
+describe('bindCspNonceToResponse (SWR-cached HTML)', () => {
+  it('gives each response its own nonce even when the cached HTML is reused', () => {
+    const rendered = {
+      head: ['<script type="module" src="/_nuxt/e.js"></script>'],
+      bodyPrepend: [],
+      body: [],
+      bodyAppend: []
+    }
+    applyCspNonceToRenderedHtml(rendered, CSP_NONCE_PLACEHOLDER)
+    const cachedHtml = rendered.head.join('')
+
+    const first = bindCspNonceToResponse(cachedHtml, 'first-nonce')
+    const second = bindCspNonceToResponse(cachedHtml, 'second-nonce')
+
+    expect(first).toContain('nonce="first-nonce"')
+    expect(second).toContain('nonce="second-nonce"')
+    expect(second).not.toContain(CSP_NONCE_PLACEHOLDER)
+  })
+
+  it('drops the placeholder attribute when the response has no nonce', () => {
+    const html = `<script nonce="${CSP_NONCE_PLACEHOLDER}" src="/a.js"></script>`
+    expect(bindCspNonceToResponse(html, undefined)).toBe('<script src="/a.js"></script>')
+  })
+
+  it('passes non-string bodies through unchanged', () => {
+    const body = { ok: true }
+    expect(bindCspNonceToResponse(body, 'n')).toBe(body)
+  })
+})
+
+describe('stripConditionalHeadersForNoncedDocument', () => {
+  it('never lets an HTML navigation revalidate to 304, which would pair a stale nonce with a fresh CSP header', () => {
+    const headers: Record<string, string | undefined> = {
+      accept: 'text/html,application/xhtml+xml',
+      'if-none-match': 'W/"abc"',
+      'if-modified-since': 'Mon, 02 Nov 2026 16:46:08 GMT'
+    }
+    stripConditionalHeadersForNoncedDocument(headers, 'enforce')
+    expect(headers['if-none-match']).toBeUndefined()
+    expect(headers['if-modified-since']).toBeUndefined()
+  })
+
+  it('keeps revalidation for non-HTML requests and when CSP is off', () => {
+    const json: Record<string, string | undefined> = { accept: 'application/json', 'if-none-match': 'W/"a"' }
+    stripConditionalHeadersForNoncedDocument(json, 'enforce')
+    expect(json['if-none-match']).toBe('W/"a"')
+
+    const off: Record<string, string | undefined> = { accept: 'text/html', 'if-none-match': 'W/"a"' }
+    stripConditionalHeadersForNoncedDocument(off, 'off')
+    expect(off['if-none-match']).toBe('W/"a"')
+  })
+})
+
+describe('applicationSecurityHeaders upgrade-insecure-requests', () => {
+  it('keeps upgrade-insecure-requests by default and omits it for a plain-http local origin', () => {
+    const secure = applicationSecurityHeaders('production', { cspMode: 'enforce', nonce: 'n' })
+    expect(secure['content-security-policy']).toContain('upgrade-insecure-requests')
+
+    const local = applicationSecurityHeaders('test', { cspMode: 'enforce', nonce: 'n', upgradeInsecureRequests: false })
+    expect(local['content-security-policy']).not.toContain('upgrade-insecure-requests')
+  })
+})
+
+describe('applyCspNonceToRenderedHtml script preloads', () => {
+  it('nonces modulepreload and script preload links so strict-dynamic does not drop them', () => {
+    const rendered = {
+      head: [
+        '<link rel="modulepreload" as="script" crossorigin href="/_nuxt/a.js">',
+        '<link rel="preload" as="script" href="/_nuxt/b.js">',
+        '<link rel="stylesheet" href="/_nuxt/c.css">'
+      ],
+      bodyPrepend: [],
+      body: [],
+      bodyAppend: []
+    }
+    applyCspNonceToRenderedHtml(rendered, 'n1')
+    expect(rendered.head[0]).toBe('<link nonce="n1" rel="modulepreload" as="script" crossorigin href="/_nuxt/a.js">')
+    expect(rendered.head[1]).toBe('<link nonce="n1" rel="preload" as="script" href="/_nuxt/b.js">')
+    expect(rendered.head[2]).toBe('<link rel="stylesheet" href="/_nuxt/c.css">')
   })
 })

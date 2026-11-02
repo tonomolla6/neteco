@@ -194,6 +194,62 @@ export function injectNonceIntoHtml(html: string, nonce: string): string {
   })
 }
 
+/** Script preloads are governed by script-src; strict-dynamic ignores 'self'. */
+function injectNonceIntoScriptPreloads(html: string, nonce: string): string {
+  return html.replace(/<link\b([^>]*)>/gi, (match, attributes: string) => {
+    if (/\bnonce\s*=/i.test(attributes)) return match
+    const isScriptPreload =
+      /\brel\s*=\s*["']?modulepreload\b/i.test(attributes) ||
+      (/\brel\s*=\s*["']?preload\b/i.test(attributes) && /\bas\s*=\s*["']?script\b/i.test(attributes))
+    return isScriptPreload ? `<link nonce="${nonce}" ${attributes.trimStart()}>` : match
+  })
+}
+
+export interface RenderedHtmlChunks {
+  head: string[]
+  bodyPrepend: string[]
+  body: string[]
+  bodyAppend: string[]
+}
+
+/**
+ * Applies the per-response nonce to the script chunks Nuxt renders, so an
+ * enforced nonce + strict-dynamic policy does not block hydration.
+ */
+export function applyCspNonceToRenderedHtml(html: RenderedHtmlChunks, nonce: string | undefined): void {
+  if (!nonce) return
+  for (const key of ['head', 'bodyPrepend', 'body', 'bodyAppend'] as const) {
+    html[key] = html[key].map((chunk) => injectNonceIntoScriptPreloads(injectNonceIntoHtml(chunk, nonce), nonce))
+  }
+}
+
+/**
+ * Rendered HTML can be reused by SWR route caching, so it carries this
+ * placeholder and every response binds its own nonce before it is sent.
+ */
+export const CSP_NONCE_PLACEHOLDER = '__NETECO_CSP_NONCE__'
+
+export function bindCspNonceToResponse<T>(body: T, nonce: string | undefined): T {
+  if (typeof body !== 'string' || !body.includes(CSP_NONCE_PLACEHOLDER)) return body
+  if (!nonce) return body.replaceAll(` nonce="${CSP_NONCE_PLACEHOLDER}"`, '') as T
+  return body.replaceAll(CSP_NONCE_PLACEHOLDER, nonce) as T
+}
+
+/**
+ * A 304 keeps the browser's stored HTML (old nonce) but applies the fresh CSP
+ * header (new nonce), blocking hydration. HTML navigations must get a full body.
+ */
+export function stripConditionalHeadersForNoncedDocument(
+  headers: Record<string, string | string[] | undefined>,
+  mode: CspMode
+): void {
+  if (mode === 'off') return
+  const accept = headers.accept
+  if (!String(Array.isArray(accept) ? accept.join(',') : (accept ?? '')).includes('text/html')) return
+  delete headers['if-none-match']
+  delete headers['if-modified-since']
+}
+
 /**
  * Returns full security headers contract including strict CSP for edge and Nitro servers.
  */

@@ -7,6 +7,8 @@ export interface ApplicationSecurityHeadersOptions {
   nonce?: string
   hashes?: string[]
   reportUri?: string
+  /** Defaults to true; only a plain-http non-production origin may disable it. */
+  upgradeInsecureRequests?: boolean
 }
 
 /** Pure header policy shared by Nitro and the outer Worker. Third-party
@@ -37,7 +39,8 @@ export function applicationSecurityHeaders(
         nonce: options.nonce,
         hashes: options.hashes,
         turnstile: options.turnstile,
-        reportUri: options.reportUri
+        reportUri: options.reportUri,
+        upgradeInsecureRequests: options.upgradeInsecureRequests
       })
       const headerName = getCspHeaderName(mode)
       if (headerName) {

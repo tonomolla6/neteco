@@ -59,6 +59,9 @@ export default defineConfig({
           // build-time values (e.g. from a local .env) win and specs cannot decrypt outbox tokens.
           NUXT_AUTH_TOKEN_PEPPER: authTokenPepper,
           NUXT_AUTH_ENCRYPTION_KEY: authEncryptionKey,
+          // Production contract: the strict nonce CSP is enforced, not only reported.
+          CSP_MODE: process.env.E2E_CSP_MODE ?? 'enforce',
+          NUXT_CSP_MODE: process.env.E2E_CSP_MODE ?? 'enforce',
           NETECO_TEST_NOW: '2026-08-13T12:00:00.000Z',
           EMAIL_WEBHOOK_SECRET: 'test-email-webhook-secret-at-least-24-characters',
           PAYMENT_PROVIDER: 'redsys',
