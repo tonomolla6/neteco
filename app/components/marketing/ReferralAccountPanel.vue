@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { CustomerReferralOverview } from '../../../shared/referrals'
+import type { CustomerReferralOverview } from '~~/shared/referrals'
 
 const requestFetch = useRequestFetch()
 

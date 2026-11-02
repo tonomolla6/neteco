@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import EventRegistrationCard from '../components/events/EventRegistrationCard.vue'
-import type { EventItemView } from '../../shared/events'
+import type { EventItemView } from '~~/shared/events'
 
 const requestFetch = useRequestFetch()
 

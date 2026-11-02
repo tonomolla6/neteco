@@ -6,7 +6,7 @@ import {
   type RoleDashboardConfig,
   type RoleDashboardWidgetConfig,
   type RoleSavedView
-} from '../../shared/role-dashboard-config'
+} from '~~/shared/role-dashboard-config'
 
 const requestFetch = useRequestFetch()
 

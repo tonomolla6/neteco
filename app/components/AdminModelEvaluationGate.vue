@@ -5,7 +5,7 @@ import type {
   ExplainabilityReport,
   MlModelRegistryItem,
   ModelEvaluationRecord
-} from '../../shared/predictive-personalization'
+} from '~~/shared/predictive-personalization'
 
 const requestFetch = useRequestFetch()
 const loading = ref(true)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { CompanyShippingConditions, CompanyShippingMethodCode } from '../../shared/company-shipping-conditions'
+import type { CompanyShippingConditions, CompanyShippingMethodCode } from '~~/shared/company-shipping-conditions'
 
 const props = defineProps<{
   companyId: string

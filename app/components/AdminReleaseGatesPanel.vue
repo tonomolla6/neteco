@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { AlphaBetaPromotionRecord } from '../../shared/alpha-beta-promotion'
-import type { ProgressiveRolloutRecord } from '../../shared/progressive-rollout'
-import type { CloudflarePolicyAuditRecord } from '../../shared/cloudflare-policy'
-import type { CampaignContentPipelineRecord } from '../../shared/campaign-pipeline'
+import type { AlphaBetaPromotionRecord } from '~~/shared/alpha-beta-promotion'
+import type { ProgressiveRolloutRecord } from '~~/shared/progressive-rollout'
+import type { CloudflarePolicyAuditRecord } from '~~/shared/cloudflare-policy'
+import type { CampaignContentPipelineRecord } from '~~/shared/campaign-pipeline'
 
 export type ActiveTab = 'promotions' | 'rollouts' | 'policies' | 'campaigns'
 

@@ -251,7 +251,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { CommercialPipelineSummary, CommercialNextAction } from '../../shared/commercial-quotes-accounts'
+import type { CommercialPipelineSummary, CommercialNextAction } from '~~/shared/commercial-quotes-accounts'
 
 const requestFetch = useRequestFetch()
 const loading = ref(false)

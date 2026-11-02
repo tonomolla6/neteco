@@ -5,7 +5,7 @@ import {
   type CmsPreviewBreakpoint,
   type ContentDiffResult,
   type ContentDocumentSnapshot
-} from '../../shared/cms-preview-comparison'
+} from '~~/shared/cms-preview-comparison'
 
 const props = withDefaults(
   defineProps<{

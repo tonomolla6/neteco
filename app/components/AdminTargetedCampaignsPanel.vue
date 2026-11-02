@@ -5,7 +5,7 @@ import {
   type CampaignReportingMetrics,
   type CreateTargetedCampaignInput,
   type TargetedCampaign
-} from '../../shared/targeted-campaigns'
+} from '~~/shared/targeted-campaigns'
 
 const requestFetch = useRequestFetch()
 const loading = ref(true)

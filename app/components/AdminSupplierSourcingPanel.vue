@@ -5,7 +5,7 @@ import {
   type SupplierProductOffering,
   type SourcingDecision,
   type SourcingStrategy
-} from '../../shared/supplier-sourcing'
+} from '~~/shared/supplier-sourcing'
 
 const props = withDefaults(
   defineProps<{

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
-import type { ConveniencePoint, ConveniencePointNetwork } from '../../shared/shipping-convenience-points'
+import type { ConveniencePoint, ConveniencePointNetwork } from '~~/shared/shipping-convenience-points'
 
 const props = defineProps<{
   postalCode: string

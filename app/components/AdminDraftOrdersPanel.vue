@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { DraftOrder } from '../../shared/draft-orders'
+import type { DraftOrder } from '~~/shared/draft-orders'
 
 const requestFetch = useRequestFetch()
 

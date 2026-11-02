@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import type { DeliveryRoute, ReoptimizeDeliveryRouteResult } from '../../shared/delivery-route-planning'
+import type { DeliveryRoute, ReoptimizeDeliveryRouteResult } from '~~/shared/delivery-route-planning'
 
 const props = defineProps<{
   routeId: string

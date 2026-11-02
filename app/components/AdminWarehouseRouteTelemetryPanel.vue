@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { WarehouseTelemetryAggregate, WarehouseDeviceTelemetry } from '../../shared/warehouse-route-telemetry'
+import type { WarehouseTelemetryAggregate, WarehouseDeviceTelemetry } from '~~/shared/warehouse-route-telemetry'
 
 const requestFetch = useRequestFetch()
 const loading = ref(true)

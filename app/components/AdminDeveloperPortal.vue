@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { developerTemplates, filterDeveloperServices } from '../../shared/developer-portal-catalog'
+import { developerTemplates, filterDeveloperServices } from '~~/shared/developer-portal-catalog'
 
 const query = ref('')
 const services = computed(() => filterDeveloperServices(query.value))

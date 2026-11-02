@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { FreeShippingProgressEvaluation } from '../../shared/free-shipping-progress'
+import type { FreeShippingProgressEvaluation } from '~~/shared/free-shipping-progress'
 
 const props = defineProps<{
   evaluation: FreeShippingProgressEvaluation

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { OperationalAlert, OperationalAlertSeverity, OperationalAlertArea } from '../../shared/operational-alerts'
+import type { OperationalAlert, OperationalAlertSeverity, OperationalAlertArea } from '~~/shared/operational-alerts'
 
 const requestFetch = useRequestFetch()
 const loading = ref(true)

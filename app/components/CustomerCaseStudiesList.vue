@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useCustomerCaseStudies } from '../composables/useCustomerCaseStudies'
-import type { PublicCaseStudy } from '../../shared/customer-case-studies'
+import type { PublicCaseStudy } from '~~/shared/customer-case-studies'
 
 const { cases, loading, error, fetchPublicCases } = useCustomerCaseStudies()
 

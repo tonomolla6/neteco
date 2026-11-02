@@ -4,7 +4,7 @@ import {
   validateStrictNoSedeNoHierarchy,
   type CampaignOptimizationMetrics,
   type CampaignOptimizationRule
-} from '../../shared/predictive-personalization'
+} from '~~/shared/predictive-personalization'
 
 const requestFetch = useRequestFetch()
 const loading = ref(true)

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { B2bSalesMetricsResponse } from '../../shared/b2b-sales-metrics'
+import type { B2bSalesMetricsResponse } from '~~/shared/b2b-sales-metrics'
 
 const props = defineProps<{ runtime: unknown }>()
 const { ready, loggedIn, user } = useUserSession()

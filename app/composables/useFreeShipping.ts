@@ -19,7 +19,7 @@ import {
   evaluateFreeShippingProgress,
   type FreeShippingCartLine,
   type FreeShippingProgressEvaluation
-} from '../../shared/free-shipping-progress'
+} from '~~/shared/free-shipping-progress'
 
 export function useFreeShipping() {
   const runtime = useRuntimeConfig()

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
 import { useUgcReviews } from '../composables/useUgcReviews'
-import type { PublicUgcReview } from '../../shared/ugc-reviews'
+import type { PublicUgcReview } from '~~/shared/ugc-reviews'
 
 const props = defineProps<{
   productId: string

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { ManifestSummary, ManifestView } from '../../shared/carrier-manifests'
+import type { ManifestSummary, ManifestView } from '~~/shared/carrier-manifests'
 import { newCommandId } from '../composables/useDeliveryDriverApp'
 import { opsErrorMessage } from '../utils/shipping-ops-errors'
 

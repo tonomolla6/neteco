@@ -5,7 +5,7 @@ import {
   type Certificate,
   type Course,
   type Lesson
-} from '../../shared/learning-centre'
+} from '~~/shared/learning-centre'
 
 const props = defineProps<{
   courseSlug: string

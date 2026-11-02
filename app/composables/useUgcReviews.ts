@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { PublicUgcReview, SubmitUgcReviewInput, ModerateUgcReviewInput } from '../../shared/ugc-reviews'
+import type { PublicUgcReview, SubmitUgcReviewInput, ModerateUgcReviewInput } from '~~/shared/ugc-reviews'
 
 export interface UgcReviewItem {
   id: string

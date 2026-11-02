@@ -4,7 +4,7 @@ import {
   type DeliveryEventInput,
   type DeliveryEventResult,
   type DriverManifest
-} from '../../shared/delivery-driver-app'
+} from '~~/shared/delivery-driver-app'
 import {
   applyEventToManifest,
   applySyncResults,
@@ -15,7 +15,7 @@ import {
   serializeQueue,
   takeBatch,
   type OfflineQueueState
-} from '../../shared/delivery-offline-queue'
+} from '~~/shared/delivery-offline-queue'
 
 const QUEUE_KEY = 'neteco.delivery.queue.v1'
 const MANIFEST_KEY = 'neteco.delivery.manifest.v1'

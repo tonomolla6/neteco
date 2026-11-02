@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { SeoContentDashboardResponse, SeoDevice } from '../../shared/seo-content-dashboard'
+import type { SeoContentDashboardResponse, SeoDevice } from '~~/shared/seo-content-dashboard'
 
 const props = defineProps<{ runtime: unknown }>()
 const { ready, loggedIn, user } = useUserSession()

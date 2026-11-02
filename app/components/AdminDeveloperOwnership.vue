@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { developerServices } from '../../shared/developer-portal-catalog'
+import { developerServices } from '~~/shared/developer-portal-catalog'
 const requestFetch = useRequestFetch()
 type Owner = { serviceId: string; owner: string; version: number; updatedAt: string }
 type Command = { serviceId: string; owner: string; expectedVersion: number }

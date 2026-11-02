@@ -9,7 +9,7 @@ import {
   type CampaignLinkedAsset,
   type CampaignConflict,
   type CommercialCalendarFeed
-} from '../../shared/commercial-campaigns'
+} from '~~/shared/commercial-campaigns'
 
 const requestFetch = useRequestFetch()
 

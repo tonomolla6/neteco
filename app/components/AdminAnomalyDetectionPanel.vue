@@ -8,7 +8,7 @@ import type {
   AnomalyRunbook,
   AnomalySeverity,
   AnomalyStatus
-} from '../../shared/anomaly-detection'
+} from '~~/shared/anomaly-detection'
 
 const requestFetch = useRequestFetch()
 

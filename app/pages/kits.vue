@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import BundleConfigurator from '../components/bundles/BundleConfigurator.vue'
-import type { BundleDetailView } from '../../shared/bundles'
+import type { BundleDetailView } from '~~/shared/bundles'
 
 const requestFetch = useRequestFetch()
 

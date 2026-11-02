@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AdminNavigationLink } from '../../shared/admin-navigation'
+import type { AdminNavigationLink } from '~~/shared/admin-navigation'
 const props = defineProps<{
   groups: Array<{ label: string; links: AdminNavigationLink[] }>
   path: string

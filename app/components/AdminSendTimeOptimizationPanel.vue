@@ -5,7 +5,7 @@ import type {
   SendTimeOptimizationDecision,
   SendTimeCategory,
   SendTimeChannel
-} from '../../shared/send-time-optimization'
+} from '~~/shared/send-time-optimization'
 
 const requestFetch = useRequestFetch()
 const loading = ref(true)

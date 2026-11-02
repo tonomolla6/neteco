@@ -1,4 +1,4 @@
-import { CATALOG_EXPORT_MAX_BYTES, verifyCatalogExportSnapshot } from '../../shared/catalog-export'
+import { CATALOG_EXPORT_MAX_BYTES, verifyCatalogExportSnapshot } from '~~/shared/catalog-export'
 
 /** In-memory, read-only XLSX. The UI imports this module only on the client.
  * Validate/copy the observed server snapshot before loading the browser codec;

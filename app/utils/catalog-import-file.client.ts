@@ -9,8 +9,8 @@ import {
   validateCatalogRecords,
   type CatalogTabularRecord,
   type CatalogTabularValidation
-} from '../../shared/catalog-tabular-core'
-import { CatalogXlsxArchiveError, inspectCatalogXlsxArchive } from '../../shared/catalog-xlsx-archive'
+} from '~~/shared/catalog-tabular-core'
+import { CatalogXlsxArchiveError, inspectCatalogXlsxArchive } from '~~/shared/catalog-xlsx-archive'
 
 const INVALID_FILE_MESSAGE = 'El archivo no coincide con el formato de catálogo compatible.'
 const TOO_LARGE_MESSAGE = 'El archivo supera los límites permitidos para la importación de catálogo.'

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { FlowMetricsSummary, CrmHoldoutPolicy } from '../../shared/crm-automation-metrics'
+import type { FlowMetricsSummary, CrmHoldoutPolicy } from '~~/shared/crm-automation-metrics'
 
 const requestFetch = useRequestFetch()
 

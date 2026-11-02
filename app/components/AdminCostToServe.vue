@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { CostToServeDashboardResponse } from '../../shared/cost-to-serve'
+import type { CostToServeDashboardResponse } from '~~/shared/cost-to-serve'
 
 const props = defineProps<{ runtime: unknown }>()
 const { ready, loggedIn, user } = useUserSession()

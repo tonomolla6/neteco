@@ -6,7 +6,7 @@ import {
   type SeasonType,
   type SeasonalSectorCampaign,
   type CoordinationCheckResult
-} from '../../../shared/seasonal-campaigns'
+} from '~~/shared/seasonal-campaigns'
 
 definePageMeta({
   layout: 'admin',

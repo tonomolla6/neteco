@@ -4,7 +4,7 @@ import {
   evaluateEditorialQuality,
   type CatalogEditorialArticle,
   type EditorialTargetType
-} from '../../shared/catalog-editorial-content'
+} from '~~/shared/catalog-editorial-content'
 
 const props = withDefaults(
   defineProps<{

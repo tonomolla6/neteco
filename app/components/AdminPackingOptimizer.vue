@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import type { PackingConfigView, PackingSuggestionView } from '../../shared/packing-optimizer-api'
+import type { PackingConfigView, PackingSuggestionView } from '~~/shared/packing-optimizer-api'
 import { newCommandId } from '../composables/useDeliveryDriverApp'
 import { opsErrorMessage } from '../utils/shipping-ops-errors'
 

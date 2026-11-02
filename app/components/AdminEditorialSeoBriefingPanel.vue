@@ -326,7 +326,7 @@
 
 <script setup lang="ts">
 import { computed, ref, onMounted } from 'vue'
-import type { UnifiedEditorialCalendar, EditorialBriefing } from '../../shared/editorial-seo-briefing'
+import type { UnifiedEditorialCalendar, EditorialBriefing } from '~~/shared/editorial-seo-briefing'
 
 const props = defineProps<{
   initialMonth?: string

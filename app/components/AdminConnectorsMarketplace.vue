@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { ConnectorMetricsSummary } from '../../shared/connector-marketplace'
+import type { ConnectorMetricsSummary } from '~~/shared/connector-marketplace'
 
 export interface CatalogConnector {
   id: string

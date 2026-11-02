@@ -4,7 +4,7 @@ import type {
   HumanEvaluationItem,
   EvaluationBenchmarkResult,
   SemanticSearchSuggestion
-} from '../../shared/semantic-search'
+} from '~~/shared/semantic-search'
 
 defineProps<{
   runtime?: unknown

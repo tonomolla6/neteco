@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { calculateVolumePricingBreakdown, type VolumePriceTierWithMultiple } from '../../shared/volume-pricing-scale'
+import { calculateVolumePricingBreakdown, type VolumePriceTierWithMultiple } from '~~/shared/volume-pricing-scale'
 
 const props = withDefaults(
   defineProps<{

@@ -3,7 +3,7 @@ import type {
   PublicCaseStudy,
   CreateCaseStudyInput,
   PerformPeriodicReviewInput
-} from '../../shared/customer-case-studies'
+} from '~~/shared/customer-case-studies'
 
 export function useCustomerCaseStudies() {
   const cases = ref<PublicCaseStudy[]>([])

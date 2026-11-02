@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type { UpliftReport } from '../../shared/personalized-rerank'
+import type { UpliftReport } from '~~/shared/personalized-rerank'
 
 defineProps<{
   runtime?: unknown

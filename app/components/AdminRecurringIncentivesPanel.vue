@@ -4,7 +4,7 @@ import {
   SPANISH_LIVA_RAPPEL_FISCAL_CLAUSE,
   type IncentiveAgreement,
   type IncentiveSettlement
-} from '../../shared/recurring-incentives'
+} from '~~/shared/recurring-incentives'
 
 const props = defineProps<{
   companyId: string

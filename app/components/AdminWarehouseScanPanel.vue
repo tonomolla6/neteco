@@ -332,7 +332,7 @@ import type {
   WarehouseMetricsSummary,
   WarehousePrinter,
   WarehouseQueueItem
-} from '../../shared/warehouse-scan-operations'
+} from '~~/shared/warehouse-scan-operations'
 
 interface WarehouseQueuesData {
   reception: WarehouseQueueItem[]

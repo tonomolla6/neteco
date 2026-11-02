@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, reactive, ref } from 'vue'
-import { buildNavigationUrl, type DriverStopView } from '../../shared/delivery-driver-app'
+import { buildNavigationUrl, type DriverStopView } from '~~/shared/delivery-driver-app'
 import { newCommandId, useDeliveryDriverApp } from '../composables/useDeliveryDriverApp'
 
 const app = useDeliveryDriverApp()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { SupplierFeedReviewItem } from '../../shared/supplier-feed-comparison'
+import type { SupplierFeedReviewItem } from '~~/shared/supplier-feed-comparison'
 
 const props = withDefaults(
   defineProps<{
