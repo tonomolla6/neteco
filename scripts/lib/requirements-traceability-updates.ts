@@ -1842,5 +1842,263 @@ export const traceabilityUpdates: Record<string, TraceabilityUpdate> = {
     operational_evidence: '',
     external_owner: '',
     notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'CAT-017': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0092_catalog_quality_review.sql; workers/catalog/catalog-quality.ts; workers/catalog/catalog-quality-http.ts; workers/catalog/admin-catalog-http.ts; app/components/AdminCatalogQualityQueue.vue; tests/unit/d1-catalog-quality.test.ts; tests/unit/d1-catalog-quality-http.test.ts; tests/components/admin-catalog-quality-queue.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Score determinista (0-100), penalizaciones por dimensión y cola priorizada sin N+1 con CAS y recibo inmutable. Verificado en tests unitarios y de componentes.'
+  },
+  'PRI-019': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0101_b2b_price_lists_credit.sql; workers/catalog/b2b-pricing.ts; app/components/AdminB2BPricing.vue; tests/unit/d1-b2b-pricing.test.ts; tests/unit/d1-b2b-pricing-catalog.test.ts; tests/unit/d1-b2b-pricing-checkout.test.ts; tests/unit/d1-b2b-pricing-commands.test.ts; tests/unit/d1-b2b-pricing-resolver.test.ts; tests/unit/d1-b2b-pricing-schema.test.ts; tests/components/admin-b2b-pricing.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Prevalencia de precio contractual por cliente/empresa con vigencia, versiones, CAS y snapshots inmutables; sin tarifas por sede. Verificado en tests unitarios y de componentes.'
+  },
+  'PRI-020': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0105_b2b_credit_terms.sql; workers/catalog/b2b-credit.ts; app/components/AdminB2BPricing.vue; app/pages/checkout.vue; tests/unit/d1-b2b-credit-terms.test.ts; tests/unit/d1-b2b-credit-checkout.test.ts; tests/unit/d1-b2b-credit-api.test.ts; tests/unit/d1-b2b-credit-http.test.ts; tests/components/checkout-b2b-credit.test.ts; tests/components/admin-b2b-pricing.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Aprobación de pago aplazado y asignación de límite de crédito en céntimos con bloqueo por impago o revisión administrativa; validación atómica en checkout. Verificado en tests unitarios y de componentes.'
+  },
+  'SEA-012': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0095_search_analytics.sql; workers/analytics/search-analytics.ts; workers/analytics/search-analytics-http.ts; app/composables/useSearchAnalytics.ts; app/components/AdminSearchAnalytics.vue; app/pages/admin/analitica-busqueda.vue; tests/unit/d1-search-analytics.test.ts; tests/unit/d1-search-analytics-http.test.ts; tests/components/admin-search-analytics.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Analítica de búsqueda sin PII (redacción regex, HMAC de sesión), agregados diarios en D1 con triggers, y supresión de tasas con muestra < 20. Verificado con tests unitarios y de componentes.'
+  },
+  'SEA-013': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0091_search_merchandising_rules.sql; workers/catalog/search-merchandising.ts; workers/catalog/search-merchandising-http.ts; app/components/AdminSearchMerchandisingRules.vue; app/pages/admin/busqueda.vue; tests/components/admin-search-merchandising-rules.test.ts; tests/unit/d1-search-merchandising.test.ts; tests/unit/d1-search-merchandising-http.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Reglas de merchandising de búsqueda (boost/bury y redirección interna), validación de caducidad <= 180 días, CAS e inmutabilidad con comandos auditados. Verificado en tests unitarios y de componentes.'
+  },
+  'SEA-014': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: 'tests/fixtures/search-relevance/v1.json; tests/unit/search-relevance-offline.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Dataset determinista versionado (v1.json) y suite de regresión offline sobre SQLite/D1 con evaluación de nDCG@k y tolerancia a sinónimos y erratas. Verificado con tests unitarios.'
+  },
+  'PDP-017': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0087_product_watch.sql; shared/product-watch.ts; workers/marketing/product-watch.ts; workers/marketing/product-watch-http.ts; workers/runtime/product-watch.ts; app/components/ProductWatchPanel.vue; app/pages/cuenta/avisos-productos.vue; app/pages/producto/[slug].vue; tests/unit/product-watch.test.ts; tests/unit/product-watch-http.test.ts; tests/unit/product-watch-runtime.test.ts; tests/components/product-watch-panel.test.ts; tests/components/product-watch-page.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Avisos de vuelta a stock (back-in-stock) y bajada de precio (price-drop) con doble opt-in vía token seguro, respeto de preferencias y cancelación sencilla. Verificado en tests unitarios y de componentes.'
+  },
+  'PDP-019': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0101_b2b_price_lists_credit.sql; workers/catalog/b2b-pricing.ts; workers/catalog/product-detail.ts; workers/catalog/products.ts; app/pages/producto/[slug].vue; tests/unit/d1-b2b-pricing-catalog.test.ts; tests/unit/d1-b2b-pricing.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Resolución server-side de precio B2B en ficha de producto para empresas autenticadas y aprobadas sin filtración de tarifas a terceros en HTML/caché. Verificado en tests unitarios.'
+  },
+  'BEP-019': {
+    status: 'PARTIAL_EXTERNAL',
+    implementation_refs: 'server/integrations/beply.ts; scripts/invoice-worker.ts; app/pages/admin/operaciones.vue',
+    operational_evidence: 'Required before phase acceptance',
+    external_owner: 'Business/Operations/Legal/Provider (assign explicitly)',
+    notes:
+      'Dependencia externa de Beply; la operativa de cola y errores está implementada en paneles locales pero las métricas y SLOs de latencia en producción requieren entorno real de Beply.'
+  },
+  'BEP-020': {
+    status: 'PARTIAL_EXTERNAL',
+    implementation_refs: 'server/integrations/beply.ts; scripts/invoice-worker.ts',
+    operational_evidence: 'Required before phase acceptance',
+    external_owner: 'Business/Operations/Legal/Provider (assign explicitly)',
+    notes:
+      'Estrategia de polling y reconciliación soportada por el adaptador local; confirmación de webhooks y límites de concurrencia pendientes de acuerdo con Beply.'
+  },
+  'BEP-021': {
+    status: 'PARTIAL_EXTERNAL',
+    implementation_refs: 'server/integrations/beply.ts; scripts/invoice-worker.ts',
+    operational_evidence: 'Required before phase acceptance',
+    external_owner: 'Business/Operations/Legal/Provider (assign explicitly)',
+    notes:
+      'Integración Beply acotada a facturación electrónica; sincronización de presupuestos o albaranes diferida y dependiente de definición del maestro con Beply.'
+  },
+  'BEP-022': {
+    status: 'PARTIAL_EXTERNAL',
+    implementation_refs: 'server/integrations/beply.ts; scripts/invoice-worker.ts',
+    operational_evidence: 'Required before phase acceptance',
+    external_owner: 'Business/Operations/Legal/Provider (assign explicitly)',
+    notes:
+      'El maestro único de inventario reside en el almacén de NETECO (D1); evaluación de ERP Beply como maestro futuro condicionada para evitar divergencia de stock.'
+  },
+  'INV-013': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0087_product_watch.sql; shared/product-watch.ts; workers/marketing/product-watch.ts; workers/marketing/product-watch-http.ts; workers/runtime/product-watch.ts; app/components/ProductWatchPanel.vue; app/pages/cuenta/avisos-productos.vue; app/pages/producto/[slug].vue; tests/unit/product-watch.test.ts; tests/unit/product-watch-http.test.ts; tests/unit/product-watch-runtime.test.ts; tests/components/product-watch-panel.test.ts; tests/components/product-watch-page.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Suscripción back-in-stock ligada al stock real del único almacén, con notificación única por evento y respeto de consentimientos y preferencias. Verificado en tests unitarios y de componentes.'
+  },
+  'CUS-022': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0101_b2b_price_lists_credit.sql; workers/catalog/b2b-pricing.ts; app/components/AdminB2BPricing.vue; tests/unit/d1-b2b-pricing.test.ts; tests/unit/d1-b2b-pricing-catalog.test.ts; tests/unit/d1-b2b-pricing-checkout.test.ts; tests/unit/d1-b2b-pricing-commands.test.ts; tests/unit/d1-b2b-pricing-resolver.test.ts; tests/unit/d1-b2b-pricing-schema.test.ts; tests/components/admin-b2b-pricing.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Tarifas B2B por variante y categoría asignadas a empresas aprobadas con vigencia, versiones, CAS y aislamiento; sin jerarquías por sede. Verificado en tests unitarios y de componentes.'
+  },
+  'CUS-023': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0105_b2b_credit_terms.sql; workers/catalog/b2b-credit.ts; app/components/AdminB2BPricing.vue; app/pages/checkout.vue; tests/unit/d1-b2b-credit-terms.test.ts; tests/unit/d1-b2b-credit-checkout.test.ts; tests/unit/d1-b2b-credit-api.test.ts; tests/unit/d1-b2b-credit-http.test.ts; tests/components/checkout-b2b-credit.test.ts; tests/components/admin-b2b-pricing.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Condiciones de pago aplazado (15/30/60 días) y límite de crédito con control de exposición, bloqueo y validación en checkout para empresas aprobadas. Verificado en tests unitarios y de componentes.'
+  },
+  'CUS-024': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0074_order_purchase_reference.sql; workers/catalog/order-customer-reference.ts; workers/catalog/checkout.ts; app/pages/checkout.vue; app/pages/pedido/[id].vue; app/pages/admin/pedidos/[id].vue; tests/unit/d1-order-purchase-reference.test.ts; tests/unit/d1-order-purchase-reference-readers.test.ts; tests/components/checkout-purchase-reference.test.ts; tests/components/order-purchase-reference.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Referencia de compra / PO opcional del cliente en checkout, preservada en pedidos y visible en panel y documentos; sin centros de coste. Verificado en tests unitarios y de componentes.'
+  },
+  'ADM-028': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'server/domain/money.ts; shared/promotion-basket-preview.ts; workers/catalog/promotion-basket-preview.ts; workers/catalog/cart.ts; workers/catalog/shipping.ts; workers/catalog/admin-promotions-http.ts; workers/canary.ts; app/components/PromotionBasketSimulator.vue; app/pages/admin/promociones.vue; tests/unit/d1-promotion-basket-preview.test.ts; tests/unit/d1-promotion-basket-preview-http.test.ts; tests/unit/d1-promotions-native.test.ts; tests/components/promotion-basket-simulator.test.ts; tests/components/admin-promotions.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Simulador administrativo de márgenes y promociones sobre cestas tipo, calculando precio neto, impuestos, descuento efectivo y margen sin alterar reglas activas. Verificado en tests unitarios y de componentes.'
+  },
+  'MED-017': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'workers/catalog/product-compare.ts; workers/catalog/product-compare-http.ts; app/components/ProductCompareTable.vue; app/pages/comparar.vue; app/components/ProductCard.vue; tests/unit/d1-product-compare.test.ts; tests/unit/d1-product-compare-http.test.ts; tests/components/product-compare-table.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Comparativa técnica de 2 a 4 productos con normalización canónica de unidades, presentación accesible no ligada a color y neutralidad regulatoria CLP. Verificado en tests unitarios y de componentes.'
+  },
+  'DAT-022': {
+    status: 'ROADMAP_NOT_STARTED',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Condicional de escala: analítica en D1 (agregados diarios, funnels, cohortes) resuelve las métricas del negocio sin bloquear transaccional; se mantiene en roadmap hasta que el volumen de datos justifique un warehouse independiente.'
+  },
+  'MKT-010': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0094_marketing_modals.sql; shared/marketing-modals.ts; workers/marketing/marketing-modals.ts; workers/marketing/marketing-modals-http.ts; app/components/MarketingModalHost.vue; app/components/AdminMarketingModals.vue; app/pages/admin/modales.vue; tests/unit/d1-marketing-modals.test.ts; tests/unit/d1-marketing-modals-http.test.ts; tests/components/marketing-modal-host.test.ts; tests/components/admin-marketing-modals.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Motor de modales comerciales con reglas anti-molestia (cooldown configurable, exclusión en checkout, frecuencia por sesión, retraso mínimo y supresión tras interacción). Verificado en tests unitarios y de componentes.'
+  },
+  'SEC-034': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0100_csp_violation_reports.sql; shared/csp.ts; shared/http-security.ts; workers/security/csp-report-http.ts; workers/shop.ts; tests/unit/csp-policy.test.ts; tests/unit/csp-reports-http.test.ts; tests/unit/csp-shop-ingress.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Política CSP estricta con nonce criptográfico y hash SHA-256 sin unsafe-inline/eval en scripts, agregación de reportes de violación en D1 y saneamiento estricto de PII. Verificado en tests unitarios.'
+  },
+  'SEC-035': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs:
+      'db/d1/migrations/0093_security_anomaly_signals.sql; workers/auth/security-anomalies.ts; workers/auth/security-anomalies-http.ts; workers/auth/admin-invitations.ts; workers/auth/admin-audit.ts; workers/auth/mfa-completion.ts; workers/auth/mfa-enrollment.ts; workers/canary.ts; tests/unit/d1-security-anomalies.test.ts; tests/unit/d1-security-anomalies-http.test.ts; tests/unit/d1-security-anomalies-hooks.test.ts',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Detección y registro de señales de anomalía (nuevo dispositivo, cambios de MFA/roles, exportación masiva y anomalías de reembolso) con hash de red sin PII, bandeja de revisión y CAS. Verificado en tests unitarios.'
+  },
+  'SEC-037': {
+    status: 'ROADMAP_NOT_STARTED',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'SSO/SAML/OIDC para clientes empresariales diferido a fase posterior (Fase 3): las empresas operan con autenticación propia y gestión de usuarios; se mantiene en roadmap para cuentas B2B que requieran integración federada con su IdP.'
+  },
+  'LEG-035': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-036': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-037': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-038': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-039': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'LEG-040': {
+    status: 'REPO_EVIDENCE',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes: 'Revisión legal conforme; validado por Tono 02/11/2026.'
+  },
+  'INT-022': {
+    status: 'ROADMAP_NOT_STARTED',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Condicional de escala: la arquitectura Cloudflare nativa (D1 + Queues + Workflows + Durable Objects) cubre la escala de lanzamiento sin necesidad de event streaming prematuro; se mantiene en roadmap para evaluar solo si el throughput o desacoplamiento lo exige.'
+  },
+  'CIC-033': {
+    status: 'ROADMAP_NOT_STARTED',
+    implementation_refs: '',
+    operational_evidence: '',
+    external_owner: '',
+    notes:
+      'Condicional de escala: D1 con réplica de lectura y particionado diferido; la base transaccional única cubre el rendimiento del lanzamiento actual. Se mantiene en roadmap para evaluar solo bajo métricas reales de saturación.'
   }
 }
