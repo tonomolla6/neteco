@@ -71,6 +71,7 @@ export interface HumanEvaluationItem {
 }
 
 export interface SemanticSearchSuggestion extends SearchSuggestion {
+  uuid?: string
   semanticScore?: number
   isSemanticMatch: boolean
   lexicalFallback: boolean

@@ -287,15 +287,29 @@ function beforeOrderBatch(database: D1Database, change: () => Promise<void>) {
 
 describe('commercial quote conversion through canonical D1 checkout', () => {
   it('rejects incomplete canonical shipping addresses in the shared conversion contract', () => {
-    const input = { expectedVersion: 3, approvedHash: 'a'.repeat(64), checkout: {
-      expectedVersion: 2, quoteId: crypto.randomUUID(), shippingQuoteId: crypto.randomUUID(), selectedOptionIndex: 0,
-      selectedOptionHash: 'b'.repeat(64), contactEmail: 'buyer@example.invalid', shippingAddress: { ...address }, consentTos: true, consentPrivacy: true
-    } }
+    const input = {
+      expectedVersion: 3,
+      approvedHash: 'a'.repeat(64),
+      checkout: {
+        expectedVersion: 2,
+        quoteId: crypto.randomUUID(),
+        shippingQuoteId: crypto.randomUUID(),
+        selectedOptionIndex: 0,
+        selectedOptionHash: 'b'.repeat(64),
+        contactEmail: 'buyer@example.invalid',
+        shippingAddress: { ...address },
+        consentTos: true,
+        consentPrivacy: true
+      }
+    }
     expect(salesQuoteConvertInputSchema.safeParse(input).success).toBe(true)
     for (const field of ['phone', 'province'] as const) {
       const invalid: Record<string, unknown> = { ...address }
       delete invalid[field]
-      expect(salesQuoteConvertInputSchema.safeParse({ ...input, checkout: { ...input.checkout, shippingAddress: invalid } }).success).toBe(false)
+      expect(
+        salesQuoteConvertInputSchema.safeParse({ ...input, checkout: { ...input.checkout, shippingAddress: invalid } })
+          .success
+      ).toBe(false)
     }
   })
   it('rejects a core conversion with an invalid address before binding or creating any checkout attempt', async () => {
@@ -304,11 +318,15 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
       const snapshot = await approved(f)
       const input = conversion(snapshot, await checkout(f))
       input.checkout.shippingAddress = { ...input.checkout.shippingAddress, phone: undefined }
-      await expect(convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: 'invalid_input' })
+      await expect(
+        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: crypto.randomUUID() })
+      ).rejects.toMatchObject({ code: 'invalid_input' })
       expect(f.sqlite.prepare('SELECT count(*) AS n FROM sales_quote_conversions').get()).toEqual({ n: 0 })
       expect(f.sqlite.prepare('SELECT count(*) AS n FROM checkout_attempts').get()).toEqual({ n: 0 })
       expect(counts(f)).toEqual([0, 0])
-    } finally { f.sqlite.close() }
+    } finally {
+      f.sqlite.close()
+    }
   })
   it.each([
     { threshold: 1200, changedUnitPrice: 700, approvedShippingGross: 605 },

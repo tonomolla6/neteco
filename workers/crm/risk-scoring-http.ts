@@ -79,7 +79,7 @@ export async function handleCustomerRiskScoringHttp(
     const profileMatch = pathname.match(/^\/api\/admin\/scoring\/profiles\/([^/]+)(?:\/(calculate|review))?$/)
     if (!profileMatch) return errorResponse('not_found', 404)
 
-    const customerId = profileMatch[1]
+    const customerId = profileMatch[1]!
     const action = profileMatch[2]
 
     // 1. GET profile

@@ -144,7 +144,7 @@ export async function handleMarketCatalogHttp(
         return jsonResponse(policy)
       }
       if (request.method === 'POST') {
-        const body = await request.json()
+        const body = (await request.json()) as Record<string, unknown>
         const result = await configureInternationalShippingPolicy(
           deps.database,
           claims,
@@ -176,7 +176,7 @@ export async function handleMarketCatalogHttp(
     }
 
     if (pathname === '/api/admin/catalog-lots/expedition/unblock' && request.method === 'POST') {
-      const body = await request.json()
+      const body = (await request.json()) as { lotId: string; evidence: string }
       const result = await unblockLotExpedition(deps.database, claims, commandId, body, { now: deps.now })
       return jsonResponse(result)
     }

@@ -143,7 +143,6 @@ export async function configureInternationalShippingPolicy(
   const now = getNow(options)
 
   const payloadHash = await canonicalPayloadHash({
-    marketCode: input.marketCode,
     actorId: actor.actorId,
     ...input
   })

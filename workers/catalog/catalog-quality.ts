@@ -696,11 +696,11 @@ function decodeQualityCursor(cursor: string): {
   }
 }
 
-function extractBatchRows<T>(result: D1Result<unknown> | undefined): T[] {
+function extractBatchRows<T>(result: { success?: boolean; results?: unknown } | undefined): T[] {
   if (!result || typeof result !== 'object' || result.success === false) {
     fail('service_unavailable')
   }
-  const rows = (result as { results?: unknown }).results
+  const rows = result.results
   if (!Array.isArray(rows)) fail('service_unavailable')
   return rows as T[]
 }
@@ -756,7 +756,7 @@ async function fetchAndEvaluateCatalogQuality(
   const variantWhereSql = whereSql.replace(/\?(\d+)/g, (_, n) => `?${Number(n) + variantFilterOffset}`)
   const mediaWhereSql = whereSql.replace(/\?(\d+)/g, (_, n) => `?${Number(n) + 1}`)
 
-  let batchResults: D1Result<unknown>[]
+  let batchResults: D1Result<Record<string, unknown>>[]
   try {
     batchResults = await database.batch([
       database

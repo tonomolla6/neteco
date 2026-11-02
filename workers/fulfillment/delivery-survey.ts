@@ -396,11 +396,11 @@ export async function scheduleDeliverySurveyInvitation(
       database
         .prepare(
           `INSERT INTO delivery_survey_invitations
-           (id, order_id, customer_id, recipient_email, customer_segment, token, status, scheduled_at, expires_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?)`
+           (id, order_id, customer_id, recipient_email, customer_segment, token, status, outbox_event_id, scheduled_at, expires_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?, ?, ?, ?)`
         )
-        .bind(id, orderId, orderRow.customer_id, orderRow.contact_email, segment, token, now, expiresAt, now, now),
-      outboxStatement
+        .bind(id, orderId, orderRow.customer_id, orderRow.contact_email, segment, token, id, now, expiresAt, now, now),
+      outboxStatement.statement
     ])
     outboxEventId = id
   } catch {

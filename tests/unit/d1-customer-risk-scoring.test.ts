@@ -109,9 +109,13 @@ describe('CUS-031: Assisted Customer Risk & Value Scoring', () => {
 
     // Assert that no demographic factor exists
     for (const factor of profile.factors) {
-      expect(['payment_punctuality', 'order_volume', 'claims_returns', 'company_profile', 'credit_utilization']).toContain(
-        factor.category
-      )
+      expect([
+        'payment_punctuality',
+        'order_volume',
+        'claims_returns',
+        'company_profile',
+        'credit_utilization'
+      ]).toContain(factor.category)
     }
   })
 

@@ -70,7 +70,7 @@ async function verifyAdminAssistantAuth(
 export async function generateD1AdminAiProposal(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: GenerateAdminProposalInput,
+  rawInput: unknown,
   options: AssistantOperationOptions
 ): Promise<AdminAiInteractionRecord> {
   const parsed = GenerateAdminProposalInputSchema.safeParse(rawInput)
@@ -296,7 +296,7 @@ export async function recordD1AdminAiHumanDecision(
   database: D1Database,
   claims: VerifiedSessionClaims,
   interactionId: string,
-  rawInput: HumanAdminDecisionInput,
+  rawInput: unknown,
   options: AssistantOperationOptions
 ): Promise<AdminAiInteractionRecord> {
   const parsed = HumanAdminDecisionInputSchema.safeParse(rawInput)

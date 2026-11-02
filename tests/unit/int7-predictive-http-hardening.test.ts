@@ -99,4 +99,33 @@ describe('INT-7 predictive personalization HTTP hardening', () => {
     const body = (await res?.json()) as { variant: string }
     expect(body.variant).toBe('fallback_static')
   })
+
+  it('authenticates via session cookie when claimsResolver is omitted', async () => {
+    const { issueD1SessionCookie } = await import('../../workers/auth/session-cookie')
+    const sessionConfig = { password: 'x'.repeat(40), maxAgeSeconds: 3600 }
+    const sessionId = '99999999-0000-4000-8000-000000000003'
+    world.sqlite
+      .prepare(
+        `INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at)
+         VALUES (?, ?, 1, 1, ?, '2099-01-01T00:00:00Z')`
+      )
+      .run(sessionId, CUSTOMER_ID_1, NOW)
+    const cookieHeader = await issueD1SessionCookie(
+      world.db,
+      { identityId: CUSTOMER_ID_1, sessionId, sessionVersion: 1 },
+      sessionConfig
+    )
+    const res = await handlePredictivePersonalizationHttp(
+      new Request('https://neteco.beply.es/api/customer/personalization/preferences', {
+        headers: { cookie: cookieHeader!.split(';')[0]! }
+      }),
+      {
+        database: world.db,
+        sessionCookieConfiguration: sessionConfig,
+        origin: 'https://neteco.beply.es',
+        now: () => NOW
+      }
+    )
+    expect(res?.status).toBe(200)
+  })
 })

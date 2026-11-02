@@ -183,60 +183,192 @@ it('does not release a recall when an order line of that variant has incomplete 
   ).rejects.toMatchObject({ code: 'conflict' })
 })
 it('paginates affected lines without losing other customers', async () => {
- const other = await f.order({ paid: false, delivered: false })
- f.sqlite.prepare('INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,2,?,?)').run(crypto.randomUUID(),lot,other,CUSTOMER,'synthetic',utc())
- const firstPage = await readProductRecall(f.database, CLAIMS, lot, { ...options, limit: 1 })
- expect(firstPage.affected).toHaveLength(1)
- expect(firstPage.nextCursor).toBeTruthy()
- const next = await readProductRecall(f.database, CLAIMS, lot, { ...options, limit: 1, after: firstPage.nextCursor! })
- expect(next.affected).toHaveLength(1)
- expect(next.affected[0]!.orderId).not.toEqual(firstPage.affected[0]!.orderId)
- expect(next.nextCursor).toBeNull()
+  const other = await f.order({ paid: false, delivered: false })
+  f.sqlite
+    .prepare(
+      'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,2,?,?)'
+    )
+    .run(crypto.randomUUID(), lot, other, CUSTOMER, 'synthetic', utc())
+  const firstPage = await readProductRecall(f.database, CLAIMS, lot, { ...options, limit: 1 })
+  expect(firstPage.affected).toHaveLength(1)
+  expect(firstPage.nextCursor).toBeTruthy()
+  const next = await readProductRecall(f.database, CLAIMS, lot, { ...options, limit: 1, after: firstPage.nextCursor! })
+  expect(next.affected).toHaveLength(1)
+  expect(next.affected[0]!.orderId).not.toEqual(firstPage.affected[0]!.orderId)
+  expect(next.nextCursor).toBeNull()
 })
-it.each([{ limit: 0 }, { limit: 101 }, { after: 'invalid' }])('rejects invalid pagination %j', async query => {
- await expect(readProductRecall(f.database, CLAIMS, lot, { ...options, ...query })).rejects.toMatchObject({ code: 'invalid_input' })
+it.each([{ limit: 0 }, { limit: 101 }, { after: 'invalid' }])('rejects invalid pagination %j', async (query) => {
+  await expect(readProductRecall(f.database, CLAIMS, lot, { ...options, ...query })).rejects.toMatchObject({
+    code: 'invalid_input'
+  })
 })
 it('lists untraced order lines as possible and permits evidence-backed reconciliation before resolution', async () => {
- const other=await f.order({paid:false,delivered:false})
- await save()
- const snapshot=await readProductRecall(f.database,CLAIMS,lot,options)
- expect(snapshot.affected).toEqual(expect.arrayContaining([expect.objectContaining({orderId:other,confirmedQuantity:0,untrackedQuantity:2}),expect.objectContaining({orderId,confirmedQuantity:2,untrackedQuantity:0})]))
- const traceKey='44444444-4444-4444-8444-444444444444'
- await save({action:'trace',expectedVersion:1,orderId:other,lineIndex:0,targetLotId:lot,quantity:2,evidence:'trace-case-123'},traceKey)
- expect(f.sqlite.prepare('SELECT quantity,customer_id FROM inventory_lot_allocations WHERE id=?').get(traceKey)).toEqual({quantity:2,customer_id:CUSTOMER})
- expect(f.sqlite.prepare('SELECT available_quantity,version FROM inventory_lots WHERE id=?').get(lot)).toEqual({available_quantity:6,version:2})
- await save({action:'trace',expectedVersion:1,orderId:other,lineIndex:0,targetLotId:lot,quantity:2,evidence:'trace-case-123'},traceKey)
- expect(f.sqlite.prepare('SELECT available_quantity,version FROM inventory_lots WHERE id=?').get(lot)).toEqual({available_quantity:6,version:2})
- await save({action:'communicate',expectedVersion:2,evidence:'notice-case-123',orderId,lineIndex:0},key2)
- await save({action:'communicate',expectedVersion:3,evidence:'notice-other-123',orderId:other,lineIndex:0},'55555555-5555-4555-8555-555555555555')
- await save({action:'resolve',expectedVersion:4,evidence:'resolution-case-123'},'66666666-6666-4666-8666-666666666666')
- expect((await readProductRecall(f.database,CLAIMS,lot,options)).open).toBe(false)
+  const other = await f.order({ paid: false, delivered: false })
+  await save()
+  const snapshot = await readProductRecall(f.database, CLAIMS, lot, options)
+  expect(snapshot.affected).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ orderId: other, confirmedQuantity: 0, untrackedQuantity: 2 }),
+      expect.objectContaining({ orderId, confirmedQuantity: 2, untrackedQuantity: 0 })
+    ])
+  )
+  const traceKey = '44444444-4444-4444-8444-444444444444'
+  await save(
+    {
+      action: 'trace',
+      expectedVersion: 1,
+      orderId: other,
+      lineIndex: 0,
+      targetLotId: lot,
+      quantity: 2,
+      evidence: 'trace-case-123'
+    },
+    traceKey
+  )
+  expect(
+    f.sqlite.prepare('SELECT quantity,customer_id FROM inventory_lot_allocations WHERE id=?').get(traceKey)
+  ).toEqual({ quantity: 2, customer_id: CUSTOMER })
+  expect(f.sqlite.prepare('SELECT available_quantity,version FROM inventory_lots WHERE id=?').get(lot)).toEqual({
+    available_quantity: 6,
+    version: 2
+  })
+  await save(
+    {
+      action: 'trace',
+      expectedVersion: 1,
+      orderId: other,
+      lineIndex: 0,
+      targetLotId: lot,
+      quantity: 2,
+      evidence: 'trace-case-123'
+    },
+    traceKey
+  )
+  expect(f.sqlite.prepare('SELECT available_quantity,version FROM inventory_lots WHERE id=?').get(lot)).toEqual({
+    available_quantity: 6,
+    version: 2
+  })
+  await save({ action: 'communicate', expectedVersion: 2, evidence: 'notice-case-123', orderId, lineIndex: 0 }, key2)
+  await save(
+    { action: 'communicate', expectedVersion: 3, evidence: 'notice-other-123', orderId: other, lineIndex: 0 },
+    '55555555-5555-4555-8555-555555555555'
+  )
+  await save(
+    { action: 'resolve', expectedVersion: 4, evidence: 'resolution-case-123' },
+    '66666666-6666-4666-8666-666666666666'
+  )
+  expect((await readProductRecall(f.database, CLAIMS, lot, options)).open).toBe(false)
 })
 it('rejects reconciliation that exceeds the untraced quantity without partial allocation', async () => {
- const other=await f.order({paid:false,delivered:false})
- await save()
- await expect(save({action:'trace',expectedVersion:1,orderId:other,lineIndex:0,targetLotId:lot,quantity:3,evidence:'trace-case-123'},key2)).rejects.toMatchObject({code:'conflict'})
- expect(f.sqlite.prepare('SELECT count(*) n FROM inventory_lot_allocations WHERE id=?').get(key2)).toEqual({n:0})
- expect((await readProductRecall(f.database,CLAIMS,lot,options)).version).toBe(1)
+  const other = await f.order({ paid: false, delivered: false })
+  await save()
+  await expect(
+    save(
+      {
+        action: 'trace',
+        expectedVersion: 1,
+        orderId: other,
+        lineIndex: 0,
+        targetLotId: lot,
+        quantity: 3,
+        evidence: 'trace-case-123'
+      },
+      key2
+    )
+  ).rejects.toMatchObject({ code: 'conflict' })
+  expect(f.sqlite.prepare('SELECT count(*) n FROM inventory_lot_allocations WHERE id=?').get(key2)).toEqual({ n: 0 })
+  expect((await readProductRecall(f.database, CLAIMS, lot, options)).version).toBe(1)
 })
-it('does not let a stale reconciliation race overwrite an allocation',async()=>{
- const other=await f.order({paid:false,delivered:false});await save()
- const batch=f.database.batch.bind(f.database);let first=true
- f.database.batch=async statements=>{if(first){first=false;await save({action:'trace',expectedVersion:1,orderId:other,lineIndex:0,targetLotId:lot,quantity:2,evidence:'trace-winner-123'},'77777777-7777-4777-8777-777777777777')}return batch(statements)}
- await expect(save({action:'trace',expectedVersion:1,orderId:other,lineIndex:0,targetLotId:lot,quantity:2,evidence:'trace-loser-123'},key2)).rejects.toMatchObject({code:'conflict'})
- expect(f.sqlite.prepare('SELECT count(*) n FROM inventory_lot_allocations WHERE order_id=?').get(other)).toEqual({n:1})
+it('does not let a stale reconciliation race overwrite an allocation', async () => {
+  const other = await f.order({ paid: false, delivered: false })
+  await save()
+  const batch = f.database.batch.bind(f.database)
+  let first = true
+  f.database.batch = async (statements) => {
+    if (first) {
+      first = false
+      await save(
+        {
+          action: 'trace',
+          expectedVersion: 1,
+          orderId: other,
+          lineIndex: 0,
+          targetLotId: lot,
+          quantity: 2,
+          evidence: 'trace-winner-123'
+        },
+        '77777777-7777-4777-8777-777777777777'
+      )
+    }
+    return batch(statements)
+  }
+  await expect(
+    save(
+      {
+        action: 'trace',
+        expectedVersion: 1,
+        orderId: other,
+        lineIndex: 0,
+        targetLotId: lot,
+        quantity: 2,
+        evidence: 'trace-loser-123'
+      },
+      key2
+    )
+  ).rejects.toMatchObject({ code: 'conflict' })
+  expect(f.sqlite.prepare('SELECT count(*) n FROM inventory_lot_allocations WHERE order_id=?').get(other)).toEqual({
+    n: 1
+  })
 })
 it('keeps the stock block active after recording traceability', async () => {
- const other = await f.order({ paid: false, delivered: false })
- await save()
- await save({ action: 'trace', expectedVersion: 1, orderId: other, lineIndex: 0, targetLotId: lot, quantity: 2, evidence: 'trace-case-123' }, key2)
- const location = (f.sqlite.prepare('SELECT location_id FROM inventory_balances WHERE variant_id=?').get('v-1-1') as { location_id: string }).location_id
- await expect(reserveInventory(f.database, { idempotencyKey: 'after-trace', correlationId: 'recall-test', now: utc(), expiresAt: utc(600000), lines: [{ variantId: 'v-1-1', locationId: location, quantity: 1 }] })).rejects.toThrow()
+  const other = await f.order({ paid: false, delivered: false })
+  await save()
+  await save(
+    {
+      action: 'trace',
+      expectedVersion: 1,
+      orderId: other,
+      lineIndex: 0,
+      targetLotId: lot,
+      quantity: 2,
+      evidence: 'trace-case-123'
+    },
+    key2
+  )
+  const location = (
+    f.sqlite.prepare('SELECT location_id FROM inventory_balances WHERE variant_id=?').get('v-1-1') as {
+      location_id: string
+    }
+  ).location_id
+  await expect(
+    reserveInventory(f.database, {
+      idempotencyKey: 'after-trace',
+      correlationId: 'recall-test',
+      now: utc(),
+      expiresAt: utc(600000),
+      lines: [{ variantId: 'v-1-1', locationId: location, quantity: 1 }]
+    })
+  ).rejects.toThrow()
 })
 it('rejects a trace when the lot has insufficient available stock', async () => {
- const other = await f.order({ paid: false, delivered: false })
- f.sqlite.prepare('UPDATE inventory_lots SET available_quantity=1 WHERE id=?').run(lot)
- await save()
- await expect(save({ action:'trace', expectedVersion:1, orderId:other, lineIndex:0, targetLotId:lot, quantity:2, evidence:'trace-case-123' },key2)).rejects.toMatchObject({code:'conflict'})
- expect(f.sqlite.prepare('SELECT available_quantity FROM inventory_lots WHERE id=?').get(lot)).toEqual({available_quantity:1})
+  const other = await f.order({ paid: false, delivered: false })
+  f.sqlite.prepare('UPDATE inventory_lots SET available_quantity=1 WHERE id=?').run(lot)
+  await save()
+  await expect(
+    save(
+      {
+        action: 'trace',
+        expectedVersion: 1,
+        orderId: other,
+        lineIndex: 0,
+        targetLotId: lot,
+        quantity: 2,
+        evidence: 'trace-case-123'
+      },
+      key2
+    )
+  ).rejects.toMatchObject({ code: 'conflict' })
+  expect(f.sqlite.prepare('SELECT available_quantity FROM inventory_lots WHERE id=?').get(lot)).toEqual({
+    available_quantity: 1
+  })
 })

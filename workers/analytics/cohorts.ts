@@ -112,7 +112,7 @@ interface RawOrderRow {
 export async function readCohortsAnalytics(
   deps: AnalyticsMeasurementDependencies,
   claims: VerifiedSessionClaims,
-  rawQuery: CohortsAnalyticsQuery = {}
+  rawQuery: Partial<CohortsAnalyticsQuery> = {}
 ): Promise<CohortsAnalyticsResponse> {
   const policy = analyticsAssertEnabled(deps)
   const origin = deps.origin
@@ -212,6 +212,8 @@ export async function readCohortsAnalytics(
   for (const [buyerId, orderList] of buyerOrders.entries()) {
     // Orders are ordered by created_at ASC
     const firstOrder = orderList[0]
+    const lastOrder = orderList[orderList.length - 1]
+    if (!firstOrder || !lastOrder) continue
     const cohortMonth = firstOrder.created_at.slice(0, 7)
 
     // Check if within queried cohort months
@@ -230,7 +232,6 @@ export async function readCohortsAnalytics(
     }
 
     const secondOrder = orderList.length > 1 ? orderList[1] : null
-    const lastOrder = orderList[orderList.length - 1]
 
     let daysToSecond: number | null = null
     if (secondOrder) {
@@ -325,9 +326,9 @@ export async function readCohortsAnalytics(
     if (cohortRepurchaseDays.length > 0) {
       const mid = Math.floor(cohortRepurchaseDays.length / 2)
       if (cohortRepurchaseDays.length % 2 === 1) {
-        medianDays = Math.round(cohortRepurchaseDays[mid])
+        medianDays = Math.round(cohortRepurchaseDays[mid]!)
       } else {
-        medianDays = Math.round((cohortRepurchaseDays[mid - 1] + cohortRepurchaseDays[mid]) / 2)
+        medianDays = Math.round((cohortRepurchaseDays[mid - 1]! + cohortRepurchaseDays[mid]!) / 2)
       }
     }
 
@@ -381,9 +382,9 @@ export async function readCohortsAnalytics(
   if (allDaysToRepurchase.length > 0) {
     const mid = Math.floor(allDaysToRepurchase.length / 2)
     if (allDaysToRepurchase.length % 2 === 1) {
-      globalMedianDays = Math.round(allDaysToRepurchase[mid])
+      globalMedianDays = Math.round(allDaysToRepurchase[mid]!)
     } else {
-      globalMedianDays = Math.round((allDaysToRepurchase[mid - 1] + allDaysToRepurchase[mid]) / 2)
+      globalMedianDays = Math.round((allDaysToRepurchase[mid - 1]! + allDaysToRepurchase[mid]!) / 2)
     }
   }
 

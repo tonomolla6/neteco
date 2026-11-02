@@ -176,7 +176,7 @@ export async function handleCustomerRecurringListsHttp(
 
     // DELETE /api/account/recurring-lists/:id/collaborators/:identityId
     if (segments.length === 3 && segments[1] === 'collaborators' && method === 'DELETE') {
-      const collaboratorIdentityId = segments[2]
+      const collaboratorIdentityId = segments[2]!
       await removeCollaborator(deps.database, {
         listId,
         requesterIdentityId: claims.identityId,
@@ -202,7 +202,7 @@ export async function handleCustomerRecurringListsHttp(
 
     // DELETE /api/account/recurring-lists/:id/items/:variantId
     if (segments.length === 3 && segments[1] === 'items' && method === 'DELETE') {
-      const variantId = segments[2]
+      const variantId = segments[2]!
       await removeRecurringListItem(deps.database, {
         listId,
         requesterIdentityId: claims.identityId,

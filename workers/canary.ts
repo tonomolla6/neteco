@@ -3248,7 +3248,11 @@ export default {
     })
     if (mediaResponse) return mediaResponse
     const url = new URL(request.url)
-    const walletEnv = env as CloudflareEnv & Record<string, unknown>
+    const walletEnv = env as CloudflareEnv & {
+      WALLET_PAYMENTS_ENABLED?: unknown
+      WALLET_EVIDENCE_JSON?: unknown
+      APPLE_PAY_DOMAIN_ASSOCIATION?: unknown
+    }
     const walletResponse = await handleWalletHttp(request, {
       database: env.DB,
       now: serverNow,

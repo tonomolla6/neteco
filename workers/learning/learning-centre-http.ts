@@ -115,7 +115,7 @@ export async function handleLearningCentreHttp(
     // 2. GET /api/learning/certificates/:code
     const certMatch = path.match(/^\/api\/learning\/certificates\/([a-zA-Z0-9_-]+)$/)
     if (method === 'GET' && certMatch) {
-      const code = certMatch[1]
+      const code = certMatch[1]!
       const cert = await getLearningCertificateByCode(deps.database, code)
       if (!cert) return errorResponse('not_found', 404)
       return jsonResponse({ certificate: cert })
@@ -124,7 +124,7 @@ export async function handleLearningCentreHttp(
     // 3. GET /api/learning/courses/:slug
     const courseMatch = path.match(/^\/api\/learning\/courses\/([a-zA-Z0-9_-]+)$/)
     if (method === 'GET' && courseMatch) {
-      const slug = courseMatch[1]
+      const slug = courseMatch[1]!
       const claims = await resolveClaims(request, deps)
       const course = await getCourseWithProgress(deps.database, slug, claims?.customerId ?? undefined)
       return jsonResponse({ course })
@@ -133,7 +133,7 @@ export async function handleLearningCentreHttp(
     // 4. POST /api/learning/lessons/:id/quiz
     const quizMatch = path.match(/^\/api\/learning\/lessons\/([a-zA-Z0-9_-]+)\/quiz$/)
     if (method === 'POST' && quizMatch) {
-      const lessonId = quizMatch[1]
+      const lessonId = quizMatch[1]!
       const claims = await resolveClaims(request, deps)
       if (!claims?.customerId) return errorResponse('unauthorized', 401)
       const body = (await request.json().catch(() => ({}))) as { answers?: Record<string, string> }
@@ -149,7 +149,7 @@ export async function handleLearningCentreHttp(
     // 5. POST /api/learning/courses/:id/certificate
     const issueCertMatch = path.match(/^\/api\/learning\/courses\/([a-zA-Z0-9_-]+)\/certificate$/)
     if (method === 'POST' && issueCertMatch) {
-      const courseId = issueCertMatch[1]
+      const courseId = issueCertMatch[1]!
       const claims = await resolveClaims(request, deps)
       if (!claims?.customerId) return errorResponse('unauthorized', 401)
       const body = (await request.json().catch(() => ({}))) as {

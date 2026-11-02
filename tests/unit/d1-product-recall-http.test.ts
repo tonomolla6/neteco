@@ -107,20 +107,42 @@ it('validates and records a communication for a specific allocated line', async 
   expect((await handleProductRecallHttp(req, deps()))?.status).toBe(200)
 })
 it('supports bounded cursor pagination on affected lines', async () => {
- const first = await f.order({ paid: false, delivered: false }), second = await f.order({ paid: false, delivered: false })
- for (const id of [first, second]) f.sqlite.prepare('INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,NULL,2,?,?)').run(crypto.randomUUID(),lot,id,'synthetic',utc())
- const page = await (await handleProductRecallHttp(request('GET','?limit=1'),deps()))!.json() as { affected: unknown[], nextCursor: string }
- expect(page.affected).toHaveLength(1)
- const next = await (await handleProductRecallHttp(request('GET',`?limit=1&after=${encodeURIComponent(page.nextCursor)}`),deps()))!.json() as { affected: unknown[], nextCursor: string | null }
- expect(next.affected).toHaveLength(1)
- expect(next.nextCursor).toBeNull()
- expect((await handleProductRecallHttp(request('GET','?limit=1&limit=2'),deps()))?.status).toBe(400)
+  const first = await f.order({ paid: false, delivered: false }),
+    second = await f.order({ paid: false, delivered: false })
+  for (const id of [first, second])
+    f.sqlite
+      .prepare(
+        'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,NULL,2,?,?)'
+      )
+      .run(crypto.randomUUID(), lot, id, 'synthetic', utc())
+  const page = (await (await handleProductRecallHttp(request('GET', '?limit=1'), deps()))!.json()) as {
+    affected: unknown[]
+    nextCursor: string
+  }
+  expect(page.affected).toHaveLength(1)
+  const next = (await (await handleProductRecallHttp(
+    request('GET', `?limit=1&after=${encodeURIComponent(page.nextCursor)}`),
+    deps()
+  ))!.json()) as { affected: unknown[]; nextCursor: string | null }
+  expect(next.affected).toHaveLength(1)
+  expect(next.nextCursor).toBeNull()
+  expect((await handleProductRecallHttp(request('GET', '?limit=1&limit=2'), deps()))?.status).toBe(400)
 })
 it('accepts an evidence-backed trace command through the authenticated endpoint', async () => {
- const orderId = await f.order({ paid: false, delivered: false })
- expect((await handleProductRecallHttp(request('POST'), deps()))?.status).toBe(200)
- const req = request('POST', '', { action: 'trace', expectedVersion: 1, evidence: 'trace-case-123', orderId, lineIndex: 0, targetLotId: lot, quantity: 2 })
- req.headers.set('idempotency-key', '22222222-2222-4222-8222-222222222222')
- expect((await handleProductRecallHttp(req, deps()))?.status).toBe(200)
- expect(f.sqlite.prepare('SELECT quantity FROM inventory_lot_allocations WHERE order_id=?').get(orderId)).toEqual({ quantity: 2 })
+  const orderId = await f.order({ paid: false, delivered: false })
+  expect((await handleProductRecallHttp(request('POST'), deps()))?.status).toBe(200)
+  const req = request('POST', '', {
+    action: 'trace',
+    expectedVersion: 1,
+    evidence: 'trace-case-123',
+    orderId,
+    lineIndex: 0,
+    targetLotId: lot,
+    quantity: 2
+  })
+  req.headers.set('idempotency-key', '22222222-2222-4222-8222-222222222222')
+  expect((await handleProductRecallHttp(req, deps()))?.status).toBe(200)
+  expect(f.sqlite.prepare('SELECT quantity FROM inventory_lot_allocations WHERE order_id=?').get(orderId)).toEqual({
+    quantity: 2
+  })
 })

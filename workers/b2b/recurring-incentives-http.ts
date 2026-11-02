@@ -91,11 +91,22 @@ function serverNow(deps: RecurringIncentivesHttpDependencies): string {
 async function resolveClaims(
   request: Request,
   deps: RecurringIncentivesHttpDependencies
-): Promise<VerifiedSessionClaims | null> {
+): Promise<RecurringIncentivesActorClaims | null> {
   if (deps.claimsResolver) return deps.claimsResolver(request)
-  const token = await verifySessionCookie(request, deps.sessionCookieConfiguration)
-  if (!token) return null
-  return authorizeD1Session(deps.database, token)
+  if (!deps.sessionCookieConfiguration) return null
+  const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
+  if (!claims) return null
+  const identity = await deps.database
+    .prepare("SELECT id, customer_id, status FROM identities WHERE id = ?1 AND status = 'active'")
+    .bind(claims.identityId)
+    .first<{ id: string; customer_id: string | null; status: string }>()
+  if (!identity) return null
+  return {
+    identityId: identity.id,
+    customerId: identity.customer_id ?? identity.id,
+    sessionId: claims.sessionId,
+    sessionVersion: claims.sessionVersion
+  }
 }
 
 export async function handleRecurringIncentivesHttp(
@@ -141,7 +152,7 @@ export async function handleRecurringIncentivesHttp(
       // GET /api/admin/b2b/recurring-incentives/agreements/:companyId
       const agrMatch = path.match(/^\/api\/admin\/b2b\/recurring-incentives\/agreements\/([a-zA-Z0-9_-]+)$/)
       if (method === 'GET' && agrMatch) {
-        const companyId = agrMatch[1]
+        const companyId = agrMatch[1]!
         const agreement = await getIncentiveAgreementByCompany(deps.database, companyId)
         if (!agreement) return errorResponse('not_found', 404)
         return jsonResponse({ agreement })
@@ -168,7 +179,7 @@ export async function handleRecurringIncentivesHttp(
       // POST /api/admin/b2b/recurring-incentives/settlements/:id/approve
       const appMatch = path.match(/^\/api\/admin\/b2b\/recurring-incentives\/settlements\/([a-zA-Z0-9_-]+)\/approve$/)
       if (method === 'POST' && appMatch) {
-        const settlementId = appMatch[1]
+        const settlementId = appMatch[1]!
         const body = (await request.json().catch(() => ({}))) as ApproveSettlementBody
         if (!body.creditNoteRef || body.version === undefined) {
           return errorResponse('invalid_input', 400)

@@ -9,6 +9,7 @@ import {
   type PostpurchaseDispatch,
   type WelcomeDispatch,
   type WelcomeDispatchInput,
+  type WelcomeStep,
   type WinbackEvaluation,
   automationIntentHash,
   calculateReplenishmentDays,

@@ -27,7 +27,7 @@ function getIsoNow(options?: { now?: () => string }): string {
 export async function createD1AudienceSegment(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: CreateSegmentInput,
+  rawInput: unknown,
   options: AudienceOperationOptions
 ): Promise<{ segmentId: string; slug: string; version: number }> {
   const parsed = CreateSegmentInputSchema.safeParse(rawInput)
@@ -124,7 +124,7 @@ export async function updateD1AudienceSegmentRules(
   database: D1Database,
   claims: VerifiedSessionClaims,
   segmentId: string,
-  rawInput: UpdateSegmentRulesInput,
+  rawInput: unknown,
   options: AudienceOperationOptions
 ): Promise<{ segmentId: string; version: number }> {
   const parsed = UpdateSegmentRulesInputSchema.safeParse(rawInput)

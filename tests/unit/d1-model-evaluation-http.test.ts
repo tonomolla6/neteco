@@ -58,6 +58,38 @@ describe('Model Evaluation & AI Quality Gate HTTP Router', () => {
     expect(ownsModelEvaluationNamespace('/api/admin/customers')).toBe(false)
   })
 
+  it('authenticates via session cookie without claimsResolver (no invalid_permission 500)', async () => {
+    const { issueD1SessionCookie } = await import('../../workers/auth/session-cookie')
+    const sessionConfig = {
+      password: 'synthetic-super-secret-password-32-chars-long',
+      maxAgeSeconds: 3600
+    }
+    const sessionId = '99999999-0000-4000-8000-000000000002'
+    world.sqlite
+      .prepare(
+        `INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at)
+         VALUES (?, ?, 1, 1, ?, '2099-01-01T00:00:00Z')`
+      )
+      .run(sessionId, ADMIN_IDENTITY, NOW)
+    const cookieHeader = await issueD1SessionCookie(
+      world.db,
+      { identityId: ADMIN_IDENTITY, sessionId, sessionVersion: 1 },
+      sessionConfig
+    )
+    const res = await handleModelEvaluationHttp(
+      new Request('https://neteco.beply.es/api/admin/ai/models', {
+        headers: { cookie: cookieHeader!.split(';')[0]! }
+      }),
+      {
+        database: world.db,
+        sessionCookieConfiguration: sessionConfig,
+        origin: 'https://neteco.beply.es',
+        now: () => NOW
+      }
+    )
+    expect(res?.status).toBe(200)
+  })
+
   it('allows admin to register ML model and rejects non-admin with 403', async () => {
     const nonAdminDeps = createDeps(OTHER_IDENTITY)
     const adminDeps = createDeps(ADMIN_IDENTITY)

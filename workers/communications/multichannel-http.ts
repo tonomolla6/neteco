@@ -176,7 +176,7 @@ export async function handleMultichannelHttp(
     // GET /api/admin/communications/multichannel/preferences/:customerId
     const prefMatch = /^\/api\/admin\/communications\/multichannel\/preferences\/([^/]+)$/.exec(url.pathname)
     if (prefMatch) {
-      const customerId = prefMatch[1]
+      const customerId = prefMatch[1]!
       if (!z.string().uuid().safeParse(customerId).success) return errorResponse('invalid_input', 400)
 
       if (request.method === 'GET') {

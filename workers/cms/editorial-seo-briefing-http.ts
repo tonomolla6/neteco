@@ -112,7 +112,7 @@ export async function handleEditorialBriefingHttp(
     // Review briefing: POST /api/admin/cms/briefings/:id/review
     const reviewMatch = /^\/api\/admin\/cms\/briefings\/([^/]+)\/review$/.exec(pathname)
     if (reviewMatch && method === 'POST') {
-      const briefingId = reviewMatch[1]
+      const briefingId = reviewMatch[1]!
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)
@@ -126,7 +126,7 @@ export async function handleEditorialBriefingHttp(
     // Publish/schedule: POST /api/admin/cms/briefings/:id/publish
     const publishMatch = /^\/api\/admin\/cms\/briefings\/([^/]+)\/publish$/.exec(pathname)
     if (publishMatch && method === 'POST') {
-      const briefingId = publishMatch[1]
+      const briefingId = publishMatch[1]!
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)
@@ -140,7 +140,7 @@ export async function handleEditorialBriefingHttp(
     // Update briefing: PUT /api/admin/cms/briefings/:id
     const itemMatch = /^\/api\/admin\/cms\/briefings\/([^/]+)$/.exec(pathname)
     if (itemMatch && method === 'PUT') {
-      const briefingId = itemMatch[1]
+      const briefingId = itemMatch[1]!
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)
@@ -153,7 +153,7 @@ export async function handleEditorialBriefingHttp(
 
     // Get briefing: GET /api/admin/cms/briefings/:id
     if (itemMatch && method === 'GET') {
-      const briefingId = itemMatch[1]
+      const briefingId = itemMatch[1]!
       const item = await readEditorialBriefing(deps.database, claims, briefingId, now)
       return jsonResponse(item, 200)
     }

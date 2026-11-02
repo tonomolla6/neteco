@@ -202,12 +202,14 @@ export function compareAttributeValues(
     }
 
     if (kind === 'unit' && typeof input.value === 'object' && 'quantity' in input.value && 'unit' in input.value) {
-      const normalized = normalizeCompareUnit(Number(input.value.quantity), input.value.unit)
-      const unitLabel = CATALOG_TYPED_ATTRIBUTE_UNITS[input.value.unit as CatalogTypedAttributeUnit] ?? input.value.unit
+      const quantity = Number(input.value.quantity)
+      const unit = input.value.unit as CatalogTypedAttributeUnit
+      const normalized = normalizeCompareUnit(quantity, unit)
+      const unitLabel = CATALOG_TYPED_ATTRIBUTE_UNITS[unit] ?? unit
       items.push({
         productSlug: input.productSlug,
         present: true,
-        rawValue: input.value,
+        rawValue: { quantity, unit },
         displayValue: `${input.value.quantity} ${unitLabel}`,
         canonicalQuantity: normalized.canonicalQuantity,
         canonicalUnit: normalized.canonicalUnit,
@@ -665,9 +667,9 @@ export async function getProductsComparison(
   rows.sort((a, b) => a.code.localeCompare(b.code))
 
   // Add regulatory rows (factual, without declaring any winner or "better" product)
-  const pictogramsInputs: ProductCompareAttributeInput[] = []
-  const hazardInputs: ProductCompareAttributeInput[] = []
-  const signalWordInputs: ProductCompareAttributeInput[] = []
+  const pictogramsInputs: ProductCompareAttributeValue[] = []
+  const hazardInputs: ProductCompareAttributeValue[] = []
+  const signalWordInputs: ProductCompareAttributeValue[] = []
 
   for (const item of productItems) {
     const p = item.regulatory

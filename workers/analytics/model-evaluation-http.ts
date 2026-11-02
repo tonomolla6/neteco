@@ -1,5 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
-import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
+import type { VerifiedSessionClaims } from '../catalog/authorization'
 import {
   evaluateModelGate,
   getExplainabilityReport,
@@ -66,9 +66,7 @@ async function resolveClaims(
   deps: ModelEvaluationHttpDependencies
 ): Promise<VerifiedSessionClaims | null> {
   if (deps.claimsResolver) return deps.claimsResolver(request)
-  const token = await verifySessionCookie(request, deps.sessionCookieConfiguration)
-  if (!token) return null
-  return authorizeD1Session(deps.database, token)
+  return verifySessionCookie(request, deps.sessionCookieConfiguration)
 }
 
 export async function handleModelEvaluationHttp(

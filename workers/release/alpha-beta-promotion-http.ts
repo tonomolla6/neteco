@@ -107,7 +107,7 @@ export async function handleAlphaBetaPromotionHttp(
       }
       const match = path.match(/^\/api\/admin\/release\/alpha-beta-promotions\/([0-9a-f-]{36})$/)
       if (match) {
-        const promo = await getAlphaBetaPromotion(deps.database, match[1])
+        const promo = await getAlphaBetaPromotion(deps.database, match[1]!)
         return jsonResponse(promo, 200)
       }
       return errorResponse('not_found', 404, 'Endpoint not found')

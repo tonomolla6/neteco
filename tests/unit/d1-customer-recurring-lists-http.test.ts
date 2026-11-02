@@ -175,20 +175,17 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
     const { list } = (await createRes?.json()) as { list: { id: string } }
 
     // 2. Add collaborator
-    const collabReq = new Request(
-      `https://neteco.invalid/api/account/recurring-lists/${list.id}/collaborators`,
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          cookie: ownerCookie
-        },
-        body: JSON.stringify({
-          email: 'collab@example.invalid',
-          role: 'editor'
-        })
-      }
-    )
+    const collabReq = new Request(`https://neteco.invalid/api/account/recurring-lists/${list.id}/collaborators`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        cookie: ownerCookie
+      },
+      body: JSON.stringify({
+        email: 'collab@example.invalid',
+        role: 'editor'
+      })
+    })
     const collabRes = await handleCustomerRecurringListsHttp(collabReq, {
       database,
       sessionCookieConfiguration: config
@@ -216,12 +213,9 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
     expect(itemRes?.status).toBe(200)
 
     // 4. Revalidate
-    const revalReq = new Request(
-      `https://neteco.invalid/api/account/recurring-lists/${list.id}/revalidate`,
-      {
-        headers: { cookie: ownerCookie }
-      }
-    )
+    const revalReq = new Request(`https://neteco.invalid/api/account/recurring-lists/${list.id}/revalidate`, {
+      headers: { cookie: ownerCookie }
+    })
     const revalRes = await handleCustomerRecurringListsHttp(revalReq, {
       database,
       sessionCookieConfiguration: config

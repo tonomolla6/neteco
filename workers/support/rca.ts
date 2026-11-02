@@ -25,7 +25,7 @@ function getIsoNow(options?: RcaOperationOptions): string {
 export async function createD1SupportRca(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: CreateRcaInput,
+  rawInput: unknown,
   options: RcaOperationOptions
 ): Promise<{ rcaId: string; publicRef: string; version: number; status: string }> {
   const parsed = CreateRcaInputSchema.safeParse(rawInput)
@@ -111,7 +111,7 @@ export async function updateD1SupportRca(
   database: D1Database,
   claims: VerifiedSessionClaims,
   rcaId: string,
-  rawInput: UpdateRcaInput,
+  rawInput: unknown,
   options: RcaOperationOptions
 ): Promise<{ rcaId: string; version: number; status: string }> {
   const parsed = UpdateRcaInputSchema.safeParse(rawInput)
@@ -215,7 +215,7 @@ export async function verifyD1SupportRca(
   database: D1Database,
   claims: VerifiedSessionClaims,
   rcaId: string,
-  rawInput: VerifyRcaInput,
+  rawInput: unknown,
   options: RcaOperationOptions
 ): Promise<{ rcaId: string; version: number; verificationStatus: string; status: string }> {
   const parsed = VerifyRcaInputSchema.safeParse(rawInput)

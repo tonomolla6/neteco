@@ -3,6 +3,8 @@ import {
   type CreateDraftOrderInput,
   type ReviewDraftOrderInput,
   type DraftOrder,
+  type DraftOrderStatus,
+  type DraftTimelineEventType,
   type DraftOrderTimelineEvent,
   createDraftOrderInputSchema,
   reviewDraftOrderInputSchema,
@@ -372,15 +374,15 @@ export async function getDraftOrder(database: D1Database, draftId: string): Prom
       customer_id: string
       company_name: string
       contact_email: string
-      status: string
+      status: DraftOrderStatus
       total_cents: number
       subtotal_cents: number
       tax_cents: number
       shipping_cents: number
-      currency: string
+      currency: DraftOrder['currency']
       items_json: string
       inventory_reserved: number
-      payment_status: string
+      payment_status: DraftOrder['paymentStatus']
       expires_at: string
       approval_requested_at: string | null
       approved_at: string | null
@@ -407,9 +409,9 @@ export async function getDraftOrder(database: D1Database, draftId: string): Prom
     .all<{
       id: string
       draft_order_id: string
-      event_type: string
-      from_status: string | null
-      to_status: string
+      event_type: DraftTimelineEventType
+      from_status: DraftOrderStatus | null
+      to_status: DraftOrderStatus
       actor_type: 'customer' | 'approver' | 'system'
       actor_id: string
       notes: string | null

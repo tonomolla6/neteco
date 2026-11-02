@@ -230,7 +230,7 @@ describe('INT-020 / CIC-032 API B2B aislada', () => {
     const liveBody = (await liveResult.json()) as { items: Array<{ name: string }> }
     expect(liveBody.items.map((item) => item.name)).toEqual(['Producto 1'])
     const sandboxResult = await call('/api/b2b/v1/catalog', { key: secret })
-    const sandboxBody = await sandboxResult.json() as { items: Array<{ name: string }>; total: number }
+    const sandboxBody = (await sandboxResult.json()) as { items: Array<{ name: string }>; total: number }
     expect(sandboxBody).toMatchObject({ items: [{ name: 'Producto de prueba' }], total: 1 })
     expect(Object.keys(sandboxBody.items[0]!).sort()).toEqual(Object.keys(liveBody.items[0]!).sort())
     const next = await call('/api/b2b/v1/catalog?page=2', { key: secret })

@@ -127,7 +127,7 @@ export async function handleWarehouseScanHttp(
     // Resolve exception: POST /api/admin/warehouse/exceptions/:id/resolve
     const resolveMatch = /^\/api\/admin\/warehouse\/exceptions\/([^/]+)\/resolve$/.exec(pathname)
     if (resolveMatch && method === 'POST') {
-      const exceptionId = resolveMatch[1]
+      const exceptionId = resolveMatch[1]!
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)

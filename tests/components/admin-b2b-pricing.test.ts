@@ -80,28 +80,26 @@ describe('tarifas y crédito B2B', () => {
   })
   it('lists and reconciles a transfer in the clearly labelled local simulation', async () => {
     const orderId = '30000000-0000-4000-8000-000000000012'
-    mocks.request
-      .mockReset()
-      .mockImplementation(async (url: string) =>
-        url === '/api/admin/b2b'
-          ? data
-          : url === '/api/admin/b2b/transfers'
-            ? {
-                enabled: true,
-                orders: [
-                  {
-                    orderId,
-                    companyId: data.companies[0]!.id,
-                    companyName: 'Empresa Norte',
-                    totalCents: 2000,
-                    outstandingCents: 2000,
-                    simulatedOutstandingCents: 2000,
-                    paymentDueAt: null
-                  }
-                ]
-              }
-            : { validationOnly: true, simulatedOutstandingCents: 0 }
-      )
+    mocks.request.mockReset().mockImplementation(async (url: string) =>
+      url === '/api/admin/b2b'
+        ? data
+        : url === '/api/admin/b2b/transfers'
+          ? {
+              enabled: true,
+              orders: [
+                {
+                  orderId,
+                  companyId: data.companies[0]!.id,
+                  companyName: 'Empresa Norte',
+                  totalCents: 2000,
+                  outstandingCents: 2000,
+                  simulatedOutstandingCents: 2000,
+                  paymentDueAt: null
+                }
+              ]
+            }
+          : { validationOnly: true, simulatedOutstandingCents: 0 }
+    )
     const wrapper = await mountSuspended(AdminB2BPricing, { props: { enabled: true, scopeKey: 'a' } })
     await flushPromises()
     await wrapper.get('[data-test="load-transfers"]').trigger('click')

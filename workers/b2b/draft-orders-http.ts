@@ -59,7 +59,9 @@ export async function handleDraftOrdersHttp(
   const url = new URL(request.url)
   if (!ownsDraftOrdersNamespace(url.pathname)) return null
 
-  const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
+  const claims = deps.sessionCookieConfiguration
+    ? await verifySessionCookie(request, deps.sessionCookieConfiguration)
+    : null
   if (!claims) {
     return failure('unauthenticated', 401)
   }

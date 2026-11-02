@@ -291,7 +291,7 @@ export async function handleSeoHttp(request: Request, deps: SeoHttpDependencies)
       const rawBody = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
       const idempotencyKey = request.headers.get('idempotency-key') || crypto.randomUUID()
 
-      const receipt = await curateEditorialGuide(deps.database, claims, rawBody as unknown as CurateGuideInput, {
+      const receipt = await curateEditorialGuide(deps.database, claims, rawBody, {
         idempotencyKey,
         now: () => getIsoNow(deps)
       })

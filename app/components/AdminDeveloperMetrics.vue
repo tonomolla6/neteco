@@ -9,7 +9,9 @@ async function load() {
   failed.value = false
   metrics.value = null
   try {
-    metrics.value = await requestFetch<{ day: string; activeKeys: number; requestsToday: number }>('/api/admin/b2b-public/metrics')
+    metrics.value = await requestFetch<{ day: string; activeKeys: number; requestsToday: number }>(
+      '/api/admin/b2b-public/metrics'
+    )
   } catch {
     failed.value = true
   } finally {
@@ -27,8 +29,10 @@ onMounted(load)
       <button type="button" @click="load">Reintentar</button>
     </div>
     <dl v-else-if="metrics">
-      <dt>Claves activas</dt><dd>{{ metrics.activeKeys }}</dd>
-      <dt>Solicitudes admitidas el {{ metrics.day }} (UTC)</dt><dd>{{ metrics.requestsToday }}</dd>
+      <dt>Claves activas</dt>
+      <dd>{{ metrics.activeKeys }}</dd>
+      <dt>Solicitudes admitidas el {{ metrics.day }} (UTC)</dt>
+      <dd>{{ metrics.requestsToday }}</dd>
     </dl>
   </section>
 </template>

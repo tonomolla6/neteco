@@ -106,6 +106,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
       expect(result.invitation.status).toBe('scheduled')
       expect(result.invitation.token).toHaveLength(32)
       expect(result.invitation.customerSegment).toBe('particular')
+      expect(result.invitation.outboxEventId).toBe(result.invitation.id)
       expect(new Date(result.invitation.expiresAt).getTime()).toBeGreaterThan(
         new Date(result.invitation.scheduledAt).getTime()
       )

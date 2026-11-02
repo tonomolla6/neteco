@@ -45,15 +45,9 @@ describe('CUS-018: Customer Recurring & Shared Lists', () => {
     })
 
     // Seed test customers and identities
-    sqlite
-      .prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)')
-      .run(CUSTOMER_A, NOW, NOW)
-    sqlite
-      .prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)')
-      .run(CUSTOMER_B, NOW, NOW)
-    sqlite
-      .prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)')
-      .run(CUSTOMER_C, NOW, NOW)
+    sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(CUSTOMER_A, NOW, NOW)
+    sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(CUSTOMER_B, NOW, NOW)
+    sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(CUSTOMER_C, NOW, NOW)
 
     for (const [id, email, cust] of [
       [OWNER_IDENTITY, 'owner@example.invalid', CUSTOMER_A],

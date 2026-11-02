@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
-import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
+import type { VerifiedSessionClaims } from '../catalog/authorization'
 import {
   applyCampaignOptimizationDecision,
   createCampaignOptimizationRule,
@@ -79,9 +79,7 @@ async function resolveClaims(
   deps: PredictivePersonalizationHttpDependencies
 ): Promise<VerifiedSessionClaims | null> {
   if (deps.claimsResolver) return deps.claimsResolver(request)
-  const token = await verifySessionCookie(request, deps.sessionCookieConfiguration)
-  if (!token) return null
-  return authorizeD1Session(deps.database, token)
+  return verifySessionCookie(request, deps.sessionCookieConfiguration)
 }
 
 const IncrementalEventBodySchema = z

@@ -64,7 +64,7 @@ export class MarketingModalError extends Error {
 type Options = { now?: string }
 type CommandOptions = Options & { idempotencyKey: string }
 
-const fail = (code: MarketingModalError['code']): never => {
+function fail(code: MarketingModalError['code']): never {
   throw new MarketingModalError(code)
 }
 

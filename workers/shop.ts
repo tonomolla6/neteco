@@ -10,6 +10,10 @@ import { buildStrictCsp, generateCspNonce, injectNonceIntoHtml, resolveCspMode }
 
 export { CanaryCoordinator, CanaryWorkflow, InventoryCoordinator, CartCoordinator } from './canary'
 
+type ShopEnvironment = CloudflareEnv & {
+  CSP_MODE?: string
+}
+
 const baseIngress = createShopIngress(api, renderer, async (request, env) => {
   const url = new URL(request.url)
   // Classification only, matching the ingress's bounded decoding of private
@@ -58,7 +62,7 @@ const baseIngress = createShopIngress(api, renderer, async (request, env) => {
 })
 
 export default {
-  async fetch(request: Request, env: CloudflareEnv, context: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: ShopEnvironment, context: ExecutionContext): Promise<Response> {
     const url = new URL(request.url)
 
     // Intercept CSP violation report submissions and queries before any SSR buffering

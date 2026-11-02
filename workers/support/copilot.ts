@@ -27,7 +27,7 @@ function getIsoNow(options?: CopilotOperationOptions): string {
 export async function generateD1CopilotDraft(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: GenerateDraftInput,
+  rawInput: unknown,
   options: CopilotOperationOptions
 ): Promise<{
   interactionId: string
@@ -224,7 +224,7 @@ export async function recordD1CopilotHumanApproval(
   database: D1Database,
   claims: VerifiedSessionClaims,
   interactionId: string,
-  rawInput: HumanApprovalInput,
+  rawInput: unknown,
   options: CopilotOperationOptions
 ): Promise<{
   interactionId: string
@@ -344,7 +344,7 @@ export async function recordD1CopilotAccuracyEvaluation(
   database: D1Database,
   claims: VerifiedSessionClaims,
   interactionId: string,
-  rawInput: EvaluateAccuracyInput,
+  rawInput: unknown,
   options: CopilotOperationOptions
 ): Promise<{
   interactionId: string

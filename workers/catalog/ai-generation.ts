@@ -114,7 +114,7 @@ export async function checkD1CatalogDuplicates(
 export async function generateD1CatalogContent(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: GenerateCatalogContentInput,
+  rawInput: unknown,
   options: CatalogAiOperationOptions
 ): Promise<CatalogAiGenerationRecord> {
   const parsed = GenerateCatalogContentInputSchema.safeParse(rawInput)
@@ -301,7 +301,7 @@ export async function reviewD1CatalogAiGeneration(
   database: D1Database,
   claims: VerifiedSessionClaims,
   generationId: string,
-  rawInput: ReviewCatalogGenerationInput,
+  rawInput: unknown,
   options: CatalogAiOperationOptions
 ): Promise<CatalogAiGenerationRecord> {
   const parsed = ReviewCatalogGenerationInputSchema.safeParse(rawInput)
@@ -450,7 +450,7 @@ export async function applyD1CatalogAiGeneration(
   database: D1Database,
   claims: VerifiedSessionClaims,
   generationId: string,
-  rawInput: ApplyCatalogGenerationInput,
+  rawInput: unknown,
   options: CatalogAiOperationOptions
 ): Promise<{ applied: boolean; targetProductId: string; version: number }> {
   const parsed = ApplyCatalogGenerationInputSchema.safeParse(rawInput)

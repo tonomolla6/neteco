@@ -266,7 +266,7 @@ async function checkIdempotency(
 
 export async function saveCampaignDraft(
   db: D1Database,
-  input: SaveDraftInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CampaignContentPipelineRecord> {
@@ -382,7 +382,7 @@ export async function listCampaignPipelines(db: D1Database, limit = 50): Promise
 
 export async function runCampaignChecks(
   db: D1Database,
-  input: RunCampaignChecksInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<{ performancePassed: boolean; accessibilityPassed: boolean; checks: CheckResult[] }> {
@@ -463,7 +463,7 @@ export async function runCampaignChecks(
 
 export async function qaSignoffCampaign(
   db: D1Database,
-  input: QaSignoffInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CampaignContentPipelineRecord> {
@@ -558,7 +558,7 @@ export async function qaSignoffCampaign(
 
 export async function scheduleCampaignPublication(
   db: D1Database,
-  input: SchedulePublicationInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CampaignContentPipelineRecord> {
@@ -626,7 +626,7 @@ export async function scheduleCampaignPublication(
 
 export async function publishCampaignNow(
   db: D1Database,
-  input: PublishCampaignNowInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CampaignContentPipelineRecord> {
@@ -698,7 +698,7 @@ export async function publishCampaignNow(
 
 export async function rollbackCampaignPublication(
   db: D1Database,
-  input: RollbackCampaignInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CampaignContentPipelineRecord> {

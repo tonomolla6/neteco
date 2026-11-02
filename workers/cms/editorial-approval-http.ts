@@ -197,7 +197,7 @@ export async function handleEditorialApprovalHttp(
       )
     if (!match) return error('not_found', 404)
 
-    const reviewId = match[1]
+    const reviewId = match[1]!
     const action = match[2]
 
     if (!action) {

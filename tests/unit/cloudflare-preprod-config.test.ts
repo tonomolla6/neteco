@@ -359,7 +359,8 @@ describe('local Cloudflare preproduction configuration invariants', () => {
     ['upstream even when configured as approved', 'PublicHer0/neteco-shop', 'PublicHer0/neteco-shop', false]
   ] as const)('executes the real repository guard for %s', async (_name, approved, actual, accepted) => {
     const preprod = await workflow('cloudflare-preprod')
-    const guard = Object.values(preprod.jobs).flatMap((job) => job.steps)
+    const guard = Object.values(preprod.jobs)
+      .flatMap((job) => job.steps)
       .filter((step) => step.name === 'Verify approved Neteco repository')
     expect(guard).toHaveLength(1)
     expect(guard[0]!.shell).toBe('bash')
@@ -367,7 +368,9 @@ describe('local Cloudflare preproduction configuration invariants', () => {
     // credentials, executable commands, network or repository operation.
     const result = spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', guard[0]!.run!], {
       env: { NETECO_GITHUB_REPOSITORY: approved, GITHUB_REPOSITORY: actual },
-      encoding: 'utf8', timeout: 1000, maxBuffer: 4096
+      encoding: 'utf8',
+      timeout: 1000,
+      maxBuffer: 4096
     })
     expect(result.error).toBeUndefined()
     expect(result.signal).toBeNull()

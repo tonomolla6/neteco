@@ -68,7 +68,7 @@ async function verifyMediaAiAuth(database: D1Database, claims: VerifiedSessionCl
 export async function proposeD1MediaAiEnrichment(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: ProposeMediaEnrichmentInput,
+  rawInput: unknown,
   options: MediaAiOperationOptions
 ): Promise<MediaAiEnrichmentRecord> {
   const parsed = ProposeMediaEnrichmentInputSchema.safeParse(rawInput)
@@ -250,7 +250,7 @@ export async function decideD1MediaAiEnrichment(
   database: D1Database,
   claims: VerifiedSessionClaims,
   enrichmentId: string,
-  rawInput: DecideMediaEnrichmentInput,
+  rawInput: unknown,
   options: MediaAiOperationOptions
 ): Promise<MediaAiEnrichmentRecord> {
   const parsed = DecideMediaEnrichmentInputSchema.safeParse(rawInput)
@@ -391,7 +391,7 @@ export async function applyD1MediaAiEnrichment(
   database: D1Database,
   claims: VerifiedSessionClaims,
   enrichmentId: string,
-  rawInput: ApplyMediaEnrichmentInput,
+  rawInput: unknown,
   options: MediaAiOperationOptions
 ): Promise<{ applied: boolean; assetId: string; version: number }> {
   const parsed = ApplyMediaEnrichmentInputSchema.safeParse(rawInput)

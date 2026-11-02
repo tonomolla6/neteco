@@ -1,13 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
   type AlphaBetaPromotionRecord,
-  type CreatePromotionInput,
-  type PromoteReleaseInput,
   type PromotionSignoffRecord,
   type PromotionSignoffRole,
-  type RejectPromotionInput,
-  type SubmitSignoffInput,
-  type UpdateChecklistInput,
   AlphaBetaPromotionError,
   createPromotionSchema,
   promoteReleaseSchema,
@@ -92,7 +87,7 @@ async function checkIdempotency(
 
 export async function createAlphaBetaPromotion(
   db: D1Database,
-  input: CreatePromotionInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<AlphaBetaPromotionRecord> {
@@ -206,7 +201,7 @@ export async function listAlphaBetaPromotions(db: D1Database, limit = 50): Promi
 
 export async function updateAlphaBetaChecklist(
   db: D1Database,
-  input: UpdateChecklistInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<AlphaBetaPromotionRecord> {
@@ -288,7 +283,7 @@ export async function updateAlphaBetaChecklist(
 
 export async function submitAlphaBetaSignoff(
   db: D1Database,
-  input: SubmitSignoffInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<AlphaBetaPromotionRecord> {
@@ -429,7 +424,7 @@ export async function submitAlphaBetaSignoff(
 
 export async function promoteAlphaBetaRelease(
   db: D1Database,
-  input: PromoteReleaseInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<AlphaBetaPromotionRecord> {
@@ -496,7 +491,7 @@ export async function promoteAlphaBetaRelease(
 
 export async function rejectAlphaBetaPromotion(
   db: D1Database,
-  input: RejectPromotionInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<AlphaBetaPromotionRecord> {

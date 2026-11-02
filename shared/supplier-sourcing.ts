@@ -149,9 +149,9 @@ export function selectSourcingOffering(
       const sorted = [...candidateEvaluations].sort(
         (a, b) => a.costCents - b.costCents || a.leadTimeDays - b.leadTimeDays
       )
-      selected = sorted[0]
+      selected = sorted[0]!
       reason = `Selección por menor coste de adquisición (${(selected.costCents / 100).toFixed(2)}€ vs otros ${
-        sorted.length > 1 ? (sorted[1].costCents / 100).toFixed(2) + '€' : 'sin alternativas'
+        sorted.length > 1 ? (sorted[1]!.costCents / 100).toFixed(2) + '€' : 'sin alternativas'
       })`
       break
     }
@@ -161,7 +161,7 @@ export function selectSourcingOffering(
       const sorted = [...candidateEvaluations].sort(
         (a, b) => a.leadTimeDays - b.leadTimeDays || a.costCents - b.costCents
       )
-      selected = sorted[0]
+      selected = sorted[0]!
       reason = `Selección por plazo de entrega más rápido (${selected.leadTimeDays} días de lead time)`
       break
     }
@@ -171,7 +171,7 @@ export function selectSourcingOffering(
       const sorted = [...candidateEvaluations].sort(
         (a, b) => b.evaluatedMarginPercent - a.evaluatedMarginPercent || a.leadTimeDays - b.leadTimeDays
       )
-      selected = sorted[0]
+      selected = sorted[0]!
       reason = `Selección por mayor margen comercial (${selected.evaluatedMarginPercent.toFixed(2)}% de margen sobre PVP)`
       break
     }
@@ -180,11 +180,11 @@ export function selectSourcingOffering(
       // Prefer preferred supplier, fallback to lowest cost
       const preferred = candidateEvaluations.filter((c) => c.isPreferred)
       if (preferred.length > 0) {
-        selected = preferred.sort((a, b) => a.costCents - b.costCents)[0]
+        selected = preferred.sort((a, b) => a.costCents - b.costCents)[0]!
         reason = `Selección por proveedor preferente configurado (${selected.supplierName})`
       } else {
         const sorted = [...candidateEvaluations].sort((a, b) => a.costCents - b.costCents)
-        selected = sorted[0]
+        selected = sorted[0]!
         reason = `No hay proveedor preferente marcado; fallback a menor coste (${(selected.costCents / 100).toFixed(2)}€)`
       }
       break
@@ -192,7 +192,7 @@ export function selectSourcingOffering(
 
     case 'manual_override':
     default: {
-      selected = candidateEvaluations[0]
+      selected = candidateEvaluations[0]!
       reason = `Selección manual explícita asignada a ${selected.supplierName}`
       break
     }

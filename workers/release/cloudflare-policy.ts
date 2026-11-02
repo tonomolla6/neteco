@@ -4,8 +4,6 @@ import {
   type CloudflarePolicyAuditRecord,
   type DriftDifference,
   type PolicyViolation,
-  type RunDriftAuditInput,
-  type RunPolicyAuditInput,
   type TargetEnvironment,
   CloudflarePolicyError,
   runDriftAuditSchema,
@@ -311,7 +309,7 @@ async function checkIdempotency(
 
 export async function runCloudflarePolicyAudit(
   db: D1Database,
-  input: RunPolicyAuditInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CloudflarePolicyAuditRecord> {
@@ -371,7 +369,7 @@ export async function runCloudflarePolicyAudit(
 
 export async function runCloudflareDriftAudit(
   db: D1Database,
-  input: RunDriftAuditInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<CloudflarePolicyAuditRecord> {

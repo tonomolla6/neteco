@@ -8,6 +8,7 @@ import {
 import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
 import { canonicalJson, sha256Hex, sellableExpression } from './inventory'
 import { isValidPublicSearchQuery, searchPublishedProducts, spanishFoldSql } from './search'
+import type { SearchSuggestion } from '../../shared/types/catalog'
 import { normalizeSearchTerm } from '../../server/utils/search-terms'
 import { readPublicProductMedia } from '../media/public-catalog'
 import {
@@ -163,7 +164,7 @@ export async function searchProductsSemantically(
     .bind(trimmed, trimmed, trimmed, trimmed)
     .first<{ product_id: string }>()
 
-  const attachUuids = async (lexicalItems: SearchSuggestion[]) => {
+  const attachUuids = async (lexicalItems: SearchSuggestion[]): Promise<SemanticSearchSuggestion[]> => {
     const slugs = lexicalItems.map((i) => i.slug)
     const productMap = new Map<string, string>()
     if (slugs.length) {
@@ -630,7 +631,7 @@ export async function computeHumanEvaluationBenchmark(
   for (const [queryNorm, judgments] of judgmentsByQuery.entries()) {
     evaluatedCount++
     const searchRes = await searchProductsSemantically(database, queryNorm)
-    const resultIds = searchRes.items.map((i) => i.uuid)
+    const resultIds = searchRes.items.map((i) => i.uuid ?? '')
 
     // NDCG@5 & NDCG@10
     totalNdcg5 += computeNdcg(resultIds, judgments, 5)

@@ -377,8 +377,7 @@ export async function readPaymentFunnelDashboard(
   const stages: PaymentFunnelStage[] = []
   let prevCount: number | null = null
 
-  for (let idx = 0; idx < stagesDefinition.length; idx++) {
-    const stage = stagesDefinition[idx]
+  for (const [idx, stage] of stagesDefinition.entries()) {
     const convFromStart = computeWilsonScoreInterval(stage.count, totalAttempts)
     const convFromPrev =
       idx === 0

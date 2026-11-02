@@ -1,15 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
   type BetaScopeNotice,
-  type CreateRolloutInput,
-  type EvaluateSubjectInput,
   type GuardrailConfig,
-  type ManualRollbackInput,
   type ProgressiveRolloutRecord,
-  type PromoteRolloutFullInput,
-  type RecordRolloutMetricsInput,
   type RolloutEvaluationResult,
-  type UpdateRolloutInput,
   ProgressiveRolloutError,
   createRolloutSchema,
   evaluateSubjectSchema,
@@ -87,7 +81,7 @@ async function checkIdempotency(
 
 export async function createProgressiveRollout(
   db: D1Database,
-  input: CreateRolloutInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<ProgressiveRolloutRecord> {
@@ -160,7 +154,7 @@ export async function listProgressiveRollouts(db: D1Database, limit = 50): Promi
 
 export async function updateProgressiveRollout(
   db: D1Database,
-  input: UpdateRolloutInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<ProgressiveRolloutRecord> {
@@ -238,10 +232,7 @@ export async function updateProgressiveRollout(
   return getProgressiveRollout(db, validated.rolloutId)
 }
 
-export async function evaluateProgressiveRollout(
-  db: D1Database,
-  input: EvaluateSubjectInput
-): Promise<RolloutEvaluationResult> {
+export async function evaluateProgressiveRollout(db: D1Database, input: unknown): Promise<RolloutEvaluationResult> {
   const validated = evaluateSubjectSchema.parse(input)
   const row = await db
     .prepare('SELECT * FROM progressive_rollouts WHERE feature_key = ? ORDER BY created_at DESC LIMIT 1')
@@ -345,7 +336,7 @@ export async function evaluateProgressiveRollout(
 
 export async function recordRolloutMetrics(
   db: D1Database,
-  input: RecordRolloutMetricsInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<{
@@ -464,7 +455,7 @@ export async function recordRolloutMetrics(
 
 export async function manualRollbackProgressiveRollout(
   db: D1Database,
-  input: ManualRollbackInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<ProgressiveRolloutRecord> {
@@ -523,7 +514,7 @@ export async function manualRollbackProgressiveRollout(
 
 export async function promoteProgressiveRolloutFull(
   db: D1Database,
-  input: PromoteRolloutFullInput,
+  input: unknown,
   actorId: string,
   nowIso: string
 ): Promise<ProgressiveRolloutRecord> {

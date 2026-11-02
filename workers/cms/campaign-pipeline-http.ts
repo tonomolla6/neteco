@@ -131,7 +131,7 @@ export async function handleCampaignPipelineHttp(
       }
       const match = path.match(/^\/api\/admin\/cms\/campaign-pipeline\/([0-9a-f-]{36})$/)
       if (match) {
-        const campaign = await getCampaignPipeline(deps.database, match[1])
+        const campaign = await getCampaignPipeline(deps.database, match[1]!)
         return jsonResponse(campaign, 200)
       }
       return errorResponse('not_found', 404, 'Endpoint not found')

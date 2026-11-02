@@ -244,9 +244,11 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
         delete shippingAddress[field]
         const invalidResponse = await handleSalesQuotesHttp(
           f.request(`/api/account/sales-quotes/${created.quoteId}/convert`, {
-            method: 'POST', headers: { Cookie: cookie },
+            method: 'POST',
+            headers: { Cookie: cookie },
             body: JSON.stringify({ ...input, checkout: { ...input.checkout, shippingAddress } })
-          }), f.deps
+          }),
+          f.deps
         )
         expect(invalidResponse!.status).toBe(422)
         expect(await invalidResponse!.json()).toEqual({ error: { code: 'invalid_input' } })

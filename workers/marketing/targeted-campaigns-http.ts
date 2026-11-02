@@ -122,7 +122,7 @@ export async function handleTargetedCampaignsHttp(
     // 2. POST /api/marketing/targeted-campaigns/:id/interaction
     const interactionMatch = path.match(/^\/api\/marketing\/targeted-campaigns\/([a-zA-Z0-9_-]+)\/interaction$/)
     if (method === 'POST' && interactionMatch) {
-      const campaignId = interactionMatch[1]
+      const campaignId = interactionMatch[1]!
       const claims = await resolveClaims(request, deps)
       if (!claims?.customerId) return errorResponse('unauthorized', 401)
       const body = (await request.json().catch(() => ({}))) as {
@@ -172,7 +172,7 @@ export async function handleTargetedCampaignsHttp(
       // GET /api/admin/marketing/targeted-campaigns/:id/reporting
       const reportingMatch = path.match(/^\/api\/admin\/marketing\/targeted-campaigns\/([a-zA-Z0-9_-]+)\/reporting$/)
       if (method === 'GET' && reportingMatch) {
-        const campaignId = reportingMatch[1]
+        const campaignId = reportingMatch[1]!
         const report = await getCampaignReporting(deps.database, {
           actorId: claims.identityId,
           campaignId
@@ -183,7 +183,7 @@ export async function handleTargetedCampaignsHttp(
       // GET /api/admin/marketing/targeted-campaigns/:id/eligibility
       const eligMatch = path.match(/^\/api\/admin\/marketing\/targeted-campaigns\/([a-zA-Z0-9_-]+)\/eligibility$/)
       if (method === 'GET' && eligMatch) {
-        const campaignId = eligMatch[1]
+        const campaignId = eligMatch[1]!
         const recipients = await evaluateEligibleRecipients(deps.database, campaignId)
         return jsonResponse({ recipients })
       }
@@ -191,7 +191,7 @@ export async function handleTargetedCampaignsHttp(
       // POST /api/admin/marketing/targeted-campaigns/:id/dispatch
       const dispatchMatch = path.match(/^\/api\/admin\/marketing\/targeted-campaigns\/([a-zA-Z0-9_-]+)\/dispatch$/)
       if (method === 'POST' && dispatchMatch) {
-        const campaignId = dispatchMatch[1]
+        const campaignId = dispatchMatch[1]!
         const body = (await request.json().catch(() => ({}))) as {
           customerId?: string
           channel?: 'email' | 'portal' | 'account_manager'

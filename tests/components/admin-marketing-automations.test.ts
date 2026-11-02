@@ -73,7 +73,13 @@ describe('AdminMarketingAutomations component (MKT-015, MKT-018, MKT-019)', () =
       }
       if (url === '/api/admin/marketing-automations/policy') {
         if (opts?.method === 'PUT') {
-          return { commandId: 'cmd-1', action: 'update_policy', appliedVersion: 2, payloadHash: 'a'.repeat(64), recordedAt: '2026-10-29T12:00:00Z' }
+          return {
+            commandId: 'cmd-1',
+            action: 'update_policy',
+            appliedVersion: 2,
+            payloadHash: 'a'.repeat(64),
+            recordedAt: '2026-10-29T12:00:00Z'
+          }
         }
         return mockPolicy
       }

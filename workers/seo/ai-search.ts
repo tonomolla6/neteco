@@ -1,7 +1,6 @@
 import {
   type AiSearchResponse,
   type GroundedCitation,
-  type CurateGuideInput,
   AiSearchQueryInputSchema,
   CurateGuideInputSchema,
   assertSeoSafeAiResponse,
@@ -255,7 +254,7 @@ export interface CurateGuideOptions {
 export async function curateEditorialGuide(
   database: D1Database,
   claims: VerifiedSessionClaims,
-  rawInput: CurateGuideInput,
+  rawInput: unknown,
   options: CurateGuideOptions
 ): Promise<{ guideId: string; version: number; status: string; isIndexable: boolean }> {
   // Authorization check

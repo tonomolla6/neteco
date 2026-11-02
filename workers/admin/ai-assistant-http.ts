@@ -97,7 +97,7 @@ export async function handleAdminAiAssistantHttp(
     // Match /interactions/:id/decision
     const decisionMatch = path.match(/^\/interactions\/([^/]+)\/decision$/)
     if (request.method === 'POST' && decisionMatch) {
-      const interactionId = decisionMatch[1]
+      const interactionId = decisionMatch[1]!
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de decisión requerido')
       const idempotencyKey =
@@ -113,7 +113,7 @@ export async function handleAdminAiAssistantHttp(
     // Match /interactions/:id
     const idMatch = path.match(/^\/interactions\/([^/]+)$/)
     if (request.method === 'GET' && idMatch) {
-      const interactionId = idMatch[1]
+      const interactionId = idMatch[1]!
       const interaction = await readD1AdminAiInteraction(deps.database, claims, interactionId)
       return jsonResponse({ interaction }, 200)
     }

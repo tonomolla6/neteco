@@ -55,6 +55,14 @@ export async function checkAdministrativeEdgeLimit(
     | 'storefront-checkout'
     | 'storefront-payment'
     | 'storefront-fiscal'
+    | 'storefront-fulfillment'
+    | 'shipping-ops'
+    | 'support-live-chat'
+    | 'admin-crm'
+    | 'customer-crm'
+    | 'admin-payment-funnel'
+    | 'admin-payment-preauth'
+    | 'admin-marketing-automations'
     | 'newsletter' = 'admin-media'
 ): Promise<'allowed' | 'limited' | 'unavailable'> {
   const address = canonicalAddress(request.headers.get('cf-connecting-ip'))

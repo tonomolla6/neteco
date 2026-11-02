@@ -414,8 +414,7 @@ export async function readFunnelAnalyticsDashboard(
   const steps: FunnelStepMetric[] = []
   let previousSessions: number | null = null
 
-  for (let i = 0; i < FUNNEL_STEPS.length; i++) {
-    const step = FUNNEL_STEPS[i]
+  for (const [i, step] of FUNNEL_STEPS.entries()) {
     const sessions = sessionCountByStep.get(step) ?? 0
 
     let convFromPrev: WilsonIntervalResult

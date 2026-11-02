@@ -118,7 +118,7 @@ export async function handleProgressiveRolloutHttp(
       }
       const match = path.match(/^\/api\/admin\/release\/progressive-rollouts\/([0-9a-f-]{36})$/)
       if (match) {
-        const rollout = await getProgressiveRollout(deps.database, match[1])
+        const rollout = await getProgressiveRollout(deps.database, match[1]!)
         return jsonResponse(rollout, 200)
       }
       return errorResponse('not_found', 404, 'Endpoint not found')

@@ -39,7 +39,7 @@ export interface PreauthHttpDependencies {
   database: D1Database
   origin: string
   sessionCookieConfiguration: SessionCookieConfiguration | null
-  edgeLimiter?: KVNamespace
+  edgeLimiter?: RateLimit
   rateLimitPepper?: string
 }
 

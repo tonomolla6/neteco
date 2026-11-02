@@ -216,4 +216,40 @@ describe('MKT-036: D1 Recurring B2B Incentives', () => {
     })
     expect(overview2).toBeNull()
   })
+
+  it('resolves session cookie claims over HTTP without ReferenceError when claimsResolver is omitted', async () => {
+    const { handleRecurringIncentivesHttp } = await import('../../workers/b2b/recurring-incentives-http')
+    const { issueD1SessionCookie } = await import('../../workers/auth/session-cookie')
+    const sessionConfig = { password: 'synthetic-super-secret-password-32-chars-long', maxAgeSeconds: 3600 }
+    const sessionId = '99999999-0000-4000-8000-000000000001'
+    world.sqlite
+      .prepare(
+        `INSERT OR IGNORE INTO auth_sessions (id, identity_id, session_version, mfa_verified, created_at, expires_at)
+         VALUES (?, ?, 1, 1, ?, '2099-01-01T00:00:00Z')`
+      )
+      .run(sessionId, CUSTOMER_IDENTITY_1, NOW)
+    const cookieHeader = await issueD1SessionCookie(
+      world.db,
+      { identityId: CUSTOMER_IDENTITY_1, sessionId, sessionVersion: 1 },
+      sessionConfig
+    )
+    expect(cookieHeader).toBeTruthy()
+    await createIncentiveAgreementAdmin(world.db, {
+      actorId: ADMIN_IDENTITY,
+      input: sampleAgreementInput,
+      now: NOW
+    })
+    const res = await handleRecurringIncentivesHttp(
+      new Request('https://neteco.beply.es/api/b2b/recurring-incentives/my-overview', {
+        headers: { cookie: cookieHeader!.split(';')[0]! }
+      }),
+      {
+        database: world.db,
+        sessionCookieConfiguration: sessionConfig,
+        origin: 'https://neteco.beply.es',
+        now: () => NOW
+      }
+    )
+    expect(res?.status).toBe(200)
+  })
 })

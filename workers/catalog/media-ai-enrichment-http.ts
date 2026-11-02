@@ -98,7 +98,7 @@ export async function handleMediaAiEnrichmentHttp(
     // Match /enrichments/:id/decision
     const decisionMatch = path.match(/^\/enrichments\/([^/]+)\/decision$/)
     if (request.method === 'POST' && decisionMatch) {
-      const enrichmentId = decisionMatch[1]
+      const enrichmentId = decisionMatch[1]!
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de decisión requerido')
       const idempotencyKey =
@@ -114,7 +114,7 @@ export async function handleMediaAiEnrichmentHttp(
     // Match /enrichments/:id/apply
     const applyMatch = path.match(/^\/enrichments\/([^/]+)\/apply$/)
     if (request.method === 'POST' && applyMatch) {
-      const enrichmentId = applyMatch[1]
+      const enrichmentId = applyMatch[1]!
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de aplicación requerido')
       const idempotencyKey =
@@ -130,7 +130,7 @@ export async function handleMediaAiEnrichmentHttp(
     // Match /enrichments/:id
     const idMatch = path.match(/^\/enrichments\/([^/]+)$/)
     if (request.method === 'GET' && idMatch) {
-      const enrichmentId = idMatch[1]
+      const enrichmentId = idMatch[1]!
       const enrichment = await readD1MediaAiEnrichment(deps.database, claims, enrichmentId)
       return jsonResponse({ enrichment }, 200)
     }

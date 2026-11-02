@@ -302,8 +302,7 @@ export async function orchestrateMultichannelDelivery(
   }
 
   // 3. Prioritized cascade
-  for (let i = 0; i < priorityOrder.length; i++) {
-    const channel = priorityOrder[i]
+  for (const [i, channel] of priorityOrder.entries()) {
     let isChannelEnabled = false
     if (channel === 'email') isChannelEnabled = prefs.emailEnabled
     else if (channel === 'sms') isChannelEnabled = prefs.smsEnabled
@@ -357,9 +356,9 @@ export async function orchestrateMultichannelDelivery(
         })
 
         // Cross-channel deduplication: suppress all subsequent channels in the priority order
-        for (let j = i + 1; j < priorityOrder.length; j++) {
+        for (const suppressedChannel of priorityOrder.slice(i + 1)) {
           results.push({
-            channel: priorityOrder[j],
+            channel: suppressedChannel,
             status: 'suppressed',
             cause: 'delivered_primary_channel',
             timestamp: now

@@ -50,7 +50,7 @@ interface Context {
 }
 
 const DAY_MS = 86_400_000
-const fail = (code: InventoryOpsErrorCode): never => {
+function fail(code: InventoryOpsErrorCode): never {
   throw new InventoryOpsError(code)
 }
 const stamp = (clock?: Clock) => clock?.now?.() ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')

@@ -107,7 +107,7 @@ export async function handleCatalogAiGenerationHttp(
     // Match /generations/:id/review
     const reviewMatch = path.match(/^\/generations\/([^/]+)\/review$/)
     if (request.method === 'POST' && reviewMatch) {
-      const generationId = reviewMatch[1]
+      const generationId = reviewMatch[1]!
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de revisión requerido')
       const idempotencyKey =
@@ -123,7 +123,7 @@ export async function handleCatalogAiGenerationHttp(
     // Match /generations/:id/apply
     const applyMatch = path.match(/^\/generations\/([^/]+)\/apply$/)
     if (request.method === 'POST' && applyMatch) {
-      const generationId = applyMatch[1]
+      const generationId = applyMatch[1]!
       const body = await request.json().catch(() => null)
       if (!body) return errorResponse('invalid_input', 400, 'Cuerpo de aplicación requerido')
       const idempotencyKey =
@@ -139,7 +139,7 @@ export async function handleCatalogAiGenerationHttp(
     // Match /generations/:id
     const idMatch = path.match(/^\/generations\/([^/]+)$/)
     if (request.method === 'GET' && idMatch) {
-      const generationId = idMatch[1]
+      const generationId = idMatch[1]!
       const generation = await readD1CatalogAiGeneration(deps.database, claims, generationId)
       return jsonResponse({ generation }, 200)
     }

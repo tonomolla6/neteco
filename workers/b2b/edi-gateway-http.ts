@@ -80,7 +80,7 @@ export async function handleB2bEdiHttp(request: Request, deps: B2bEdiHttpDepende
     // POST /api/admin/edi/clients/:id/keys
     const keyMatch = pathname.match(/^\/api\/admin\/edi\/clients\/([^/]+)\/keys$/)
     if (keyMatch && method === 'POST') {
-      const clientId = keyMatch[1]
+      const clientId = keyMatch[1]!
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body) return errorResponse('invalid_body', 400)
       const key = await createEdiApiKey(deps.database, {
@@ -95,7 +95,7 @@ export async function handleB2bEdiHttp(request: Request, deps: B2bEdiHttpDepende
     // GET /api/admin/edi/clients/:id/monitoring
     const monMatch = pathname.match(/^\/api\/admin\/edi\/clients\/([^/]+)\/monitoring$/)
     if (monMatch && method === 'GET') {
-      const clientId = monMatch[1]
+      const clientId = monMatch[1]!
       const monitoring = await getEdiMonitoringSummary(deps.database, clientId)
       if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
       return jsonResponse({ ok: true, monitoring })

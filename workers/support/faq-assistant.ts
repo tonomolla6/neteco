@@ -343,7 +343,7 @@ export async function commandFaqHandoff(
     .first<{ status: FaqHandoffReceipt['status']; version: number }>()
   if (!row) return insightFail('not_found')
   if (row.version !== command.expectedVersion) return insightFail('concurrency_conflict')
-  const next =
+  const next: FaqHandoffReceipt['status'] | null =
     command.action === 'claim' && row.status === 'open'
       ? 'claimed'
       : command.action === 'resolve' && row.status === 'claimed'
@@ -351,7 +351,7 @@ export async function commandFaqHandoff(
         : null
   if (!next) return insightFail('invalid_transition')
   const commandId = crypto.randomUUID()
-  const receipt = { handoffId, status: next, slaDueAt: '', version: row.version + 1 }
+  const receipt: FaqHandoffReceipt = { handoffId, status: next, slaDueAt: '', version: row.version + 1 }
   const current = await db
     .prepare('SELECT sla_due_at FROM support_faq_handoffs WHERE id=?1')
     .bind(handoffId)

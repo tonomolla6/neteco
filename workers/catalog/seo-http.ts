@@ -11,7 +11,8 @@ export interface D1SeoDependencies {
   environment: 'local' | 'preprod' | 'production'
   now?: string
   /** Opt-in only: absent/disabled preserves the existing five-route contract. */
-  cmsPublication?: Omit<CmsPublicationDependencies, 'database'>
+  /** `database` is the CMS read connection; when omitted the SEO connection is used. */
+  cmsPublication?: Omit<CmsPublicationDependencies, 'database'> & { database?: D1Database }
 }
 
 const PAGE_SIZE = 1000
@@ -246,7 +247,12 @@ export async function handleD1SeoRequest(request: Request, deps: D1SeoDependenci
     // SEO-028: thin / duplicate landings are noindex, so they must not be advertised. Slugs are validated before inlining.
     const thin =
       cmsEnabled && (content || url.pathname === '/sitemap.xml')
-        ? (await readThinLandingSlugs(deps.cmsPublication!)).filter((slug) => /^[a-z0-9][a-z0-9-]{0,159}$/.test(slug))
+        ? (
+            await readThinLandingSlugs({
+              ...deps.cmsPublication!,
+              database: deps.cmsPublication!.database ?? deps.database
+            })
+          ).filter((slug) => /^[a-z0-9][a-z0-9-]{0,159}$/.test(slug))
         : []
     if (url.pathname === '/robots.txt') {
       body = config.production

@@ -377,7 +377,7 @@ export async function payWithSavedToken(
       command = await load()
       if (!command || command.payload_hash !== hash) throw new TokenizationError('conflict')
     }
-    command = (await load()) ?? undefined
+    command = await load()
     if (!command) throw new TokenizationError('not_payable')
     if (command.status !== 'started') return result(command, command.status === 'settled' ? 'paid' : 'declined')
   }

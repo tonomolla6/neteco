@@ -103,7 +103,7 @@ export async function handleCloudflarePolicyHttp(
       }
       const match = path.match(/^\/api\/admin\/release\/cloudflare-policies\/([0-9a-f-]{36})$/)
       if (match) {
-        const audit = await getCloudflarePolicyAudit(deps.database, match[1])
+        const audit = await getCloudflarePolicyAudit(deps.database, match[1]!)
         return jsonResponse(audit, 200)
       }
       return errorResponse('not_found', 404, 'Endpoint not found')

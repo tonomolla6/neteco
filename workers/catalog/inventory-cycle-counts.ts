@@ -581,7 +581,18 @@ export async function readCountPlan(
        FROM cycle_count_lines l JOIN variants v ON v.id=l.variant_id WHERE l.plan_id=?1 ORDER BY v.sku`
     )
     .bind(planId)
-    .all<Record<string, number | string | null>>()
+    .all<{
+      variantId: string
+      sku: string
+      status: string
+      version: number
+      countedQuantity: number | null
+      expectedQuantity: number | null
+      rootCause: string | null
+      decisionNote: string | null
+      movementId: string | null
+      countedBy: string | null
+    }>()
   const lines = results.map((row) => {
     const { expectedQuantity, countedBy, ...rest } = row
     const visible = !hidden

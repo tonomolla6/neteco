@@ -131,7 +131,7 @@ export async function createCommercialNextAction(
     const existing = await database
       .prepare('SELECT * FROM commercial_next_actions WHERE customer_id = ? AND created_at = ?')
       .bind(data.customerId, now)
-      .first()
+      .first<ActionRow>()
     if (existing) return parseActionRow(existing)
   }
 
@@ -175,7 +175,10 @@ export async function createCommercialNextAction(
       .bind(commandId, claims.identityId, payloadHash, JSON.stringify(data), now)
   ])
 
-  const created = await database.prepare('SELECT * FROM commercial_next_actions WHERE id = ?').bind(id).first()
+  const created = await database.prepare('SELECT * FROM commercial_next_actions WHERE id = ?').bind(id).first<ActionRow>()
+  if (!created) {
+    throw new CommercialQuotesAccountsError('not_found', 'Action not found')
+  }
 
   return parseActionRow(created)
 }
@@ -249,7 +252,13 @@ export async function completeCommercialNextAction(
       .bind(commandId, claims.identityId, payloadHash, JSON.stringify(data), now)
   ])
 
-  const updated = await database.prepare('SELECT * FROM commercial_next_actions WHERE id = ?').bind(actionId).first()
+  const updated = await database
+    .prepare('SELECT * FROM commercial_next_actions WHERE id = ?')
+    .bind(actionId)
+    .first<ActionRow>()
+  if (!updated) {
+    throw new CommercialQuotesAccountsError('not_found', 'Action not found')
+  }
 
   return parseActionRow(updated)
 }
@@ -386,7 +395,7 @@ export async function getCommercialAccountDetail(
   const actionsResult = await database
     .prepare('SELECT * FROM commercial_next_actions WHERE customer_id = ? ORDER BY due_date ASC')
     .bind(customerId)
-    .all()
+    .all<ActionRow>()
 
   const actions = (actionsResult.results || []).map(parseActionRow)
 
@@ -442,7 +451,7 @@ export async function getCommercialPipeline(
     const actionsResult = await database
       .prepare('SELECT * FROM commercial_next_actions WHERE customer_id = ? ORDER BY due_date ASC')
       .bind(c.id)
-      .all()
+      .all<ActionRow>()
     const actions = (actionsResult.results || []).map(parseActionRow)
 
     accounts.push({

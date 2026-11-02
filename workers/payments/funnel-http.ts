@@ -8,7 +8,7 @@ export interface PaymentFunnelHttpEnvironment {
   AUTH_ENABLED?: string
   NUXT_SESSION_PASSWORD?: string
   AUTH_RATE_LIMIT_PEPPER?: string
-  ADMIN_EDGE_LIMIT?: KVNamespace
+  ADMIN_EDGE_LIMIT?: RateLimit
 }
 
 function json(value: unknown, status = 200, headers: Record<string, string> = {}) {

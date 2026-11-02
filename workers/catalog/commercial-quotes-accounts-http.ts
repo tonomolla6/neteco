@@ -89,7 +89,7 @@ export async function handleCommercialQuotesAccountsHttp(
     // Account detail: GET /api/admin/commercial/accounts/:id
     const accountMatch = /^\/api\/admin\/commercial\/accounts\/([^/]+)$/.exec(pathname)
     if (accountMatch && method === 'GET') {
-      const customerId = accountMatch[1]
+      const customerId = accountMatch[1]!
       const account = await getCommercialAccountDetail(deps.database, claims, customerId)
       return jsonResponse(account, 200)
     }
@@ -109,7 +109,7 @@ export async function handleCommercialQuotesAccountsHttp(
     // Complete next action: POST /api/admin/commercial/next-actions/:id/complete
     const completeMatch = /^\/api\/admin\/commercial\/next-actions\/([^/]+)\/complete$/.exec(pathname)
     if (completeMatch && method === 'POST') {
-      const actionId = completeMatch[1]
+      const actionId = completeMatch[1]!
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)
@@ -125,7 +125,7 @@ export async function handleCommercialQuotesAccountsHttp(
     if (quoteMarginMatch && method === 'POST') {
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)
-      const quoteId = quoteMarginMatch[1] ?? body.quoteId
+      const quoteId = quoteMarginMatch[1] ?? String((body as Record<string, unknown>)?.quoteId ?? '')
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const marginRecord = await evaluateQuoteMargin(deps.database, claims, quoteId, body, {
         commandId,
@@ -137,7 +137,7 @@ export async function handleCommercialQuotesAccountsHttp(
     // Approve margin threshold: POST /api/admin/commercial/quotes/:id/margin/approve
     const approveMatch = /^\/api\/admin\/commercial\/quotes\/([^/]+)\/margin\/approve$/.exec(pathname)
     if (approveMatch && method === 'POST') {
-      const quoteId = approveMatch[1]
+      const quoteId = approveMatch[1]!
       const commandId = request.headers.get('X-Command-Id') ?? undefined
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)

@@ -169,7 +169,8 @@ export async function handleOperationalAlertsHttp(
     // Sub-actions on an alert: :id/ack, :id/escalate, :id/resolve
     const match = sub.match(/^([^/]+)\/(ack|escalate|resolve)$/)
     if (request.method === 'POST' && match) {
-      const [, alertId, action] = match
+      const alertId = match[1]!
+      const action = match[2]!
       let body: Record<string, unknown>
       try {
         body = (await request.json()) as Record<string, unknown>
