@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.11
-FROM node:24.18.1-alpine3.23 AS dependencies
+FROM node:26.13.0-alpine3.23 AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts && npm cache clean --force
@@ -8,7 +8,7 @@ FROM dependencies AS build
 COPY . .
 RUN npm run postinstall && npm run build
 
-FROM node:24.18.1-alpine3.23 AS runtime
+FROM node:26.13.0-alpine3.23 AS runtime
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=3000
