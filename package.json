@@ -124,7 +124,7 @@
     "exceljs": "4.4.0",
     "ioredis": "5.11.1",
     "iron-webcrypto": "1.2.1",
-    "nodemailer": "9.0.5",
+    "nodemailer": "10.3.1",
     "nuxt": "^4.0.0",
     "nuxt-auth-utils": "^0.5.20",
     "otpauth": "9.5.1",
