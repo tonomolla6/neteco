@@ -102,7 +102,7 @@ jobs:
       - run: npm run ci:artifacts -- --publish
         if: failure()
         id: partial-artifacts
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && (steps.complete-artifacts.outcome == 'success' || steps.partial-artifacts.outcome == 'success')
         with:
           name: quality-evidence
@@ -173,7 +173,7 @@ jobs:
         env:
           IMAGE_TAG: neteco:${{ github.sha }}
           ARTIFACT_DIR: ${{ steps.container-artifacts.outputs.directory }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && steps.container-artifacts.outcome == 'success'
         with:
           name: container-image
@@ -223,7 +223,7 @@ jobs:
       - run: npm run ci:artifacts -- --publish
         if: always()
         id: secure-artifacts
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: always() && steps.secure-artifacts.outcome == 'success'
         with:
           name: mutation-evidence

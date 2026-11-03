@@ -74,7 +74,7 @@ jobs:
       - name: Assess verified Cloudflare lock vulnerabilities
         id: assessed-cloudflare-vulnerabilities
         run: node scripts/audit-cloudflare-vulnerabilities.mjs --root=. --output=.wrangler/shop-evidence/vulnerabilities.json
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: success() && steps.verified-cloudflare-artifacts.outcome == 'success' && steps.assessed-cloudflare-vulnerabilities.outcome == 'success'
         with:
           name: cloudflare-shop-evidence
