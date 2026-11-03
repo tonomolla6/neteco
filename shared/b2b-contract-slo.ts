@@ -184,7 +184,7 @@ export interface B2BComplianceReport {
   totalDowntimeMinutes: number
   excludedDowntimeMinutes: number
   netChargeableDowntimeMinutes: number
-  penaltyCreditEur: number
+  penaltyCreditCents: number
   alertLevel: B2BAlertLevel
   generatedAt: string
 }

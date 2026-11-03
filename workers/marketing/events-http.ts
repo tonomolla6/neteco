@@ -94,6 +94,14 @@ function mapEventError(err: unknown) {
   return errorResponse('internal_error', 500)
 }
 
+/** Retries must replay the same command: idempotency keys are client-supplied, never server-generated. */
+function clientIdempotency(body: Record<string, unknown>): { commandId: string; idempotencyKey: string } | null {
+  const { commandId, idempotencyKey } = body
+  if (typeof commandId !== 'string' || !/^[A-Za-z0-9_.:-]{1,200}$/.test(commandId)) return null
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9_.:-]{1,200}$/.test(idempotencyKey)) return null
+  return { commandId, idempotencyKey }
+}
+
 export async function handleEventsHttp(request: Request, deps: EventsHttpDependencies): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname
@@ -207,9 +215,10 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
       if (!event) return errorResponse('not_found', 404)
 
       const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      const keys = clientIdempotency(body)
+      if (!keys) return errorResponse('missing_idempotency_key', 400)
       const registration = await registerD1EventAttendee(deps.database, {
-        commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
-        idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-reg-${Date.now()}`,
+        ...keys,
         eventId: event.id,
         customerId: claims?.identityId,
         attendeeName: typeof body.attendeeName === 'string' ? body.attendeeName : '',
@@ -237,9 +246,10 @@ export async function handleEventsHttp(request: Request, deps: EventsHttpDepende
 
       if (request.method === 'POST') {
         const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+        const keys = clientIdempotency(body)
+        if (!keys) return errorResponse('missing_idempotency_key', 400)
         const question = await submitD1EventQuestion(deps.database, {
-          commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
-          idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-q-${Date.now()}`,
+          ...keys,
           eventId: event.id,
           customerId: claims?.identityId,
           authorName: typeof body.authorName === 'string' ? body.authorName : '',

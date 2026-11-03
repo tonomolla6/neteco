@@ -145,24 +145,21 @@ export async function createRecurringList(database: D1Database, params: CreateRe
 }
 
 export async function getRecurringList(database: D1Database, listId: string, requesterIdentityId: string) {
-  const list = await database
-    .prepare(`SELECT * FROM customer_recurring_lists WHERE id = ?`)
-    .bind(listId)
-    .first<{
-      id: string
-      customer_id: string
-      owner_identity_id: string
-      name: string
-      description: string | null
-      frequency: RecurringFrequency
-      frequency_days: number | null
-      next_suggested_date: string | null
-      last_replenished_at: string | null
-      status: 'active' | 'paused' | 'archived'
-      version: number
-      created_at: string
-      updated_at: string
-    }>()
+  const list = await database.prepare(`SELECT * FROM customer_recurring_lists WHERE id = ?`).bind(listId).first<{
+    id: string
+    customer_id: string
+    owner_identity_id: string
+    name: string
+    description: string | null
+    frequency: RecurringFrequency
+    frequency_days: number | null
+    next_suggested_date: string | null
+    last_replenished_at: string | null
+    status: 'active' | 'paused' | 'archived'
+    version: number
+    created_at: string
+    updated_at: string
+  }>()
 
   if (!list) return null
 
@@ -330,7 +327,8 @@ export async function updateRecurringList(database: D1Database, params: UpdateRe
   const newDesc = validated.description !== undefined ? validated.description : current.description
   const newFreq = validated.frequency ?? current.frequency
   const newFreqDays = validated.frequencyDays !== undefined ? validated.frequencyDays : current.frequency_days
-  const newNextDate = validated.nextSuggestedDate !== undefined ? validated.nextSuggestedDate : current.next_suggested_date
+  const newNextDate =
+    validated.nextSuggestedDate !== undefined ? validated.nextSuggestedDate : current.next_suggested_date
   const newStatus = validated.status ?? current.status
   const nextVersion = current.version + 1
 
@@ -435,7 +433,10 @@ export async function removeCollaborator(database: D1Database, params: RemoveCol
     .first<{ owner_identity_id: string }>()
 
   if (!list) throw new Error('recurring_list_not_found')
-  if (list.owner_identity_id !== params.requesterIdentityId && params.requesterIdentityId !== params.collaboratorIdentityId) {
+  if (
+    list.owner_identity_id !== params.requesterIdentityId &&
+    params.requesterIdentityId !== params.collaboratorIdentityId
+  ) {
     throw new Error('unauthorized')
   }
 
@@ -481,14 +482,7 @@ export async function setRecurringListItem(database: D1Database, params: SetRecu
          expected_unit_gross_cents = COALESCE(excluded.expected_unit_gross_cents, customer_recurring_list_items.expected_unit_gross_cents),
          updated_at = excluded.updated_at`
     )
-    .bind(
-      params.listId,
-      validated.variantId,
-      validated.quantity,
-      validated.expectedUnitGrossCents ?? null,
-      now,
-      now
-    )
+    .bind(params.listId, validated.variantId, validated.quantity, validated.expectedUnitGrossCents ?? null, now, now)
     .run()
 
   return {
@@ -530,7 +524,7 @@ export async function revalidateRecurringListAssortment(
   database: D1Database,
   params: RevalidateAssortmentParams
 ): Promise<RecurringListRevalidationReport> {
-  const now = canonicalNow(params.now)
+  canonicalNow(params.now)
   const list = await database
     .prepare(`SELECT id, name, frequency, next_suggested_date FROM customer_recurring_lists WHERE id = ?`)
     .bind(params.listId)
@@ -560,19 +554,16 @@ export async function revalidateRecurringListAssortment(
   `
 
   const rows = (
-    await database
-      .prepare(sql)
-      .bind(params.listId)
-      .all<{
-        variantId: string
-        requestedQuantity: number
-        expectedUnitGrossCents: number | null
-        sku: string | null
-        productName: string | null
-        baselineGrossCents: number | null
-        isPublished: number | null
-        sellableStock: number
-      }>()
+    await database.prepare(sql).bind(params.listId).all<{
+      variantId: string
+      requestedQuantity: number
+      expectedUnitGrossCents: number | null
+      sku: string | null
+      productName: string | null
+      baselineGrossCents: number | null
+      isPublished: number | null
+      sellableStock: number
+    }>()
   ).results
 
   const items: RecurringListItemRevalidated[] = []
@@ -653,22 +644,24 @@ export async function revalidateRecurringListAssortment(
 export async function recordListReplenishment(database: D1Database, params: RecordReplenishmentParams) {
   const now = canonicalNow(params.replenishedAt)
   const list = await database
-    .prepare(`SELECT id, frequency, frequency_days FROM customer_recurring_lists WHERE id = ?`)
+    .prepare(`SELECT id, frequency, frequency_days, version FROM customer_recurring_lists WHERE id = ?`)
     .bind(params.listId)
-    .first<{ id: string; frequency: RecurringFrequency; frequency_days: number | null }>()
+    .first<{ id: string; frequency: RecurringFrequency; frequency_days: number | null; version: number }>()
 
   if (!list) throw new Error('recurring_list_not_found')
 
   const nextSuggested = calculateNextDate(now, list.frequency, list.frequency_days)
 
-  await database
+  // CAS on the version read: the next date was computed from this exact frequency.
+  const claimed = await database
     .prepare(
       `UPDATE customer_recurring_lists
        SET last_replenished_at = ?, next_suggested_date = ?, version = version + 1, updated_at = ?
-       WHERE id = ?`
+       WHERE id = ? AND version = ? RETURNING id`
     )
-    .bind(now, nextSuggested, now, params.listId)
-    .run()
+    .bind(now, nextSuggested, now, params.listId, list.version)
+    .first<{ id: string }>()
+  if (!claimed) throw new Error('version_conflict')
 
   return {
     listId: params.listId,

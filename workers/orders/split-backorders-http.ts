@@ -54,7 +54,8 @@ async function resolveCallerCustomerId(
        FROM auth_sessions s
        JOIN identities i ON i.id = s.identity_id
        WHERE s.id = ?1 AND s.identity_id = ?2 AND s.session_version = ?3
-         AND s.revoked_at IS NULL AND s.expires_at > ?4 AND i.status IN ('pending', 'active')`
+         AND s.session_version = i.session_version AND s.revoked_at IS NULL
+         AND s.created_at <= ?4 AND s.expires_at > ?4 AND i.status IN ('pending', 'active')`
     )
     .bind(claims.sessionId, claims.identityId, claims.sessionVersion, now)
     .first<{ customer_id: string | null }>()
@@ -82,17 +83,20 @@ export async function handleSplitBackordersHttp(
     if (request.method === 'GET') {
       const orderId = url.searchParams.get('orderId')
       if (!orderId) return errorResponse('invalid_input', 400)
+      if (!claims) return errorResponse('unauthenticated', 401)
+      const adminAuth = await authorizeD1Session(deps.database, claims, 'administration.manage', { now })
+      if (!adminAuth.allowed && adminAuth.code === 'unauthenticated') return errorResponse('unauthenticated', 401)
       const orderOwner = await deps.database
         .prepare('SELECT customer_id FROM orders WHERE id = ?1')
         .bind(orderId)
         .first<{ customer_id: string | null }>()
-      if (orderOwner && claims) {
-        const adminAuth = await authorizeD1Session(deps.database, claims, 'administration.manage', { now })
-        if (!adminAuth.allowed) {
-          const callerCustomerId = await resolveCallerCustomerId(deps.database, claims, now)
-          if (!callerCustomerId || callerCustomerId !== orderOwner.customer_id) {
-            return errorResponse('forbidden', 403)
-          }
+      // Ownership is mandatory: anonymous callers never read order data (401), unknown orders are
+      // 404 only after authentication, and non-owner non-admin callers get 403.
+      if (!orderOwner) return errorResponse('not_found', 404)
+      if (!adminAuth.allowed) {
+        const callerCustomerId = await resolveCallerCustomerId(deps.database, claims, now)
+        if (!callerCustomerId || callerCustomerId !== orderOwner.customer_id) {
+          return errorResponse('forbidden', 403)
         }
       }
       const prefs = await getCustomerSplitPreferences(deps.database, orderId)
@@ -100,6 +104,14 @@ export async function handleSplitBackordersHttp(
     }
 
     if (request.method === 'POST') {
+      // Same-origin mutation only: the customer route is not behind mountGuard in canary.
+      if (
+        !deps.origin ||
+        request.headers.get('origin') !== deps.origin ||
+        request.headers.get('sec-fetch-site') === 'cross-site'
+      ) {
+        return errorResponse('csrf_rejected', 403)
+      }
       if (!claims) {
         return errorResponse('unauthenticated', 401)
       }
@@ -114,6 +126,7 @@ export async function handleSplitBackordersHttp(
           return errorResponse('not_found', 404)
         }
         const adminAuth = await authorizeD1Session(deps.database, claims, 'administration.manage', { now })
+        if (!adminAuth.allowed && adminAuth.code === 'unauthenticated') return errorResponse('unauthenticated', 401)
         let resolvedCustomerId = parsed.customerId ?? orderOwner.customer_id
         if (!adminAuth.allowed) {
           const callerCustomerId = await resolveCallerCustomerId(deps.database, claims, now)

@@ -7,7 +7,7 @@ import {
   recordUnifiedPaymentSettlement,
   listUnifiedPaymentReconciliations
 } from './contingency-routing'
-import { AlternativeMarketPaymentProvider, ALTERNATIVE_PROVIDER_NAME } from './alternative-contingency-provider'
+import { type AlternativeMarketPaymentProvider, ALTERNATIVE_PROVIDER_NAME } from './alternative-contingency-provider'
 import { orderStoreCreditSql } from '../pricing/order-store-credit-sql'
 
 export interface PaymentContingencyHttpDependencies {
@@ -57,16 +57,14 @@ export async function handlePaymentContingencyHttp(
 
   // Public Webhook from Alternative Provider
   if (path === '/api/payments/alternative/webhook' && request.method === 'POST') {
+    // Fail closed: without a provider configured from Worker secrets there is no trusted key.
+    const provider = deps.alternativeProvider
+    if (!provider) return errorResponse('service_unavailable', 503)
     try {
       const payload = (await request.json()) as Record<string, string>
-      const provider =
-        deps.alternativeProvider ??
-        new AlternativeMarketPaymentProvider({
-          secretKey: 'contingency-secret-key-123456789012',
-          merchantId: 'merchant-alt-01',
-          endpointUrl: 'https://contingency.payments.invalid/pay'
-        })
-
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        return errorResponse('invalid_input', 400)
+      }
       const verified = await provider.verifyNotification(payload)
 
       // Verify order existence and expected server-side gross amount: the amount due after the

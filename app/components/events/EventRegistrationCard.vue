@@ -16,6 +16,9 @@ const consentSms = ref(false)
 const consentFollowup = ref(true)
 
 const registering = ref(false)
+// One command per user intent: retries after a failure replay the same keys (SECFIX-3 #13).
+const registerCommandId = ref(crypto.randomUUID())
+const questionCommandId = ref(crypto.randomUUID())
 const registered = ref(false)
 const regError = ref<string | null>(null)
 
@@ -77,6 +80,8 @@ async function handleRegister() {
     await requestFetch(`/api/events/${props.event.slug}/register`, {
       method: 'POST',
       body: {
+        commandId: registerCommandId.value,
+        idempotencyKey: `event-register-${registerCommandId.value}`,
         attendeeName: attendeeName.value,
         attendeeEmail: attendeeEmail.value,
         attendeePhone: attendeePhone.value || undefined,
@@ -87,6 +92,7 @@ async function handleRegister() {
       }
     })
     registered.value = true
+    registerCommandId.value = crypto.randomUUID()
   } catch {
     regError.value = 'No se pudo completar el registro. Comprueba los datos o el aforo.'
   } finally {
@@ -101,10 +107,13 @@ async function handleSendQuestion() {
     await requestFetch(`/api/events/${props.event.slug}/questions`, {
       method: 'POST',
       body: {
+        commandId: questionCommandId.value,
+        idempotencyKey: `event-question-${questionCommandId.value}`,
         authorName: questionAuthor.value,
         questionText: newQuestionText.value
       }
     })
+    questionCommandId.value = crypto.randomUUID()
     questionSubmitted.value = true
     newQuestionText.value = ''
     await loadQuestions()

@@ -73,12 +73,35 @@ async function checkAdminAuth(
 
 function adaptCookieConfig(
   config: SessionCookieConfiguration | { secretKey?: string; password?: string; maxAgeSeconds?: number }
-): SessionCookieConfiguration {
+): SessionCookieConfiguration | null {
   const cfg = config as { password?: string; secretKey?: string; maxAgeSeconds?: number }
-  return {
-    password: cfg?.password ?? cfg?.secretKey ?? 'synthetic-long-secret-key-at-least-32-chars!',
-    maxAgeSeconds: cfg?.maxAgeSeconds ?? 86400
-  }
+  // Fail closed: never fall back to a built-in session password.
+  const password = cfg?.password ?? cfg?.secretKey
+  if (typeof password !== 'string' || !password) return null
+  return { password, maxAgeSeconds: cfg?.maxAgeSeconds ?? 86400 }
+}
+
+/** Same-origin mutation policy for storefront browse commands (Origin is mandatory). */
+function crossOriginRejected(request: Request, origin: string | undefined): boolean {
+  return !origin || request.headers.get('origin') !== origin || request.headers.get('sec-fetch-site') === 'cross-site'
+}
+
+/** The customer always comes from the verified D1 session, never from the request body. */
+async function sessionCustomerId(
+  database: D1Database,
+  claims: { identityId: string; sessionId: string; sessionVersion: number },
+  now: string
+): Promise<string | null> {
+  const row = await database
+    .prepare(
+      `SELECT i.customer_id FROM auth_sessions s JOIN identities i ON i.id = s.identity_id
+       WHERE s.id = ?1 AND s.identity_id = ?2 AND s.session_version = ?3
+         AND s.session_version = i.session_version AND s.revoked_at IS NULL
+         AND s.created_at <= ?4 AND s.expires_at > ?4 AND i.status IN ('pending', 'active')`
+    )
+    .bind(claims.sessionId, claims.identityId, claims.sessionVersion, now)
+    .first<{ customer_id: string | null }>()
+  return row?.customer_id ?? null
 }
 
 export async function handleBrowseAbandonmentHttp(
@@ -93,6 +116,7 @@ export async function handleBrowseAbandonmentHttp(
   }
 
   const cookieConfig = adaptCookieConfig(deps.sessionCookieConfiguration)
+  if (!cookieConfig) return errorResponse('service_unavailable', 503)
   const method = request.method
   const now = deps.now ? deps.now() : new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
 
@@ -168,26 +192,36 @@ export async function handleBrowseAbandonmentHttp(
     }
 
     // 3. Marketing Storefront / Internal endpoints
-    if (path === '/api/marketing/browse-abandonment/events' && method === 'POST') {
+    if (
+      (path === '/api/marketing/browse-abandonment/events' || path === '/api/marketing/browse-abandonment/evaluate') &&
+      method === 'POST'
+    ) {
+      if (crossOriginRejected(request, deps.origin)) return errorResponse('csrf_rejected', 403)
+      const claims = await verifySessionCookie(request, cookieConfig)
+      if (!claims) return errorResponse('unauthenticated', 401)
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-      if (!body || typeof body !== 'object' || !body.customerId) {
-        return errorResponse('invalid_input', 400)
-      }
-      const event = await recordD1BrowseEvent(deps.database, body.customerId as string, body as never, now)
-      return jsonResponse({ event }, 201)
-    }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) return errorResponse('invalid_input', 400)
 
-    if (path === '/api/marketing/browse-abandonment/evaluate' && method === 'POST') {
-      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-      if (!body || typeof body !== 'object' || !body.customerId || !body.productId) {
+      if (path === '/api/marketing/browse-abandonment/events') {
+        // Events are always attributed to the session customer; a body customerId is ignored.
+        const customerId = await sessionCustomerId(deps.database, claims, now)
+        if (!customerId) return errorResponse('forbidden', 403)
+        const event = await recordD1BrowseEvent(deps.database, customerId, body as never, now)
+        return jsonResponse({ event }, 201)
+      }
+
+      // Evaluation targets any customer and may create dispatches: internal/admin trigger only.
+      const auth = await authorizeD1Session(deps.database, claims, 'administration.manage', { now })
+      if (!auth.allowed) {
+        return errorResponse(
+          auth.code === 'unauthenticated' ? 'unauthenticated' : 'forbidden',
+          auth.code === 'unauthenticated' ? 401 : 403
+        )
+      }
+      if (typeof body.customerId !== 'string' || typeof body.productId !== 'string') {
         return errorResponse('invalid_input', 400)
       }
-      const evaluation = await evaluateD1BrowseAbandonment(
-        deps.database,
-        body.customerId as string,
-        body.productId as string,
-        now
-      )
+      const evaluation = await evaluateD1BrowseAbandonment(deps.database, body.customerId, body.productId, now)
       return jsonResponse({ evaluation })
     }
 

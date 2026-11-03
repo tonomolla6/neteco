@@ -446,7 +446,8 @@ describe('ORD-021: Split y backorder por disponibilidad', () => {
     it('rejects unauthenticated or cross-customer POST to /api/orders/split-preferences', async () => {
       const unauthReq = new Request('https://shop.invalid/api/orders/split-preferences', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // SECFIX-3: same-origin header required so this still exercises the 401 path, not csrf_rejected.
+        headers: { 'content-type': 'application/json', origin: 'https://shop.invalid' },
         body: JSON.stringify({
           orderId: testOrderId,
           customerAcceptsSplit: true,
@@ -457,6 +458,7 @@ describe('ORD-021: Split y backorder por disponibilidad', () => {
       const unauthRes = await handleSplitBackordersHttp(unauthReq, {
         database,
         sessionCookieConfiguration: config,
+        origin: 'https://shop.invalid',
         now
       })
       expect(unauthRes?.status).toBe(401)
@@ -467,7 +469,8 @@ describe('ORD-021: Split y backorder por disponibilidad', () => {
         method: 'POST',
         headers: {
           cookie: customerCookie,
-          'content-type': 'application/json'
+          'content-type': 'application/json',
+          origin: 'https://shop.invalid' // SECFIX-3: customer mutation must be same-origin
         },
         body: JSON.stringify({
           orderId: testOrderId,
@@ -479,6 +482,7 @@ describe('ORD-021: Split y backorder por disponibilidad', () => {
       const prefRes = await handleSplitBackordersHttp(prefReq, {
         database,
         sessionCookieConfiguration: config,
+        origin: 'https://shop.invalid',
         now
       })
       expect(prefRes?.status).toBe(200)

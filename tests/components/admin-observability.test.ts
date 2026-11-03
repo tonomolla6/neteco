@@ -186,7 +186,7 @@ describe('OBS-028: AdminB2BContractSloPanel component', () => {
             totalDowntimeMinutes: 45,
             excludedDowntimeMinutes: 30,
             netChargeableDowntimeMinutes: 15,
-            penaltyCreditEur: 0.0,
+            penaltyCreditCents: 0,
             alertLevel: 'nominal',
             generatedAt: '2026-10-29T12:00:00Z'
           }
@@ -204,5 +204,36 @@ describe('OBS-028: AdminB2BContractSloPanel component', () => {
     expect(wrapper.text()).toContain('CTR-B2B-2026-001')
     expect(wrapper.text()).toContain('Lavanderías Industriales del Sur SA')
     expect(wrapper.text()).toContain('99.90%')
+  })
+
+  it('renders an integer-cent penalty as a two-decimal euro amount', async () => {
+    const wrapper = await mountSuspended(AdminB2BContractSloPanel)
+    await flushPromises()
+    mocks.request.mockResolvedValueOnce({
+      report: {
+        id: 'rep-1',
+        contractId: 'ctr-1',
+        reportMonth: '2026-10',
+        availabilityAchieved: 0.9,
+        targetAvailability: 0.999,
+        availabilityCompliant: false,
+        latencyP95AchievedMs: 1000,
+        latencyCompliant: false,
+        supportCompliant: true,
+        fulfillmentCompliant: true,
+        overallCompliant: false,
+        totalDowntimeMinutes: 100,
+        excludedDowntimeMinutes: 0,
+        netChargeableDowntimeMinutes: 100,
+        penaltyCreditCents: 18750,
+        alertLevel: 'breached',
+        generatedAt: '2026-10-29T12:00:00Z'
+      }
+    })
+    const button = wrapper.findAll('button').find((item) => item.text().includes('Generar Informe'))
+    expect(button).toBeDefined()
+    await button!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('187.50 €')
   })
 })

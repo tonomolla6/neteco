@@ -37,7 +37,7 @@ export interface CompanyShippingConditionsHttpDependencies {
   sessionProvider?: (req: Request) => Promise<AuthenticatedUserSession | null>
 }
 
-async function resolveSession(
+export async function resolveShippingSession(
   request: Request,
   deps: CompanyShippingConditionsHttpDependencies
 ): Promise<AuthenticatedUserSession | null> {
@@ -49,9 +49,27 @@ async function resolveSession(
   const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
   if (!claims) return null
 
-  let rolesStmt = deps.database.prepare('SELECT role_code FROM identity_roles WHERE identity_id = ?')
-  if (typeof rolesStmt.bind === 'function') rolesStmt = rolesStmt.bind(claims.identityId) as typeof rolesStmt
-  const rolesResult = typeof rolesStmt.all === 'function' ? await rolesStmt.all(claims.identityId) : []
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  let liveStmt = deps.database.prepare(`SELECT 1 AS ok FROM auth_sessions s JOIN identities i ON i.id = s.identity_id
+    WHERE s.id = ? AND s.identity_id = ? AND s.session_version = ? AND s.session_version = i.session_version
+      AND s.revoked_at IS NULL AND s.created_at <= ? AND s.expires_at > ? AND i.status = 'active'`)
+  const liveParams = [claims.sessionId, claims.identityId, claims.sessionVersion, now, now]
+  const liveBound = typeof liveStmt.bind === 'function'
+  if (liveBound) liveStmt = liveStmt.bind!(...liveParams) as typeof liveStmt
+  const live =
+    typeof liveStmt.first === 'function'
+      ? await liveStmt.first(...(liveBound ? [] : liveParams))
+      : typeof liveStmt.get === 'function'
+        ? await liveStmt.get(...liveParams)
+        : null
+  if (!live) return null
+
+  let rolesStmt = deps.database.prepare(`SELECT role_code FROM identity_roles WHERE identity_id = ?
+    AND granted_at <= ? AND (expires_at IS NULL OR expires_at > ?)`)
+  const roleParams = [claims.identityId, now, now]
+  const rolesBound = typeof rolesStmt.bind === 'function'
+  if (rolesBound) rolesStmt = rolesStmt.bind!(...roleParams) as typeof rolesStmt
+  const rolesResult = typeof rolesStmt.all === 'function' ? await rolesStmt.all(...(rolesBound ? [] : roleParams)) : []
 
   const rolesRows = (rolesResult ?? []) as { role_code: string }[] | { results: { role_code: string }[] }
   const roles: string[] = Array.isArray(rolesRows)
@@ -64,10 +82,12 @@ async function resolveSession(
     `SELECT granted.permission_code
      FROM identity_roles assigned
      JOIN role_permissions granted ON granted.role_code = assigned.role_code
-     WHERE assigned.identity_id = ?`
+     WHERE assigned.identity_id = ? AND assigned.granted_at <= ?
+       AND (assigned.expires_at IS NULL OR assigned.expires_at > ?)`
   )
-  if (typeof permStmt.bind === 'function') permStmt = permStmt.bind(claims.identityId) as typeof permStmt
-  const permResult = typeof permStmt.all === 'function' ? await permStmt.all(claims.identityId) : []
+  const permBound = typeof permStmt.bind === 'function'
+  if (permBound) permStmt = permStmt.bind!(...roleParams) as typeof permStmt
+  const permResult = typeof permStmt.all === 'function' ? await permStmt.all(...(permBound ? [] : roleParams)) : []
 
   const permRows = (permResult ?? []) as { permission_code: string }[] | { results: { permission_code: string }[] }
   const permissions: string[] = Array.isArray(permRows)
@@ -102,7 +122,7 @@ export async function handleCompanyShippingConditionsHttp(
 
   if (!ownsCompanyShippingConditionsNamespace(path)) return null
 
-  const session = await resolveSession(request, deps)
+  const session = await resolveShippingSession(request, deps)
   if (!session) {
     return jsonResponse({ error: { code: 'unauthorized', message: 'Authentication required' } }, 401)
   }
@@ -118,7 +138,7 @@ export async function handleCompanyShippingConditionsHttp(
     if (request.method === 'GET') {
       try {
         const conditions = await getCompanyShippingConditions(deps.database, companyId)
-        const freshSession = await resolveSession(request, deps)
+        const freshSession = await resolveShippingSession(request, deps)
         if (!checkAdmin(freshSession)) {
           return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
         }
@@ -160,6 +180,10 @@ export async function handleCompanyShippingConditionsHttp(
 
       const input = parseResult.data
       try {
+        const freshSession = await resolveShippingSession(request, deps)
+        if (!checkAdmin(freshSession) || freshSession?.identityId !== session.identityId) {
+          return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
+        }
         const updated = await setCompanyShippingConditions(deps.database, {
           actorId: session.identityId,
           companyId,
@@ -173,11 +197,6 @@ export async function handleCompanyShippingConditionsHttp(
           expectedVersion: input.expectedVersion,
           commandId: input.commandId
         })
-
-        const freshSession = await resolveSession(request, deps)
-        if (!checkAdmin(freshSession)) {
-          return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
-        }
 
         return jsonResponse({ conditions: updated }, 200)
       } catch (error) {

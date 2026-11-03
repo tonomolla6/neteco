@@ -82,6 +82,11 @@ export const draftOrderSchema = z.object({
 export type DraftOrder = z.infer<typeof draftOrderSchema>
 
 export const createDraftOrderInputSchema = z.object({
+  commandId: z
+    .string()
+    .min(1)
+    .max(128)
+    .refine((value) => value.trim().length > 0),
   customerId: z.string().min(1),
   companyName: z.string().min(2).max(160),
   contactEmail: z.string().email(),

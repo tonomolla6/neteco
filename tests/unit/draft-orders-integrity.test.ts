@@ -25,6 +25,7 @@ const ITEM = {
   lineTotalCents: 32000
 }
 const INPUT = {
+  commandId: 'test-draft-command',
   customerId: 'cust-1',
   companyName: 'Hospital Mar SL',
   contactEmail: 'compras@example.invalid',

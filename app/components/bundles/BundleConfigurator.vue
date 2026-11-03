@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { BundleDetailView } from '~~/shared/bundles'
+import { calculateBundlePricing, type BundleDetailView } from '~~/shared/bundles'
 
 const props = defineProps<{
   bundle: BundleDetailView
@@ -84,18 +84,24 @@ const savingsPercent = computed(() => {
   return Math.round((savingsCents.value / equivalentStandaloneCents.value) * 1000) / 10
 })
 
-const taxCents = computed(() => {
-  let taxSum = 0
-  for (const item of props.bundle.items) {
-    const qty = customQuantities.value[item.variantId] ?? item.defaultQuantity
-    const lineGross = item.unitPriceCents * qty * kitQuantity.value
-    const lineNet = Math.round(lineGross / (1 + item.taxRate))
-    taxSum += lineGross - lineNet
-  }
-  return taxSum
-})
+// Prices are VAT-inclusive: VAT is the part included in the kit price, never added on top (SECFIX-3 #6).
+const pricing = computed(() =>
+  calculateBundlePricing({
+    baseBundlePriceCents: props.bundle.bundlePriceCents,
+    kitQuantity: kitQuantity.value,
+    components: props.bundle.items.map((item) => ({
+      variantId: item.variantId,
+      unitPriceCents: item.unitPriceCents,
+      taxRate: item.taxRate,
+      defaultQuantity: item.defaultQuantity,
+      customQuantity: customQuantities.value[item.variantId] ?? item.defaultQuantity
+    }))
+  })
+)
 
-const totalPriceCents = computed(() => bundlePriceCents.value + taxCents.value)
+const taxCents = computed(() => pricing.value.taxCents)
+
+const totalPriceCents = computed(() => pricing.value.totalCents)
 
 function incrementKit() {
   if (kitQuantity.value < props.bundle.maxAvailableKits) {
@@ -201,12 +207,12 @@ function handleAddToCart() {
         <span class="text-blue-700">{{ formatCents(bundlePriceCents) }}</span>
       </div>
       <div class="flex justify-between text-xs text-gray-500">
-        <span>IVA estimado:</span>
-        <span>{{ formatCents(taxCents) }}</span>
+        <span>IVA incluido:</span>
+        <span data-testid="bundle-tax">{{ formatCents(taxCents) }}</span>
       </div>
       <div class="flex justify-between font-semibold text-xs text-gray-800 pt-1 border-t">
         <span>Total IVA incluido:</span>
-        <span>{{ formatCents(totalPriceCents) }}</span>
+        <span data-testid="bundle-total">{{ formatCents(totalPriceCents) }}</span>
       </div>
       <div
         v-if="savingsCents > 0"

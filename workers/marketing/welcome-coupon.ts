@@ -239,6 +239,51 @@ export interface IssueWelcomeCouponInput {
   taxId?: string
 }
 
+/** Reads the grant already issued to an identity (idempotent replay of issuance). */
+export async function readD1WelcomeCouponGrantByIdentity(
+  db: D1Database,
+  identityId: string
+): Promise<WelcomeCouponGrant | null> {
+  const row = await db
+    .prepare(
+      `SELECT id, coupon_code, customer_id, identity_id, canonical_email_hash, canonical_phone_hash, tax_id_hash,
+              discount_percent, max_discount_cents, min_order_cents, expires_at, status, created_at
+       FROM welcome_coupon_grants WHERE identity_id = ?1 ORDER BY created_at, id LIMIT 1`
+    )
+    .bind(identityId)
+    .first<{
+      id: string
+      coupon_code: string
+      customer_id: string
+      identity_id: string
+      canonical_email_hash: string
+      canonical_phone_hash: string | null
+      tax_id_hash: string | null
+      discount_percent: number
+      max_discount_cents: number
+      min_order_cents: number
+      expires_at: string
+      status: WelcomeCouponGrant['status']
+      created_at: string
+    }>()
+  if (!row) return null
+  return {
+    id: row.id,
+    couponCode: row.coupon_code,
+    customerId: row.customer_id,
+    identityId: row.identity_id,
+    canonicalEmailHash: row.canonical_email_hash,
+    canonicalPhoneHash: row.canonical_phone_hash,
+    taxIdHash: row.tax_id_hash,
+    discountPercent: row.discount_percent,
+    maxDiscountCents: row.max_discount_cents,
+    minOrderCents: row.min_order_cents,
+    expiresAt: row.expires_at,
+    status: row.status,
+    createdAt: row.created_at
+  }
+}
+
 export async function issueD1WelcomeCoupon(
   db: D1Database,
   input: IssueWelcomeCouponInput,

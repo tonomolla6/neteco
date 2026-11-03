@@ -23,6 +23,7 @@ async function setupDatabase(): Promise<DatabaseSync> {
     'utf8'
   )
   sqlite.exec(migration)
+  sqlite.exec(await readFile('db/d1/migrations/0154_b2b_slo_penalty_cents.sql', 'utf8'))
 
   sqlite.exec(`
     INSERT OR IGNORE INTO roles (code, name, description) VALUES
@@ -235,7 +236,7 @@ describe('OBS-028: SLO por cuentas B2B/contratos', () => {
     expect(report.availabilityAchieved).toBeGreaterThanOrEqual(0.999)
     expect(report.availabilityCompliant).toBe(true)
     expect(report.overallCompliant).toBe(true)
-    expect(report.penaltyCreditEur).toBe(0.0)
+    expect(report.penaltyCreditCents).toBe(0)
     expect(report.alertLevel).toBe('nominal')
   })
 
@@ -314,6 +315,6 @@ describe('OBS-028: SLO por cuentas B2B/contratos', () => {
     expect(report.fulfillmentCompliant).toBe(false)
     expect(report.overallCompliant).toBe(false)
     expect(report.alertLevel).toBe('breached')
-    expect(report.penaltyCreditEur).toBeGreaterThan(0) // Tier has 5% penalty credit
+    expect(report.penaltyCreditCents).toBe(7500) // Tier has 5% penalty credit
   })
 })

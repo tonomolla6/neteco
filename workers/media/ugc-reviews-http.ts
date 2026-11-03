@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { submitUgcReviewSchema, withdrawUgcReviewSchema, moderateUgcReviewSchema } from '../../shared/ugc-reviews'
 import {
   listAdminUgcReviews,
   listPublicUgcReviews,
@@ -52,9 +53,14 @@ async function resolveActor(request: Request, deps: UgcReviewsHttpDependencies):
   const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
   if (!claims) return null
 
+  const now = (deps.now ? deps.now() : new Date().toISOString()).replace(/\.\d{3}Z$/, 'Z')
   const live = await deps.database
-    .prepare('SELECT 1 AS ok FROM identities WHERE id = ?1 AND status = "active"')
-    .bind(claims.identityId)
+    .prepare(
+      `SELECT 1 AS ok FROM auth_sessions s JOIN identities i ON i.id = s.identity_id
+      WHERE s.id = ?1 AND s.identity_id = ?2 AND s.session_version = ?3 AND s.session_version = i.session_version
+        AND s.revoked_at IS NULL AND s.created_at <= ?4 AND s.expires_at > ?4 AND i.status = 'active'`
+    )
+    .bind(claims.sessionId, claims.identityId, claims.sessionVersion, now)
     .first<{ ok: number }>()
 
   return live ? { identityId: claims.identityId, sessionVersion: claims.sessionVersion } : null
@@ -72,6 +78,14 @@ export async function handleUgcReviewsHttp(
   const now = deps.now ? deps.now() : new Date().toISOString()
 
   try {
+    let mutationActor: UgcActor | null = null
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+      mutationActor = await resolveActor(request, deps)
+      if (!mutationActor) return errorResponse('unauthorized', 401)
+      if (request.headers.get('origin') !== url.origin || request.headers.get('sec-fetch-site') === 'cross-site') {
+        return errorResponse('csrf_rejected', 403)
+      }
+    }
     // 1. GET /api/products/:productId/ugc-reviews
     const publicMatch = /^\/api\/products\/([^/]+)\/ugc-reviews$/.exec(path)
     if (publicMatch && request.method === 'GET') {
@@ -85,16 +99,18 @@ export async function handleUgcReviewsHttp(
     // 2. POST /api/products/:productId/ugc-reviews (Submit review with photos)
     if (publicMatch && request.method === 'POST') {
       const productId = publicMatch[1]!
-      const actor = await resolveActor(request, deps)
+      const actor = mutationActor ?? (await resolveActor(request, deps))
       if (!actor) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body || typeof body !== 'object') return errorResponse('invalid_input', 400)
 
+      const parsed = submitUgcReviewSchema.safeParse({ ...body, productId })
+      if (!parsed.success) return errorResponse('invalid_input', 400)
       const result = await submitUgcReview(deps.database, {
         actorId: actor.identityId,
         now,
-        input: { ...body, productId } as never
+        input: parsed.data
       })
       return jsonResponse(result, 201)
     }
@@ -103,23 +119,25 @@ export async function handleUgcReviewsHttp(
     const withdrawMatch = /^\/api\/ugc-reviews\/([^/]+)\/withdraw$/.exec(path)
     if (withdrawMatch && request.method === 'POST') {
       const reviewId = withdrawMatch[1]!
-      const actor = await resolveActor(request, deps)
+      const actor = mutationActor ?? (await resolveActor(request, deps))
       if (!actor) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body || typeof body !== 'object') return errorResponse('invalid_input', 400)
 
+      const parsed = withdrawUgcReviewSchema.safeParse({ ...body, reviewId })
+      if (!parsed.success) return errorResponse('invalid_input', 400)
       const result = await withdrawUgcReview(deps.database, {
         actorId: actor.identityId,
         now,
-        input: { ...body, reviewId } as never
+        input: parsed.data
       })
       return jsonResponse(result, 200)
     }
 
     // 4. GET /api/admin/ugc-reviews
     if (path === '/api/admin/ugc-reviews' && request.method === 'GET') {
-      const actor = await resolveActor(request, deps)
+      const actor = mutationActor ?? (await resolveActor(request, deps))
       if (!actor) return errorResponse('unauthorized', 401)
       await requireAdmin(deps.database, actor.identityId)
 
@@ -143,16 +161,18 @@ export async function handleUgcReviewsHttp(
     const moderateMatch = /^\/api\/admin\/ugc-reviews\/([^/]+)\/moderate$/.exec(path)
     if (moderateMatch && request.method === 'POST') {
       const reviewId = moderateMatch[1]!
-      const actor = await resolveActor(request, deps)
+      const actor = mutationActor ?? (await resolveActor(request, deps))
       if (!actor) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body || typeof body !== 'object') return errorResponse('invalid_input', 400)
 
+      const parsed = moderateUgcReviewSchema.safeParse({ ...body, reviewId })
+      if (!parsed.success) return errorResponse('invalid_input', 400)
       const result = await moderateUgcReview(deps.database, {
         actorId: actor.identityId,
         now,
-        input: { ...body, reviewId } as never
+        input: parsed.data
       })
       return jsonResponse(result, 200)
     }
@@ -162,7 +182,7 @@ export async function handleUgcReviewsHttp(
     if (photoModMatch && request.method === 'POST') {
       const reviewId = photoModMatch[1]!
       const photoId = photoModMatch[2]!
-      const actor = await resolveActor(request, deps)
+      const actor = mutationActor ?? (await resolveActor(request, deps))
       if (!actor) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
@@ -183,7 +203,7 @@ export async function handleUgcReviewsHttp(
     const redactMatch = /^\/api\/admin\/ugc-reviews\/([^/]+)\/redact-pii$/.exec(path)
     if (redactMatch && request.method === 'POST') {
       const reviewId = redactMatch[1]!
-      const actor = await resolveActor(request, deps)
+      const actor = mutationActor ?? (await resolveActor(request, deps))
       if (!actor) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null

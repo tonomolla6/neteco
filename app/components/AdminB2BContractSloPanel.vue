@@ -36,7 +36,7 @@ interface ComplianceReport {
   totalDowntimeMinutes: number
   excludedDowntimeMinutes: number
   netChargeableDowntimeMinutes: number
-  penaltyCreditEur: number
+  penaltyCreditCents: number
   alertLevel: 'nominal' | 'warning_risk_of_breach' | 'breached'
   generatedAt: string
 }
@@ -129,7 +129,7 @@ async function handleGenerateReport() {
     if (res.report.overallCompliant) {
       successMessage.value = `Informe mensual ${reportMonth.value} generado: Contrato en CUMPLIMIENTO de SLA.`
     } else {
-      errorMessage.value = `Alerta de Incumplimiento: Se han detectado violaciones de SLA en ${reportMonth.value}. Penalización acumulada: ${res.report.penaltyCreditEur} €.`
+      errorMessage.value = `Alerta de Incumplimiento: Se han detectado violaciones de SLA en ${reportMonth.value}. Penalización acumulada: ${(res.report.penaltyCreditCents / 100).toFixed(2)} €.`
     }
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : 'Error al generar informe mensual de SLA'
@@ -327,9 +327,9 @@ onMounted(() => {
             <span class="block text-neutral-500">Penalización / Crédito B2B:</span>
             <strong
               class="text-sm font-mono"
-              :class="report.penaltyCreditEur > 0 ? 'text-red-700' : 'text-neutral-800'"
+              :class="report.penaltyCreditCents > 0 ? 'text-red-700' : 'text-neutral-800'"
             >
-              {{ report.penaltyCreditEur.toFixed(2) }} €
+              {{ (report.penaltyCreditCents / 100).toFixed(2) }} €
             </strong>
           </div>
         </div>

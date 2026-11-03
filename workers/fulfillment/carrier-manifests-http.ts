@@ -20,6 +20,8 @@ import {
   type OpsHttpDependencies
 } from './shipping-ops-common'
 import type { ManifestStatus } from '../../shared/carrier-manifests'
+import { verifySessionCookie } from '../auth/session-cookie'
+import { authorizeD1Session } from '../catalog/authorization'
 
 const BASE = '/api/admin/carrier-manifests'
 
@@ -39,6 +41,17 @@ export async function handleCarrierManifestsHttp(
   if (!ownsCarrierManifestsNamespace(url.pathname)) return null
   const actor = await resolveActor(request, deps)
   if (!actor) return opsJson({ error: { code: 'unauthorized' } }, 401)
+  if (!deps.sessionProvider && deps.sessionCookieConfiguration) {
+    const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
+    if (!claims) return opsJson({ error: { code: 'unauthorized' } }, 401)
+    const authorization = await authorizeD1Session(deps.database, claims, 'administration.manage', {
+      now: deps.now?.()
+    })
+    if (!authorization.allowed) {
+      const status = authorization.code === 'unauthenticated' ? 401 : 403
+      return opsJson({ error: { code: status === 401 ? 'unauthorized' : 'forbidden' } }, status)
+    }
+  }
   const db = deps.database
   const now = deps.now?.()
   const adapter = deps.adapter ?? createLocalCarrierManifestAdapter()

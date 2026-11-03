@@ -49,7 +49,7 @@ describe('MED-018: UGC Reviews HTTP Endpoints', () => {
   it('rejects POST submission without authentication with 401', async () => {
     const req = new Request(`https://neteco.es/api/products/${PROD_1}/ugc-reviews`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'https://neteco.es' },
       body: JSON.stringify({
         rating: 5,
         title: 'Review no autenticada',
@@ -73,7 +73,7 @@ describe('MED-018: UGC Reviews HTTP Endpoints', () => {
     // 1. Submit review
     const submitReq = new Request(`https://neteco.es/api/products/${PROD_1}/ugc-reviews`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'https://neteco.es' },
       body: JSON.stringify({
         orderId: ORDER_1,
         rating: 5,
@@ -117,7 +117,7 @@ describe('MED-018: UGC Reviews HTTP Endpoints', () => {
     // 3. Admin moderate (approve)
     const modReq = new Request(`https://neteco.es/api/admin/ugc-reviews/${reviewData.id}/moderate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'https://neteco.es' },
       body: JSON.stringify({
         action: 'approve',
         reason: 'Texto técnico verificado',
@@ -143,7 +143,7 @@ describe('MED-018: UGC Reviews HTTP Endpoints', () => {
     // Submit review first
     const submitReq = new Request(`https://neteco.es/api/products/${PROD_1}/ugc-reviews`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'https://neteco.es' },
       body: JSON.stringify({
         rating: 4,
         title: 'Review a retirar por HTTP',
@@ -162,7 +162,7 @@ describe('MED-018: UGC Reviews HTTP Endpoints', () => {
     // Withdraw review
     const withdrawReq = new Request(`https://neteco.es/api/ugc-reviews/${reviewData.id}/withdraw`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', origin: 'https://neteco.es' },
       body: JSON.stringify({
         reason: 'customer_revocation',
         notes: 'Deseo retirar la reseña',

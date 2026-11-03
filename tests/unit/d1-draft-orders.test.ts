@@ -75,6 +75,7 @@ describe('CHK-022: Pedido como borrador sujeto a aprobación', () => {
       d1,
       ADMIN_CLAIMS,
       {
+        commandId: 'test-hospital',
         customerId: 'cust-b2b-hospital-01',
         companyName: 'Hospital Virgen del Mar SL',
         contactEmail: 'compras@virgendelmar.es',
@@ -119,6 +120,7 @@ describe('CHK-022: Pedido como borrador sujeto a aprobación', () => {
       d1,
       ADMIN_CLAIMS,
       {
+        commandId: 'test-hotel',
         customerId: 'cust-hotel-02',
         companyName: 'Hoteles del Sol SA',
         contactEmail: 'pedidos@hotelesdelsol.es',
@@ -192,6 +194,7 @@ describe('CHK-022: Pedido como borrador sujeto a aprobación', () => {
       d1,
       ADMIN_CLAIMS,
       {
+        commandId: 'test-quick',
         customerId: 'cust-quick-03',
         companyName: 'Lavanderías Rápidas SL',
         contactEmail: 'gerencia@lavarapid.es',
@@ -247,6 +250,7 @@ describe('CHK-022: Pedido como borrador sujeto a aprobación', () => {
         d1,
         UNAUTHORIZED_CLAIMS,
         {
+          commandId: 'test-unauthorized',
           customerId: 'cust-unauth',
           companyName: 'Test SL',
           contactEmail: 'unauth@test.es',
@@ -262,6 +266,7 @@ describe('CHK-022: Pedido como borrador sujeto a aprobación', () => {
       d1,
       ADMIN_CLAIMS,
       {
+        commandId: 'test-reject',
         customerId: 'cust-reject-01',
         companyName: 'Empresa Riesgo SL',
         contactEmail: 'riesgo@empresa.es',
@@ -317,6 +322,7 @@ describe('CHK-022: Pedido como borrador sujeto a aprobación', () => {
       d1,
       ADMIN_CLAIMS,
       {
+        commandId: 'test-cas',
         customerId: 'cust-cas-01',
         companyName: 'CAS Test SL',
         contactEmail: 'cas@test.es',

@@ -11,6 +11,8 @@ export interface FreeShippingCartLine {
   quantity: number
   unitGrossCents: number
   unitNetCents?: number
+  /** Line VAT rate in basis points (2100 = 21 %); used only when unitNetCents is absent. */
+  taxRateBasisPoints?: number
   costUnitNetCents?: number | null
   weightGrams?: number
   profileKind?: 'parcel' | 'pallet' | 'adr'
@@ -24,6 +26,7 @@ export type FreeShippingContextualReason =
   | 'zone_excluded'
   | 'margin_floor'
   | 'cost_unknown'
+  | 'tax_unknown'
   | 'below_threshold'
   | 'granted'
   | 'empty_cart'
@@ -91,6 +94,17 @@ export function resolveEffectiveShippingProfile(items: FreeShippingCartLine[]): 
  * Requirement MKT-022: Calculado con elegibilidad/margen/perfil logístico;
  * NUNCA promete gratis si ADR/palé/zona lo excluye.
  */
+/** Net unit price in integer cents, half-up, from the line's own VAT rate. */
+function lineUnitNetCents(item: FreeShippingCartLine): number {
+  if (item.unitNetCents !== undefined) return item.unitNetCents
+  const rate = item.taxRateBasisPoints
+  if (typeof rate !== 'number' || !Number.isSafeInteger(rate) || rate < 0 || rate > 10000)
+    throw new RangeError('invalid tax rate basis points')
+  if (!Number.isSafeInteger(item.unitGrossCents) || item.unitGrossCents < 0) throw new RangeError('invalid gross cents')
+  const divisor = BigInt(10000 + rate)
+  return Number((BigInt(item.unitGrossCents) * 10000n + divisor / 2n) / divisor)
+}
+
 export function evaluateFreeShippingProgress(input: EvaluateFreeShippingProgressInput): FreeShippingProgressEvaluation {
   const threshold = Math.max(0, input.thresholdGrossCents ?? 15000)
   const subtotal = Math.max(0, input.subtotalGrossCents)
@@ -123,12 +137,31 @@ export function evaluateFreeShippingProgress(input: EvaluateFreeShippingProgress
     }
   }
 
+  if (
+    (input.activeRule?.consciousSubsidy || (input.minMarginBasisPoints ?? 0) > 0) &&
+    input.items.some((item) => item.unitNetCents === undefined && item.taxRateBasisPoints === undefined)
+  ) {
+    return {
+      status: 'excluded',
+      eligible: false,
+      canBecomeFree: false,
+      reason: 'tax_unknown',
+      thresholdGrossCents: threshold,
+      subtotalGrossCents: subtotal,
+      progressPercent: 0,
+      missingCents: 0,
+      badgeText: 'Validación de impuestos requerida',
+      message: 'No es posible validar el envío gratuito sin el importe neto o el tipo de IVA de cada artículo.',
+      detailedExplanation:
+        'La elegibilidad depende de importes netos que no se pueden calcular con los datos disponibles.',
+      effectiveProfile,
+      effectiveZone
+    }
+  }
+
   // 2. Conscious subsidy check: if an active rule explicitly subsidises special profile/zone
   if (input.activeRule && input.activeRule.consciousSubsidy) {
-    const totalNet = input.items.reduce(
-      (sum, item) => sum + (item.unitNetCents ?? Math.round(item.unitGrossCents / 1.21)) * item.quantity,
-      0
-    )
+    const totalNet = input.items.reduce((sum, item) => sum + lineUnitNetCents(item) * item.quantity, 0)
     const costUnknown = input.items.some(
       (item) => item.costUnitNetCents === null || item.costUnitNetCents === undefined
     )
@@ -234,10 +267,7 @@ export function evaluateFreeShippingProgress(input: EvaluateFreeShippingProgress
 
   // 6. Margin & cost checks if specified
   if (input.minMarginBasisPoints !== undefined && input.minMarginBasisPoints > 0) {
-    const totalNet = input.items.reduce(
-      (sum, item) => sum + (item.unitNetCents ?? Math.round(item.unitGrossCents / 1.21)) * item.quantity,
-      0
-    )
+    const totalNet = input.items.reduce((sum, item) => sum + lineUnitNetCents(item) * item.quantity, 0)
     const costUnknown = input.items.some(
       (item) => item.costUnitNetCents === null || item.costUnitNetCents === undefined
     )

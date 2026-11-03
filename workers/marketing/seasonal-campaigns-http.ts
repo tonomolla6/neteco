@@ -55,8 +55,8 @@ export async function handleSeasonalCampaignsHttp(
   }
 
   const now = deps.now ? deps.now() : new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const actorId =
-    (deps.actorIdFromRequest ? await deps.actorIdFromRequest(request) : null) ?? request.headers.get('x-actor-id')
+  // Identity comes only from the verified-session resolver; request headers are never trusted.
+  const actorId = deps.actorIdFromRequest ? await deps.actorIdFromRequest(request) : null
 
   if (!actorId) {
     return errorResponse('unauthenticated', 401)

@@ -29,7 +29,6 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
   let ownerCookie: string
   let collabCookie: string
   let otherCookie: string
-  let publication: Awaited<ReturnType<typeof provisionPublicationValidityFixture>>
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -39,7 +38,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
     sqlite.exec(await readFile('db/d1/migrations/0108_b2b_shared_lists_edi_scoring.sql', 'utf8'))
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    publication = await provisionPublicationValidityFixture(database, {
+    await provisionPublicationValidityFixture(database, {
       productIds: ['p-1', 'p-2', 'p-3'],
       now: NOW
     })
@@ -111,6 +110,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        origin: 'https://neteco.invalid',
         cookie: ownerCookie
       },
       body: JSON.stringify({
@@ -161,6 +161,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        origin: 'https://neteco.invalid',
         cookie: ownerCookie
       },
       body: JSON.stringify({
@@ -179,6 +180,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        origin: 'https://neteco.invalid',
         cookie: ownerCookie
       },
       body: JSON.stringify({
@@ -198,6 +200,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
       method: 'PUT',
       headers: {
         'content-type': 'application/json',
+        origin: 'https://neteco.invalid',
         cookie: collabCookie
       },
       body: JSON.stringify({
@@ -228,7 +231,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
     // 5. Replenish
     const repReq = new Request(`https://neteco.invalid/api/account/recurring-lists/${list.id}/replenish`, {
       method: 'POST',
-      headers: { cookie: ownerCookie }
+      headers: { cookie: ownerCookie, origin: 'https://neteco.invalid' }
     })
     const repRes = await handleCustomerRecurringListsHttp(repReq, {
       database,
@@ -242,6 +245,7 @@ describe('CUS-018: Customer Recurring Lists HTTP API', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
+        origin: 'https://neteco.invalid',
         cookie: ownerCookie
       },
       body: JSON.stringify({

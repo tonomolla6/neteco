@@ -72,6 +72,10 @@ export async function handleDraftOrdersHttp(
     if (request.method === 'POST' && url.pathname === '/api/admin/draft-orders/create') {
       const body = await readJsonBody(request)
       if (body === undefined) return failure('invalid_json', 400)
+      await authorizeOrders(deps.database, claims, now)
+      if (!body || typeof body.commandId !== 'string' || !body.commandId.trim() || body.commandId.length > 128) {
+        return failure('invalid_input', 400)
+      }
       const result = await createDraftOrder(deps.database, claims, body, { now })
       return jsonResponse(result, 201)
     }
@@ -131,6 +135,7 @@ export async function handleDraftOrdersHttp(
         forbidden: 403,
         not_found: 404,
         version_conflict: 409,
+        idempotency_conflict: 409,
         draft_order_expired: 410,
         not_approved: 422
       }

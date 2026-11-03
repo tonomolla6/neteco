@@ -146,6 +146,7 @@ export function calculateBundlePricing(params: {
   baseBundlePriceCents: number
   kitQuantity: number
   components: Array<{
+    variantId: string
     unitPriceCents: number
     taxRate: number
     defaultQuantity: number
@@ -158,6 +159,7 @@ export function calculateBundlePricing(params: {
   let configuredStandaloneSum = 0
 
   for (const comp of params.components) {
+    if (typeof comp.variantId !== 'string' || !comp.variantId.trim()) throw new Error('invalid_variant_id')
     defaultStandaloneSum += comp.unitPriceCents * comp.defaultQuantity
     const qty = comp.customQuantity !== undefined ? comp.customQuantity : comp.defaultQuantity
     configuredStandaloneSum += comp.unitPriceCents * qty
@@ -180,18 +182,33 @@ export function calculateBundlePricing(params: {
   const savingsPercent =
     equivalentStandaloneCents > 0 ? Math.round((savingsCents / equivalentStandaloneCents) * 1000) / 10 : 0
 
+  // Component prices are VAT-inclusive (variants.price_gross_cents), so the bundle price already is the
+  // total. Allocate it across lines proportionally to their standalone gross (largest remainder, exact
+  // integer cents) and derive the VAT included in each allocated line.
+  const lines = params.components.map((comp, index) => {
+    const qty = comp.customQuantity !== undefined ? comp.customQuantity : comp.defaultQuantity
+    const standaloneGross = comp.unitPriceCents * qty * kitQty
+    const share = equivalentStandaloneCents > 0 ? (bundlePriceCents * standaloneGross) / equivalentStandaloneCents : 0
+    return { comp, qty, index, allocated: Math.floor(share), remainder: share - Math.floor(share) }
+  })
+  let unallocated = bundlePriceCents - lines.reduce((sum, line) => sum + line.allocated, 0)
+  for (const line of [...lines].sort((a, b) => b.remainder - a.remainder || a.index - b.index)) {
+    if (unallocated <= 0) break
+    line.allocated += 1
+    unallocated -= 1
+  }
+
   let totalTaxCents = 0
   const items: BundleItemCalculation[] = []
 
-  for (const comp of params.components) {
-    const qty = comp.customQuantity !== undefined ? comp.customQuantity : comp.defaultQuantity
-    const lineGross = comp.unitPriceCents * qty * kitQty
+  for (const { comp, qty, allocated } of lines) {
+    const lineGross = allocated
     const lineNet = Math.round(lineGross / (1 + comp.taxRate))
     const lineTax = lineGross - lineNet
     totalTaxCents += lineTax
 
     items.push({
-      variantId: '',
+      variantId: comp.variantId,
       quantity: qty * kitQty,
       unitPriceCents: comp.unitPriceCents,
       taxRate: comp.taxRate,
@@ -206,8 +223,9 @@ export function calculateBundlePricing(params: {
     bundlePriceCents,
     savingsCents,
     savingsPercent,
+    // VAT included in bundlePriceCents; the total payable is the VAT-inclusive bundle price itself.
     taxCents: totalTaxCents,
-    totalCents: bundlePriceCents + totalTaxCents,
+    totalCents: bundlePriceCents,
     items
   }
 }

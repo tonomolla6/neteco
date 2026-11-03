@@ -457,9 +457,10 @@ describe('MKT-014: Browse and product abandonment automation', () => {
     expect(res?.status).toBe(401)
 
     // Event submission endpoint
+    // SECFIX-3 #15: anonymous events attributed to a client-supplied customerId are now refused.
     const eventReq = new Request('https://test.invalid/api/marketing/browse-abandonment/events', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: 'https://test.invalid' },
       body: JSON.stringify({
         customerId: CUSTOMER_1,
         productId: PROD_CLEANER,
@@ -469,8 +470,9 @@ describe('MKT-014: Browse and product abandonment automation', () => {
     })
     const eventRes = await handleBrowseAbandonmentHttp(eventReq, {
       database: db,
-      sessionCookieConfiguration: { secretKey: 'x'.repeat(32), cookieName: 'sess' }
+      sessionCookieConfiguration: { secretKey: 'x'.repeat(32), cookieName: 'sess' },
+      origin: 'https://test.invalid'
     })
-    expect(eventRes?.status).toBe(201)
+    expect(eventRes?.status).toBe(401)
   })
 })

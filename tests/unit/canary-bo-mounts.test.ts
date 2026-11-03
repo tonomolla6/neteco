@@ -5,6 +5,7 @@ import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { adminNavigationGroups, canNavigateAdmin, type AdminCapabilities } from '../../shared/admin-navigation'
 import worker from '../../workers/canary'
+import { AlternativeMarketPaymentProvider } from '../../workers/payments/alternative-contingency-provider'
 
 describe('Canary routing for ORD-020, ORD-021, and PAY-023 (Encargo BO)', () => {
   let sqlite: DatabaseSync
@@ -54,9 +55,10 @@ describe('Canary routing for ORD-020, ORD-021, and PAY-023 (Encargo BO)', () => 
       }
     )
     const response = await worker.fetch!(request, env)
-    expect(response.status).toBe(200)
+    // SECFIX-3 (findings 4/5): anonymous callers must not read order data; previously 200 {}.
+    expect(response.status).toBe(401)
     const json = await response.json()
-    expect(json).toEqual({})
+    expect(json).toEqual({ error: { code: 'unauthenticated' } })
   })
 
   it('routes /api/orders/split-preferences through worker.fetch', async () => {
@@ -68,9 +70,10 @@ describe('Canary routing for ORD-020, ORD-021, and PAY-023 (Encargo BO)', () => 
       }
     )
     const response = await worker.fetch!(request, env)
-    expect(response.status).toBe(200)
+    // SECFIX-3 (findings 4/5): anonymous callers must not read order data; previously 200 {}.
+    expect(response.status).toBe(401)
     const json = await response.json()
-    expect(json).toEqual({})
+    expect(json).toEqual({ error: { code: 'unauthenticated' } })
   })
 
   it('routes /api/payments/alternative/webhook through worker.fetch', async () => {
@@ -84,7 +87,49 @@ describe('Canary routing for ORD-020, ORD-021, and PAY-023 (Encargo BO)', () => 
       body: JSON.stringify({ invalid: 'payload' })
     })
     const response = await worker.fetch!(request, env)
-    expect(response.status).toBe(400) // Rejects invalid signature as expected from isolated provider
+    // SECFIX-3 (finding 8): without PAYMENT_CONTINGENCY_* configuration the webhook fails closed.
+    // Previously 400 because a hardcoded, publicly known secret was used to verify signatures.
+    expect(response.status).toBe(503)
+  })
+
+  it('verifies alternative webhook signatures with the provider configured from env secrets', async () => {
+    const env = createEnv({
+      PAYMENT_CONTINGENCY_ENABLED: 'true',
+      PAYMENT_CONTINGENCY_SECRET_KEY: 'Zq3v9Kx2Lr8Tn4Wp6Ys1Ud7Hb5Jc0Mf2Ag9Ek3Qw',
+      PAYMENT_CONTINGENCY_MERCHANT_ID: 'merchant-alt-01',
+      PAYMENT_CONTINGENCY_ENDPOINT_URL: 'https://contingency.payments.example/pay'
+    } as unknown as Partial<CloudflareEnv>)
+    const payload: Record<string, string> = {
+      provider_event_id: 'evt-canary-1',
+      provider_reference: 'ref-canary-1',
+      order_reference: '99999999-9999-4999-8999-999999999999',
+      amount_cents: '100',
+      currency: 'EUR',
+      status: 'captured',
+      response_code: '0000'
+    }
+    payload.signature = await new AlternativeMarketPaymentProvider({
+      secretKey: 'Zq3v9Kx2Lr8Tn4Wp6Ys1Ud7Hb5Jc0Mf2Ag9Ek3Qw',
+      merchantId: 'merchant-alt-01',
+      endpointUrl: 'https://contingency.payments.example/pay'
+    }).signPayload(payload)
+    const post = (body: Record<string, string>) =>
+      worker.fetch!(
+        new Request('https://canary.neteco.invalid/api/payments/alternative/webhook', {
+          method: 'POST',
+          headers: { 'cf-connecting-ip': '192.0.2.1', 'content-type': 'application/json' },
+          body: JSON.stringify(body)
+        }),
+        env
+      )
+    // Signed with the configured secret: signature accepted, unknown order reported.
+    const accepted = await post(payload)
+    expect(accepted.status).toBe(404)
+    expect(await accepted.json()).toEqual({ error: { code: 'order_not_found' } })
+    // Tampered signature is rejected.
+    const forged = await post({ ...payload, signature: 'deadbeef'.repeat(8) })
+    expect(forged.status).toBe(400)
+    expect(await forged.json()).toEqual({ error: { code: 'invalid_signature' } })
   })
 
   it('enforces 503 when AUTH_ENABLED is false and 401 when unauthenticated on admin BO mounts', async () => {

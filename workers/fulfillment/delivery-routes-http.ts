@@ -16,8 +16,8 @@ import {
   createDeliveryRouteInputSchema,
   reoptimizeDeliveryRouteInputSchema
 } from '../../shared/delivery-route-planning'
-import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
-import type { AuthenticatedUserSession } from './company-shipping-conditions-http'
+import type { SessionCookieConfiguration } from '../auth/session-cookie'
+import { resolveShippingSession, type AuthenticatedUserSession } from './company-shipping-conditions-http'
 
 export function ownsDeliveryRoutesNamespace(path: string): boolean {
   return (
@@ -44,52 +44,6 @@ export interface DeliveryRoutesHttpDependencies {
   sessionProvider?: (req: Request) => Promise<AuthenticatedUserSession | null>
 }
 
-async function resolveSession(
-  request: Request,
-  deps: DeliveryRoutesHttpDependencies
-): Promise<AuthenticatedUserSession | null> {
-  if (deps.sessionProvider) {
-    return deps.sessionProvider(request)
-  }
-  if (!deps.sessionCookieConfiguration) return null
-
-  const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
-  if (!claims) return null
-
-  let rolesStmt = deps.database.prepare('SELECT role_code FROM identity_roles WHERE identity_id = ?')
-  if (typeof rolesStmt.bind === 'function') rolesStmt = rolesStmt.bind(claims.identityId) as typeof rolesStmt
-  const rolesResult = typeof rolesStmt.all === 'function' ? await rolesStmt.all(claims.identityId) : []
-
-  const rolesRows = (rolesResult ?? []) as { role_code: string }[] | { results: { role_code: string }[] }
-  const roles: string[] = Array.isArray(rolesRows)
-    ? rolesRows.map((r) => r.role_code)
-    : Array.isArray((rolesRows as { results?: { role_code: string }[] })?.results)
-      ? (rolesRows as { results: { role_code: string }[] }).results.map((r) => r.role_code)
-      : []
-
-  let permStmt = deps.database.prepare(
-    `SELECT granted.permission_code
-     FROM identity_roles assigned
-     JOIN role_permissions granted ON granted.role_code = assigned.role_code
-     WHERE assigned.identity_id = ?`
-  )
-  if (typeof permStmt.bind === 'function') permStmt = permStmt.bind(claims.identityId) as typeof permStmt
-  const permResult = typeof permStmt.all === 'function' ? await permStmt.all(claims.identityId) : []
-
-  const permRows = (permResult ?? []) as { permission_code: string }[] | { results: { permission_code: string }[] }
-  const permissions: string[] = Array.isArray(permRows)
-    ? permRows.map((r) => r.permission_code)
-    : Array.isArray((permRows as { results?: { permission_code: string }[] })?.results)
-      ? (permRows as { results: { permission_code: string }[] }).results.map((r) => r.permission_code)
-      : []
-
-  return {
-    identityId: claims.identityId,
-    roles,
-    permissions
-  }
-}
-
 function checkAdmin(session: AuthenticatedUserSession | null): boolean {
   if (!session) return false
   return (
@@ -109,7 +63,7 @@ export async function handleDeliveryRoutesHttp(
 
   if (!ownsDeliveryRoutesNamespace(path)) return null
 
-  const session = await resolveSession(request, deps)
+  const session = await resolveShippingSession(request, deps)
   if (!session) {
     return jsonResponse({ error: { code: 'unauthorized', message: 'Authentication required' } }, 401)
   }
@@ -120,8 +74,12 @@ export async function handleDeliveryRoutesHttp(
 
   // Helper to re-verify authorization before returning response
   const recheckAdmin = async (): Promise<boolean> => {
-    const freshSession = await resolveSession(request, deps)
-    return checkAdmin(freshSession)
+    const freshSession = await resolveShippingSession(request, deps)
+    return freshSession?.identityId === session.identityId && checkAdmin(freshSession)
+  }
+
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && !(await recheckAdmin())) {
+    return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
   }
 
   // Vehicles endpoints
@@ -144,9 +102,6 @@ export async function handleDeliveryRoutesHttp(
       } | null
       if (!body) return jsonResponse({ error: { code: 'invalid_input' } }, 400)
       const vehicle = await createDeliveryVehicle(deps.database, body)
-      if (!(await recheckAdmin())) {
-        return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
-      }
       return jsonResponse({ vehicle }, 201)
     }
     return jsonResponse({ error: { code: 'method_not_allowed' } }, 405)
@@ -172,9 +127,6 @@ export async function handleDeliveryRoutesHttp(
       } | null
       if (!body) return jsonResponse({ error: { code: 'invalid_input' } }, 400)
       const driver = await createDeliveryDriver(deps.database, body)
-      if (!(await recheckAdmin())) {
-        return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
-      }
       return jsonResponse({ driver }, 201)
     }
     return jsonResponse({ error: { code: 'method_not_allowed' } }, 405)
@@ -199,14 +151,11 @@ export async function handleDeliveryRoutesHttp(
         commandId: parsed.data.commandId,
         optimizationStrategy: parsed.data.optimizationStrategy
       })
-      if (!(await recheckAdmin())) {
-        return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
-      }
       return jsonResponse(result, 200)
     } catch (error) {
       if (error instanceof DeliveryRouteError) {
-        if (error.code === 'version_conflict') {
-          return jsonResponse({ error: { code: 'version_conflict', message: error.message } }, 409)
+        if (error.code === 'version_conflict' || error.code === 'idempotency_conflict') {
+          return jsonResponse({ error: { code: error.code, message: error.message } }, 409)
         }
         return jsonResponse({ error: { code: error.code, message: error.message } }, 400)
       }
@@ -231,14 +180,11 @@ export async function handleDeliveryRoutesHttp(
         routeId,
         ...parsed.data
       })
-      if (!(await recheckAdmin())) {
-        return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
-      }
       return jsonResponse({ route }, 200)
     } catch (error) {
       if (error instanceof DeliveryRouteError) {
-        if (error.code === 'version_conflict') {
-          return jsonResponse({ error: { code: 'version_conflict', message: error.message } }, 409)
+        if (error.code === 'version_conflict' || error.code === 'idempotency_conflict') {
+          return jsonResponse({ error: { code: error.code, message: error.message } }, 409)
         }
         return jsonResponse({ error: { code: error.code, message: error.message } }, 400)
       }
@@ -285,9 +231,6 @@ export async function handleDeliveryRoutesHttp(
           actorId: session.identityId,
           ...parsed.data
         })
-        if (!(await recheckAdmin())) {
-          return jsonResponse({ error: { code: 'forbidden', message: 'Administrative access required' } }, 403)
-        }
         return jsonResponse({ route }, 201)
       } catch (error) {
         if (error instanceof DeliveryRouteError) {

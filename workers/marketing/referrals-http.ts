@@ -95,6 +95,14 @@ function mapReferralError(err: unknown) {
   return errorResponse('internal_error', 500)
 }
 
+/** Retries must replay the same command: idempotency keys are client-supplied, never server-generated. */
+function clientIdempotency(body: Record<string, unknown>): { commandId: string; idempotencyKey: string } | null {
+  const { commandId, idempotencyKey } = body
+  if (typeof commandId !== 'string' || !/^[A-Za-z0-9_.:-]{1,200}$/.test(commandId)) return null
+  if (typeof idempotencyKey !== 'string' || !/^[A-Za-z0-9_.:-]{1,200}$/.test(idempotencyKey)) return null
+  return { commandId, idempotencyKey }
+}
+
 export async function handleReferralsHttp(request: Request, deps: ReferralsHttpDependencies): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname
@@ -138,9 +146,10 @@ export async function handleReferralsHttp(request: Request, deps: ReferralsHttpD
 
       if (request.method === 'POST' && path === '/api/admin/referrals/settle') {
         const body = ((await request.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+        const keys = clientIdempotency(body)
+        if (!keys) return errorResponse('missing_idempotency_key', 400)
         const result = await settleD1ReferralAttributions(deps.database, claims, {
-          commandId: typeof body.commandId === 'string' ? body.commandId : crypto.randomUUID(),
-          idempotencyKey: typeof body.idempotencyKey === 'string' ? body.idempotencyKey : `idem-settle-${Date.now()}`,
+          ...keys,
           now
         })
         return jsonResponse(result, 200)

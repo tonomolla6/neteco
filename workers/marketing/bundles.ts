@@ -454,6 +454,7 @@ export async function getD1BundleBySlug(
     baseBundlePriceCents: bundleRow.bundle_price_cents,
     kitQuantity: 1,
     components: items.map((i) => ({
+      variantId: i.variantId,
       unitPriceCents: i.unitPriceCents,
       taxRate: i.taxRate,
       defaultQuantity: i.defaultQuantity

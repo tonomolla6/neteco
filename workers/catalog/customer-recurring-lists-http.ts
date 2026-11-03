@@ -56,6 +56,23 @@ export async function handleCustomerRecurringListsHttp(
     return errorResponse('unauthenticated', 401)
   }
 
+  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const live = await deps.database
+    .prepare(
+      `SELECT 1 AS ok FROM auth_sessions s JOIN identities i ON i.id = s.identity_id
+    WHERE s.id = ? AND s.identity_id = ? AND s.session_version = ? AND s.session_version = i.session_version
+      AND s.revoked_at IS NULL AND s.created_at <= ? AND s.expires_at > ? AND i.status = 'active'`
+    )
+    .bind(claims.sessionId, claims.identityId, claims.sessionVersion, now, now)
+    .first<{ ok: number }>()
+  if (!live) return errorResponse('unauthenticated', 401)
+  if (
+    !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
+    (request.headers.get('origin') !== url.origin || request.headers.get('sec-fetch-site') === 'cross-site')
+  ) {
+    return errorResponse('csrf_rejected', 403)
+  }
+
   // Find customer_id for this identity
   const identity = await deps.database
     .prepare(`SELECT customer_id FROM identities WHERE id = ? AND status = 'active'`)
@@ -86,7 +103,7 @@ export async function handleCustomerRecurringListsHttp(
         ownerIdentityId: claims.identityId,
         name: String(body.name ?? ''),
         description: body.description ? String(body.description) : null,
-        frequency: body.frequency as any,
+        frequency: body.frequency as Parameters<typeof createRecurringList>[1]['frequency'],
         frequencyDays: typeof body.frequencyDays === 'number' ? body.frequencyDays : null,
         nextSuggestedDate: body.nextSuggestedDate ? String(body.nextSuggestedDate) : null
       })
@@ -127,10 +144,10 @@ export async function handleCustomerRecurringListsHttp(
         requesterIdentityId: claims.identityId,
         name: body.name ? String(body.name) : undefined,
         description: body.description !== undefined ? (body.description ? String(body.description) : null) : undefined,
-        frequency: body.frequency as any,
+        frequency: body.frequency as Parameters<typeof updateRecurringList>[1]['frequency'],
         frequencyDays: typeof body.frequencyDays === 'number' ? body.frequencyDays : undefined,
         nextSuggestedDate: body.nextSuggestedDate ? String(body.nextSuggestedDate) : undefined,
-        status: body.status as any,
+        status: body.status as Parameters<typeof updateRecurringList>[1]['status'],
         expectedVersion: Number(body.expectedVersion)
       })
       return jsonResponse({ ok: true, list: updated })
@@ -169,7 +186,7 @@ export async function handleCustomerRecurringListsHttp(
         listId,
         requesterIdentityId: claims.identityId,
         email: String(body.email ?? ''),
-        role: body.role as any
+        role: body.role as Parameters<typeof inviteCollaborator>[1]['role']
       })
       return jsonResponse({ ok: true, collaborator: collab })
     }
@@ -212,8 +229,8 @@ export async function handleCustomerRecurringListsHttp(
     }
 
     return errorResponse('not_found', 404)
-  } catch (err: any) {
-    const message = err?.message ?? 'internal_error'
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'internal_error'
     if (message.includes('unauthorized') || message.includes('forbidden')) {
       return errorResponse('forbidden', 403)
     }

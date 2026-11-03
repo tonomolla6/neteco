@@ -14,6 +14,7 @@ export default defineEventHandler(async (event) => {
   const sql = useDatabase()
   const correlationId = event.context.correlationId ?? crypto.randomUUID()
   await sql.begin(async (transaction) => {
+    // audit_log keeps only change facts, never the customer's name or phone (data minimisation).
     const [before] = await transaction<{ name: string | null; phone: string | null }[]>`
       SELECT name, phone FROM customers WHERE id = ${account.customerId} FOR UPDATE
     `
@@ -27,7 +28,12 @@ export default defineEventHandler(async (event) => {
         before_redacted, after_redacted, correlation_id
       ) VALUES (
         'identity', ${account.profile.id}, 'customer.profile.updated', 'customer', ${account.customerId},
-        ${transaction.json(before ?? {})}, ${transaction.json({ name: body.name, phone: body.phone || null })},
+        ${transaction.json({ phonePresent: Boolean(before?.phone) })},
+        ${transaction.json({
+          nameChanged: (before?.name ?? null) !== body.name,
+          phoneChanged: (before?.phone ?? null) !== (body.phone || null),
+          phonePresent: Boolean(body.phone)
+        })},
         ${correlationId}
       )
     `

@@ -20,6 +20,10 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
 
   afterEach(() => world.close())
 
+  // Stands in for canary's verified-cookie resolver (customerSession). SECFIX-3 removed the insecure
+  // `x-actor-id` header fallback that these tests previously relied on.
+  const verifiedSession = async (request: Request) => request.headers.get('x-test-verified-actor')
+
   function makeRequest(
     path: string,
     method = 'GET',
@@ -30,7 +34,8 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       'idempotency-key': idempotencyKey,
-      'x-actor-id': actorId
+      // SECFIX-3: simulated verified session (resolved by `verifiedSession` below), never x-actor-id.
+      'x-test-verified-actor': actorId
     }
     return new Request(`https://shop.neteco.invalid${path}`, {
       method,
@@ -86,7 +91,11 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
 
   it('creates campaign via POST /api/admin/seasonal-campaigns', async () => {
     const req = makeRequest('/api/admin/seasonal-campaigns', 'POST', samplePayload)
-    const res = await handleSeasonalCampaignsHttp(req, { database: world.db, now: () => FIXTURE_NOW })
+    const res = await handleSeasonalCampaignsHttp(req, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     expect(res).toBeDefined()
     expect(res!.status).toBe(201)
@@ -99,10 +108,18 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
   it('returns calendar view via GET /api/admin/seasonal-campaigns/calendar', async () => {
     // Seed campaign
     const postReq = makeRequest('/api/admin/seasonal-campaigns', 'POST', samplePayload)
-    await handleSeasonalCampaignsHttp(postReq, { database: world.db, now: () => FIXTURE_NOW })
+    await handleSeasonalCampaignsHttp(postReq, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     const getReq = makeRequest('/api/admin/seasonal-campaigns/calendar?year=2027&sector=horeca', 'GET')
-    const res = await handleSeasonalCampaignsHttp(getReq, { database: world.db, now: () => FIXTURE_NOW })
+    const res = await handleSeasonalCampaignsHttp(getReq, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     expect(res).toBeDefined()
     expect(res!.status).toBe(200)
@@ -113,7 +130,11 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
 
   it('rejects unprivileged access with 403 forbidden', async () => {
     const req = makeRequest('/api/admin/seasonal-campaigns', 'POST', samplePayload, UNPRIVILEGED_IDENTITY)
-    const res = await handleSeasonalCampaignsHttp(req, { database: world.db, now: () => FIXTURE_NOW })
+    const res = await handleSeasonalCampaignsHttp(req, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     expect(res).toBeDefined()
     expect(res!.status).toBe(403)
@@ -123,7 +144,11 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
 
   it('rejects unprivileged GET access to calendar with 403 forbidden', async () => {
     const req = makeRequest('/api/admin/seasonal-campaigns/calendar', 'GET', undefined, UNPRIVILEGED_IDENTITY)
-    const res = await handleSeasonalCampaignsHttp(req, { database: world.db, now: () => FIXTURE_NOW })
+    const res = await handleSeasonalCampaignsHttp(req, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     expect(res).toBeDefined()
     expect(res!.status).toBe(403)
@@ -151,7 +176,7 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       'idempotency-key': 'csrf-01',
-      'x-actor-id': MKT_MGR_IDENTITY,
+      'x-test-verified-actor': MKT_MGR_IDENTITY,
       'sec-fetch-site': 'cross-site'
     }
     const req = new Request('https://shop.neteco.invalid/api/admin/seasonal-campaigns', {
@@ -159,7 +184,11 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
       headers,
       body: JSON.stringify(samplePayload)
     })
-    const res = await handleSeasonalCampaignsHttp(req, { database: world.db, now: () => FIXTURE_NOW })
+    const res = await handleSeasonalCampaignsHttp(req, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     expect(res).toBeDefined()
     expect(res!.status).toBe(403)
@@ -176,7 +205,11 @@ describe('Seasonal Campaigns HTTP API (MKT-032)', () => {
       }
     }
     const req = makeRequest('/api/admin/seasonal-campaigns', 'POST', invalidPayload)
-    const res = await handleSeasonalCampaignsHttp(req, { database: world.db, now: () => FIXTURE_NOW })
+    const res = await handleSeasonalCampaignsHttp(req, {
+      database: world.db,
+      now: () => FIXTURE_NOW,
+      actorIdFromRequest: verifiedSession
+    })
 
     expect(res).toBeDefined()
     expect(res!.status).toBe(400)

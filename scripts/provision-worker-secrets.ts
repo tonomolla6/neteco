@@ -30,7 +30,10 @@ export const OPTIONAL_WORKER_SECRETS = [
   'BEPLY_API_TOKEN',
   'NEWSLETTER_FEEDBACK_SECRET',
   'SUPPORT_SCAN_SECRET',
-  'SUPPORT_TURNSTILE_SECRET'
+  'SUPPORT_TURNSTILE_SECRET',
+  // SECFIX-3: HMAC key issued by the contingency payment provider. Without it (and
+  // PAYMENT_CONTINGENCY_ENABLED=true) /api/payments/alternative/webhook answers 503.
+  'PAYMENT_CONTINGENCY_SECRET_KEY'
 ] as const
 
 export const ALL_WORKER_SECRETS = [...REQUIRED_WORKER_SECRETS, ...OPTIONAL_WORKER_SECRETS] as const
@@ -94,6 +97,7 @@ export function generateWorkerSecretValue(secretName: string): string {
     case 'SUPPORT_SCAN_SECRET':
     case 'SUPPORT_TURNSTILE_SECRET':
     case 'BEPLY_API_TOKEN':
+    case 'PAYMENT_CONTINGENCY_SECRET_KEY':
       // 32 bytes base64url (43 characters, >= 32 chars)
       return randomBytes(32).toString('base64url')
 

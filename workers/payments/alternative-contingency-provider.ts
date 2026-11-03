@@ -8,6 +8,48 @@ import type {
 } from '../../server/integrations/payment-provider'
 
 export const ALTERNATIVE_PROVIDER_NAME = 'euro_contingency'
+export const ALTERNATIVE_PROVIDER_SUCCESS_CODE = '0000'
+
+/** Secrets that were once hardcoded or are placeholders must never be accepted as configuration. */
+const REJECTED_PROVIDER_SECRETS = new Set(['contingency-secret-key-123456789012'])
+
+/**
+ * Builds the contingency provider exclusively from Worker env/secrets. Returns null (fail closed)
+ * unless PAYMENT_CONTINGENCY_ENABLED is 'true' and the secret, merchant id and https endpoint are valid.
+ */
+export function alternativeProviderFromEnv(env: Record<string, unknown>): AlternativeMarketPaymentProvider | null {
+  const enabled = env.PAYMENT_CONTINGENCY_ENABLED
+  const secretKey = env.PAYMENT_CONTINGENCY_SECRET_KEY
+  const merchantId = env.PAYMENT_CONTINGENCY_MERCHANT_ID
+  const endpointUrl = env.PAYMENT_CONTINGENCY_ENDPOINT_URL
+  if (
+    enabled !== 'true' ||
+    typeof secretKey !== 'string' ||
+    secretKey.length < 32 ||
+    secretKey.length > 4096 ||
+    !/^[\x21-\x7e]+$/.test(secretKey) ||
+    secretKey.startsWith('local-only-') ||
+    REJECTED_PROVIDER_SECRETS.has(secretKey) ||
+    typeof merchantId !== 'string' ||
+    !/^[A-Za-z0-9_-]{1,64}$/.test(merchantId) ||
+    typeof endpointUrl !== 'string'
+  )
+    return null
+  let endpoint: URL
+  try {
+    endpoint = new URL(endpointUrl)
+  } catch {
+    return null
+  }
+  if (
+    endpoint.protocol !== 'https:' ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.hostname.endsWith('.invalid')
+  )
+    return null
+  return new AlternativeMarketPaymentProvider({ secretKey, merchantId, endpointUrl: endpoint.toString() })
+}
 
 export interface AlternativeProviderConfig {
   secretKey: string
@@ -113,16 +155,28 @@ export class AlternativeMarketPaymentProvider implements PaymentProvider {
     if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
       throw new Error('invalid_amount')
     }
-    const providerEventId = payload.provider_event_id ?? crypto.randomUUID()
-    const providerReference = payload.provider_reference ?? `alt-ref-${Date.now()}`
+    if (payload.currency !== 'EUR') {
+      throw new Error('invalid_currency')
+    }
+    // Stable provider identifiers are mandatory: random fallbacks would defeat replay idempotency.
+    const providerEventId = payload.provider_event_id
+    if (!providerEventId || typeof providerEventId !== 'string' || providerEventId.length > 200) {
+      throw new Error('invalid_provider_event')
+    }
+    const providerReference = payload.provider_reference
+    if (!providerReference || typeof providerReference !== 'string' || providerReference.length > 200) {
+      throw new Error('invalid_provider_reference')
+    }
     const rawStatus = payload.status
-    const responseCode = payload.response_code ?? '0000'
+    // An absent response code is never a success code.
+    const responseCode = typeof payload.response_code === 'string' ? payload.response_code : ''
 
     let status: PaymentNotification['status'] = 'failed'
-    if (rawStatus === 'captured' || responseCode === '0000') {
-      status = 'captured'
+    if (rawStatus === 'captured') {
+      // Capture requires BOTH the explicit captured status and the explicit success code.
+      status = responseCode === ALTERNATIVE_PROVIDER_SUCCESS_CODE ? 'captured' : 'failed'
     } else if (rawStatus === 'authorized') {
-      status = 'authorized'
+      status = responseCode === ALTERNATIVE_PROVIDER_SUCCESS_CODE ? 'authorized' : 'failed'
     } else if (rawStatus === 'cancelled') {
       status = 'cancelled'
     } else if (rawStatus === 'pending') {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
 import {
   type CreateDraftOrderInput,
@@ -116,7 +117,39 @@ export async function createDraftOrder(
   const now = options?.now ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   await authorizeOrders(database, claims, now)
 
-  const input = createDraftOrderInputSchema.parse(rawInput)
+  const suppliedCommand = (rawInput as { commandId?: unknown })?.commandId
+  if (typeof suppliedCommand !== 'string' || !suppliedCommand.trim() || suppliedCommand.length > 128) {
+    throw new DraftOrderError('invalid_input', 'Invalid command ID')
+  }
+  const { commandId: command, ...input } = createDraftOrderInputSchema.parse(rawInput)
+  const keyHash = createHash('sha256').update(command).digest('hex')
+  const commandId = `${keyHash.slice(0, 8)}-${keyHash.slice(8, 12)}-${keyHash.slice(12, 16)}-${keyHash.slice(16, 20)}-${keyHash.slice(20, 32)}`
+  const inputJson = JSON.stringify({ commandId: command })
+  const payloadHash = createHash('sha256')
+    .update(JSON.stringify({ commandId: command, input }))
+    .digest('hex')
+  const readReplay = async (): Promise<DraftOrder | null> => {
+    const row = await database
+      .prepare(
+        'SELECT draft_order_id, actor_id, action, payload_hash, input_json FROM draft_order_commands WHERE command_id = ?'
+      )
+      .bind(commandId)
+      .first<{ draft_order_id: string; actor_id: string; action: string; payload_hash: string; input_json: string }>()
+    if (!row) return null
+    if (
+      row.actor_id !== claims.identityId ||
+      row.action !== 'create_draft' ||
+      row.payload_hash !== payloadHash ||
+      row.input_json !== inputJson
+    ) {
+      throw new DraftOrderError('idempotency_conflict')
+    }
+    const draft = await getDraftOrder(database, row.draft_order_id)
+    if (!draft) throw new DraftOrderError('internal', 'Missing draft for command')
+    return draft
+  }
+  const replay = await readReplay()
+  if (replay) return replay
 
   // Calculate totals in financial cents
   let subtotalCents = 0
@@ -175,7 +208,25 @@ export async function createDraftOrder(
        ) VALUES (?, ?, 'created', NULL, 'draft', 'customer', ?, 'Borrador de pedido creado', ?)`
     )
     .bind(timelineId, id, claims.identityId, now)
-  await database.batch([insertDraft, insertTimeline])
+  const statements = [insertDraft, insertTimeline]
+  {
+    statements.push(
+      database
+        .prepare(
+          `INSERT INTO draft_order_commands
+      (command_id, draft_order_id, actor_id, action, expected_version, result_version, payload_hash, input_json, created_at)
+      VALUES (?, ?, ?, 'create_draft', 0, 1, ?, ?, ?)`
+        )
+        .bind(commandId, id, claims.identityId, payloadHash, inputJson, now)
+    )
+  }
+  try {
+    await database.batch(statements)
+  } catch (error) {
+    const existing = await readReplay()
+    if (existing) return existing
+    throw error
+  }
 
   return (await getDraftOrder(database, id))!
 }

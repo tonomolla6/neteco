@@ -63,6 +63,30 @@ describe('EventRegistrationCard Component (MKT-030)', () => {
     expect(wrapper.find('input[data-testid="consent-followup"]').exists()).toBe(true)
   })
 
+  it('sends client idempotency keys and reuses them when retrying a failed registration (SECFIX-3 #13)', async () => {
+    mocks.request.mockImplementation(async (url: string, options?: { method?: string }) => {
+      if (options?.method === 'POST' && url.endsWith('/register')) throw new Error('network')
+      return { questions: [] }
+    })
+    const wrapper = await mountSuspended(EventRegistrationCard, { props: { event: sampleEvent } })
+    await flushPromises()
+    const form = wrapper.findAll('form')[0]!
+    await form.trigger('submit')
+    await flushPromises()
+    await form.trigger('submit')
+    await flushPromises()
+    const posts = mocks.request.mock.calls.filter(
+      ([url, options]) => String(url).endsWith('/register') && options?.method === 'POST'
+    )
+    expect(posts).toHaveLength(2)
+    const first = posts[0]![1].body as { commandId?: string; idempotencyKey?: string }
+    const second = posts[1]![1].body as { commandId?: string; idempotencyKey?: string }
+    expect(first.commandId).toMatch(/^[0-9a-f-]{36}$/)
+    expect(first.idempotencyKey).toBeTruthy()
+    expect(second.commandId).toBe(first.commandId)
+    expect(second.idempotencyKey).toBe(first.idempotencyKey)
+  })
+
   it('shows recording player and subtitles link for completed events', async () => {
     const completedEvent = {
       ...sampleEvent,

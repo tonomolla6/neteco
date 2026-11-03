@@ -121,6 +121,7 @@ describe('CHK-022: Draft Orders HTTP Handlers', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: adminCookie },
       body: JSON.stringify({
+        commandId: 'draft-lifecycle-command',
         customerId: 'cust-b2b-001',
         companyName: 'Residencia Los Olivos SA',
         contactEmail: 'administracion@losolivos.es',
@@ -227,6 +228,7 @@ describe('CHK-022: Draft Orders HTTP Handlers', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', cookie: adminCookie },
       body: JSON.stringify({
+        commandId: 'draft-expiry-command',
         customerId: 'cust-b2b-stale',
         companyName: 'Stale Draft SL',
         contactEmail: 'stale@test.es',

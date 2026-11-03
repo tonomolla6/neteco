@@ -10,7 +10,14 @@ import type { DatabaseAdapter } from './convenience-points'
 
 export class DeliveryRouteError extends Error {
   constructor(
-    readonly code: 'invalid_input' | 'not_found' | 'version_conflict' | 'capacity_exceeded' | 'forbidden' | 'internal',
+    readonly code:
+      | 'invalid_input'
+      | 'not_found'
+      | 'version_conflict'
+      | 'idempotency_conflict'
+      | 'capacity_exceeded'
+      | 'forbidden'
+      | 'internal',
     message: string
   ) {
     super(message)
@@ -21,11 +28,13 @@ export class DeliveryRouteError extends Error {
 async function executeGet<T>(db: DatabaseAdapter, sql: string, params: unknown[]): Promise<T | null> {
   if (typeof db.prepare === 'function') {
     let stmt = db.prepare(sql)
+    let bound = false
     if (typeof stmt.bind === 'function' && params.length > 0) {
       stmt = stmt.bind(...params) as typeof stmt
+      bound = true
     }
     if (typeof stmt.first === 'function') {
-      const res = await stmt.first(...params)
+      const res = await stmt.first(...(bound ? [] : params))
       return (res as T) ?? null
     }
     if (typeof stmt.get === 'function') {
@@ -39,11 +48,13 @@ async function executeGet<T>(db: DatabaseAdapter, sql: string, params: unknown[]
 async function executeAll<T>(db: DatabaseAdapter, sql: string, params: unknown[] = []): Promise<T[]> {
   if (typeof db.prepare === 'function') {
     let stmt = db.prepare(sql)
+    let bound = false
     if (typeof stmt.bind === 'function' && params.length > 0) {
       stmt = stmt.bind(...params) as typeof stmt
+      bound = true
     }
     if (typeof stmt.all === 'function') {
-      const res = await stmt.all(...params)
+      const res = await stmt.all(...(bound ? [] : params))
       if (Array.isArray(res)) return res as T[]
       if (res && typeof res === 'object' && Array.isArray((res as { results?: unknown[] }).results)) {
         return (res as { results: T[] }).results
@@ -57,12 +68,62 @@ async function executeAll<T>(db: DatabaseAdapter, sql: string, params: unknown[]
 async function executeRun(db: DatabaseAdapter, sql: string, params: unknown[]): Promise<void> {
   if (typeof db.prepare === 'function') {
     let stmt = db.prepare(sql)
+    let bound = false
     if (typeof stmt.bind === 'function' && params.length > 0) {
       stmt = stmt.bind(...params) as typeof stmt
+      bound = true
     }
     if (typeof stmt.run === 'function') {
-      await stmt.run(...params)
+      await stmt.run(...(bound ? [] : params))
     }
+  }
+}
+
+type AtomicStatement = { sql: string; params: unknown[] }
+
+async function routeCommandReplay<T>(
+  db: DatabaseAdapter,
+  routeId: string,
+  commandId: string,
+  action: string,
+  actorId: string,
+  payloadHash: string
+): Promise<T | null> {
+  const row = await executeGet<{ action: string; actor_id: string; payload_hash: string; payload_json: string }>(
+    db,
+    'SELECT action, actor_id, payload_hash, payload_json FROM delivery_route_commands WHERE route_id = ? AND command_id = ?',
+    [routeId, commandId]
+  )
+  if (!row) return null
+  if (row.action !== action || row.actor_id !== actorId || row.payload_hash !== payloadHash) {
+    throw new DeliveryRouteError('idempotency_conflict', 'Command ID already used with different input')
+  }
+  const payload = JSON.parse(row.payload_json) as { receipt?: T }
+  if (!payload.receipt) throw new DeliveryRouteError('internal', 'Command receipt missing')
+  return payload.receipt
+}
+
+/** D1 batches are transactional; SQLite adapters use an explicit transaction. */
+async function applyRouteMutation(db: DatabaseAdapter, statements: AtomicStatement[], expectedVersion: number) {
+  const batch = (db as unknown as { batch?: (statements: D1PreparedStatement[]) => Promise<D1Result[]> }).batch
+  if (batch) {
+    const prepared = statements.map(({ sql, params }) => (db.prepare(sql) as D1PreparedStatement).bind(...params))
+    const results = await batch.call(db, prepared)
+    if (!results[0]?.results?.length) {
+      throw new DeliveryRouteError('version_conflict', `Version conflict: expected ${expectedVersion}`)
+    }
+    return
+  }
+  await executeRun(db, 'BEGIN IMMEDIATE', [])
+  try {
+    const first = statements[0]!
+    const claimed = await executeGet<{ id: string }>(db, first.sql, first.params)
+    if (!claimed) throw new DeliveryRouteError('version_conflict', `Version conflict: expected ${expectedVersion}`)
+    for (const statement of statements.slice(1)) await executeRun(db, statement.sql, statement.params)
+    await executeRun(db, 'COMMIT', [])
+  } catch (error) {
+    await executeRun(db, 'ROLLBACK', [])
+    throw error
   }
 }
 
@@ -309,6 +370,32 @@ export async function addDeliveryRouteStop(
   }
 ): Promise<DeliveryRoute> {
   const now = input.now ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const parcelCount = input.parcelCount ?? 1
+  const weightGrams = input.weightGrams ?? 1000
+  const commandInput = {
+    actorId: input.actorId,
+    routeId: input.routeId,
+    orderId: input.orderId ?? null,
+    recipientName: input.recipientName,
+    streetAddress: input.streetAddress,
+    postalCode: input.postalCode,
+    city: input.city,
+    parcelCount,
+    weightGrams,
+    timeWindowStart: input.timeWindowStart ?? null,
+    timeWindowEnd: input.timeWindowEnd ?? null,
+    expectedVersion: input.expectedVersion
+  }
+  const payloadHash = createHash('sha256').update(JSON.stringify(commandInput)).digest('hex')
+  const replay = await routeCommandReplay<DeliveryRoute>(
+    db,
+    input.routeId,
+    input.commandId,
+    'add_stop',
+    input.actorId,
+    payloadHash
+  )
+  if (replay) return replay
   const route = await getDeliveryRouteById(db, input.routeId)
   if (!route) throw new DeliveryRouteError('not_found', 'Route not found')
 
@@ -322,9 +409,6 @@ export async function addDeliveryRouteStop(
       `Version conflict: expected ${input.expectedVersion}, actual ${route.version}`
     )
   }
-
-  const parcelCount = input.parcelCount ?? 1
-  const weightGrams = input.weightGrams ?? 1000
 
   // Check vehicle capacity constraints if vehicle assigned
   if (route.vehicle) {
@@ -343,81 +427,101 @@ export async function addDeliveryRouteStop(
   }
 
   const nextSeq = route.totalStops
-  const nextVersion = route.version + 1
+  const nextVersion = input.expectedVersion + 1
   const stopId = randomUUID()
 
-  const payload = {
-    stopId,
+  const stop: DeliveryRouteStop = {
+    id: stopId,
     routeId: input.routeId,
+    sequenceIndex: nextSeq,
+    orderId: input.orderId ?? null,
     recipientName: input.recipientName,
     streetAddress: input.streetAddress,
     postalCode: input.postalCode,
     city: input.city,
     parcelCount,
     weightGrams,
-    timeWindowStart: input.timeWindowStart,
-    timeWindowEnd: input.timeWindowEnd,
-    sequenceIndex: nextSeq,
-    commandId: input.commandId
+    timeWindowStart: input.timeWindowStart ?? null,
+    timeWindowEnd: input.timeWindowEnd ?? null,
+    status: 'pending',
+    failureReason: null,
+    completedAt: null
   }
-  const payloadHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
-
-  await executeRun(
-    db,
-    `INSERT INTO delivery_route_stops (
-       id, route_id, sequence_index, order_id, recipient_name, street_address,
-       postal_code, city, parcel_count, weight_grams, time_window_start, time_window_end,
-       status
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
-    [
-      stopId,
-      input.routeId,
-      nextSeq,
-      input.orderId ?? null,
-      input.recipientName,
-      input.streetAddress,
-      input.postalCode,
-      input.city,
-      parcelCount,
-      weightGrams,
-      input.timeWindowStart ?? null,
-      input.timeWindowEnd ?? null
-    ]
+  const receipt: DeliveryRoute = JSON.parse(
+    JSON.stringify({
+      ...route,
+      totalStops: route.totalStops + 1,
+      totalParcels: route.totalParcels + parcelCount,
+      totalWeightGrams: route.totalWeightGrams + weightGrams,
+      version: nextVersion,
+      updatedAt: now,
+      stops: [...route.stops, stop]
+    })
   )
+  const payload = { commandInput, receipt }
 
-  await executeRun(
-    db,
-    `UPDATE delivery_routes
-     SET total_stops = total_stops + 1,
-         total_parcels = total_parcels + ?,
-         total_weight_grams = total_weight_grams + ?,
-         version = ?,
-         updated_at = ?
-     WHERE id = ?`,
-    [parcelCount, weightGrams, nextVersion, now, input.routeId]
-  )
-
-  await executeRun(
-    db,
-    `INSERT INTO delivery_route_commands (
-       id, route_id, actor_id, action, command_id, payload_hash, payload_json, expected_version, applied_version, created_at
-     ) VALUES (?, ?, ?, 'add_stop', ?, ?, ?, ?, ?, ?)`,
-    [
-      randomUUID(),
+  try {
+    await applyRouteMutation(
+      db,
+      [
+        {
+          sql: `UPDATE delivery_routes SET total_stops = total_stops + 1, total_parcels = total_parcels + ?,
+        total_weight_grams = total_weight_grams + ?, version = ?, updated_at = ?
+        WHERE id = ? AND version = ? RETURNING id`,
+          params: [parcelCount, weightGrams, nextVersion, now, input.routeId, input.expectedVersion]
+        },
+        {
+          sql: `INSERT INTO delivery_route_commands (
+        id, route_id, actor_id, action, command_id, payload_hash, payload_json, expected_version, applied_version, created_at
+      ) SELECT ?, ?, ?, 'add_stop', ?, ?, ?, ?, ?, ? WHERE changes() = 1`,
+          params: [
+            randomUUID(),
+            input.routeId,
+            input.actorId,
+            input.commandId,
+            payloadHash,
+            JSON.stringify(payload),
+            input.expectedVersion,
+            nextVersion,
+            now
+          ]
+        },
+        {
+          sql: `INSERT INTO delivery_route_stops (
+        id, route_id, sequence_index, order_id, recipient_name, street_address, postal_code, city,
+        parcel_count, weight_grams, time_window_start, time_window_end, status
+      ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending' WHERE changes() = 1`,
+          params: [
+            stopId,
+            input.routeId,
+            nextSeq,
+            input.orderId ?? null,
+            input.recipientName,
+            input.streetAddress,
+            input.postalCode,
+            input.city,
+            parcelCount,
+            weightGrams,
+            input.timeWindowStart ?? null,
+            input.timeWindowEnd ?? null
+          ]
+        }
+      ],
+      input.expectedVersion
+    )
+  } catch (error) {
+    const raced = await routeCommandReplay<DeliveryRoute>(
+      db,
       input.routeId,
-      input.actorId,
       input.commandId,
-      payloadHash,
-      JSON.stringify(payload),
-      input.expectedVersion,
-      nextVersion,
-      now
-    ]
-  )
-
-  const updated = await getDeliveryRouteById(db, input.routeId)
-  if (!updated) throw new DeliveryRouteError('internal', 'Failed to retrieve route after adding stop')
-  return updated
+      'add_stop',
+      input.actorId,
+      payloadHash
+    )
+    if (raced) return raced
+    throw error
+  }
+  return receipt
 }
 
 export async function reoptimizeDeliveryRoute(
@@ -432,6 +536,23 @@ export async function reoptimizeDeliveryRoute(
   }
 ): Promise<ReoptimizeDeliveryRouteResult> {
   const now = input.now ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const strategy = input.optimizationStrategy ?? 'window_priority'
+  const commandInput = {
+    actorId: input.actorId,
+    routeId: input.routeId,
+    expectedVersion: input.expectedVersion,
+    strategy
+  }
+  const payloadHash = createHash('sha256').update(JSON.stringify(commandInput)).digest('hex')
+  const replay = await routeCommandReplay<ReoptimizeDeliveryRouteResult>(
+    db,
+    input.routeId,
+    input.commandId,
+    'reoptimize',
+    input.actorId,
+    payloadHash
+  )
+  if (replay) return replay
   const route = await getDeliveryRouteById(db, input.routeId)
   if (!route) throw new DeliveryRouteError('not_found', 'Route not found')
 
@@ -445,8 +566,6 @@ export async function reoptimizeDeliveryRoute(
       `Version conflict: expected ${input.expectedVersion}, actual ${route.version}`
     )
   }
-
-  const strategy = input.optimizationStrategy ?? 'window_priority'
 
   // Separate executed stops (delivered, in_progress, failed) from pending stops
   const stops = route.stops
@@ -475,69 +594,82 @@ export async function reoptimizeDeliveryRoute(
   // Combine: locked stops keep their sequence positions, pending stops fill remaining
   const resequenced = [...lockedStops, ...pendingStops]
 
-  // Update sequenceIndex in database using a high positive offset first to avoid unique constraint collision
-  for (let i = 0; i < resequenced.length; i++) {
-    const s = resequenced[i]!
-    await executeRun(db, `UPDATE delivery_route_stops SET sequence_index = ? WHERE id = ?`, [10000 + i, s.id])
+  const nextVersion = input.expectedVersion + 1
+  const updatedRoute: DeliveryRoute = {
+    ...route,
+    version: nextVersion,
+    updatedAt: now,
+    stops: resequenced.map((stop, sequenceIndex) => ({ ...stop, sequenceIndex }))
   }
-  for (let i = 0; i < resequenced.length; i++) {
-    const s = resequenced[i]!
-    await executeRun(db, `UPDATE delivery_route_stops SET sequence_index = ? WHERE id = ?`, [i, s.id])
-  }
-
-  const nextVersion = route.version + 1
-  const payload = {
-    routeId: input.routeId,
-    strategy,
-    resequencedCount: pendingStops.length,
-    commandId: input.commandId
-  }
-  const payloadHash = createHash('sha256').update(JSON.stringify(payload)).digest('hex')
-
-  await executeRun(
-    db,
-    `UPDATE delivery_routes
-     SET version = ?, updated_at = ?
-     WHERE id = ?`,
-    [nextVersion, now, input.routeId]
-  )
-
-  await executeRun(
-    db,
-    `INSERT INTO delivery_route_commands (
-       id, route_id, actor_id, action, command_id, payload_hash, payload_json, expected_version, applied_version, created_at
-     ) VALUES (?, ?, ?, 'reoptimize', ?, ?, ?, ?, ?, ?)`,
-    [
-      randomUUID(),
-      input.routeId,
-      input.actorId,
-      input.commandId,
-      payloadHash,
-      JSON.stringify(payload),
-      input.expectedVersion,
-      nextVersion,
-      now
-    ]
-  )
-
-  const updatedRoute = await getDeliveryRouteById(db, input.routeId)
-  if (!updatedRoute) throw new DeliveryRouteError('internal', 'Failed to retrieve reoptimized route')
-
   const capacityOk =
     !updatedRoute.vehicle ||
     (updatedRoute.totalWeightGrams <= updatedRoute.vehicle.maxWeightGrams &&
       updatedRoute.totalParcels <= updatedRoute.vehicle.maxParcels)
-
-  return {
-    routeId: input.routeId,
-    newVersion: nextVersion,
-    resequencedStopsCount: pendingStops.length,
-    totalStops: updatedRoute.totalStops,
-    totalWeightGrams: updatedRoute.totalWeightGrams,
-    totalParcels: updatedRoute.totalParcels,
-    capacityOk,
-    route: updatedRoute
+  const receipt: ReoptimizeDeliveryRouteResult = JSON.parse(
+    JSON.stringify({
+      routeId: input.routeId,
+      newVersion: nextVersion,
+      resequencedStopsCount: pendingStops.length,
+      totalStops: updatedRoute.totalStops,
+      totalWeightGrams: updatedRoute.totalWeightGrams,
+      totalParcels: updatedRoute.totalParcels,
+      capacityOk,
+      route: updatedRoute
+    })
+  )
+  const payload = { commandInput, receipt }
+  const commandRowId = randomUUID()
+  const statements: AtomicStatement[] = [
+    {
+      sql: `UPDATE delivery_routes SET version = ?, updated_at = ? WHERE id = ? AND version = ? RETURNING id`,
+      params: [nextVersion, now, input.routeId, input.expectedVersion]
+    },
+    {
+      sql: `INSERT INTO delivery_route_commands (
+        id, route_id, actor_id, action, command_id, payload_hash, payload_json, expected_version, applied_version, created_at
+      ) SELECT ?, ?, ?, 'reoptimize', ?, ?, ?, ?, ?, ? WHERE changes() = 1`,
+      params: [
+        commandRowId,
+        input.routeId,
+        input.actorId,
+        input.commandId,
+        payloadHash,
+        JSON.stringify(payload),
+        input.expectedVersion,
+        nextVersion,
+        now
+      ]
+    }
+  ]
+  for (const [index, stop] of resequenced.entries()) {
+    statements.push({
+      sql: `UPDATE delivery_route_stops SET sequence_index = ? WHERE id = ?
+        AND EXISTS (SELECT 1 FROM delivery_route_commands WHERE id = ?)`,
+      params: [10000 + index, stop.id, commandRowId]
+    })
   }
+  for (const [index, stop] of resequenced.entries()) {
+    statements.push({
+      sql: `UPDATE delivery_route_stops SET sequence_index = ? WHERE id = ?
+        AND EXISTS (SELECT 1 FROM delivery_route_commands WHERE id = ?)`,
+      params: [index, stop.id, commandRowId]
+    })
+  }
+  try {
+    await applyRouteMutation(db, statements, input.expectedVersion)
+  } catch (error) {
+    const raced = await routeCommandReplay<ReoptimizeDeliveryRouteResult>(
+      db,
+      input.routeId,
+      input.commandId,
+      'reoptimize',
+      input.actorId,
+      payloadHash
+    )
+    if (raced) return raced
+    throw error
+  }
+  return receipt
 }
 
 export async function getDeliveryRouteById(db: DatabaseAdapter, id: string): Promise<DeliveryRoute | null> {

@@ -49,15 +49,21 @@ export async function handleCustomerRiskScoringHttp(
   }
 
   const checkAdminAuth = async () => {
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
     return deps.database
       .prepare(
-        `SELECT 1 FROM identity_roles
-         WHERE identity_id = ? AND (
-           role_code IN ('admin', 'super-admin')
-           OR EXISTS (SELECT 1 FROM role_permissions WHERE role_code = identity_roles.role_code AND permission_code = 'administration.manage')
-         )`
+        `SELECT 1 FROM auth_sessions s
+         JOIN identities i ON i.id = s.identity_id
+         JOIN identity_roles r ON r.identity_id = i.id
+         WHERE s.id = ?1 AND s.identity_id = ?2 AND s.session_version = ?3
+           AND s.session_version = i.session_version AND s.revoked_at IS NULL
+           AND s.created_at <= ?4 AND s.expires_at > ?4 AND i.status = 'active'
+           AND r.granted_at <= ?4 AND (r.expires_at IS NULL OR r.expires_at > ?4)
+           AND (r.role_code IN ('admin', 'super-admin') OR EXISTS (
+             SELECT 1 FROM role_permissions WHERE role_code = r.role_code AND permission_code = 'administration.manage'
+           ))`
       )
-      .bind(claims.identityId)
+      .bind(claims.sessionId, claims.identityId, claims.sessionVersion, now)
       .first()
   }
 
@@ -94,6 +100,7 @@ export async function handleCustomerRiskScoringHttp(
     if (action === 'calculate' && method === 'POST') {
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body || !body.commercialMetrics) return errorResponse('invalid_metrics_input', 400)
+      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
 
       const profile = await calculateCustomerRiskScore(deps.database, {
         customerId,
@@ -101,7 +108,6 @@ export async function handleCustomerRiskScoringHttp(
           typeof calculateCustomerRiskScore
         >[1]['commercialMetrics']
       })
-      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
       return jsonResponse({ ok: true, profile })
     }
 
@@ -109,6 +115,7 @@ export async function handleCustomerRiskScoringHttp(
     if (action === 'review' && method === 'POST') {
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body) return errorResponse('invalid_body', 400)
+      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
 
       const profile = await reviewCustomerRiskScore(deps.database, {
         customerId,
@@ -120,7 +127,6 @@ export async function handleCustomerRiskScoringHttp(
           justification: String(body.justification ?? '')
         }
       })
-      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
       return jsonResponse({ ok: true, profile })
     }
 

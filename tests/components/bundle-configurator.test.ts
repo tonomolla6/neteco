@@ -111,6 +111,16 @@ describe('BundleConfigurator Component (MKT-021)', () => {
     expect(wrapper.text()).toContain('IVA')
   })
 
+  it('shows the VAT-inclusive kit price as total and VAT included in it, never added on top (SECFIX-3 #6)', async () => {
+    mocks.request.mockResolvedValueOnce({ selection: null })
+    const wrapper = await mountSuspended(BundleConfigurator, { props: { bundle: sampleBundle } })
+    await flushPromises()
+    // Lines 5000 + 1000 standalone, 25% off => 3750 + 750; VAT included: 651 + 130.
+    expect(wrapper.find('[data-testid="bundle-total"]').text()).toContain('45,00')
+    expect(wrapper.find('[data-testid="bundle-tax"]').text()).toContain('7,81')
+    expect(wrapper.text()).not.toContain('55,42')
+  })
+
   it('allows quantity editing and recalculates savings', async () => {
     mocks.request.mockResolvedValueOnce({
       selection: {

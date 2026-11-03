@@ -127,8 +127,8 @@ describe('MKT-021 Bundles/Kits - Business Logic & D1 Store', () => {
         baseBundlePriceCents: 5600,
         kitQuantity: 2,
         components: [
-          { unitPriceCents: 2500, taxRate: 0.21, defaultQuantity: 2 },
-          { unitPriceCents: 2000, taxRate: 0.21, defaultQuantity: 1 }
+          { variantId: 'v-1', unitPriceCents: 2500, taxRate: 0.21, defaultQuantity: 2 },
+          { variantId: 'v-2', unitPriceCents: 2000, taxRate: 0.21, defaultQuantity: 1 }
         ]
       })
 
@@ -137,7 +137,8 @@ describe('MKT-021 Bundles/Kits - Business Logic & D1 Store', () => {
       expect(res.savingsCents).toBe(2800) // 14000 - 11200
       expect(res.savingsPercent).toBe(20.0)
       expect(res.taxCents).toBeGreaterThan(0)
-      expect(res.totalCents).toBe(res.bundlePriceCents + res.taxCents)
+      // SECFIX-3 #6: component prices are VAT-inclusive, so VAT is included in the bundle price, not added.
+      expect(res.totalCents).toBe(res.bundlePriceCents)
     })
 
     it('recalculates proration when user edits component quantities', () => {
@@ -149,8 +150,8 @@ describe('MKT-021 Bundles/Kits - Business Logic & D1 Store', () => {
         baseBundlePriceCents: 5600,
         kitQuantity: 1,
         components: [
-          { unitPriceCents: 2500, taxRate: 0.21, defaultQuantity: 2, customQuantity: 3 },
-          { unitPriceCents: 2000, taxRate: 0.21, defaultQuantity: 1, customQuantity: 1 }
+          { variantId: 'v-1', unitPriceCents: 2500, taxRate: 0.21, defaultQuantity: 2, customQuantity: 3 },
+          { variantId: 'v-2', unitPriceCents: 2000, taxRate: 0.21, defaultQuantity: 1, customQuantity: 1 }
         ]
       })
 

@@ -43,14 +43,33 @@ function errorResponse(code: string, status = 400): Response {
   return jsonResponse({ error: { code } }, status)
 }
 
-async function verifyAdminAuthority(db: D1Database, identityId: string): Promise<boolean> {
+/**
+ * Fresh authority check bound to the caller's live session: the session must be current and
+ * unrevoked, the identity active/pending with a verified email and MFA-verified session, and the
+ * role grant must be in force (granted_at <= now, not expired).
+ */
+async function verifyAdminAuthority(
+  db: D1Database,
+  claims: { identityId: string; sessionId: string; sessionVersion: number },
+  currentTime: string
+): Promise<boolean> {
+  const now = currentTime.replace(/\.\d{3}Z$/, 'Z')
   const row = await db
     .prepare(
-      `SELECT 1 FROM identity_roles ir
+      `SELECT 1 FROM auth_sessions s
+       JOIN identities i ON i.id = s.identity_id
+       JOIN identity_roles ir ON ir.identity_id = i.id
        JOIN role_permissions rp ON rp.role_code = ir.role_code
-       WHERE ir.identity_id = ? AND rp.permission_code IN ('catalog.write', 'catalog.manage', 'support.manage', 'administration.manage')`
+       WHERE s.id = ?1 AND s.identity_id = ?2 AND s.session_version = ?3
+         AND s.session_version = i.session_version AND s.revoked_at IS NULL
+         AND s.created_at <= ?4 AND s.expires_at > ?4 AND s.mfa_verified = 1
+         AND i.status IN ('pending', 'active')
+         AND i.email_verified_at IS NOT NULL AND i.email_verified_at <= ?4
+         AND ir.granted_at <= ?4 AND (ir.expires_at IS NULL OR ir.expires_at > ?4)
+         AND rp.permission_code IN ('catalog.write', 'catalog.manage', 'support.manage', 'administration.manage')
+       LIMIT 1`
     )
-    .bind(identityId)
+    .bind(claims.sessionId, claims.identityId, claims.sessionVersion, now)
     .first()
   return Boolean(row)
 }
@@ -114,7 +133,7 @@ export async function handleProductMediaGuidesHttp(
     if (pathname === '/api/admin/media/guides' && method === 'GET') {
       const claims = await context.sessionClaimsResolver(request)
       if (!claims) return errorResponse('unauthenticated', 401)
-      const allowed = await verifyAdminAuthority(context.database, claims.identityId)
+      const allowed = await verifyAdminAuthority(context.database, claims, currentTime)
       if (!allowed) return errorResponse('forbidden', 403)
 
       const rows = await context.database
@@ -127,7 +146,7 @@ export async function handleProductMediaGuidesHttp(
     if (pathname === '/api/admin/media/guides/commands' && method === 'POST') {
       const claims = await context.sessionClaimsResolver(request)
       if (!claims) return errorResponse('unauthenticated', 401)
-      const allowed = await verifyAdminAuthority(context.database, claims.identityId)
+      const allowed = await verifyAdminAuthority(context.database, claims, currentTime)
       if (!allowed) return errorResponse('forbidden', 403)
 
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null

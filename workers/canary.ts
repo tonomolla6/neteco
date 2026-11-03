@@ -96,6 +96,7 @@ import {
   handlePaymentContingencyHttp,
   ownsPaymentContingencyNamespace
 } from './payments/contingency-routing-http'
+import { alternativeProviderFromEnv } from './payments/alternative-contingency-provider'
 import { handleCmsMediaHttp } from './cms/media-delivery'
 import { runCmsSchedules } from './cms/schedules'
 import { handleAdminReturnsHttp, ownsAdminReturnsNamespace } from './returns/admin-http'
@@ -426,7 +427,21 @@ async function mountGuard(
 function crossOriginMutation(request: Request, env: CloudflareEnv): Response | null {
   if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return null
   const origin = request.headers.get('origin')
-  return origin && origin !== env.AUTH_ORIGIN ? privateJson({ error: { code: 'csrf_rejected' } }, 403) : null
+  const rejected = privateJson({ error: { code: 'csrf_rejected' } }, 403)
+  if (origin !== null) return origin !== env.AUTH_ORIGIN ? rejected : null
+  if (/(?:^|;\s*)neteco-session=/.test(request.headers.get('cookie') ?? '')) return rejected
+  // No Origin header: browsers still disclose cross-site context via Fetch Metadata or Referer.
+  // Header-less server-to-server callers (webhooks, B2B API keys) remain unaffected.
+  if (request.headers.get('sec-fetch-site') === 'cross-site') return rejected
+  const referer = request.headers.get('referer')
+  if (referer) {
+    try {
+      if (new URL(referer).origin !== env.AUTH_ORIGIN) return rejected
+    } catch {
+      return rejected
+    }
+  }
+  return null
 }
 
 function mountSession(env: CloudflareEnv) {
@@ -3036,6 +3051,7 @@ export default {
       const res = await handleProcurementApprovalsHttp(request, {
         database: env.DB,
         sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
         claims: claims ?? undefined,
         now: serverNow()
       })
@@ -3051,6 +3067,7 @@ export default {
       const res = await handleSplitBackordersHttp(request, {
         database: env.DB,
         sessionCookieConfiguration: mountSession(env),
+        origin: env.AUTH_ORIGIN,
         claims: claims ?? undefined,
         now: serverNow()
       })
@@ -3067,6 +3084,8 @@ export default {
         database: env.DB,
         sessionCookieConfiguration: mountSession(env),
         claims: claims ?? undefined,
+        // Fail closed: only a provider built from Worker secrets may verify webhook signatures.
+        alternativeProvider: alternativeProviderFromEnv(env as unknown as Record<string, unknown>) ?? undefined,
         now: serverNow()
       })
       if (res) return res

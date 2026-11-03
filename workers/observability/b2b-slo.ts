@@ -35,6 +35,22 @@ async function sha256Hex(content: string): Promise<string> {
     .join('')
 }
 
+/** Scale a non-negative decimal using integer arithmetic and half-up rounding. */
+function decimalScaledRounded(value: number, scale: bigint): number {
+  if (!Number.isFinite(value) || value < 0) throw new B2BContractSloError('invalid_input', 400, 'Invalid penalty')
+  const [mantissa, exponentText] = value.toString().toLowerCase().split('e')
+  const [whole, fraction = ''] = mantissa!.split('.')
+  const exponent = Number(exponentText ?? 0) - fraction.length
+  let numerator = BigInt(`${whole}${fraction}`) * scale
+  let denominator = 1n
+  if (exponent >= 0) numerator *= 10n ** BigInt(exponent)
+  else denominator = 10n ** BigInt(-exponent)
+  const rounded = (numerator + denominator / 2n) / denominator
+  if (rounded > BigInt(Number.MAX_SAFE_INTEGER))
+    throw new B2BContractSloError('invalid_input', 400, 'Penalty too large')
+  return Number(rounded)
+}
+
 export async function createD1B2BContractSlo(
   database: D1Database,
   claims: VerifiedSessionClaims,
@@ -538,7 +554,13 @@ export async function generateD1ComplianceReport(
         'Idempotency conflict for compliance report generation'
       )
     }
-    return JSON.parse(existingCommand.receipt_json)
+    const receipt = JSON.parse(existingCommand.receipt_json) as B2BComplianceReport & { penaltyCreditEur?: number }
+    // Historical command receipts are immutable; convert their old currency unit on replay.
+    if (receipt.penaltyCreditEur !== undefined) {
+      const { penaltyCreditEur, ...rest } = receipt
+      return { ...rest, penaltyCreditCents: decimalScaledRounded(penaltyCreditEur, 100n) }
+    }
+    return receipt
   }
 
   const contract = await database
@@ -622,7 +644,7 @@ export async function generateD1ComplianceReport(
   }
 
   // Base contract fee for credit calculation: e.g. 1500 EUR standard B2B account volume
-  const penaltyCreditEur = overallCompliant ? 0.0 : Number((1500 * (penaltyPercent / 100)).toFixed(2))
+  const penaltyCreditCents = overallCompliant ? 0 : decimalScaledRounded(penaltyPercent, 1500n)
 
   const reportId = crypto.randomUUID()
   const report: B2BComplianceReport = {
@@ -640,7 +662,7 @@ export async function generateD1ComplianceReport(
     totalDowntimeMinutes: grossDowntime,
     excludedDowntimeMinutes: excludedDowntime,
     netChargeableDowntimeMinutes: netDowntime,
-    penaltyCreditEur,
+    penaltyCreditCents,
     alertLevel,
     generatedAt: now
   }
@@ -653,7 +675,7 @@ export async function generateD1ComplianceReport(
           availability_compliant, latency_p95_achieved_ms, latency_compliant,
           support_compliant, fulfillment_compliant, overall_compliant,
           total_downtime_minutes, excluded_downtime_minutes,
-          net_chargeable_downtime_minutes, penalty_credit_eur, alert_level,
+          net_chargeable_downtime_minutes, penalty_credit_cents, alert_level,
           generated_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`
       )
@@ -672,7 +694,7 @@ export async function generateD1ComplianceReport(
         report.totalDowntimeMinutes,
         report.excludedDowntimeMinutes,
         report.netChargeableDowntimeMinutes,
-        report.penaltyCreditEur,
+        report.penaltyCreditCents,
         report.alertLevel,
         now
       ),
