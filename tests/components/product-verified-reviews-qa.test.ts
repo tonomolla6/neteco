@@ -129,6 +129,8 @@ describe('PDP-016: ProductVerifiedReviewsQa accessible component', () => {
       props: { productId: 'p-1', productName: 'Desengrasante Ultra' }
     })
     await flushPromises()
+    expect(wrapper.find('#consent-rev').exists()).toBe(false)
+    await wrapper.find('[data-testid="open-review-form"]').trigger('click')
     const consent = wrapper.find('#consent-rev')
     expect((consent.element as HTMLInputElement).checked).toBe(false)
     const form = wrapper.find('form')
@@ -139,5 +141,18 @@ describe('PDP-016: ProductVerifiedReviewsQa accessible component', () => {
     await flushPromises()
     const post = mocks.request.mock.calls.find(([, options]) => options?.method === 'POST')
     expect(post?.[1]?.body?.consentAccepted).toBe(true)
+  })
+
+  it('shows a neutral notice instead of an error alert when Q&A cannot load', async () => {
+    mocks.request.mockReset()
+    mocks.request.mockImplementation((url: string) => {
+      if (url.includes('/reviews')) return Promise.resolve({ items: [], total: 0, averageRating: 0 })
+      return Promise.reject(new Error('unavailable'))
+    })
+    const wrapper = await mountSuspended(ProductVerifiedReviewsQa, {
+      props: { productId: 'p-1', productName: 'Desengrasante Ultra' }
+    })
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })

@@ -18,6 +18,9 @@ const { loggedIn, user } = useUserSession()
 const activeTab = ref<'reviews' | 'questions'>('reviews')
 const loading = ref(false)
 const errorMessage = ref('')
+const loadNotice = ref('')
+const showReviewForm = ref(false)
+const showQuestionForm = ref(false)
 const successMessage = ref('')
 
 const reviews = ref<PublicProductReview[]>([])
@@ -46,7 +49,7 @@ async function loadReviews() {
     reviewsTotal.value = res.total || 0
     averageRating.value = res.averageRating || 0
   } catch {
-    errorMessage.value = 'No se han podido cargar las opiniones. Inténtelo más tarde.'
+    loadNotice.value = 'Las opiniones no están disponibles en este momento.'
   } finally {
     loading.value = false
   }
@@ -62,7 +65,7 @@ async function loadQuestions() {
     questions.value = res.items || []
     questionsTotal.value = res.total || 0
   } catch {
-    errorMessage.value = 'No se han podido cargar las preguntas. Inténtelo más tarde.'
+    loadNotice.value = 'Las preguntas no están disponibles en este momento.'
   } finally {
     loading.value = false
   }
@@ -172,6 +175,7 @@ onMounted(() => {
     </div>
 
     <!-- Error/Success Alerts -->
+    <p v-if="loadNotice" class="mt-4 text-sm text-slate-500">{{ loadNotice }}</p>
     <div v-if="errorMessage" role="alert" class="mt-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">
       {{ errorMessage }}
     </div>
@@ -219,8 +223,17 @@ onMounted(() => {
 
       <!-- Add Review Form -->
       <div v-if="loggedIn" class="mt-8 pt-6 border-t border-slate-200">
-        <h3 class="font-bold text-slate-900 mb-4">Escribir una opinión</h3>
-        <form class="space-y-4" @submit.prevent="handleReviewSubmit">
+        <button
+          v-if="!showReviewForm"
+          type="button"
+          data-testid="open-review-form"
+          class="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          @click="showReviewForm = true"
+        >
+          Escribir una opinión
+        </button>
+        <h3 v-if="showReviewForm" class="font-bold text-slate-900 mb-4">Escribir una opinión</h3>
+        <form v-if="showReviewForm" class="space-y-4" @submit.prevent="handleReviewSubmit">
           <div class="flex items-center gap-4">
             <label class="text-sm font-medium text-slate-700">Valoración:</label>
             <select
@@ -338,8 +351,17 @@ onMounted(() => {
 
       <!-- Add Question Form -->
       <div v-if="loggedIn" class="mt-8 pt-6 border-t border-slate-200">
-        <h3 class="font-bold text-slate-900 mb-4">Hacer una pregunta sobre este producto</h3>
-        <form class="space-y-4" @submit.prevent="handleQuestionSubmit">
+        <button
+          v-if="!showQuestionForm"
+          type="button"
+          data-testid="open-question-form"
+          class="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+          @click="showQuestionForm = true"
+        >
+          Hacer una pregunta
+        </button>
+        <h3 v-if="showQuestionForm" class="font-bold text-slate-900 mb-4">Hacer una pregunta sobre este producto</h3>
+        <form v-if="showQuestionForm" class="space-y-4" @submit.prevent="handleQuestionSubmit">
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-1">Título de la consulta</label>
             <input
