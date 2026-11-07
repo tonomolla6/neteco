@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { provisionPublicationValidityFixture } from '../tests/support/publication-validity-fixture'
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -130,6 +131,11 @@ try {
     await writeFile(file, await render(), 'utf8')
     await wrangler(['d1', 'execute', 'DB', ...localArguments, '--yes', '--file', file])
   }
+
+  await provisionPublicationValidityFixture(database, {
+    productIds: [1, 2, 3, 5].map((id) => stableUuid(`product:${id}`)),
+    now: '2026-01-01T00:00:00Z'
+  })
 
   const failures: string[] = []
   const check = (condition: boolean, scenario: string, detail = '') => {

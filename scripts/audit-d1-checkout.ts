@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { provisionPublicationValidityFixture } from '../tests/support/publication-validity-fixture'
 import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -130,7 +131,9 @@ try {
     if (!condition) failures.push(`${scenario}${detail ? `: ${detail}` : ''}`)
   }
 
-  const NOW = '2026-08-25T09:00:00Z'
+  const NOW = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const offsetInstant = (seconds: number) =>
+    new Date(Date.parse(NOW) + seconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const variantId = (productIndex: number, variantIndex: number) =>
     await_import_stableUuid()(`variant:${productIndex}:${variantIndex}`)
 
@@ -139,6 +142,11 @@ try {
     return stableUuidRef
   }
   const { stableUuid: stableUuidRef } = await import('./lib/d1-category-seed')
+
+  await provisionPublicationValidityFixture(database, {
+    productIds: [stableUuidRef('product:1')],
+    now: '2026-01-01T00:00:00Z'
+  })
 
   // 2. Cart with one line -> shipping options -> quote -> order.
   const created = await createCart(database, { correlationId: 'audit', now: NOW })
@@ -313,7 +321,7 @@ try {
   }
 
   // 4. Compensations never touch finished attempts.
-  const sweepFinished = await compensateStaleAttempts(database, { at: '2026-09-01T00:00:00Z' })
+  const sweepFinished = await compensateStaleAttempts(database, { at: offsetInstant(7 * 86400) })
   check(sweepFinished.compensatedCount === 0, 'compensación no altera pedidos finalizados')
   const stillReserved = await makeStatement(
     "SELECT status FROM inventory_reservations WHERE status = 'reserved'"
@@ -326,12 +334,12 @@ try {
        id, cart_id, command_key, state, reservation_expires_at, reservation_lines_json,
        correlation_id, payload_hash, created_at, updated_at
      ) VALUES ('attempt-abandoned', '${created.cartId}', 'audit-abandoned', 'reserving',
-               '2026-08-20T00:30:00Z', '[]', 'audit', '${'b'.repeat(64)}',
-               '2026-08-20T00:00:00Z', '2026-08-20T00:00:00Z')`
+               '${offsetInstant(-5 * 86400 + 1800)}', '[]', 'audit', '${'b'.repeat(64)}',
+               '${offsetInstant(-5 * 86400)}', '${offsetInstant(-5 * 86400)}')`
   ).run()
-  const firstSweep = await compensateStaleAttempts(database, { at: '2026-09-02T00:00:00Z' })
+  const firstSweep = await compensateStaleAttempts(database, { at: offsetInstant(8 * 86400) })
   check(firstSweep.compensatedCount >= 1, 'intento abandonado compensado')
-  const secondSweep = await compensateStaleAttempts(database, { at: '2026-09-02T00:00:00Z' })
+  const secondSweep = await compensateStaleAttempts(database, { at: offsetInstant(8 * 86400) })
   check(secondSweep.compensatedCount === 0, 'compensación repetida es segura')
 
   // Contractual snapshots reject mutation attempts at schema level.
