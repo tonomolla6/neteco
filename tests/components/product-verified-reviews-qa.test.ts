@@ -117,4 +117,27 @@ describe('PDP-016: ProductVerifiedReviewsQa accessible component', () => {
     expect(wrapper.text()).toContain('Respuesta oficial de Neteco')
     expect(wrapper.text()).toContain('seguro en acero inox aclarando')
   })
+
+  it('requires explicit, unticked consent before publishing a review (GDPR)', async () => {
+    mocks.request.mockReset()
+    mocks.request.mockImplementation((url: string) => {
+      if (url.includes('/reviews')) return Promise.resolve({ items: [], total: 0, averageRating: 0 })
+      if (url.includes('/questions')) return Promise.resolve({ items: [], total: 0 })
+      return Promise.resolve({ items: [] })
+    })
+    const wrapper = await mountSuspended(ProductVerifiedReviewsQa, {
+      props: { productId: 'p-1', productName: 'Desengrasante Ultra' }
+    })
+    await flushPromises()
+    const consent = wrapper.find('#consent-rev')
+    expect((consent.element as HTMLInputElement).checked).toBe(false)
+    const form = wrapper.find('form')
+    await form.find('input[type="text"]').setValue('Buen producto')
+    await form.find('textarea').setValue('Limpia bien la grasa de la plancha.')
+    await consent.setValue(true)
+    await form.trigger('submit')
+    await flushPromises()
+    const post = mocks.request.mock.calls.find(([, options]) => options?.method === 'POST')
+    expect(post?.[1]?.body?.consentAccepted).toBe(true)
+  })
 })

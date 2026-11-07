@@ -32,7 +32,7 @@ const newRating = ref(5)
 const newTitle = ref('')
 const newContent = ref('')
 const newOrderId = ref('')
-const newConsent = ref(true)
+const newConsent = ref(false)
 const submitting = ref(false)
 
 async function loadReviews() {
