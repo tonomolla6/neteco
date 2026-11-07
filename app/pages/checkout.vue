@@ -7,7 +7,7 @@ import { submitHostedPayment } from '~/utils/hosted-payment'
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 import { promotionCodeSchema, promotionReasonSchema, type PromotionReason } from '~~/shared/promotions'
 
-useSeoMeta({ title: 'Tramitar pedido' })
+useSeoMeta({ title: 'Tramitar pedido', robots: 'noindex, nofollow' })
 
 const cart = useCartStore()
 const runtime = useRuntimeConfig()

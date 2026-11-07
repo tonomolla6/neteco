@@ -5,6 +5,12 @@ import type { EventItemView } from '~~/shared/events'
 
 const requestFetch = useRequestFetch()
 
+useSeoMeta({
+  title: 'Eventos, ferias y demostraciones técnicas',
+  description:
+    'Calendario de ferias profesionales, demostraciones técnicas y jornadas de higiene industrial y hostelería organizadas por NETECO.'
+})
+
 const selectedType = ref('')
 const selectedSector = ref('')
 const loading = ref(true)

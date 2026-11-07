@@ -26,8 +26,12 @@ async function loadTemplate() {
 }
 
 useSeoMeta({
-  title: () => (template.value ? `${template.value.title} · Plantillas Neteco` : 'Plantilla descargable · Neteco'),
-  description: () => template.value?.description ?? '',
+  title: () => formatSeoTitle(template.value ? `${template.value.title} · Plantillas` : 'Plantilla descargable'),
+  description: () =>
+    truncateSeoDescription(
+      template.value?.description ||
+        'Plantilla descargable de higiene profesional y control APPCC en formato PDF y CSV en NETECO.'
+    ),
   robots: () => (template.value?.indexable ? 'index, follow' : 'noindex, follow')
 })
 

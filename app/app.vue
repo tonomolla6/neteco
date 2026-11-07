@@ -15,6 +15,26 @@ const runtime = useRuntimeConfig()
 const demo = computed(() => runtime.public.demoEnabled === true && runtime.public.serverRuntime === 'cloudflare')
 const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
 const canonicalUrl = computed(() => `${origin}${canonicalPath(route.path, route.query)}`)
+const routeSeo = computed(() => defaultRouteSeo(route.path))
+const defaultOgImage = `${origin}/logo-figura.png`
+
+useSeoMeta({
+  title: () => routeSeo.value.title,
+  description: () => routeSeo.value.description,
+  robots: () => routeSeo.value.robots,
+  ogTitle: () => `${routeSeo.value.title} · NETECO`,
+  ogDescription: () => routeSeo.value.description,
+  ogUrl: () => canonicalUrl.value,
+  ogType: () => (routeSeo.value.ogType === 'product' ? 'website' : routeSeo.value.ogType),
+  ogImage: defaultOgImage,
+  ogSiteName: 'NETECO',
+  ogLocale: 'es_ES',
+  twitterCard: 'summary_large_image',
+  twitterTitle: () => `${routeSeo.value.title} · NETECO`,
+  twitterDescription: () => routeSeo.value.description,
+  twitterImage: defaultOgImage
+})
+
 // SEO-033: product pages publish the reciprocal hreflang set of the markets with human-reviewed
 // translations; any failure falls back to the single-market pair, never to an unreviewed alternate.
 const productSlug = computed(() => productSlugFromPath(route.path))
@@ -42,7 +62,7 @@ const alternateLinks = computed(() =>
 )
 useHead(() => ({
   link:
-    canonicalPath(route.path, {}) === '/buscar'
+    canonicalPath(route.path, {}) === '/buscar' || isPrivateSeoPath(route.path)
       ? []
       : [
           { rel: 'canonical' as const, href: canonicalUrl.value },
@@ -70,6 +90,11 @@ useHead(() => ({
           availableLanguage: ['es']
         }
       })
+    },
+    {
+      key: 'website-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(buildWebsiteJsonLd(origin))
     }
   ]
 }))

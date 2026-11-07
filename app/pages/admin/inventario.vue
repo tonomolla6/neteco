@@ -14,7 +14,7 @@ import InventoryCountImportPanel from '~/components/InventoryCountImportPanel.vu
 import InventoryLotsCostingForecastPanel from '~/components/InventoryLotsCostingForecastPanel.vue'
 import InventoryOperationsPanel from '~/components/InventoryOperationsPanel.vue'
 definePageMeta({ layout: 'default', middleware: 'auth' })
-useSeoMeta({ title: 'Inventario operativo · NETECO', robots: 'noindex, nofollow, noarchive' })
+useSeoMeta({ title: 'Inventario operativo · Admin', robots: 'noindex, nofollow, noarchive' })
 const { ready, loggedIn, user, session } = useUserSession(),
   runtime = useRuntimeConfig().public.serverRuntime
 const navigation = useAdminNavigation()

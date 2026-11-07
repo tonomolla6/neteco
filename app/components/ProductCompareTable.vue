@@ -62,6 +62,9 @@ const regulatoryRows = computed(() => props.comparison.rows.filter((row) => row.
                   v-if="product.image"
                   :src="product.image"
                   :alt="product.imageAlt || product.name"
+                  width="96"
+                  height="96"
+                  loading="lazy"
                   class="max-h-full max-w-full object-contain"
                 />
                 <div v-else class="text-xs text-slate-400">Sin imagen</div>

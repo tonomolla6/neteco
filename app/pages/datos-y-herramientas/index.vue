@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const runtime = useRuntimeConfig()
 useSeoMeta({
-  title: 'Datos y herramientas · Neteco',
+  title: 'Datos y herramientas',
   description: 'Calculadoras, comparativas, guías, checklists y estudios con metodología y fecha transparentes.',
   robots: 'index, follow'
 })

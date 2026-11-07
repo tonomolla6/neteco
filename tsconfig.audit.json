@@ -4,7 +4,6 @@
     "strict": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "paths": { "~~/*": ["./*"] },
     "target": "esnext",
     "lib": ["esnext", "dom", "dom.iterable"],
     "types": ["node"],

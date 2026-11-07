@@ -1,3 +1,5 @@
+import { PRIVATE_ROBOTS_PREFIXES } from '../utils/robots'
+
 export default defineEventHandler((event) => {
   const runtime = useRuntimeConfig(event)
   const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
@@ -6,11 +8,8 @@ export default defineEventHandler((event) => {
   return [
     `User-agent: *`,
     `Allow: /`,
-    `Disallow: /admin`,
-    `Disallow: /cuenta`,
-    `Disallow: /checkout`,
-    `Disallow: /pedido`,
-    `Disallow: /buscar`,
+    ...PRIVATE_ROBOTS_PREFIXES.map((path) => `Disallow: ${path}`),
+    `Disallow: /api`,
     `Sitemap: ${origin}/sitemap.xml`,
     ``
   ].join('\n')

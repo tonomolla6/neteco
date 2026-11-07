@@ -37,6 +37,8 @@ const SIZE = { sm: 'size-10', md: 'size-14' }
       :src="displayImage"
       :alt="line.imageAlt || line.name"
       :sizes="size === 'sm' ? '40px' : '56px'"
+      :width="size === 'sm' ? 40 : 56"
+      :height="size === 'sm' ? 40 : 56"
       image-class="size-full object-contain"
       @error="failed = true"
     />
@@ -44,6 +46,8 @@ const SIZE = { sm: 'size-10', md: 'size-14' }
       v-else-if="displayImage && !failed"
       :src="displayImage"
       :alt="line.imageAlt || line.name"
+      :width="size === 'sm' ? 40 : 56"
+      :height="size === 'sm' ? 40 : 56"
       loading="lazy"
       class="size-full object-contain"
       @error="failed = true"

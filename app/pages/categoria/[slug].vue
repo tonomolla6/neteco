@@ -156,6 +156,17 @@ const { items, total, page, pages, facets, status, loadingMore, canLoadMore, loa
     }))
   )
 
+const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
+const categoryTitle = computed(() => {
+  const baseName = category.value?.name ?? 'Categoría'
+  return formatSeoTitle(page.value > 1 ? `${baseName} (pág. ${page.value})` : baseName)
+})
+const categoryDescription = computed(() => {
+  const baseName = category.value?.name ?? 'productos'
+  const pageSuffix = page.value > 1 ? ` (página ${page.value})` : ''
+  return truncateSeoDescription(`Compra ${baseName}${pageSuffix} de uso profesional en la tienda online de NETECO.`)
+})
+
 const paginationQuery = (target: number) => ({ ...route.query, page: target > 1 ? String(target) : undefined })
 useHead(() => ({
   link: [
@@ -175,6 +186,29 @@ useHead(() => ({
           }
         ]
       : [])
+  ],
+  script: [
+    {
+      key: 'category-breadcrumb-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(
+        buildBreadcrumbJsonLd(canonicalOrigin, [
+          { name: 'Inicio', path: '/' },
+          ...breadcrumb.value.map((c) => ({ name: c.name, path: `/categoria/${c.slug}` }))
+        ])
+      ).replace(/</g, '\\u003c')
+    },
+    {
+      key: 'category-itemlist-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(
+        buildItemListJsonLd(
+          canonicalOrigin,
+          categoryTitle.value,
+          items.value.map((item, idx) => ({ name: item.name, slug: item.slug, position: idx + 1 }))
+        )
+      ).replace(/</g, '\\u003c')
+    }
   ]
 }))
 
@@ -190,8 +224,12 @@ watch(
 )
 
 useSeoMeta({
-  title: () => category.value?.name ?? 'Categoría',
-  description: () => `Compra ${category.value?.name ?? 'productos'} de uso profesional en la tienda online de NETECO.`,
+  title: () => categoryTitle.value,
+  description: () => categoryDescription.value,
+  ogTitle: () => `${categoryTitle.value} · NETECO`,
+  ogDescription: () => categoryDescription.value,
+  twitterTitle: () => `${categoryTitle.value} · NETECO`,
+  twitterDescription: () => categoryDescription.value,
   robots: () => (isIndexableCatalogQuery(route.query) ? 'index, follow' : 'noindex, follow')
 })
 const activeCount = computed(
@@ -300,7 +338,14 @@ watch(
             class="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)]"
             aria-hidden="true"
           >
-            <img v-if="!governedMedia" :src="familyImage(slug)" alt="" class="h-full w-full object-contain p-1" />
+            <img
+              v-if="!governedMedia"
+              :src="familyImage(slug)"
+              alt=""
+              width="48"
+              height="48"
+              class="h-full w-full object-contain p-1"
+            />
             <UIcon v-else name="i-lucide-package" class="size-7 text-neteco-600" />
           </span>
           {{ category.name }}

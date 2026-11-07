@@ -9,7 +9,7 @@ useHead({
   ],
   meta: [{ name: 'theme-color', content: '#0f172a' }]
 })
-useSeoMeta({ title: 'Reparto · Neteco', robots: 'noindex, nofollow, noarchive' })
+useSeoMeta({ title: 'Reparto', robots: 'noindex, nofollow, noarchive' })
 </script>
 
 <template>

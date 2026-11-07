@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useNewsletterLinkAction } from '~/composables/useNewsletterLinkAction'
 
-useSeoMeta({ title: 'Confirmar newsletter · NETECO', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Confirmar newsletter', robots: 'noindex, nofollow' })
 useHead({ meta: [{ name: 'referrer', content: 'no-referrer' }] })
 const { status, message, submit: confirm, canOpenPreferences, openPreferences } = useNewsletterLinkAction('confirm')
 </script>

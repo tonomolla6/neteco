@@ -2,7 +2,7 @@
 import CustomerCaseStudiesList from '~/components/CustomerCaseStudiesList.vue'
 
 useSeoMeta({
-  title: 'Casos de Éxito de Clientes · Neteco',
+  title: 'Casos de Éxito de Clientes',
   description:
     'Auditorías técnicas y casos de éxito reales de clientes con evidencia verificada en productos químicos y limpieza profesional.'
 })

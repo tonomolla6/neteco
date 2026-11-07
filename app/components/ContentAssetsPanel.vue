@@ -55,6 +55,7 @@ onMounted(load)
 
 <template>
   <section class="mx-auto max-w-3xl space-y-4 p-4" data-testid="content-assets">
+    <h1 v-if="!props.slug" class="text-2xl font-bold">Datos y herramientas</h1>
     <p v-if="loading" role="status">Cargando…</p>
     <p v-else-if="failed" role="alert">El recurso no está disponible en este momento.</p>
     <template v-else-if="detail">
@@ -122,7 +123,6 @@ onMounted(load)
       </form>
     </template>
     <template v-else>
-      <h1 class="text-2xl font-bold">Datos y herramientas</h1>
       <p v-if="!items.length" data-testid="assets-empty">Aún no hay recursos publicados.</p>
       <ul v-else class="space-y-3">
         <li v-for="item in items" :key="item.slug">

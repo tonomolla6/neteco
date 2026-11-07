@@ -87,9 +87,10 @@ function clearAll() {
 }
 
 useSeoMeta({
-  title: 'Comparador técnico de productos | NETECO',
+  title: 'Comparador técnico de productos',
   description:
-    'Compara especificaciones técnicas, precios, disponibilidad y datos de seguridad de productos químicos y de limpieza profesional.'
+    'Compara especificaciones técnicas, precios, disponibilidad y datos de seguridad de productos químicos y de limpieza profesional.',
+  robots: 'noindex, follow'
 })
 </script>
 

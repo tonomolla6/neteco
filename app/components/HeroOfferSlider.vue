@@ -85,6 +85,8 @@ onBeforeUnmount(() => clearInterval(timer))
           :key="current.id"
           :src="displayImage"
           :alt="current.imageAlt || current.name"
+          width="400"
+          height="288"
           class="max-h-full max-w-full object-contain"
           @error="failed[index] = true"
         />

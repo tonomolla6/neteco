@@ -222,6 +222,8 @@ onBeforeUnmount(() => {
               data-lightbox-image
               :src="safeSource!"
               :alt="alt"
+              width="1600"
+              height="1600"
               loading="lazy"
               decoding="async"
               referrerpolicy="no-referrer"

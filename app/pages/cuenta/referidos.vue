@@ -4,6 +4,11 @@ import ReferralAccountPanel from '../../components/marketing/ReferralAccountPane
 definePageMeta({
   middleware: 'auth'
 })
+
+useSeoMeta({
+  title: 'Programa de referidos · Mi cuenta',
+  robots: 'noindex, nofollow'
+})
 </script>
 
 <template>

@@ -39,7 +39,14 @@ const STATIC_PAGES = [
   '/devoluciones',
   '/ayuda',
   '/accesibilidad',
-  '/contacto'
+  '/contacto',
+  '/casos-exito',
+  '/certificaciones',
+  '/datos-y-herramientas',
+  '/eventos',
+  '/kits',
+  '/marca',
+  '/plantillas'
 ]
 const PRIVATE_PATHS = [
   '/admin',
@@ -48,6 +55,8 @@ const PRIVATE_PATHS = [
   '/checkout',
   '/pedido',
   '/pedidos',
+  '/pedido-rapido',
+  '/pago',
   '/auth',
   '/login',
   '/registro',
@@ -56,6 +65,9 @@ const PRIVATE_PATHS = [
   '/verificar-email',
   '/buscar',
   '/newsletter',
+  '/reparto',
+  '/encuesta',
+  '/comparar',
   '/api'
 ]
 

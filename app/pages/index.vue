@@ -4,10 +4,17 @@ import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
 
 const governedMedia = useRuntimeConfig().public.mediaGoverned
 
+const homeTitle = 'Suministros profesionales de limpieza e higiene'
+const homeDescription =
+  'Tienda online de NETECO: químicos de limpieza, celulosa, higiene y menaje profesional para hostelería e industria en Ontinyent y España.'
+
 useSeoMeta({
-  title: 'Suministros profesionales de limpieza e higiene',
-  description:
-    'Tienda online de NETECO: químicos de limpieza, higiene y menaje profesional para hostelería, comercio, industria y colectividades. Reparto propio en Ontinyent y comarca.'
+  title: homeTitle,
+  description: homeDescription,
+  ogTitle: `${homeTitle} · NETECO`,
+  ogDescription: homeDescription,
+  twitterTitle: `${homeTitle} · NETECO`,
+  twitterDescription: homeDescription
 })
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
@@ -301,6 +308,8 @@ const sectors = [
               v-if="!governedMedia"
               :src="s.image"
               alt=""
+              width="240"
+              height="160"
               loading="lazy"
               class="h-full w-full object-contain p-3 transition duration-300 group-hover:scale-105"
             />
@@ -346,6 +355,8 @@ const sectors = [
               v-if="!governedMedia"
               :src="familyImage(f.slug)"
               alt=""
+              width="64"
+              height="64"
               loading="lazy"
               class="h-full w-full object-contain p-1 transition duration-300 group-hover:scale-105"
             />

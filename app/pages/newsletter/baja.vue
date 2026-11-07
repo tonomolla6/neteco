@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useNewsletterLinkAction } from '~/composables/useNewsletterLinkAction'
 
-useSeoMeta({ title: 'Baja de newsletter · NETECO', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Baja de newsletter', robots: 'noindex, nofollow' })
 useHead({ meta: [{ name: 'referrer', content: 'no-referrer' }] })
 const { status, message, submit: unsubscribe } = useNewsletterLinkAction('unsubscribe')
 </script>

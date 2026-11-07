@@ -11,8 +11,11 @@ function confirmed(value: unknown) {
   snapshot.value = result.success ? result.data : null
 }
 useSeoMeta({
-  title: () => snapshot.value?.title ?? 'Recurso profesional · Neteco',
-  description: () => snapshot.value?.description ?? '',
+  title: () => formatSeoTitle(snapshot.value?.title ?? 'Recurso profesional'),
+  description: () =>
+    truncateSeoDescription(
+      snapshot.value?.description || 'Guía técnica y recurso especializado de higiene profesional en NETECO.'
+    ),
   robots: () => (snapshot.value && !snapshot.value.noindex ? 'index, follow' : 'noindex, follow')
 })
 useHead(() => ({

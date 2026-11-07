@@ -3,11 +3,22 @@ import type { NuxtError } from '#app'
 
 const props = defineProps<{ error: NuxtError }>()
 const is404 = computed(() => props.error?.statusCode === 404)
+const seo = computed(() => errorPageSeo(props.error?.statusCode))
+
+useSeoMeta({
+  title: () => seo.value.title,
+  description: () => seo.value.description,
+  robots: 'noindex, nofollow',
+  ogTitle: () => `${seo.value.title} · NETECO`,
+  ogDescription: () => seo.value.description,
+  twitterTitle: () => `${seo.value.title} · NETECO`,
+  twitterDescription: () => seo.value.description
+})
 </script>
 
 <template>
   <div class="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center bg-slate-50">
-    <img src="/logo-figura.png" alt="NETECO" class="h-16 w-auto opacity-80" />
+    <img src="/logo-figura.png" alt="NETECO" width="60" height="64" class="h-16 w-auto opacity-80" />
     <p class="text-6xl font-bold text-neteco-500">{{ error?.statusCode ?? 500 }}</p>
     <h1 class="text-xl font-semibold text-slate-800">
       {{ is404 ? 'No hemos encontrado esta página' : 'Ha ocurrido un error' }}

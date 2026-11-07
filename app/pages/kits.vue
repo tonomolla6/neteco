@@ -5,6 +5,12 @@ import type { BundleDetailView } from '~~/shared/bundles'
 
 const requestFetch = useRequestFetch()
 
+useSeoMeta({
+  title: 'Kits de higiene y limpieza por sector',
+  description:
+    'Kits preconfigurados de celulosa, químicos y consumibles profesionales para hostelería, industria alimentaria, clínicas y oficinas.'
+})
+
 const selectedSector = ref('')
 const selectedTask = ref('')
 const loading = ref(true)

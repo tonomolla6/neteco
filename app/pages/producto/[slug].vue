@@ -106,9 +106,27 @@ const datasheet = computed(() =>
 const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
 const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
+const productSeoTitle = computed(() => formatSeoTitle(product.value.name))
+const productSeoDescription = computed(() =>
+  truncateSeoDescription(
+    product.value.shortDesc ||
+      product.value.description ||
+      `Compra ${product.value.name} para uso profesional en la tienda online de NETECO.`
+  )
+)
+
 useSeoMeta({
-  title: product.value.name,
-  description: product.value.shortDesc
+  title: () => productSeoTitle.value,
+  description: () => productSeoDescription.value,
+  ogTitle: () => `${productSeoTitle.value} · NETECO`,
+  ogDescription: () => productSeoDescription.value,
+  ogType: 'website',
+  ogImage: () =>
+    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/logo-figura.png`,
+  twitterTitle: () => `${productSeoTitle.value} · NETECO`,
+  twitterDescription: () => productSeoDescription.value,
+  twitterImage: () =>
+    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/logo-figura.png`
 })
 
 // La variante seleccionada vive en la URL (?sku=REF): el enlace es compartible
@@ -637,6 +655,8 @@ async function addToCart(goToCart = false) {
             v-else
             :src="fichaUrl(shownImage)"
             :alt="imageAlt"
+            width="800"
+            height="800"
             class="relative mx-auto aspect-square w-full rounded-xl bg-white object-contain"
             @load="fichaImgLoaded = true"
             @error="shownImage = null"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 
-useSeoMeta({ title: 'Crear cuenta' })
+useSeoMeta({ title: 'Crear cuenta', robots: 'noindex, nofollow' })
 const runtime = useRuntimeConfig()
 
 const route = useRoute()
@@ -72,7 +72,7 @@ async function submit() {
 <template>
   <div class="mx-auto max-w-md px-4 py-14">
     <div class="rounded-2xl border border-slate-200 bg-white p-8">
-      <img src="/logo-figura.png" alt="" class="mx-auto h-12 w-auto" />
+      <img src="/logo-figura.png" alt="" width="45" height="48" class="mx-auto h-12 w-auto" />
       <h1 class="mt-4 text-center text-2xl font-bold text-slate-900">Crea tu cuenta</h1>
       <p class="mt-1 text-center text-sm text-slate-500">
         Repite un pedido en dos clics, guarda tus direcciones de entrega y descarga tus facturas.

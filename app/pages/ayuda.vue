@@ -50,6 +50,18 @@ const topics = [
     to: '/contacto'
   }
 ]
+
+useHead(() => ({
+  script: [
+    {
+      key: 'faq-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(
+        buildFaqPageJsonLd(topics.map((topic) => ({ question: topic.title, answer: topic.text })))
+      ).replace(/</g, '\\u003c')
+    }
+  ]
+}))
 </script>
 
 <template>

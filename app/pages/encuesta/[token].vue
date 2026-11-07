@@ -12,7 +12,7 @@ const requestFetch = useRequestFetch()
 const token = computed(() => String(route.params.token ?? ''))
 
 useSeoMeta({
-  title: 'Encuesta sobre tu entrega · NETECO',
+  title: 'Encuesta sobre tu entrega',
   robots: 'noindex, nofollow'
 })
 

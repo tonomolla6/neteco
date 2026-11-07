@@ -4,7 +4,7 @@ import DownloadableTemplatesPanel from '~/components/DownloadableTemplatesPanel.
 const runtime = useRuntimeConfig()
 
 useSeoMeta({
-  title: 'Biblioteca de Plantillas Descargables · Neteco',
+  title: 'Biblioteca de Plantillas Descargables',
   description:
     'Checklists de autocontrol, planes de limpieza APPCC y guías técnicas en formato indexable y PDF accesible.',
   robots: 'index, follow'

@@ -13,7 +13,14 @@ export default defineEventHandler((event) => {
     '/devoluciones',
     '/ayuda',
     '/accesibilidad',
-    '/contacto'
+    '/contacto',
+    '/casos-exito',
+    '/certificaciones',
+    '/datos-y-herramientas',
+    '/eventos',
+    '/kits',
+    '/marca',
+    '/plantillas'
   ]
   const urls = paths.map((path) => `<url><loc>${xml(`${origin}${path}`)}</loc></url>`).join('')
   setHeader(event, 'content-type', 'application/xml; charset=utf-8')

@@ -7,7 +7,7 @@ import PublishedProductRelations from '~/components/PublishedProductRelations.vu
 import FreeShippingProgressBar from '~/components/FreeShippingProgressBar.vue'
 import type { OrderSummary } from '~/composables/useAccount'
 
-useSeoMeta({ title: 'Carrito' })
+useSeoMeta({ title: 'Carrito', robots: 'noindex, nofollow' })
 const cart = useCartStore()
 const toast = useToast()
 const runtime = useRuntimeConfig()

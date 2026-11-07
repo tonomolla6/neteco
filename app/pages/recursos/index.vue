@@ -6,9 +6,16 @@ const runtime = useRuntimeConfig(),
   snapshot = shallowRef<ResourceHubList | null>(null)
 const enabled = computed(() => runtime.public.serverRuntime === 'cloudflare')
 useSeoMeta({
-  title: 'Recursos profesionales · Neteco',
+  title: 'Recursos profesionales',
   description: 'Guías y recursos conectados al catálogo publicado.',
-  robots: () => (snapshot.value && !snapshot.value.noindex ? 'index, follow' : 'noindex, follow')
+  robots: () =>
+    !enabled.value
+      ? isIndexableCatalogQuery(route.query)
+        ? 'index, follow'
+        : 'noindex, follow'
+      : snapshot.value && !snapshot.value.noindex
+        ? 'index, follow'
+        : 'noindex, follow'
 })
 const canonicalPath = computed(() => {
   const result = resourceHubQuerySchema.safeParse({

@@ -11,11 +11,25 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+const runtime = useRuntimeConfig()
+const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
+const currentCatalogPage = computed(() => paginationNumber(route.query) ?? 1)
+const catalogTitle = computed(() =>
+  currentCatalogPage.value > 1 ? `Todo el catálogo (pág. ${currentCatalogPage.value})` : 'Todo el catálogo'
+)
+const catalogDescription = computed(() =>
+  currentCatalogPage.value > 1
+    ? `Catálogo completo de NETECO (página ${currentCatalogPage.value}): químicos de limpieza profesional, higiene, guantes y menaje.`
+    : 'Catálogo completo de NETECO: químicos de limpieza profesional, higiene, guantes y menaje. Filtra por familia, marca, precio y formato.'
+)
 
 useSeoMeta({
-  title: 'Todo el catálogo',
-  description:
-    'Catálogo completo de NETECO: químicos de limpieza profesional, higiene, guantes y menaje. Filtra por familia, marca, precio y formato.',
+  title: () => catalogTitle.value,
+  description: () => catalogDescription.value,
+  ogTitle: () => `${catalogTitle.value} · NETECO`,
+  ogDescription: () => catalogDescription.value,
+  twitterTitle: () => `${catalogTitle.value} · NETECO`,
+  twitterDescription: () => catalogDescription.value,
   robots: () => (isIndexableCatalogQuery(route.query) ? 'index, follow' : 'noindex, follow')
 })
 
@@ -167,6 +181,29 @@ useHead(() => ({
           }
         ]
       : [])
+  ],
+  script: [
+    {
+      key: 'catalog-breadcrumb-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(
+        buildBreadcrumbJsonLd(canonicalOrigin, [
+          { name: 'Inicio', path: '/' },
+          { name: 'Catálogo', path: '/catalogo' }
+        ])
+      ).replace(/</g, '\\u003c')
+    },
+    {
+      key: 'catalog-itemlist-structured-data',
+      type: 'application/ld+json',
+      textContent: JSON.stringify(
+        buildItemListJsonLd(
+          canonicalOrigin,
+          catalogTitle.value,
+          items.value.map((item, idx) => ({ name: item.name, slug: item.slug, position: idx + 1 }))
+        )
+      ).replace(/</g, '\\u003c')
+    }
   ]
 }))
 

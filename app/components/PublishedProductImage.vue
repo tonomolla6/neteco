@@ -8,8 +8,10 @@ const props = withDefaults(
     sizes: string
     imageClass?: string
     loading?: 'lazy' | 'eager'
+    width?: number | string
+    height?: number | string
   }>(),
-  { imageClass: '', loading: 'lazy' }
+  { imageClass: '', loading: 'lazy', width: 800, height: 800 }
 )
 const emit = defineEmits<{ load: []; error: [] }>()
 const sources = computed(() => publishedImageSources(props.src))
@@ -33,6 +35,8 @@ onMounted(() => {
       :srcset="sources.jpegSrcset"
       :sizes="sizes"
       :alt="alt"
+      :width="width"
+      :height="height"
       :class="imageClass"
       :loading="loading"
       decoding="async"

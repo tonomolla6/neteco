@@ -10,7 +10,13 @@ import {
 
 definePageMeta({
   layout: 'admin',
+  middleware: 'admin',
   title: 'Campañas Estacionales por Sector'
+})
+
+useSeoMeta({
+  title: 'Campañas estacionales · Administración',
+  robots: 'noindex, nofollow'
 })
 
 interface CalendarFeedResponse {

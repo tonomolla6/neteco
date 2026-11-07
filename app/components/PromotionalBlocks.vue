@@ -185,6 +185,8 @@ onBeforeUnmount(() => {
           <img
             :src="item.media[block.id]"
             :alt="block.alt"
+            width="1200"
+            height="675"
             loading="lazy"
             referrerpolicy="no-referrer"
             class="h-auto max-w-full rounded-lg"

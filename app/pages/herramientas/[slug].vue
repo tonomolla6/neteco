@@ -9,8 +9,11 @@ const magnet = computed(() => findLeadMagnet(slug.value))
 if (!magnet.value) throw createError({ statusCode: 404, statusMessage: 'Recurso no encontrado' })
 
 useSeoMeta({
-  title: () => `${magnet.value?.title ?? 'Recurso profesional'} · Neteco`,
-  description: () => magnet.value?.description ?? '',
+  title: () => formatSeoTitle(magnet.value?.title ?? 'Recurso profesional'),
+  description: () =>
+    truncateSeoDescription(
+      magnet.value?.description || 'Herramienta técnica y calculadora de higiene profesional en NETECO.'
+    ),
   robots: 'index, follow'
 })
 useHead(() => ({
