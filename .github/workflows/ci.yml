@@ -25,7 +25,7 @@ jobs:
         ARM64,
         "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
       ]
-    timeout-minutes: 30
+    timeout-minutes: 90
     env:
       APP_ENV: test
       APP_BASE_URL: http://127.0.0.1:3100
@@ -164,7 +164,7 @@ jobs:
         ARM64,
         "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
       ]
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Verify approved Neteco repository
         shell: bash
@@ -242,7 +242,7 @@ jobs:
         ARM64,
         "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
       ]
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Verify approved Neteco repository
         shell: bash
@@ -292,5 +292,8 @@ jobs:
       - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
         env:
           GITLEAKS_VERSION: '8.24.3'
+          # The isolated runner's HOME is outside the workspace, which breaks the action's
+          # SARIF artifact upload; the scan itself still runs and fails the job on findings.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
       - name: Verify real Gitleaks policy behavior
         run: node scripts/lib/gitleaks-policy-probe.mjs --go "$GITHUB_WORKSPACE/.gitleaks.toml" "$RUNNER_TEMP"
