@@ -334,9 +334,6 @@ watch(() => route.fullPath, applyRouteFilters)
     <!-- cabecera -->
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-          <span class="size-2 rounded-full bg-neteco-500" /> Catálogo
-        </p>
         <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">
           {{ selectedCategory ? selectedCategoryName : 'Todo el catálogo' }}
         </h1>
