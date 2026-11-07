@@ -38,3 +38,10 @@ describe('UI chrome without generic AI-template styling', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('home page sections', () => {
+  it('uses plain headings without dot + all-caps eyebrow labels', () => {
+    const home = readFileSync('app/pages/index.vue', 'utf8')
+    expect(home).not.toMatch(/uppercase tracking-\[0\.18em\][^\n]*\n\s*<span class="size-2 rounded-full/)
+  })
+})

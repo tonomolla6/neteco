@@ -196,7 +196,10 @@ const sectors = [
            que llega al borde. Las fotos de producto vienen con fondo blanco de estudio, así
            que sobre el degradado siempre se leerían como una tarjeta pegada; con el panel,
            el blanco es parte de la composición y no un recorte. -->
-      <div class="mx-auto grid max-w-[1600px] grid-cols-1 items-stretch lg:grid-cols-[1fr_460px]">
+      <div
+        class="mx-auto grid max-w-[1600px] grid-cols-1 items-stretch"
+        :class="offers.length ? 'lg:grid-cols-[1fr_460px]' : ''"
+      >
         <div class="max-w-2xl px-4 py-14 sm:py-16 lg:py-20">
           <p class="mb-3 text-sm font-medium text-neteco-200">Más de 25 años al servicio de tu negocio</p>
           <!-- `text-white` explícito: la regla global de titulares fija `--text-strong`, y una
@@ -235,15 +238,8 @@ const sectors = [
         <!-- Ofertas en el hueco más caro de la página. Antes había una ilustración
              decorativa de envases con el pie «Cada familia, con su color. Como en tu
              almacén.»: bonita, pero no llevaba a ningún sitio ni vendía nada. -->
-        <div class="hidden bg-white px-8 py-10 lg:flex lg:flex-col lg:justify-center">
-          <HeroOfferSlider v-if="offers.length" :items="offers" />
-          <div v-else class="text-center">
-            <UIcon name="i-lucide-package-search" class="mx-auto size-10 text-neteco-600" />
-            <p class="mt-3 font-semibold text-[var(--text-strong)]">Más de 2.000 referencias</p>
-            <p class="mt-1 text-sm text-[var(--text-muted)]">
-              Químicos, celulosa, menaje y protección. Si no lo ves, pregúntanos.
-            </p>
-          </div>
+        <div v-if="offers.length" class="hidden bg-white px-8 py-10 lg:flex lg:flex-col lg:justify-center">
+          <HeroOfferSlider :items="offers" />
         </div>
       </div>
     </section>
@@ -273,9 +269,6 @@ const sectors = [
     <section v-if="offers.length" class="mx-auto max-w-[1600px] px-4 pt-12">
       <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-red-700">
-            <span class="size-2 rounded-full bg-red-600" /> Ofertas
-          </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Precios rebajados esta semana</h2>
         </div>
         <NuxtLink to="/catalogo" class="text-sm font-medium text-neteco-600 hover:text-neteco-500">
@@ -291,9 +284,6 @@ const sectors = [
          comprador no busca «desengrasante», busca «lo que necesito para mi bar» -->
     <section class="mx-auto max-w-[1600px] px-4 py-12">
       <div class="mb-5">
-        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-          <span class="size-2 rounded-full bg-neteco-500" /> Tu negocio
-        </p>
         <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Empieza por tu sector</h2>
       </div>
       <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
@@ -330,9 +320,6 @@ const sectors = [
     <section class="mx-auto max-w-[1600px] px-4 py-4">
       <div class="mb-5 flex items-end justify-between">
         <div>
-          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-            <span class="size-2 rounded-full bg-neteco-500" /> Catálogo
-          </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Compra por familia</h2>
         </div>
         <NuxtLink to="/catalogo" class="text-sm font-medium text-neteco-600 hover:text-neteco-500">
@@ -378,9 +365,6 @@ const sectors = [
     <!-- destacados -->
     <section v-if="featuredRow.length" class="mx-auto max-w-[1600px] px-4 py-12">
       <div class="mb-5">
-        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-          <span class="size-2 rounded-full bg-amber-400" /> Los más pedidos
-        </p>
         <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Productos destacados</h2>
       </div>
       <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -392,9 +376,6 @@ const sectors = [
     <section v-for="row in visibleFamilyRows" :key="row.slug" class="mx-auto max-w-[1600px] px-4 pb-12">
       <div class="mb-5 flex items-end justify-between gap-3">
         <div>
-          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-            <span class="size-2 rounded-full" :style="{ background: familyColor(row.slug) }" /> Familia
-          </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">{{ row.name }}</h2>
         </div>
         <NuxtLink
@@ -441,9 +422,6 @@ const sectors = [
     <section class="mx-auto max-w-[1600px] px-4 pb-12">
       <div class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-8">
         <div class="mb-6">
-          <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-            <span class="size-2 rounded-full bg-neteco-500" /> Cómo pedir
-          </p>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Como te venga mejor</h2>
         </div>
         <div class="grid gap-6 grid-cols-1 md:grid-cols-3">
@@ -472,54 +450,6 @@ const sectors = [
               De lunes a viernes. Te asesoramos con el producto y la dosificación si hace falta.
             </p>
             <UButton class="mt-3" size="sm" to="tel:600861334" icon="i-lucide-phone">600 861 334</UButton>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- confianza -->
-    <section class="border-t border-slate-200 bg-white">
-      <div class="mx-auto max-w-[1600px] px-4 pt-12">
-        <p class="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
-          <span class="size-2 rounded-full bg-neteco-500" /> Por qué NETECO
-        </p>
-        <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Un proveedor, cero complicaciones</h2>
-      </div>
-      <div class="mx-auto grid max-w-[1600px] gap-8 px-4 py-10 grid-cols-1 md:grid-cols-3">
-        <div class="flex gap-4">
-          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"
-            ><UIcon name="i-lucide-truck" class="block size-6"
-          /></span>
-          <div>
-            <h3 class="font-semibold text-slate-900">Entrega según destino</h3>
-            <p class="mt-1 text-sm text-slate-500">
-              Consulta la <NuxtLink to="/envios" class="underline">cobertura y las condiciones de entrega</NuxtLink>. La
-              fecha depende del pedido y del calendario operativo vigente.
-            </p>
-          </div>
-        </div>
-        <div class="flex gap-4">
-          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"
-            ><UIcon name="i-lucide-messages-square" class="block size-6"
-          /></span>
-          <div>
-            <h3 class="font-semibold text-slate-900">Soporte y consultas</h3>
-            <p class="mt-1 text-sm text-slate-500">
-              Los <NuxtLink to="/contacto" class="underline">canales de contacto y soporte</NuxtLink> están disponibles
-              para consultar productos y gestionar incidencias.
-            </p>
-          </div>
-        </div>
-        <div class="flex gap-4">
-          <span class="h-fit rounded-xl bg-neteco-50 p-3 text-neteco-600"
-            ><UIcon name="i-lucide-file-text" class="block size-6"
-          /></span>
-          <div>
-            <h3 class="font-semibold text-slate-900">Condiciones claras</h3>
-            <p class="mt-1 text-sm text-slate-500">
-              Consulta las <NuxtLink to="/devoluciones" class="underline">condiciones de devolución</NuxtLink> y las
-              <NuxtLink to="/formas-de-pago" class="underline">formas de pago</NuxtLink> antes de confirmar tu pedido.
-            </p>
           </div>
         </div>
       </div>
