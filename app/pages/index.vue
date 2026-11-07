@@ -286,14 +286,14 @@ const sectors = [
       <div class="mb-5">
         <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Empieza por tu sector</h2>
       </div>
-      <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="grid gap-3 grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <NuxtLink
           v-for="s in sectors"
           :key="s.name"
           :to="s.to"
           class="group overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] transition hover:border-neteco-300 hover:shadow-md"
         >
-          <div class="flex h-40 items-center justify-center overflow-hidden bg-[var(--canvas)]">
+          <div class="flex h-28 items-center sm:h-40 justify-center overflow-hidden bg-[var(--canvas)]">
             <img
               v-if="!governedMedia"
               :src="s.image"
@@ -305,8 +305,10 @@ const sectors = [
             />
             <UIcon v-else name="i-lucide-package" class="size-16 text-neteco-600" aria-hidden="true" />
           </div>
-          <div class="p-5">
-            <p class="text-lg font-bold text-[var(--text-strong)] group-hover:text-neteco-700">{{ s.name }}</p>
+          <div class="p-3 sm:p-5">
+            <p class="text-base font-bold sm:text-lg text-[var(--text-strong)] group-hover:text-neteco-700">
+              {{ s.name }}
+            </p>
             <p class="mt-1 text-sm text-[var(--text-muted)]">{{ s.desc }}</p>
             <p class="mt-3 flex items-center gap-1 text-sm font-medium text-neteco-700">
               Ver productos <UIcon name="i-lucide-arrow-right" class="size-4 transition group-hover:translate-x-0.5" />
