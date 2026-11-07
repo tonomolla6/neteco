@@ -17,10 +17,7 @@ import {
   customerPreferencesSchema,
   marketingAutomationPolicyInputSchema,
   marketingAutomationPolicySchema,
-  postpurchaseDispatchSchema,
   welcomeDispatchInputSchema,
-  welcomeDispatchSchema,
-  winbackEvaluationSchema,
   WELCOME_STEPS,
   WINBACK_STATUSES,
   POSTPURCHASE_STREAMS
@@ -72,9 +69,7 @@ const DEFAULT_POLICY: MarketingAutomationPolicy = {
   updatedBy: '00000000-0000-4000-8000-000000000000'
 }
 
-export async function readD1AutomationsPolicy(
-  db: D1Database
-): Promise<MarketingAutomationPolicy> {
+export async function readD1AutomationsPolicy(db: D1Database): Promise<MarketingAutomationPolicy> {
   const row = await db
     .prepare(
       `SELECT id, version, welcome_series_enabled, welcome_discount_enabled,
@@ -114,11 +109,7 @@ export async function readD1AutomationsPolicy(
   })
 }
 
-async function authorizeAdmin(
-  db: D1Database,
-  claims: VerifiedSessionClaims,
-  now: string
-): Promise<void> {
+async function authorizeAdmin(db: D1Database, claims: VerifiedSessionClaims, now: string): Promise<void> {
   const auth = await authorizeD1Session(db, claims, 'administration.manage', {
     requireMfa: true,
     now
@@ -174,9 +165,7 @@ export async function updateD1AutomationsPolicy(
   const statements: D1PreparedStatement[] = []
 
   // Check if initial row exists
-  const exists = await db
-    .prepare(`SELECT 1 FROM marketing_automation_policies WHERE id = 'global'`)
-    .first()
+  const exists = await db.prepare(`SELECT 1 FROM marketing_automation_policies WHERE id = 'global'`).first()
 
   if (!exists) {
     statements.push(
@@ -302,9 +291,7 @@ export async function dispatchD1WelcomeStep(
 
   // Check if step was already dispatched
   const alreadyDispatched = await db
-    .prepare(
-      `SELECT 1 FROM marketing_welcome_dispatches WHERE customer_id = ? AND step = ?`
-    )
+    .prepare(`SELECT 1 FROM marketing_welcome_dispatches WHERE customer_id = ? AND step = ?`)
     .bind(parsed.customerId, parsed.step)
     .first()
 
@@ -315,9 +302,7 @@ export async function dispatchD1WelcomeStep(
   // Determine email hash and suppression state
   const email = (customer.email ?? `customer-${parsed.customerId}@neteco.local`).toLowerCase().trim()
   const emailDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email))
-  const recipientEmailHash = Array.from(new Uint8Array(emailDigest), (b) =>
-    b.toString(16).padStart(2, '0')
-  ).join('')
+  const recipientEmailHash = Array.from(new Uint8Array(emailDigest), (b) => b.toString(16).padStart(2, '0')).join('')
 
   const suppression = await db
     .prepare(`SELECT 1 FROM newsletter_suppressions WHERE email_hash = ?`)
@@ -590,9 +575,7 @@ export async function evaluateD1Winback(
 
   const email = (customer.email ?? `customer-${customerId}@neteco.local`).toLowerCase().trim()
   const emailDigest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(email))
-  const recipientEmailHash = Array.from(new Uint8Array(emailDigest), (b) =>
-    b.toString(16).padStart(2, '0')
-  ).join('')
+  const recipientEmailHash = Array.from(new Uint8Array(emailDigest), (b) => b.toString(16).padStart(2, '0')).join('')
 
   // 1. Exclude bajas / suppressions
   const suppression = await db
@@ -856,7 +839,7 @@ export async function dispatchD1Postpurchase(
   now: string
 ): Promise<PostpurchaseDispatch[]> {
   await authorizeAdmin(db, claims, now)
-  const policy = await readD1AutomationsPolicy(db)
+  await readD1AutomationsPolicy(db)
 
   const order = await db
     .prepare(
@@ -1017,16 +1000,12 @@ export async function dispatchD1Postpurchase(
   return [txDispatch, commDispatch]
 }
 
-export async function getD1AutomationsOverview(
-  db: D1Database
-): Promise<AutomationsOverview> {
+export async function getD1AutomationsOverview(db: D1Database): Promise<AutomationsOverview> {
   const policy = await readD1AutomationsPolicy(db)
 
   // Welcome counts
   const welcomeRows = await db
-    .prepare(
-      `SELECT step, COUNT(*) as count FROM marketing_welcome_dispatches GROUP BY step`
-    )
+    .prepare(`SELECT step, COUNT(*) as count FROM marketing_welcome_dispatches GROUP BY step`)
     .all<{ step: string; count: number }>()
 
   const welcomeCounts: Record<string, number> = {}
@@ -1050,9 +1029,7 @@ export async function getD1AutomationsOverview(
 
   // Postpurchase counts
   const postRows = await db
-    .prepare(
-      `SELECT stream_type, COUNT(*) as count FROM marketing_postpurchase_dispatches GROUP BY stream_type`
-    )
+    .prepare(`SELECT stream_type, COUNT(*) as count FROM marketing_postpurchase_dispatches GROUP BY stream_type`)
     .all<{ stream_type: string; count: number }>()
 
   const postCounts: Record<string, number> = {}
@@ -1065,8 +1042,8 @@ export async function getD1AutomationsOverview(
     policy,
     counts: {
       welcomeDispatches: welcomeCounts as Record<WelcomeStep, number>,
-      winbackEvaluations: winbackCounts as Record<any, number>,
-      postpurchaseDispatches: postCounts as Record<any, number>
+      winbackEvaluations: winbackCounts as AutomationsOverview['counts']['winbackEvaluations'],
+      postpurchaseDispatches: postCounts as AutomationsOverview['counts']['postpurchaseDispatches']
     }
   }
 }

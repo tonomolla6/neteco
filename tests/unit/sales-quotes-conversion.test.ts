@@ -305,7 +305,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
     expect(salesQuoteConvertInputSchema.safeParse(input).success).toBe(true)
     for (const field of ['phone', 'province'] as const) {
       const invalid: Record<string, unknown> = { ...address }
-      delete invalid[field]
+      Reflect.deleteProperty(invalid, field)
       expect(
         salesQuoteConvertInputSchema.safeParse({ ...input, checkout: { ...input.checkout, shippingAddress: invalid } })
           .success

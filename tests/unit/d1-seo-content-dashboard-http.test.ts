@@ -224,7 +224,7 @@ describe('DAT-019: SEO & Content Dashboard HTTP Endpoints', () => {
     ]) {
       const res = await handleSeoContentDashboardHttp(post(headers), deps)
       expect(res?.status).toBe(403)
-      expect((await res?.json()).error.code).toBe('csrf_rejected')
+      expect((await res!.json()).error.code).toBe('csrf_rejected')
     }
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM seo_content_performance_metrics').get()).toEqual({ n: 0 })
   })
@@ -232,7 +232,7 @@ describe('DAT-019: SEO & Content Dashboard HTTP Endpoints', () => {
   it('requires a client idempotency key instead of inventing a clock-based one', async () => {
     const res = await handleSeoContentDashboardHttp(post({ Origin: ORIGIN }), deps)
     expect(res?.status).toBe(400)
-    expect((await res?.json()).error.code).toBe('invalid_input')
+    expect((await res!.json()).error.code).toBe('invalid_input')
     expect(sqlite.prepare('SELECT COUNT(*) AS n FROM seo_content_sync_commands').get()).toEqual({ n: 0 })
   })
 
@@ -241,10 +241,10 @@ describe('DAT-019: SEO & Content Dashboard HTTP Endpoints', () => {
     expect((await handleSeoContentDashboardHttp(post(headers), deps))?.status).toBe(200)
     const replay = await handleSeoContentDashboardHttp(post(headers), deps)
     expect(replay?.status).toBe(200)
-    expect((await replay?.json()).idempotentReplay).toBe(true)
+    expect((await replay!.json()).idempotentReplay).toBe(true)
     const conflict = await handleSeoContentDashboardHttp(post(headers, syncBody(999)), deps)
     expect(conflict?.status).toBe(409)
-    expect((await conflict?.json()).error.code).toBe('conflict')
+    expect((await conflict!.json()).error.code).toBe('conflict')
     expect(sqlite.prepare('SELECT clicks FROM seo_content_performance_metrics').get()).toEqual({ clicks: 150 })
   })
 })

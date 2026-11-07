@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+function hasControlCharacters(value: string, allowWhitespace: boolean): boolean {
+  return Array.from(value).some((character) => {
+    const code = character.charCodeAt(0)
+    return (code < 32 && !(allowWhitespace && (code === 9 || code === 10 || code === 13))) || code === 127
+  })
+}
+
 export const recurringFrequencySchema = z.enum(['weekly', 'biweekly', 'monthly', 'quarterly', 'custom'])
 export type RecurringFrequency = z.infer<typeof recurringFrequencySchema>
 
@@ -16,12 +23,12 @@ export const recurringListCreateInputSchema = z
       .trim()
       .min(1, 'name_required')
       .max(100, 'name_too_long')
-      .refine((v) => !/[\r\n\t\x00-\x1f\x7f]/.test(v), 'control_characters_not_allowed'),
+      .refine((v) => !hasControlCharacters(v, false), 'control_characters_not_allowed'),
     description: z
       .string()
       .trim()
       .max(500, 'description_too_long')
-      .refine((v) => !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v), 'control_characters_not_allowed')
+      .refine((v) => !hasControlCharacters(v, true), 'control_characters_not_allowed')
       .optional()
       .nullable(),
     frequency: recurringFrequencySchema,
@@ -52,13 +59,13 @@ export const recurringListUpdateInputSchema = z
       .trim()
       .min(1)
       .max(100)
-      .refine((v) => !/[\r\n\t\x00-\x1f\x7f]/.test(v))
+      .refine((v) => !hasControlCharacters(v, false))
       .optional(),
     description: z
       .string()
       .trim()
       .max(500)
-      .refine((v) => !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(v))
+      .refine((v) => !hasControlCharacters(v, true))
       .optional()
       .nullable(),
     frequency: recurringFrequencySchema.optional(),

@@ -1,8 +1,6 @@
 import { z } from 'zod'
 import {
   type SendTimeOptimizationPolicy,
-  type SendTimeOptimizationPolicyInput,
-  type SendTimeMessageEvaluationInput,
   type SendTimeOptimizationDecision,
   sendTimeOptimizationPolicyInputSchema,
   sendTimeMessageEvaluationInputSchema,
@@ -270,7 +268,11 @@ export async function evaluateD1SendTimeMessage(
   const auth = await verifyAuth(db, claims, now)
 
   const parsed = sendTimeMessageEvaluationInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(decisionId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(decisionId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     fail('invalid_input')
   }
   const input = parsed.data
@@ -681,9 +683,7 @@ export async function listD1SendTimeDecisions(
     .first<{ count: number }>()
 
   const rows = await db
-    .prepare(
-      `SELECT * FROM send_time_optimization_decisions ${whereClause} ORDER BY created_at DESC LIMIT ?`
-    )
+    .prepare(`SELECT * FROM send_time_optimization_decisions ${whereClause} ORDER BY created_at DESC LIMIT ?`)
     .bind(...bindings, limit)
     .all<DecisionRow>()
 

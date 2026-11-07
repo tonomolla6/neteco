@@ -3,14 +3,13 @@ import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { recurringListCreateInputSchema, recurringListUpdateInputSchema } from '../../shared/customer-recurring-lists'
 import {
   createRecurringList,
   getRecurringList,
-  listCustomerRecurringLists,
   updateRecurringList,
   deleteRecurringList,
   inviteCollaborator,
-  removeCollaborator,
   setRecurringListItem,
   removeRecurringListItem,
   revalidateRecurringListAssortment,
@@ -25,10 +24,27 @@ const OWNER_IDENTITY = '10000000-0000-4000-8000-000000000001'
 const COLLAB_IDENTITY = '10000000-0000-4000-8000-000000000002'
 const OTHER_IDENTITY = '10000000-0000-4000-8000-000000000003'
 
+describe('recurring list text validation', () => {
+  it('preserves the allowed and rejected control characters for creation and updates', () => {
+    for (let code = 0; code <= 127; code++) {
+      const text = `a${String.fromCharCode(code)}b`
+      const nameAllowed = code >= 32 && code !== 127
+      const descriptionAllowed = nameAllowed || code === 9 || code === 10 || code === 13
+      expect(recurringListCreateInputSchema.safeParse({ name: text, frequency: 'weekly' }).success).toBe(nameAllowed)
+      expect(recurringListUpdateInputSchema.safeParse({ name: text, expectedVersion: 1 }).success).toBe(nameAllowed)
+      expect(
+        recurringListCreateInputSchema.safeParse({ name: 'a', description: text, frequency: 'weekly' }).success
+      ).toBe(descriptionAllowed)
+      expect(recurringListUpdateInputSchema.safeParse({ description: text, expectedVersion: 1 }).success).toBe(
+        descriptionAllowed
+      )
+    }
+  })
+})
+
 describe('CUS-018: Customer Recurring & Shared Lists', () => {
   let sqlite: DatabaseSync
   let database: D1Database
-  let publication: Awaited<ReturnType<typeof provisionPublicationValidityFixture>>
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -39,7 +55,7 @@ describe('CUS-018: Customer Recurring & Shared Lists', () => {
     sqlite.exec(await readFile('db/d1/migrations/0108_b2b_shared_lists_edi_scoring.sql', 'utf8'))
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    publication = await provisionPublicationValidityFixture(database, {
+    await provisionPublicationValidityFixture(database, {
       productIds: ['p-1', 'p-2', 'p-3'],
       now: NOW
     })

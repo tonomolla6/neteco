@@ -241,7 +241,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
       const cookie = `${buyerCookie}; neteco-cart-v2=v1.${cart.cartId}.${cart.token}`
       for (const field of ['phone', 'province'] as const) {
         const shippingAddress: Record<string, unknown> = { ...input.checkout.shippingAddress }
-        delete shippingAddress[field]
+        Reflect.deleteProperty(shippingAddress, field)
         const invalidResponse = await handleSalesQuotesHttp(
           f.request(`/api/account/sales-quotes/${created.quoteId}/convert`, {
             method: 'POST',

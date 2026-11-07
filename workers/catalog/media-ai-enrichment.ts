@@ -1,7 +1,4 @@
 import {
-  type ProposeMediaEnrichmentInput,
-  type DecideMediaEnrichmentInput,
-  type ApplyMediaEnrichmentInput,
   type MediaAiEnrichmentRecord,
   type BackgroundRemovalProposal,
   type CropProposalItem,

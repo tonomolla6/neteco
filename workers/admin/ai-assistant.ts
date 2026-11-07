@@ -1,6 +1,4 @@
 import {
-  type GenerateAdminProposalInput,
-  type HumanAdminDecisionInput,
   type AdminAiInteractionRecord,
   type AdminAiCitation,
   type AdminAiRedactionFlags,

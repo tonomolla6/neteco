@@ -21,7 +21,6 @@ const IDENTITY_ID = '10000000-0000-4000-8000-000000000001'
 describe('CUS-030: Key B2B Client EDI & Versioned API Gateway', () => {
   let sqlite: DatabaseSync
   let database: D1Database
-  let publication: Awaited<ReturnType<typeof provisionPublicationValidityFixture>>
 
   beforeEach(async () => {
     vi.useFakeTimers()
@@ -31,7 +30,7 @@ describe('CUS-030: Key B2B Client EDI & Versioned API Gateway', () => {
     sqlite.exec(await readFile('db/d1/migrations/0108_b2b_shared_lists_edi_scoring.sql', 'utf8'))
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    publication = await provisionPublicationValidityFixture(database, {
+    await provisionPublicationValidityFixture(database, {
       productIds: ['p-1', 'p-2'],
       now: NOW
     })

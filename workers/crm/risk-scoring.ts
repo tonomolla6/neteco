@@ -5,6 +5,7 @@ import {
   type RiskTier,
   type ValueTier,
   type PaymentTerms,
+  type ScoringReviewStatus,
   type ScoringFactor,
   type ScoringQualityMetrics
 } from '../../shared/customer-risk-scoring'
@@ -88,7 +89,10 @@ export async function calculateCustomerRiskScore(
   })
 
   // 2. Order Volume & Regularity (weight 25%)
-  const volumeScore = Math.min(100, Math.round((m.totalSpentCents / 2000000) * 80 + Math.min(20, m.totalOrdersCount * 2)))
+  const volumeScore = Math.min(
+    100,
+    Math.round((m.totalSpentCents / 2000000) * 80 + Math.min(20, m.totalOrdersCount * 2))
+  )
   factors.push({
     category: 'order_volume',
     name: 'Volumen y Frecuencia de Compra',
@@ -160,7 +164,9 @@ export async function calculateCustomerRiskScore(
 
   // Aggregate Risk Score (lower is safer, 0-100)
   // Inverse of punctuality, claims, profile and credit
-  const riskScore = Math.round(100 - (punctualityScore * 0.4 + claimsScore * 0.25 + profileScore * 0.2 + creditScore * 0.15))
+  const riskScore = Math.round(
+    100 - (punctualityScore * 0.4 + claimsScore * 0.25 + profileScore * 0.2 + creditScore * 0.15)
+  )
 
   // Determine Tiers
   let riskTier: RiskTier = 'low'
@@ -174,8 +180,8 @@ export async function calculateCustomerRiskScore(
   else if (valueScore >= 25) valueTier = 'tier_c'
 
   // Assisted Recommendations
-  let recommendedPaymentTerms: PaymentTerms = 'net_30'
-  let recommendedCreditLimitCents = 0
+  let recommendedPaymentTerms: PaymentTerms
+  let recommendedCreditLimitCents: number
 
   if (riskTier === 'critical' || riskTier === 'high') {
     recommendedPaymentTerms = 'prepayment'
@@ -273,7 +279,7 @@ export async function getCustomerScoringProfile(
       factors_json: string
       recommended_credit_limit_cents: number
       recommended_payment_terms: PaymentTerms
-      review_status: any
+      review_status: ScoringReviewStatus
       model_version: string
       calculated_at: string
       updated_at: string

@@ -1,7 +1,4 @@
 import {
-  type GenerateCatalogContentInput,
-  type ReviewCatalogGenerationInput,
-  type ApplyCatalogGenerationInput,
   type CatalogAiGenerationRecord,
   type VerifiableClaimItem,
   type DuplicateCheckResult,

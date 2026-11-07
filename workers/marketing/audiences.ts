@@ -1,6 +1,4 @@
 import {
-  type CreateSegmentInput,
-  type UpdateSegmentRulesInput,
   type AudienceSegmentRecord,
   type AudienceSegmentVersionRecord,
   type AudienceEstimationResult,

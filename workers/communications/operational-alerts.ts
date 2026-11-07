@@ -2,11 +2,6 @@ import { z } from 'zod'
 import {
   type OperationalAlert,
   type OperationalAlertDispatch,
-  type OperationalAlertInput,
-  type OperationalAlertAckInput,
-  type OperationalAlertEscalateInput,
-  type OperationalAlertResolveInput,
-  type OperationalAlertListQuery,
   operationalAlertInputSchema,
   operationalAlertAckInputSchema,
   operationalAlertEscalateInputSchema,
@@ -139,13 +134,21 @@ export async function createD1OperationalAlert(
   // Rejection of un-auditable personal channels (COM-019 acceptance criterion)
   if (rawInput && typeof rawInput === 'object') {
     const raw = rawInput as Record<string, unknown>
-    if ('unapprovedChannel' in raw || 'channel' in raw && !['dashboard', 'warehouse_terminal', 'sms_pager', 'redundant_webhook'].includes(String(raw.channel))) {
+    if (
+      'unapprovedChannel' in raw ||
+      ('channel' in raw &&
+        !['dashboard', 'warehouse_terminal', 'sms_pager', 'redundant_webhook'].includes(String(raw.channel)))
+    ) {
       fail('invalid_input')
     }
   }
 
   const parsed = operationalAlertInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(alertId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(alertId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     fail('invalid_input')
   }
   const input = parsed.data
@@ -294,7 +297,11 @@ export async function acknowledgeD1OperationalAlert(
   const auth = await verifyAuth(db, claims, now)
 
   const parsed = operationalAlertAckInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(alertId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(alertId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     fail('invalid_input')
   }
   const input = parsed.data
@@ -311,10 +318,7 @@ export async function acknowledgeD1OperationalAlert(
     return JSON.parse(existingCommand.receipt_json) as OperationalAlert
   }
 
-  const alert = await db
-    .prepare('SELECT * FROM operational_alerts WHERE id = ?')
-    .bind(alertId)
-    .first<AlertRow>()
+  const alert = await db.prepare('SELECT * FROM operational_alerts WHERE id = ?').bind(alertId).first<AlertRow>()
 
   if (!alert) fail('not_found')
   if (alert.version !== input.expectedVersion) fail('version_conflict')
@@ -381,7 +385,11 @@ export async function escalateD1OperationalAlert(
   const auth = await verifyAuth(db, claims, now)
 
   const parsed = operationalAlertEscalateInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(alertId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(alertId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     fail('invalid_input')
   }
   const input = parsed.data
@@ -398,10 +406,7 @@ export async function escalateD1OperationalAlert(
     return JSON.parse(existingCommand.receipt_json) as OperationalAlert
   }
 
-  const alert = await db
-    .prepare('SELECT * FROM operational_alerts WHERE id = ?')
-    .bind(alertId)
-    .first<AlertRow>()
+  const alert = await db.prepare('SELECT * FROM operational_alerts WHERE id = ?').bind(alertId).first<AlertRow>()
 
   if (!alert) fail('not_found')
   if (alert.version !== input.expectedVersion) fail('version_conflict')
@@ -496,7 +501,11 @@ export async function resolveD1OperationalAlert(
   const auth = await verifyAuth(db, claims, now)
 
   const parsed = operationalAlertResolveInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(alertId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(alertId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     fail('invalid_input')
   }
   const input = parsed.data
@@ -513,10 +522,7 @@ export async function resolveD1OperationalAlert(
     return JSON.parse(existingCommand.receipt_json) as OperationalAlert
   }
 
-  const alert = await db
-    .prepare('SELECT * FROM operational_alerts WHERE id = ?')
-    .bind(alertId)
-    .first<AlertRow>()
+  const alert = await db.prepare('SELECT * FROM operational_alerts WHERE id = ?').bind(alertId).first<AlertRow>()
 
   if (!alert) fail('not_found')
   if (alert.version !== input.expectedVersion) fail('version_conflict')
@@ -578,10 +584,7 @@ export async function getD1OperationalAlert(
 ): Promise<OperationalAlert> {
   await verifyAuth(db, claims, currentInstant())
 
-  const alert = await db
-    .prepare('SELECT * FROM operational_alerts WHERE id = ?')
-    .bind(alertId)
-    .first<AlertRow>()
+  const alert = await db.prepare('SELECT * FROM operational_alerts WHERE id = ?').bind(alertId).first<AlertRow>()
 
   if (!alert) fail('not_found')
 
@@ -630,9 +633,7 @@ export async function listD1OperationalAlerts(
   const offset = (query.page - 1) * query.perPage
 
   const alerts = await db
-    .prepare(
-      `SELECT * FROM operational_alerts ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`
-    )
+    .prepare(`SELECT * FROM operational_alerts ${whereClause} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
     .bind(...bindings, query.perPage, offset)
     .all<AlertRow>()
 
@@ -641,7 +642,9 @@ export async function listD1OperationalAlerts(
   if (alertIds.length) {
     const placeholders = alertIds.map(() => '?').join(',')
     const dispatchRows = await db
-      .prepare(`SELECT * FROM operational_alert_dispatches WHERE alert_id IN (${placeholders}) ORDER BY dispatched_at ASC`)
+      .prepare(
+        `SELECT * FROM operational_alert_dispatches WHERE alert_id IN (${placeholders}) ORDER BY dispatched_at ASC`
+      )
       .bind(...alertIds)
       .all<DispatchRow>()
     allDispatches = dispatchRows.results ?? []

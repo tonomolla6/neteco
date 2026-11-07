@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import {
   calculateCustomerRiskScore,
-  getCustomerScoringProfile,
   reviewCustomerRiskScore,
   evaluateScoringModelQuality
 } from '../../workers/crm/risk-scoring'

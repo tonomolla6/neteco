@@ -3,9 +3,6 @@ import {
   type WarehouseTelemetryAggregate,
   type WarehouseDeviceTelemetry,
   type WarehouseTelemetryEvent,
-  type WarehouseTelemetryEventInput,
-  type WarehouseDeviceHeartbeatInput,
-  type WarehouseTelemetryComputeInput,
   warehouseTelemetryEventInputSchema,
   warehouseDeviceHeartbeatInputSchema,
   warehouseTelemetryComputeInputSchema,
@@ -162,9 +159,18 @@ export async function recordD1TelemetryEvent(
   const auth = await verifyAuth(db, claims, now)
 
   const parsed = warehouseTelemetryEventInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(eventId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(eventId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     // If labor privacy review is missing or false, report explicit labor_privacy_violation
-    if (rawInput && typeof rawInput === 'object' && ('laborPrivacyReviewed' in rawInput) && !(rawInput as Record<string, unknown>).laborPrivacyReviewed) {
+    if (
+      rawInput &&
+      typeof rawInput === 'object' &&
+      'laborPrivacyReviewed' in rawInput &&
+      !(rawInput as Record<string, unknown>).laborPrivacyReviewed
+    ) {
       fail('labor_privacy_violation')
     }
     fail('invalid_input')
@@ -355,7 +361,11 @@ export async function computeD1TelemetryAggregates(
   const auth = await verifyAuth(db, claims, now)
 
   const parsed = warehouseTelemetryComputeInputSchema.safeParse(rawInput)
-  if (!parsed.success || !z.string().uuid().safeParse(aggregateId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (
+    !parsed.success ||
+    !z.string().uuid().safeParse(aggregateId).success ||
+    !z.string().uuid().safeParse(commandId).success
+  ) {
     fail('invalid_input')
   }
   const input = parsed.data
