@@ -75,9 +75,7 @@ onMounted(() => {
       class="mb-8 rounded-xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm"
       data-testid="anti-greenwashing-banner"
     >
-      <div class="flex items-start gap-4">
-        <span class="text-2xl">🛡️</span>
-        <div>
+      <div class="flex items-start gap-4">        <div>
           <h2 class="text-base font-bold text-emerald-900">
             Política de Tolerancia Cero con Sellos Vagos y Greenwashing
           </h2>

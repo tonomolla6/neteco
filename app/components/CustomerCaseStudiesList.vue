@@ -100,9 +100,7 @@ const handleSectorFilter = (sector: string | null) => {
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="filteredCases.length === 0" class="py-16 text-center">
-      <div class="text-5xl text-gray-400">📋</div>
-      <h3 class="mt-3 text-lg font-bold text-gray-800 dark:text-gray-200">No hay casos publicados para este filtro</h3>
+    <div v-else-if="filteredCases.length === 0" class="py-16 text-center">      <h3 class="mt-3 text-lg font-bold text-gray-800 dark:text-gray-200">No hay casos publicados para este filtro</h3>
       <p class="text-sm text-gray-500">
         Los casos de éxito requieren permiso firmado y resultados certificados antes de su difusión pública.
       </p>

@@ -190,7 +190,7 @@ onMounted(() => {
     <!-- Dosage & Assembly Step-by-Step Guide (MED-016) -->
     <div v-if="currentGuide.steps && currentGuide.steps.length > 0" class="border-t border-slate-100 pt-4 space-y-3">
       <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
-        <span>🧪 Instrucciones y modo de empleo paso a paso</span>
+        <span>Instrucciones y modo de empleo paso a paso</span>
       </h3>
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
         <div

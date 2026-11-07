@@ -192,7 +192,6 @@ onMounted(() => {
       class="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center"
       data-testid="templates-empty"
     >
-      <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-400">📄</div>
       <h3 class="mt-3 text-base font-semibold text-slate-800">No se encontraron plantillas</h3>
       <p class="mt-1 text-sm text-slate-500">No hay plantillas que coincidan con los criterios de búsqueda actuales.</p>
       <button
@@ -250,7 +249,7 @@ onMounted(() => {
             class="inline-flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800"
             :title="`Descargar PDF accesible: ${tpl.title}`"
           >
-            <span>📥</span> Descargar PDF
+            Descargar PDF
           </a>
         </div>
       </article>

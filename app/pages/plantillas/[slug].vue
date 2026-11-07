@@ -110,7 +110,7 @@ onMounted(() => {
             download
             class="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-blue-700"
           >
-            <span>📥</span> Descargar PDF Oficial
+            Descargar PDF Oficial
           </a>
         </div>
       </header>
@@ -142,7 +142,7 @@ onMounted(() => {
                     v-if="item.criticalControlPoint"
                     class="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800"
                   >
-                    ⚠️ Punto de Control Crítico (PCC)
+                    Punto de Control Crítico (PCC)
                   </span>
                   <span v-if="item.mandatory" class="rounded bg-red-50 px-1.5 py-0.5 font-semibold text-red-700">
                     Obligatorio

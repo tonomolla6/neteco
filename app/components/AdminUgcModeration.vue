@@ -272,7 +272,7 @@ const handleRedactPii = async (review: ModerationItem) => {
           class="mt-4 rounded-lg bg-amber-50 p-4 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-300"
         >
           <div class="flex items-center justify-between">
-            <span class="font-bold">⚠️ Datos de identificación personal detectados en el texto (PII):</span>
+            <span class="font-bold">Datos de identificación personal detectados en el texto (PII):</span>
             <button
               type="button"
               class="rounded bg-amber-200 px-2 py-1 font-semibold text-amber-900 hover:bg-amber-300 dark:bg-amber-800 dark:text-amber-100"
@@ -291,7 +291,7 @@ const handleRedactPii = async (review: ModerationItem) => {
           v-if="rev.hiddenIncentiveSuspected"
           class="mt-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
         >
-          <span class="font-bold">🚨 Sospecha de incentivo u obsequio no declarado:</span> El cliente declaró que no
+          <span class="font-bold">Sospecha de incentivo u obsequio no declarado:</span> El cliente declaró que no
           tenía incentivos, pero el texto incluye términos de regalo, sorteo o muestra gratuita. Requiere revisión
           previa según política de competencia desleal.
         </div>
@@ -324,7 +324,7 @@ const handleRedactPii = async (review: ModerationItem) => {
                     'text-yellow-700': photo.antivirusStatus === 'quarantined'
                   }"
                 >
-                  🛡️ Antivirus: {{ photo.antivirusStatus }}
+                  Antivirus: {{ photo.antivirusStatus }}
                 </span>
                 <span class="text-gray-500">Estado: {{ photo.moderationStatus }}</span>
               </div>

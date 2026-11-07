@@ -157,7 +157,6 @@ watch([activeCategory, activeStatus], () => {
       role="note"
       class="flex items-start gap-3 rounded-[var(--radius-control)] border border-blue-200 bg-blue-50/70 p-3.5 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-200"
     >
-      <span class="mt-0.5 inline-block shrink-0 text-blue-600 dark:text-blue-400">ℹ️</span>
       <div>
         <span class="font-semibold">Aviso legal:</span> Las notificaciones obligatorias no sustituyen los envíos legales
         por email ni documentos fiscales oficiales vinculantes.
@@ -234,9 +233,7 @@ watch([activeCategory, activeStatus], () => {
     <div
       v-else-if="notifications.length === 0"
       class="flex flex-col items-center justify-center rounded-[var(--radius-control)] border border-dashed border-[var(--border)] py-12 text-center"
-    >
-      <span class="text-3xl">📭</span>
-      <h3 class="mt-2 text-sm font-semibold text-[var(--text-strong)]">No tienes notificaciones en esta sección</h3>
+    >      <h3 class="mt-2 text-sm font-semibold text-[var(--text-strong)]">No tienes notificaciones en esta sección</h3>
       <p class="mt-1 text-xs text-[var(--text-muted)]">
         Cuando se produzcan actualizaciones relevantes en tus pedidos, facturas o soporte, las verás aquí.
       </p>

@@ -162,7 +162,7 @@ onMounted(() => {
       class="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900"
     >
       <div class="flex items-center gap-2 font-semibold">
-        <span class="text-xl">⚠️</span>
+        <span class="text-xl"></span>
         <span>Feature Freeze Activo — Exceso de Fallos Pausa Nuevas Features</span>
       </div>
       <p class="mt-1 text-sm text-red-800">
@@ -177,9 +177,7 @@ onMounted(() => {
       v-else-if="overview && !overview.featureFreezeActive"
       class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-emerald-900"
     >
-      <div class="flex items-center gap-2 font-semibold">
-        <span class="text-xl">✅</span>
-        <span>Estabilidad Nominal — Error Budget Saludable</span>
+      <div class="flex items-center gap-2 font-semibold">        <span>Estabilidad Nominal — Error Budget Saludable</span>
       </div>
       <p class="mt-1 text-sm text-emerald-800">
         Todos los journeys operativos cumplen con sus SLOs objetivos. Decisiones de release estándar admitidas.

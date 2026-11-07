@@ -250,8 +250,8 @@ onMounted(() => {
           <p class="text-xs text-slate-600 line-clamp-2">{{ c.description }}</p>
 
           <div class="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t">
-            <span>⏱️ {{ c.durationMinutes ?? 30 }} min</span>
-            <span>🎯 Aprobado: {{ c.passingScorePercent }}%</span>
+            <span>{{ c.durationMinutes ?? 30 }} min</span>
+            <span>Aprobado: {{ c.passingScorePercent }}%</span>
             <button
               type="button"
               class="ml-auto text-indigo-600 hover:text-indigo-800 font-medium"

@@ -414,7 +414,7 @@ onMounted(() => {
               <td class="px-3 py-2 font-mono">{{ p.minHeadroomPercent }}%</td>
               <td class="px-3 py-2">{{ p.estimatedCloudflareCostEur }} €</td>
               <td class="px-3 py-2 capitalize font-semibold text-neutral-700">
-                {{ p.status === 'approved' ? 'Aprobado ✅' : p.status.replace('_', ' ') }}
+                {{ p.status === 'approved' ? 'Aprobado' : p.status.replace('_', ' ') }}
               </td>
             </tr>
           </tbody>

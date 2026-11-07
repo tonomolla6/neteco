@@ -232,11 +232,11 @@ const handleWithdraw = async (review: PublicUgcReview) => {
             required
             class="mt-1 block w-32 rounded-md border border-gray-300 bg-white p-2 text-sm shadow-sm focus:border-emerald-500 focus:ring-emerald-500 dark:border-gray-700 dark:bg-gray-800"
           >
-            <option :value="5">⭐⭐⭐⭐⭐ (5)</option>
-            <option :value="4">⭐⭐⭐⭐ (4)</option>
-            <option :value="3">⭐⭐⭐ (3)</option>
-            <option :value="2">⭐⭐ (2)</option>
-            <option :value="1">⭐ (1)</option>
+            <option :value="5">5 estrellas</option>
+            <option :value="4">4 estrellas</option>
+            <option :value="3">3 estrellas</option>
+            <option :value="2">2 estrellas</option>
+            <option :value="1">1 estrella</option>
           </select>
         </div>
 
@@ -356,7 +356,7 @@ const handleWithdraw = async (review: PublicUgcReview) => {
               :key="f.name"
               class="inline-flex items-center gap-1 rounded bg-gray-200 px-2 py-1 text-xs dark:bg-gray-700"
             >
-              📷 {{ f.name }} ({{ Math.round(f.size / 1024) }} KB)
+              {{ f.name }} ({{ Math.round(f.size / 1024) }} KB)
             </span>
           </div>
         </div>
@@ -418,9 +418,7 @@ const handleWithdraw = async (review: PublicUgcReview) => {
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="reviews.length === 0" class="py-10 text-center">
-      <div class="text-4xl text-gray-400">💬</div>
-      <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+    <div v-else-if="reviews.length === 0" class="py-10 text-center">      <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">
         Aún no hay opiniones con fotografías para este producto.
       </p>
       <p class="text-xs text-gray-500">Sé el primero en compartir tu experiencia técnica de aplicación.</p>

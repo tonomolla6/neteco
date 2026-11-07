@@ -120,7 +120,7 @@ onMounted(() => {
           class="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-700 dark:text-zinc-300 text-xs font-medium rounded-lg border border-zinc-300 dark:border-zinc-700"
           @click="handleSweepExpired"
         >
-          🧹 Barrer Expirados
+          Barrer Expirados
         </button>
       </div>
     </header>
@@ -129,9 +129,7 @@ onMounted(() => {
     <div
       role="alert"
       class="mb-6 p-4 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg text-sm text-blue-900 dark:text-blue-200 flex items-start gap-3"
-    >
-      <span class="text-lg">🛡️</span>
-      <div>
+    >      <div>
         <strong>Criterio de Aceptación CHK-022:</strong>
         No reserva inventario ni cobra de forma indefinida. Todo borrador tiene fecha de expiración obligatoria y
         timeline auditable.

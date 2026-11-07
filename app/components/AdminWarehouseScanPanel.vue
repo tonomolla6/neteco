@@ -15,7 +15,7 @@
           data-testid="btn-report-exception"
           @click="showExceptionModal = true"
         >
-          ⚠️ Reportar Excepción
+          Reportar Excepción
         </button>
       </div>
     </div>

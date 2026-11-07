@@ -225,7 +225,7 @@ onMounted(() => {
                 >
                   Verificar Capacidad
                 </button>
-                <span v-else class="text-xs text-emerald-700 font-semibold">Validado ✅</span>
+                <span v-else class="text-xs text-emerald-700 font-semibold">Validado</span>
               </td>
             </tr>
           </tbody>

@@ -185,7 +185,7 @@ async function loadHandlingInstructions() {
           role="alert"
           data-testid="label-error"
         >
-          ⚠️ {{ labelError }}
+          {{ labelError }}
         </div>
 
         <!-- Rendered CLP Label Preview -->

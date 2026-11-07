@@ -62,7 +62,7 @@ describe('AdminUgcModeration.vue Component', () => {
     expect(wrapper.text()).toContain('Moderación de UGC y Reseñas con Fotos')
     expect(wrapper.text()).toContain('Pendientes de moderación')
     expect(wrapper.text()).toContain('Datos de identificación personal detectados en el texto')
-    expect(wrapper.text()).toContain('🛡️ Antivirus: clean')
+    expect(wrapper.text()).toContain('Antivirus: clean')
     expect(wrapper.text()).toContain('Aprobar')
     expect(wrapper.text()).toContain('Rechazar')
     expect(wrapper.text()).toContain('Cuarentena')

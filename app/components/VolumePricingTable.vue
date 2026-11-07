@@ -119,7 +119,7 @@ function formatMoney(cents: number): string {
       v-if="breakdown.nextTierIncentive"
       class="mt-3 rounded-lg border border-emerald-300 bg-white p-2.5 text-xs text-emerald-900 shadow-xs"
     >
-      <span class="font-bold text-emerald-800">💡 Oportunidad de ahorro:</span>
+      <span class="font-bold text-emerald-800">Oportunidad de ahorro:</span>
       {{ breakdown.nextTierIncentive.message }}
     </div>
   </div>

@@ -211,7 +211,7 @@ onMounted(() => {
           class="mt-3 pl-4 border-l-2 border-primary-500 bg-slate-50 p-3 rounded-r-lg space-y-1"
         >
           <div class="flex items-center gap-2 text-xs font-semibold text-primary-900">
-            <span>🛡️ Respuesta oficial de Neteco</span>
+            <span>Respuesta oficial de Neteco</span>
           </div>
           <p class="text-sm text-slate-700">{{ review.merchantResponse }}</p>
         </div>
@@ -330,7 +330,7 @@ onMounted(() => {
           class="mt-3 pl-4 border-l-2 border-primary-500 bg-slate-50 p-3 rounded-r-lg space-y-1"
         >
           <div class="flex items-center gap-2 text-xs font-semibold text-primary-900">
-            <span>🛡️ Respuesta oficial de Neteco</span>
+            <span>Respuesta oficial de Neteco</span>
           </div>
           <p class="text-sm text-slate-700">{{ q.officialAnswer }}</p>
         </div>
