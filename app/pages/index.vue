@@ -191,9 +191,7 @@ const sectors = [
            el blanco es parte de la composición y no un recorte. -->
       <div class="mx-auto grid max-w-[1600px] grid-cols-1 items-stretch lg:grid-cols-[1fr_460px]">
         <div class="max-w-2xl px-4 py-14 sm:py-16 lg:py-20">
-          <p class="mb-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-medium">
-            <UIcon name="i-lucide-badge-check" class="size-4" /> Más de 25 años al servicio de tu negocio
-          </p>
+          <p class="mb-3 text-sm font-medium text-neteco-200">Más de 25 años al servicio de tu negocio</p>
           <!-- `text-white` explícito: la regla global de titulares fija `--text-strong`, y una
                regla de elemento gana siempre al color heredado del contenedor oscuro. -->
           <h1 class="text-3xl font-bold leading-tight text-white sm:text-5xl">
