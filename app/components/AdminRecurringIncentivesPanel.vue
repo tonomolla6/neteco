@@ -78,7 +78,7 @@ onMounted(() => {
     </header>
 
     <!-- Fiscal Legal Note Alert -->
-    <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded text-xs text-blue-900">
+    <div class="bg-blue-50 border border-blue-500 p-4 rounded text-xs text-blue-900">
       <span class="font-bold">Marco Tributario Aplicable:</span>
       <p class="mt-0.5">{{ SPANISH_LIVA_RAPPEL_FISCAL_CLAUSE }}</p>
     </div>

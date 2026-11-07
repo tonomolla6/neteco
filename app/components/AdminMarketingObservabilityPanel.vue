@@ -251,7 +251,7 @@ onMounted(() => {
       aria-modal="true"
       @keydown.esc="closeBreakdown"
     >
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl border border-neutral-200 space-y-4">
+      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-[var(--shadow-overlay)] border border-neutral-200 space-y-4">
         <div class="flex items-center justify-between border-b border-neutral-200 pb-3">
           <div>
             <h4 class="text-base font-bold text-neutral-900">{{ selectedWorkflow.workflowName }}</h4>

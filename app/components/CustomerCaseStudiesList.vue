@@ -196,7 +196,7 @@ const handleSectorFilter = (sector: string | null) => {
       @click="selectedCase = null"
     >
       <div
-        class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl dark:bg-gray-900"
+        class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-[var(--shadow-overlay)] dark:bg-gray-900"
         @click.stop
       >
         <div class="flex items-start justify-between border-b border-gray-100 pb-4 dark:border-gray-800">

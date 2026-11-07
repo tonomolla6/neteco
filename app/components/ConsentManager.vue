@@ -63,7 +63,7 @@ function trapFocus(event: KeyboardEvent) {
   <section
     v-if="visible"
     ref="dialog"
-    class="fixed inset-x-3 bottom-3 z-[90] mx-auto max-w-3xl rounded-2xl border border-slate-300 bg-white p-5 shadow-2xl"
+    class="fixed inset-x-3 bottom-3 z-[90] mx-auto max-w-3xl rounded-2xl border border-slate-300 bg-white p-5 shadow-[var(--shadow-overlay)]"
     role="dialog"
     aria-modal="true"
     aria-labelledby="consent-title"

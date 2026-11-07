@@ -270,7 +270,7 @@ async function logout() {
           role="dialog"
           aria-modal="true"
           aria-label="Menú de navegación"
-          class="absolute inset-y-0 left-0 flex w-80 max-w-[85vw] flex-col overflow-y-auto bg-white shadow-2xl"
+          class="absolute inset-y-0 left-0 flex w-80 max-w-[85vw] flex-col overflow-y-auto bg-white shadow-[var(--shadow-overlay)]"
         >
           <div class="flex items-center justify-between border-b border-slate-100 p-4">
             <img src="/logo-texto.png" alt="NETECO" class="h-6 w-auto" />

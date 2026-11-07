@@ -53,7 +53,7 @@ onMounted(() => {
 <template>
   <div class="mx-auto max-w-6xl px-4 py-8" data-testid="brand-center-panel">
     <!-- Hero banner -->
-    <div class="mb-10 rounded-2xl bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900 p-8 text-white shadow-lg">
+    <div class="mb-10 rounded-[var(--radius-panel)] bg-neteco-900 p-8 text-white">
       <div class="max-w-3xl">
         <span
           class="inline-block rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-300"

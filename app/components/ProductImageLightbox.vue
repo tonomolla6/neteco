@@ -193,7 +193,7 @@ onBeforeUnmount(() => {
       >
         <DialogContent
           aria-modal="true"
-          class="relative flex max-h-[96dvh] w-full min-w-0 max-w-6xl flex-col gap-3 overflow-hidden rounded-xl bg-slate-950 p-3 text-white shadow-2xl sm:p-4"
+          class="relative flex max-h-[96dvh] w-full min-w-0 max-w-6xl flex-col gap-3 overflow-hidden rounded-xl bg-slate-950 p-3 text-white shadow-[var(--shadow-overlay)] sm:p-4"
           @open-auto-focus="openAutoFocus"
           @close-auto-focus="closeAutoFocus"
           @pointer-down-outside.prevent

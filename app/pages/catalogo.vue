@@ -498,7 +498,7 @@ watch(() => route.fullPath, applyRouteFilters)
           role="dialog"
           aria-modal="true"
           aria-label="Filtros"
-          class="absolute inset-y-0 right-0 flex w-80 max-w-[85vw] flex-col bg-white shadow-2xl"
+          class="absolute inset-y-0 right-0 flex w-80 max-w-[85vw] flex-col bg-white shadow-[var(--shadow-overlay)]"
         >
           <div class="flex items-center justify-between border-b border-slate-100 p-4">
             <p class="font-bold text-slate-900">Filtros</p>

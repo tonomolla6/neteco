@@ -82,7 +82,7 @@ onMounted(() => {
 <template>
   <div class="mx-auto max-w-6xl px-4 py-8" data-testid="downloadable-templates-panel">
     <!-- Header banner -->
-    <div class="mb-8 rounded-2xl bg-gradient-to-r from-sky-900 to-blue-800 p-8 text-white shadow-md">
+    <div class="mb-8 rounded-[var(--radius-panel)] bg-neteco-900 p-8 text-white">
       <div class="max-w-3xl">
         <span
           class="inline-block rounded-full bg-sky-700/60 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-sky-200"

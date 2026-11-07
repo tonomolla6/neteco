@@ -502,7 +502,7 @@ const handleWithdraw = async (review: PublicUgcReview) => {
         <img
           :src="selectedPhoto"
           alt="Fotografía ampliada de opinión"
-          class="max-h-[85vh] max-w-full rounded-lg object-contain shadow-2xl"
+          class="max-h-[85vh] max-w-full rounded-lg object-contain shadow-[var(--shadow-overlay)]"
         />
         <button
           type="button"

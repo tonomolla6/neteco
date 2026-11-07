@@ -375,7 +375,7 @@ watch(
       :data-max-viewport-percent="String(modal.presentation.maxViewportHeightPercent)"
       :data-reduced-motion="String(modal.presentation.reducedMotion)"
       :class="[
-        'w-full overflow-y-auto bg-white p-5 text-slate-900 shadow-2xl',
+        'w-full overflow-y-auto bg-white p-5 text-slate-900 shadow-[var(--shadow-overlay)]',
         modal.presentation.maxViewportHeightPercent === 50 ? 'max-h-[50vh]' : 'max-h-[80vh]',
         isSheet ? 'rounded-t-2xl' : 'max-w-lg rounded-2xl',
         modal.presentation.reducedMotion ? 'transition-none' : 'transition-transform duration-200'

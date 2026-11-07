@@ -25,3 +25,16 @@ describe('UI copy without decorative emoji', () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe('UI chrome without generic AI-template styling', () => {
+  const TELLS: Array<[string, RegExp]> = [
+    ['accent stripe', /\bborder-l-4\b/],
+    ['oversized radius', /\brounded-3xl\b/],
+    ['oversized shadow', /\bshadow-2xl\b/],
+    ['off-brand gradient banner', /bg-gradient-to-r from-(?:sky|emerald|purple|violet|indigo|fuchsia|pink)-/]
+  ]
+  it.each(TELLS)('avoids %s in app/ templates', (_label, pattern) => {
+    const offenders = vueFiles('app').filter((file) => pattern.test(readFileSync(file, 'utf8')))
+    expect(offenders).toEqual([])
+  })
+})

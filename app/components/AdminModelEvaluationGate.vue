@@ -174,14 +174,14 @@ onMounted(() => {
     <div
       v-if="errorMessage"
       data-test="error-alert"
-      class="p-4 bg-red-50 border-l-4 border-red-400 text-red-700 text-sm"
+      class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm"
     >
       {{ errorMessage }}
     </div>
     <div
       v-if="successMessage"
       data-test="success-alert"
-      class="p-4 bg-emerald-50 border-l-4 border-emerald-400 text-emerald-700 text-sm flex justify-between items-center"
+      class="p-4 bg-emerald-50 border border-emerald-400 text-emerald-700 text-sm flex justify-between items-center"
     >
       <span>{{ successMessage }}</span>
       <button class="text-emerald-700 hover:underline text-xs" @click="successMessage = ''">Cerrar</button>

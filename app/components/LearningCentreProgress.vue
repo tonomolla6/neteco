@@ -104,7 +104,7 @@ onMounted(() => {
 <template>
   <div class="learning-centre-progress p-6 max-w-5xl mx-auto space-y-6">
     <!-- Legal Non-official Disclaimer Banner (Mandatory Acceptance Criterion MKT-033) -->
-    <div class="bg-amber-50 border-l-4 border-amber-500 p-4 rounded text-sm text-amber-900 shadow-sm" role="alert">
+    <div class="bg-amber-50 border border-amber-500 p-4 rounded text-sm text-amber-900 shadow-sm" role="alert">
       <div class="flex items-start gap-3">
         <span class="font-semibold text-amber-800">Aviso informativo:</span>
         <p>{{ LEGAL_NON_OFFICIAL_ACCREDITATION_DISCLAIMER }}</p>
