@@ -63,28 +63,28 @@ jobs:
           set -euo pipefail
           [[ "$SERVICE_ID" =~ ^[a-f0-9-]{36}$ ]]
           node /usr/local/libexec/neteco-ci/build-storage.mjs --estimated-output-gib 2
-          docker create --pull=never --name "neteco-ci-$SERVICE_ID-postgres" \
+          /usr/local/libexec/neteco-ci/bin/docker create --pull=never --name "neteco-ci-$SERVICE_ID-postgres" \
             --label "neteco.ci.service=$SERVICE_ID" --cpus 0.5 --memory 256m --memory-swap 384m --pids-limit 128 \
             --publish 127.0.0.1::5432 --env POSTGRES_USER=neteco --env POSTGRES_PASSWORD=neteco-test \
             --env POSTGRES_DB=neteco_test postgres:17.6-alpine3.22 >/dev/null
-          docker create --pull=never --name "neteco-ci-$SERVICE_ID-redis" \
+          /usr/local/libexec/neteco-ci/bin/docker create --pull=never --name "neteco-ci-$SERVICE_ID-redis" \
             --label "neteco.ci.service=$SERVICE_ID" --cpus 0.5 --memory 256m --memory-swap 384m --pids-limit 128 \
             --publish 127.0.0.1::6379 redis:8.2.1-alpine3.22 >/dev/null
-          docker start "neteco-ci-$SERVICE_ID-postgres" "neteco-ci-$SERVICE_ID-redis" >/dev/null
+          /usr/local/libexec/neteco-ci/bin/docker start "neteco-ci-$SERVICE_ID-postgres" "neteco-ci-$SERVICE_ID-redis" >/dev/null
           for service in postgres redis; do
             ready=0
             for attempt in {1..30}; do
               if [[ "$service" == postgres ]]; then
-                if [[ "$(docker exec -e PGPASSWORD=neteco-test "neteco-ci-$SERVICE_ID-postgres" psql -h 127.0.0.1 -U neteco -d neteco_test -At -c 'SELECT 1' 2>/dev/null)" == 1 ]]; then ready=1; break; fi
+                if [[ "$(/usr/local/libexec/neteco-ci/bin/docker exec -e PGPASSWORD=neteco-test "neteco-ci-$SERVICE_ID-postgres" psql -h 127.0.0.1 -U neteco -d neteco_test -At -c 'SELECT 1' 2>/dev/null)" == 1 ]]; then ready=1; break; fi
               else
-                if [[ "$(docker exec "neteco-ci-$SERVICE_ID-redis" redis-cli ping 2>/dev/null)" == PONG ]]; then ready=1; break; fi
+                if [[ "$(/usr/local/libexec/neteco-ci/bin/docker exec "neteco-ci-$SERVICE_ID-redis" redis-cli ping 2>/dev/null)" == PONG ]]; then ready=1; break; fi
               fi
               sleep 1
             done
             [[ "$ready" == 1 ]]
           done
-          pg_address="$(docker port "neteco-ci-$SERVICE_ID-postgres" 5432/tcp)"
-          redis_address="$(docker port "neteco-ci-$SERVICE_ID-redis" 6379/tcp)"
+          pg_address="$(/usr/local/libexec/neteco-ci/bin/docker port "neteco-ci-$SERVICE_ID-postgres" 5432/tcp)"
+          redis_address="$(/usr/local/libexec/neteco-ci/bin/docker port "neteco-ci-$SERVICE_ID-redis" 6379/tcp)"
           [[ "$pg_address" =~ ^127\.0\.0\.1:([0-9]+)$ ]]
           printf 'DATABASE_URL=postgres://neteco:neteco-test@127.0.0.1:%s/neteco_test\n' "${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
           [[ "$redis_address" =~ ^127\.0\.0\.1:([0-9]+)$ ]]
@@ -146,12 +146,12 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SERVICE_ID" =~ ^[a-f0-9-]{36}$ ]]
-          docker info --format '{{.ServerVersion}}' >/dev/null
+          /usr/local/libexec/neteco-ci/bin/docker info --format '{{.ServerVersion}}' >/dev/null
           for service in postgres redis; do
             name="neteco-ci-$SERVICE_ID-$service"
-            if docker container inspect "$name" >/dev/null 2>&1; then
-              [[ "$(docker inspect --format '{{ index .Config.Labels "neteco.ci.service" }}' "$name")" == "$SERVICE_ID" ]]
-              docker rm --force --volumes "$name" >/dev/null
+            if /usr/local/libexec/neteco-ci/bin/docker container inspect "$name" >/dev/null 2>&1; then
+              [[ "$(/usr/local/libexec/neteco-ci/bin/docker inspect --format '{{ index .Config.Labels "neteco.ci.service" }}' "$name")" == "$SERVICE_ID" ]]
+              /usr/local/libexec/neteco-ci/bin/docker rm --force --volumes "$name" >/dev/null
             fi
           done
 
@@ -207,7 +207,7 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
           severity: CRITICAL,HIGH
-      - run: docker save "$IMAGE_TAG" --output "$ARTIFACT_DIR/neteco-image.tar"
+      - run: /usr/local/libexec/neteco-ci/bin/docker save "$IMAGE_TAG" --output "$ARTIFACT_DIR/neteco-image.tar"
         env:
           IMAGE_TAG: neteco:${{ github.sha }}
           ARTIFACT_DIR: ${{ steps.container-artifacts.outputs.directory }}
@@ -256,6 +256,47 @@ jobs:
           node-version-file: .node-version
           cache: npm
       - run: node scripts/storage-preflight.ts
+      - name: Allocate isolated mutation service identifiers
+        id: mutation-service-identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="$(node -p "require('node:crypto').randomUUID()")"
+          printf 'id=%s\n' "$id" >> "$GITHUB_OUTPUT"
+      - name: Start isolated mutation PostgreSQL and Redis
+        shell: bash
+        env:
+          SERVICE_ID: ${{ steps.mutation-service-identifiers.outputs.id }}
+        run: |
+          set -euo pipefail
+          [[ "$SERVICE_ID" =~ ^[a-f0-9-]{36}$ ]]
+          node /usr/local/libexec/neteco-ci/build-storage.mjs --estimated-output-gib 2
+          /usr/local/libexec/neteco-ci/bin/docker create --pull=never --name "neteco-ci-$SERVICE_ID-postgres" \
+            --label "neteco.ci.service=$SERVICE_ID" --cpus 0.5 --memory 256m --memory-swap 384m --pids-limit 128 \
+            --publish 127.0.0.1::5432 --env POSTGRES_USER=neteco --env POSTGRES_PASSWORD=neteco-test \
+            --env POSTGRES_DB=neteco_test postgres:17.6-alpine3.22 >/dev/null
+          /usr/local/libexec/neteco-ci/bin/docker create --pull=never --name "neteco-ci-$SERVICE_ID-redis" \
+            --label "neteco.ci.service=$SERVICE_ID" --cpus 0.5 --memory 256m --memory-swap 384m --pids-limit 128 \
+            --publish 127.0.0.1::6379 redis:8.2.1-alpine3.22 >/dev/null
+          /usr/local/libexec/neteco-ci/bin/docker start "neteco-ci-$SERVICE_ID-postgres" "neteco-ci-$SERVICE_ID-redis" >/dev/null
+          for service in postgres redis; do
+            ready=0
+            for attempt in {1..30}; do
+              if [[ "$service" == postgres ]]; then
+                if [[ "$(/usr/local/libexec/neteco-ci/bin/docker exec -e PGPASSWORD=neteco-test "neteco-ci-$SERVICE_ID-postgres" psql -h 127.0.0.1 -U neteco -d neteco_test -At -c 'SELECT 1' 2>/dev/null)" == 1 ]]; then ready=1; break; fi
+              else
+                if [[ "$(/usr/local/libexec/neteco-ci/bin/docker exec "neteco-ci-$SERVICE_ID-redis" redis-cli ping 2>/dev/null)" == PONG ]]; then ready=1; break; fi
+              fi
+              sleep 1
+            done
+            [[ "$ready" == 1 ]]
+          done
+          pg_address="$(/usr/local/libexec/neteco-ci/bin/docker port "neteco-ci-$SERVICE_ID-postgres" 5432/tcp)"
+          redis_address="$(/usr/local/libexec/neteco-ci/bin/docker port "neteco-ci-$SERVICE_ID-redis" 6379/tcp)"
+          [[ "$pg_address" =~ ^127\.0\.0\.1:([0-9]+)$ ]]
+          printf 'DATABASE_URL=postgres://neteco:neteco-test@127.0.0.1:%s/neteco_test\n' "${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          [[ "$redis_address" =~ ^127\.0\.0\.1:([0-9]+)$ ]]
+          printf 'REDIS_URL=redis://127.0.0.1:%s/0\n' "${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
       - run: npm ci
       - run: npm run test:mutation
       - run: npm run ci:artifacts -- --publish
@@ -268,6 +309,22 @@ jobs:
           path: reports/mutation/
           if-no-files-found: error
           retention-days: 14
+      - name: Remove isolated mutation PostgreSQL and Redis
+        if: always() && steps.mutation-service-identifiers.outcome == 'success'
+        shell: bash
+        env:
+          SERVICE_ID: ${{ steps.mutation-service-identifiers.outputs.id }}
+        run: |
+          set -euo pipefail
+          [[ "$SERVICE_ID" =~ ^[a-f0-9-]{36}$ ]]
+          /usr/local/libexec/neteco-ci/bin/docker info --format '{{.ServerVersion}}' >/dev/null
+          for service in postgres redis; do
+            name="neteco-ci-$SERVICE_ID-$service"
+            if /usr/local/libexec/neteco-ci/bin/docker container inspect "$name" >/dev/null 2>&1; then
+              [[ "$(/usr/local/libexec/neteco-ci/bin/docker inspect --format '{{ index .Config.Labels "neteco.ci.service" }}' "$name")" == "$SERVICE_ID" ]]
+              /usr/local/libexec/neteco-ci/bin/docker rm --force --volumes "$name" >/dev/null
+            fi
+          done
 
   secret-scan:
     if: github.ref == 'refs/heads/main'

@@ -66,6 +66,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:audit
       - run: npm run build:shop:cloudflare
+        env:
+          NODE_OPTIONS: --max-old-space-size=2816 --require=/usr/local/libexec/neteco-ci/terser-max-workers.cjs
       - run: npm run test:compiled
       - run: npx playwright install chromium
       - run: npm run audit:shop:ci
