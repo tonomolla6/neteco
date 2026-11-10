@@ -238,3 +238,25 @@ it('does not report success when asynchronous cleanup fails', async () => {
   })
   await expect(runOfflineIacCheck(fixture.dependencies)).rejects.toThrow('cleanup_failed')
 })
+
+it('rejects swap in the job cgroup but tolerates swap held by other services in shared ancestors', async () => {
+  const { assertCgroupMemoryBudget } = await import('../../scripts/cloudflare-iac-check.mjs')
+  const tree = (leafSwap: number) =>
+    new Map([
+      ['/sys/fs/cgroup/system.slice/runner.service/memory.current', '1000'],
+      ['/sys/fs/cgroup/system.slice/runner.service/memory.max', String(8 * 1024 ** 3)],
+      ['/sys/fs/cgroup/system.slice/runner.service/memory.swap.current', String(leafSwap)],
+      ['/sys/fs/cgroup/system.slice/memory.current', String(4 * 1024 ** 3)],
+      ['/sys/fs/cgroup/system.slice/memory.max', 'max'],
+      ['/sys/fs/cgroup/system.slice/memory.swap.current', String(2 * 1024 ** 3)]
+    ])
+  const reader = (files: Map<string, string>) => async (path: string) => {
+    const value = files.get(path)
+    if (value === undefined) throw new Error(`unexpected read ${path}`)
+    return value
+  }
+  await expect(assertCgroupMemoryBudget('/system.slice/runner.service', reader(tree(0)))).resolves.toBeUndefined()
+  await expect(assertCgroupMemoryBudget('/system.slice/runner.service', reader(tree(4096)))).rejects.toThrow(
+    'cgroup_swap_in_use'
+  )
+})

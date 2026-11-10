@@ -55,6 +55,22 @@ async function sealed(path, directory = false) {
   }
 }
 
+export async function assertCgroupMemoryBudget(group, read = (path) => readFile(path, 'utf8')) {
+  const leaf = join('/sys/fs/cgroup', group)
+  // The job's own cgroup must not be swapping. Shared ancestors (system.slice)
+  // also hold other host services' swap, which says nothing about this job.
+  if (Number(await read(join(leaf, 'memory.swap.current'))) !== 0) throw new Error('cgroup_swap_in_use')
+  let cursor = leaf
+  // The cgroup-v2 root has no memory.max controller limit; its host budget
+  // was checked by the caller. Every non-root ancestor must admit this peak.
+  while (cursor !== '/sys/fs/cgroup') {
+    const current = Number(await read(join(cursor, 'memory.current')))
+    const maximum = (await read(join(cursor, 'memory.max'))).trim()
+    if (maximum !== 'max' && Number(maximum) - current < GiB) throw new Error('cgroup_memory_budget')
+    cursor = dirname(cursor)
+  }
+}
+
 async function resources() {
   // The runner exposes host memory read-only; its /proc view alone is not the
   // host budget. Missing isolation/admission tooling is a hard failure.
@@ -64,17 +80,7 @@ async function resources() {
   const membership = await readFile('/proc/self/cgroup', 'utf8')
   const group = membership.match(/^0::(\/[^\n]*)$/m)?.[1]
   if (!group || group.includes('..')) throw new Error('cgroup_unavailable')
-  let cursor = join('/sys/fs/cgroup', group)
-  // The cgroup-v2 root has no memory.max controller limit; its host budget
-  // was checked above. Every non-root ancestor must admit this peak.
-  while (cursor !== '/sys/fs/cgroup') {
-    const current = Number(await readFile(join(cursor, 'memory.current'), 'utf8'))
-    const maximum = (await readFile(join(cursor, 'memory.max'), 'utf8')).trim()
-    if (maximum !== 'max' && Number(maximum) - current < GiB) throw new Error('cgroup_memory_budget')
-    const swap = Number(await readFile(join(cursor, 'memory.swap.current'), 'utf8'))
-    if (swap !== 0) throw new Error('cgroup_swap_in_use')
-    cursor = dirname(cursor)
-  }
+  await assertCgroupMemoryBudget(group)
   const gate = '/usr/local/libexec/neteco-ci/build-storage.mjs'
   await sealed(gate)
   await execute(process.execPath, [gate, '--estimated-output-gib', '1'], {
