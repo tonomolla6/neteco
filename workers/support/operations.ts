@@ -32,7 +32,7 @@ export class SupportError extends Error {
     this.name = 'SupportError'
   }
 }
-export function supportChecked<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, raw: unknown): T {
+export function supportChecked<T, I>(schema: z.ZodType<T, I>, raw: unknown): T {
   let owned: unknown
   try {
     owned = catalogPolicyOwnJson(raw)

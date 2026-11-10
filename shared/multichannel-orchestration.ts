@@ -76,7 +76,7 @@ export const orchestrateMultichannelInputSchema = z
     link: z.string().max(500).optional(),
     mandatory: z.boolean().default(false),
     overridePriority: priorityOrderSchema.optional(),
-    metadata: z.record(z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).default({}),
     inAppCenter: z.boolean().default(true)
   })
   .strict()

@@ -75,7 +75,7 @@ export const supportMacroSelectionSchema = z
   .object({
     macroId: catalogPolicyUuidSchema,
     revisionId: catalogPolicyUuidSchema,
-    personalizations: z.record(z.string().max(300)).refine((v) => Object.keys(v).length <= 10)
+    personalizations: z.record(z.string(), z.string().max(300)).refine((v) => Object.keys(v).length <= 10)
   })
   .strict()
 export const supportMacroReplySchema = supportMacroSelectionSchema.extend({ confirmed: z.literal(true) })

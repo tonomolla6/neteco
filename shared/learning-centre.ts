@@ -52,6 +52,7 @@ export const createCourseSchema = z.object({
 export type CreateCourseInput = z.infer<typeof createCourseSchema>
 
 export const updateCourseSchema = createCourseSchema.partial().extend({
+  passingScorePercent: createCourseSchema.shape.passingScorePercent.unwrap().optional(),
   version: z.number().int().min(1),
   status: z.enum(['draft', 'published', 'archived']).optional()
 })

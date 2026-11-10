@@ -118,7 +118,7 @@ describe('pure isolated Cloudflare preproduction projection', () => {
     })
     expect(nested(output, 'queues.consumers.0').dead_letter_queue).toBe('neteco-preprod-jobs-dlq')
     expect(output.workflows).toEqual([
-      { name: 'neteco-preprod-catalog', binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow', remote: false }
+      { name: 'neteco-preprod-catalog', binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }
     ])
     expect((output.ratelimits as { namespace_id: string }[]).map((binding) => binding.namespace_id)).toEqual([
       '9706001',

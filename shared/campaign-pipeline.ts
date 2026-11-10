@@ -57,7 +57,7 @@ export const campaignDocumentSchema = z
     headline: z.string().min(3).max(200),
     metaDescription: z.string().min(10).max(300),
     sections: z.array(campaignSectionSchema).min(1),
-    trackingTags: z.record(z.string()).optional()
+    trackingTags: z.record(z.string(), z.string()).optional()
   })
   .strict()
 

@@ -12,7 +12,7 @@ export const CatalogTechnicalSourceSchema = z.object({
   type: z.enum(SOURCE_TYPES),
   url: z.string().trim().url().optional(),
   sdsNumber: z.string().trim().max(100).optional(),
-  verifiedClaims: z.array(z.string().trim().min(2).max(200)).min(1),
+  verifiedClaims: z.array(z.string().trim().min(2).max(200)).min(1, 'Array must contain at least 1 element(s)'),
   textSnippet: z.string().trim().min(5).max(4000)
 })
 export type CatalogTechnicalSource = z.infer<typeof CatalogTechnicalSourceSchema>
@@ -65,7 +65,7 @@ export const ReviewCatalogGenerationInputSchema = z.object({
       shortDescription: z.string().trim().max(1000).optional(),
       description: z.string().trim().max(10000).optional(),
       usage: z.string().trim().max(10000).optional(),
-      attributes: z.record(z.unknown()).optional()
+      attributes: z.record(z.string(), z.unknown()).optional()
     })
     .optional()
 })

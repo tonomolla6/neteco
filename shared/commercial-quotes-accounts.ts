@@ -115,7 +115,7 @@ export type CommercialAccountSummary = z.infer<typeof commercialAccountSummarySc
 export const commercialPipelineSummarySchema = z
   .object({
     erpDisclaimer: z.string(),
-    stages: z.record(
+    stages: z.partialRecord(
       pipelineStageSchema,
       z.object({
         count: z.number().int().min(0),

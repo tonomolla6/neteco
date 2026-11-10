@@ -94,7 +94,7 @@ export class BeplyInvoiceProvider implements InvoiceProvider {
     private readonly outboundPolicy?: BeplyOutboundPolicy
   ) {
     this.configuration = {
-      baseUrl: z.string().url().parse(trimSlashes(configuration.baseUrl)),
+      baseUrl: z.string().url('Invalid url').parse(trimSlashes(configuration.baseUrl)),
       token: z.string().min(1).parse(configuration.token),
       invoiceSeries: z.string().min(1).max(10).parse(configuration.invoiceSeries),
       correctiveSeries: z.string().min(1).max(10).parse(configuration.correctiveSeries),

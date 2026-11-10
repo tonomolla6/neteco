@@ -103,7 +103,11 @@ export async function capturedSource(database: D1Database, orderId: string) {
         .object({
           paymentIntentId: fiscalUuid,
           redirect: z
-            .object({ actionUrl: z.string().url(), fields: z.record(z.string()), method: z.literal('POST') })
+            .object({
+              actionUrl: z.string().url(),
+              fields: z.record(z.string(), z.string()),
+              method: z.literal('POST')
+            })
             .strict(),
           status: z.literal('redirect_ready'),
           expiresAt: z.string()
@@ -138,7 +142,7 @@ export async function capturedSource(database: D1Database, orderId: string) {
   }
   if (matches.length !== 1) throw new RefundError('capture_configuration_unconfirmed')
   const options = checked(
-    z.array(z.record(z.unknown())).max(100),
+    z.array(z.record(z.string(), z.unknown())).max(100),
     parsedJson(row.options_json, 'shipping_snapshot_unconfirmed'),
     'shipping_snapshot_unconfirmed'
   )

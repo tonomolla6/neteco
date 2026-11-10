@@ -64,7 +64,7 @@ export const HumanAdminDecisionInputSchema = z.object({
   decision: z.enum(['approve', 'reject', 'modify_and_approve']),
   notes: z.string().trim().max(1000).optional(),
   modifiedReply: z.string().trim().min(5).max(6000).optional(),
-  modifiedActionPayload: z.record(z.unknown()).optional()
+  modifiedActionPayload: z.record(z.string(), z.unknown()).optional()
 })
 export type HumanAdminDecisionInput = z.infer<typeof HumanAdminDecisionInputSchema>
 

@@ -69,7 +69,7 @@ const claimsSchema = z
   })
   .strict()
 function checked<T, I>(
-  schema: z.ZodType<T, z.ZodTypeDef, I>,
+  schema: z.ZodType<T, I>,
   value: unknown,
   code: 'invalid_input' | 'unauthenticated' = 'invalid_input'
 ): T {
@@ -83,7 +83,7 @@ function checked<T, I>(
   if (!result.success) throw new CmsDraftError(code)
   return result.data
 }
-function confirmed<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, value: unknown): T {
+function confirmed<T, I>(schema: z.ZodType<T, I>, value: unknown): T {
   try {
     return schema.parse(catalogPolicyOwnJson(value))
   } catch {
@@ -176,7 +176,7 @@ const revisionRowSchema = z
   .strict()
 type PageRow = z.infer<typeof pageRowSchema>
 type RevisionRow = z.infer<typeof revisionRowSchema>
-function source<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, raw: string): T {
+function source<T, I>(schema: z.ZodType<T, I>, raw: string): T {
   try {
     return schema.parse(catalogPolicyOwnJson(JSON.parse(raw)))
   } catch {

@@ -23,7 +23,7 @@ export class CmsPublicationError extends Error {
 export function cmsNow(deps: Pick<CmsPublicationDependencies, 'now'>) {
   return catalogPolicyInstantSchema.parse(deps.now?.() ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'))
 }
-export function cmsSource<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, value: unknown): T {
+export function cmsSource<T, I>(schema: z.ZodType<T, I>, value: unknown): T {
   try {
     return schema.parse(catalogPolicyOwnJson(value))
   } catch {

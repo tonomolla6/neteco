@@ -190,7 +190,7 @@ export function parseD1CategoryAdminView(value: unknown): CatalogCategoryAdminVi
     const base = z
       .object({
         source: z.literal('cloudflare'),
-        capabilities: z.record(z.boolean()),
+        capabilities: z.record(z.string(), z.boolean()),
         flat: z.array(readRowSchema).max(1000),
         unmappedCategories: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
       })

@@ -54,7 +54,7 @@ export const roleDashboardWidgetSchema = z
     order: z.number().int().min(1).max(100),
     colSpan: z.number().int().min(1).max(12).default(12),
     isMandatory: z.boolean().optional(),
-    config: z.record(z.unknown()).optional()
+    config: z.record(z.string(), z.unknown()).optional()
   })
   .strict()
 
@@ -64,7 +64,7 @@ export const updateRoleDashboardInputSchema = z
     roleCode: z.string().min(2).max(64),
     expectedVersion: z.number().int().min(0),
     widgets: z.array(roleDashboardWidgetSchema).min(1).max(50),
-    columnPreferences: z.record(z.array(z.string().min(1).max(64))),
+    columnPreferences: z.record(z.string(), z.array(z.string().min(1).max(64))),
     now: z.string().optional()
   })
   .strict()
@@ -83,7 +83,7 @@ export const saveRoleSavedViewInputSchema = z
       .refine((v) => !/[<>{}\\]/.test(v), 'Carácter no válido'),
     scope: z.enum(['role_shared', 'personal']),
     isDefault: z.boolean().default(false),
-    definition: z.record(z.unknown()),
+    definition: z.record(z.string(), z.unknown()),
     expectedVersion: z.number().int().min(0).optional(),
     now: z.string().optional()
   })

@@ -40,7 +40,7 @@ export const recordSliMeasurementSchema = z
     totalEvents: z.number().int().nonnegative(),
     failedEvents: z.number().int().nonnegative(),
     targetSloRatio: z.number().positive().max(1.0),
-    metadata: z.record(z.unknown()).optional()
+    metadata: z.record(z.string(), z.unknown()).optional()
   })
   .strict()
   .refine((data) => data.failedEvents <= data.totalEvents, {

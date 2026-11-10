@@ -21,7 +21,7 @@ export const accountNotificationItemSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
       .nullable(),
     mandatory: z.boolean(),
-    metadata: z.record(z.unknown()),
+    metadata: z.record(z.string(), z.unknown()),
     dedupKey: z.string().max(150).nullable(),
     createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
     updatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
@@ -60,7 +60,7 @@ export const createNotificationInputSchema = z
     body: z.string().min(1).max(2000),
     link: z.string().max(500).optional(),
     mandatory: z.boolean().default(false),
-    metadata: z.record(z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).default({}),
     dedupKey: z.string().max(150).optional()
   })
   .strict()

@@ -56,7 +56,7 @@ export const sourcingDecisionSchema = z.object({
   marginCents: z.number().int(),
   marginPercent: z.number(),
   leadTimeDays: z.number().int().min(0),
-  candidateOptions: z.array(z.record(z.unknown())),
+  candidateOptions: z.array(z.record(z.string(), z.unknown())),
   actorId: z.string().uuid(),
   createdAt: z.string()
 })

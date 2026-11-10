@@ -107,7 +107,7 @@ function own(value: unknown): unknown {
   }
 }
 function checked<T>(
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   value: unknown,
   code: 'invalid_input' | 'unauthenticated' = 'invalid_input'
 ): T {

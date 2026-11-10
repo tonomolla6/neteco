@@ -68,7 +68,7 @@ export const cloudflareManifestSchema = z
     bindings: z.array(bindingConfigSchema),
     d1Databases: z.array(d1DatabaseConfigSchema),
     durableObjects: z.array(durableObjectConfigSchema),
-    vars: z.record(z.string()),
+    vars: z.record(z.string(), z.string()),
     edgeSecurity: edgeSecurityConfigSchema
   })
   .strict()

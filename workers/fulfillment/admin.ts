@@ -55,7 +55,7 @@ const claimsSchema = z
   .object({ identityId: catalogPolicyUuidSchema, sessionId: catalogPolicyUuidSchema, sessionVersion: positive })
   .strict()
 function checked<T, I>(
-  schema: z.ZodType<T, z.ZodTypeDef, I>,
+  schema: z.ZodType<T, I>,
   raw: unknown,
   code: FulfillmentErrorCode = 'invalid_input'
 ): T {

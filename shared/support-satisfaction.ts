@@ -89,7 +89,7 @@ export const adminSatisfactionQuerySchema = z
     comments: z
       .enum(['true', 'false'])
       .transform((value) => value === 'true')
-      .default('false')
+      .default(false)
   })
   .strict()
 export type AdminSatisfactionQuery = z.infer<typeof adminSatisfactionQuerySchema>

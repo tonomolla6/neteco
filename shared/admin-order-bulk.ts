@@ -28,7 +28,7 @@ function validateTransition(
     reason: input.reason,
     ...(input.evidence === undefined ? {} : { evidence: input.evidence })
   })
-  if (!result.success) for (const issue of result.error.issues) context.addIssue(issue)
+  if (!result.success) for (const issue of result.error.issues) context.addIssue({ ...issue })
 }
 export const adminOrderBulkPreviewInputSchema = z
   .object({

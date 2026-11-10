@@ -10,8 +10,8 @@ const csv = z
   .string()
   .min(1)
   .refine((value) => new TextEncoder().encode(value).byteLength <= 65536)
-const reason = inventoryCountProposalInputSchema.innerType().shape.reason
-const reference = inventoryCountProposalInputSchema.innerType().shape.reference
+const reason = inventoryCountProposalInputSchema.out.shape.reason
+const reference = inventoryCountProposalInputSchema.out.shape.reference
 export const inventoryCountImportPreviewInputSchema = z.object({ csv }).strict()
 export const inventoryCountImportProposalInputSchema = z.object({ csv, previewHash: hash, reason, reference }).strict()
 export const inventoryCountImportApprovalInputSchema = z.object({ expectedVersion: version.min(1), reason }).strict()

@@ -32,7 +32,7 @@ export const FaultInjectionScenarioInputSchema = z.object({
   timeoutMs: z.number().int().min(1).max(30000).optional(),
   latencyMs: z.number().int().min(1).max(30000).optional(),
   idempotencyKey: z.string().min(4).max(128).optional(),
-  parameters: z.record(z.unknown()).optional()
+  parameters: z.record(z.string(), z.unknown()).optional()
 })
 
 export type FaultInjectionScenarioInput = z.infer<typeof FaultInjectionScenarioInputSchema>
@@ -42,7 +42,7 @@ export const FaultRuleInputSchema = z.object({
   provider: z.enum(FAULT_PROVIDERS),
   operation: z.string().min(2).max(64),
   faultType: z.enum(INTEGRATION_FAULT_TYPES),
-  parameters: z.record(z.unknown()).optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
   active: z.boolean().default(true),
   expectedVersion: z.number().int().positive().optional()
 })

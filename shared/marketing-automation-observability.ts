@@ -70,7 +70,7 @@ export const marketingObservabilityEventInputSchema = z
     discountCents: z.number().int().nonnegative().default(0),
     grossRevenueCents: z.number().int().nonnegative().default(0),
     costCents: z.number().int().nonnegative().default(0),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     occurredAt: catalogPolicyInstantSchema
   })
   .strict()

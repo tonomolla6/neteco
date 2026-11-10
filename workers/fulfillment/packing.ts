@@ -35,7 +35,7 @@ export class PackingError extends Error {
 function fail(code: string): never {
   throw new PackingError(code)
 }
-function checked<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, raw: unknown, code = 'invalid_input'): T {
+function checked<T, I>(schema: z.ZodType<T, I>, raw: unknown, code = 'invalid_input'): T {
   let owned: unknown
   try {
     owned = catalogPolicyOwnJson(raw)

@@ -64,7 +64,7 @@ export const cmsCreateInputSchema = z.preprocess(
     .superRefine((value, context) => {
       const { expectedVersion: _expectedVersion, ...document } = value
       const result = cmsDocumentSchema.safeParse(document)
-      if (!result.success) result.error.issues.forEach((issue) => context.addIssue(issue))
+      if (!result.success) result.error.issues.forEach((issue) => context.addIssue({ ...issue }))
     })
 )
 export const cmsUpdateInputSchema = z.preprocess(
@@ -75,7 +75,7 @@ export const cmsUpdateInputSchema = z.preprocess(
     .superRefine((value, context) => {
       const { expectedVersion: _expectedVersion, ...document } = value
       const result = cmsDocumentSchema.safeParse(document)
-      if (!result.success) result.error.issues.forEach((issue) => context.addIssue(issue))
+      if (!result.success) result.error.issues.forEach((issue) => context.addIssue({ ...issue }))
     })
 )
 export const cmsRestoreInputSchema = z.preprocess(

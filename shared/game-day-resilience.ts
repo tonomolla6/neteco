@@ -187,7 +187,7 @@ export const gameDayScenarioInputSchema = z
     rollbackRestoreStatus: z.enum(ROLLBACK_RESTORE_STATUSES),
     coordinationStatus: z.enum(COORDINATION_STATUSES),
     runbookReference: z.string().min(3).max(64),
-    details: z.record(z.unknown()).optional()
+    details: z.record(z.string(), z.unknown()).optional()
   })
   .strict()
 

@@ -44,7 +44,7 @@ export const warehouseTelemetryEventInputSchema = z
     metricSecondary: z.number().default(0),
     errorCount: z.number().int().min(0).default(0),
     laborPrivacyReviewed: z.literal(true), // Mandatory explicit verification
-    metadata: z.record(z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).default({}),
     occurredAt: z.string()
   })
   .strict()

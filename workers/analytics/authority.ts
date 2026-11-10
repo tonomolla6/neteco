@@ -23,7 +23,7 @@ export class AnalyticsMeasurementError extends Error {
     super(code)
   }
 }
-export function analyticsChecked<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, input: unknown): T {
+export function analyticsChecked<T, I>(schema: z.ZodType<T, I>, input: unknown): T {
   try {
     return schema.parse(catalogPolicyOwnJson(input))
   } catch {

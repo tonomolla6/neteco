@@ -79,7 +79,6 @@ const reason = z
 const status = z.enum(['draft', 'review', 'published', 'hidden', 'discontinued'])
 export const catalogTypedAttributeDefinitionsViewSchema: z.ZodType<
   CatalogTypedAttributeDefinitionsView,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,
@@ -104,7 +103,6 @@ export const catalogTypedAttributeDefinitionsViewSchema: z.ZodType<
 )
 export const catalogTypedAttributeProductViewSchema: z.ZodType<
   CatalogTypedAttributeProductView,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,
@@ -141,7 +139,6 @@ export const catalogTypedAttributeProductViewSchema: z.ZodType<
 )
 export const updateCatalogTypedAttributeValuesSchema: z.ZodType<
   UpdateCatalogTypedAttributeValuesInput,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,
@@ -155,7 +152,6 @@ export const updateCatalogTypedAttributeValuesSchema: z.ZodType<
 )
 export const catalogTypedAttributeValuesReceiptSchema: z.ZodType<
   CatalogTypedAttributeValuesReceipt,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,
@@ -174,7 +170,6 @@ export const catalogTypedAttributeValuesReceiptSchema: z.ZodType<
 )
 export const catalogTypedAttributeDefinitionHttpUpdateSchema: z.ZodType<
   CatalogTypedAttributeDefinitionHttpUpdate,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,

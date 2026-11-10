@@ -37,6 +37,12 @@ export const createIncentiveAgreementSchema = z.object({
 export type CreateIncentiveAgreementInput = z.infer<typeof createIncentiveAgreementSchema>
 
 export const updateIncentiveAgreementSchema = createIncentiveAgreementSchema.partial().extend({
+  minGrossMarginBasisPoints: createIncentiveAgreementSchema.shape.minGrossMarginBasisPoints.unwrap().optional(),
+  slaPunctualPaymentRequired: createIncentiveAgreementSchema.shape.slaPunctualPaymentRequired.unwrap().optional(),
+  slaMinAvgOrderNetCents: createIncentiveAgreementSchema.shape.slaMinAvgOrderNetCents.unwrap().optional(),
+  slaEinvoiceRequired: createIncentiveAgreementSchema.shape.slaEinvoiceRequired.unwrap().optional(),
+  fiscalVatTreatment: createIncentiveAgreementSchema.shape.fiscalVatTreatment.unwrap().optional(),
+  status: createIncentiveAgreementSchema.shape.status.unwrap().optional(),
   version: z.number().int().min(1)
 })
 

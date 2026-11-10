@@ -42,7 +42,7 @@ type Command =
 type Options = { idempotencyKey: string; now?: string }
 const positive = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER)
 function checked<T, I>(
-  schema: z.ZodType<T, z.ZodTypeDef, I>,
+  schema: z.ZodType<T, I>,
   value: unknown,
   code: 'invalid_input' | 'unauthenticated' = 'invalid_input'
 ): T {
@@ -229,7 +229,7 @@ function state(cmd: Command, phase: 'before' | 'closed' | 'after', stamp = clock
   return `json_object('product',(SELECT ${grouped(productColumns, 'p')} FROM products p JOIN variants v ON p.id=v.product_id WHERE v.id=?8),
     'variant',(SELECT ${grouped(variantColumns, 'v')} FROM variants v WHERE v.id=?8),'prices',${prices},'balances',${balances})`
 }
-function providerRow<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, value: unknown): T {
+function providerRow<T, I>(schema: z.ZodType<T, I>, value: unknown): T {
   let plain: unknown
   try {
     plain = catalogPolicyOwnJson(value)
@@ -253,10 +253,10 @@ const snapshotSchema = z
     try {
       return z
         .object({
-          product: z.array(z.record(z.unknown())).length(2),
-          variant: z.array(z.record(z.unknown())).length(3),
-          prices: z.array(z.record(z.unknown())),
-          balances: z.array(z.record(z.unknown()))
+          product: z.array(z.record(z.string(), z.unknown())).length(2),
+          variant: z.array(z.record(z.string(), z.unknown())).length(3),
+          prices: z.array(z.record(z.string(), z.unknown())),
+          balances: z.array(z.record(z.string(), z.unknown()))
         })
         .strict()
         .safeParse(JSON.parse(value)).success

@@ -114,6 +114,8 @@ const safeText = (maximum: number) =>
     .string()
     .min(1)
     .max(maximum)
+    // Zod 4 counts code points; keep the UTF-16 length limit enforced by D1 and by Zod 3.
+    .refine((value) => value.length <= maximum)
     .refine(
       (value) =>
         value.trim().length > 0 &&
@@ -179,8 +181,10 @@ const definition = z.discriminatedUnion('kind', [
   z.object({ ...identity, kind: z.literal('list'), config: configs.list }).strict(),
   z.object({ ...identity, kind: z.literal('reference'), config: configs.reference }).strict()
 ])
-export const catalogTypedAttributeDefinitionSchema: z.ZodType<CatalogTypedAttributeDefinition, z.ZodTypeDef, unknown> =
-  z.preprocess(own, definition)
+export const catalogTypedAttributeDefinitionSchema: z.ZodType<CatalogTypedAttributeDefinition, unknown> = z.preprocess(
+  own,
+  definition
+)
 const reason = safeText(500).refine((value) => value.trim().length >= 3)
 const creation = {
   categoryId: positive,
@@ -191,7 +195,6 @@ const creation = {
 }
 export const createCatalogTypedAttributeDefinitionSchema: z.ZodType<
   CreateCatalogTypedAttributeDefinitionInput,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,
@@ -206,7 +209,6 @@ export const createCatalogTypedAttributeDefinitionSchema: z.ZodType<
 )
 export const updateCatalogTypedAttributeDefinitionSchema: z.ZodType<
   UpdateCatalogTypedAttributeDefinitionInput,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(
   own,
@@ -221,7 +223,6 @@ export const updateCatalogTypedAttributeDefinitionSchema: z.ZodType<
 )
 export const retireCatalogTypedAttributeDefinitionSchema: z.ZodType<
   RetireCatalogTypedAttributeDefinitionInput,
-  z.ZodTypeDef,
   unknown
 > = z.preprocess(own, z.object({ expectedVersion: positive, reason }).strict())
 const selection = z
@@ -229,32 +230,30 @@ const selection = z
   .max(CATALOG_TYPED_ATTRIBUTE_MAX_SELECTIONS)
   .refine((items) => new Set(items).size === items.length)
 const value = z.union([safeText(500), numeric, z.boolean(), selection, z.object({ quantity: numeric, unit }).strict()])
-export const catalogTypedAttributeValuesSchema: z.ZodType<CatalogTypedAttributeValues, z.ZodTypeDef, unknown> =
-  z.preprocess(
-    own,
-    z
-      .object({
-        version: z.literal(1),
-        values: z
-          .array(z.object({ definitionId: catalogPolicyUuidSchema, revision: positive, value }).strict())
-          .max(CATALOG_TYPED_ATTRIBUTE_MAX_DEFINITIONS)
-          .refine((items) => new Set(items.map((item) => item.definitionId)).size === items.length)
-      })
-      .strict()
-  )
-export const catalogTypedAttributeReceiptSchema: z.ZodType<CatalogTypedAttributeReceipt, z.ZodTypeDef, unknown> =
-  z.preprocess(
-    own,
-    z
-      .object({
-        source: z.literal('cloudflare'),
-        action: z.enum(['create', 'update', 'retire']),
-        commandId: catalogPolicyUuidSchema,
-        definition,
-        updated: z.literal(true)
-      })
-      .strict()
-  )
+export const catalogTypedAttributeValuesSchema: z.ZodType<CatalogTypedAttributeValues, unknown> = z.preprocess(
+  own,
+  z
+    .object({
+      version: z.literal(1),
+      values: z
+        .array(z.object({ definitionId: catalogPolicyUuidSchema, revision: positive, value }).strict())
+        .max(CATALOG_TYPED_ATTRIBUTE_MAX_DEFINITIONS)
+        .refine((items) => new Set(items.map((item) => item.definitionId)).size === items.length)
+    })
+    .strict()
+)
+export const catalogTypedAttributeReceiptSchema: z.ZodType<CatalogTypedAttributeReceipt, unknown> = z.preprocess(
+  own,
+  z
+    .object({
+      source: z.literal('cloudflare'),
+      action: z.enum(['create', 'update', 'retire']),
+      commandId: catalogPolicyUuidSchema,
+      definition,
+      updated: z.literal(true)
+    })
+    .strict()
+)
 
 /** Same numeric rule as SQLite round(n,p)=n; no coercion, epsilon or conversion. */
 export function typedAttributeNumberMatchesPrecision(value: number, precision: number): boolean {

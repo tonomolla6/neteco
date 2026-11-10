@@ -263,9 +263,9 @@ export const automationsOverviewSchema = z
   .object({
     policy: marketingAutomationPolicySchema,
     counts: z.object({
-      welcomeDispatches: z.record(welcomeStepSchema, z.number().int().nonnegative()),
-      winbackEvaluations: z.record(winbackStatusSchema, z.number().int().nonnegative()),
-      postpurchaseDispatches: z.record(postpurchaseStreamSchema, z.number().int().nonnegative())
+      welcomeDispatches: z.partialRecord(welcomeStepSchema, z.number().int().nonnegative()),
+      winbackEvaluations: z.partialRecord(winbackStatusSchema, z.number().int().nonnegative()),
+      postpurchaseDispatches: z.partialRecord(postpurchaseStreamSchema, z.number().int().nonnegative())
     })
   })
   .strict()

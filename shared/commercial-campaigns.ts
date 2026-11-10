@@ -124,7 +124,7 @@ export const linkCampaignAssetSchema = z
     placementOrSlot: z.string().trim().min(1).max(100).optional(),
     startAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
     endAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
-    config: z.record(z.unknown()).optional(),
+    config: z.record(z.string(), z.unknown()).optional(),
     now: z.string().optional()
   })
   .strict()

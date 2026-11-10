@@ -260,7 +260,9 @@ export async function auditNativeTypedIntake(input: NativeTypedIntakeAuditInput)
     return response
   }
   const auditState = z
-    .object({ products: z.array(z.union([z.record(z.unknown()), z.array(z.record(z.unknown()))])) })
+    .object({
+      products: z.array(z.union([z.record(z.string(), z.unknown()), z.array(z.record(z.string(), z.unknown()))]))
+    })
     .passthrough()
   function auditedProducts(raw: unknown) {
     assert.equal(typeof raw, 'string')

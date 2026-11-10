@@ -52,7 +52,7 @@ export class ProductContributionError extends Error {
 function fail(code: ProductContributionError['code']): never {
   throw new ProductContributionError(code)
 }
-function checked<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, raw: unknown): T {
+function checked<T>(schema: z.ZodType<T, unknown>, raw: unknown): T {
   const parsed = schema.safeParse(raw)
   if (!parsed.success) fail('invalid_input')
   return parsed.data

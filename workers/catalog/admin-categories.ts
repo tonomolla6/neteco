@@ -52,7 +52,7 @@ type Command =
   | { action: 'update_category'; body: UpdateCategoryInput }
   | { action: 'delete_category'; body: DeleteCategoryInput }
 function checked<T, I>(
-  schema: z.ZodType<T, z.ZodTypeDef, I>,
+  schema: z.ZodType<T, I>,
   value: unknown,
   code: 'invalid_input' | 'unauthenticated' = 'invalid_input'
 ): T {

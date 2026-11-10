@@ -41,7 +41,7 @@ export const evidenceBundleSchema = z
     restoreDrillLogRef: z.string().min(3).max(256),
     pentestReportHash: z.string().length(64),
     uatReportRef: z.string().min(3).max(256),
-    metadata: z.record(z.unknown()).optional()
+    metadata: z.record(z.string(), z.unknown()).optional()
   })
   .strict()
 

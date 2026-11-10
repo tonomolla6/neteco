@@ -35,14 +35,14 @@ export function editorialNow(deps: Pick<NewsletterEditorialDependencies, 'now'>)
 export function editorialEpoch(deps: Pick<NewsletterEditorialDependencies, 'now'>) {
   return Math.floor(Date.parse(editorialNow(deps)) / 1000)
 }
-export function editorialSource<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, input: unknown): T {
+export function editorialSource<T, I>(schema: z.ZodType<T, I>, input: unknown): T {
   try {
     return schema.parse(catalogPolicyOwnJson(input))
   } catch {
     throw new NewsletterEditorialError('read_unconfirmed')
   }
 }
-export function editorialJson<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, input: unknown): T {
+export function editorialJson<T, I>(schema: z.ZodType<T, I>, input: unknown): T {
   try {
     return editorialSource(schema, typeof input === 'string' ? JSON.parse(input) : input)
   } catch {

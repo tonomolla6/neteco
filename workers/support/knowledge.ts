@@ -38,7 +38,7 @@ function eligible(now: string) {
 function normalizedQuery(q: string) {
   return q.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim()
 }
-const rowsSchema = z.array(z.record(z.unknown()))
+const rowsSchema = z.array(z.record(z.string(), z.unknown()))
 export async function listSupportKnowledge(deps: SupportKnowledgeDependencies, input: SupportKnowledgeQuery) {
   if (!deps.enabled) fail('knowledge_unavailable')
   const parsed = supportKnowledgeQuerySchema.safeParse(input)

@@ -34,7 +34,7 @@ function fail(code: Customer360Error['code']): never {
   throw new Customer360Error(code)
 }
 function checked<T>(
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+  schema: z.ZodType<T, unknown>,
   raw: unknown,
   code: Customer360Error['code'] = 'history_unconfirmed'
 ): T {

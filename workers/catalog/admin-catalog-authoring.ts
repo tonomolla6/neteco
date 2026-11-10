@@ -61,7 +61,7 @@ const legacy = z
   .regex(/^[1-9][0-9]*$/)
   .refine((value) => Number.isSafeInteger(Number(value)) && Number(value) > 0 && String(Number(value)) === value)
 function checked<T, I>(
-  schema: z.ZodType<T, z.ZodTypeDef, I>,
+  schema: z.ZodType<T, I>,
   value: unknown,
   code: 'invalid_input' | 'unauthenticated' = 'invalid_input'
 ): T {

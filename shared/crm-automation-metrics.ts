@@ -54,7 +54,7 @@ export const crmAutomationEventInputSchema = z
     orderId: catalogPolicyUuidSchema.optional(),
     revenueCents: z.number().int().nonnegative().optional(),
     costCents: z.number().int().nonnegative().optional(),
-    metadata: z.record(z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).default({}),
     occurredAt: catalogPolicyInstantSchema,
     idempotencyKey: z.string().min(8).max(128)
   })

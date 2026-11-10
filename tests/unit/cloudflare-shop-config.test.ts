@@ -64,7 +64,7 @@ describe('local full-shop Cloudflare configuration', () => {
     const workflows = output.workflows as Array<{ binding: string; class_name: string }>
     expect(objects).toEqual(source.durable_objects)
     expect(workflows).toEqual(
-      (source.workflows as Record<string, unknown>[]).map((workflow) => ({ ...workflow, remote: false }))
+      (source.workflows as Record<string, unknown>[]).map(({ remote: _remote, ...workflow }) => workflow)
     )
     expect(objects.bindings.map((binding) => binding.name)).toEqual(['COORDINATOR', 'INVENTORY', 'CARTS'])
     for (const binding of [...objects.bindings, ...workflows]) expect(exported).toContain(binding.class_name)
@@ -102,10 +102,11 @@ describe('local full-shop Cloudflare configuration', () => {
       'images',
       'send_email.0',
       'send_email.1',
-      'queues.producers.0',
-      'workflows.0'
+      'queues.producers.0'
     ])
       expect(binding(output, path).remote, path).toBe(false)
+    // Wrangler >= 4.131 rejects `remote` on workflow bindings; workflows are local-only here.
+    expect(binding(output, 'workflows.0').remote).toBeUndefined()
     expect(source).toEqual(snapshot)
     ;(output.queues as { producers: Array<{ queue: string }> }).producers[0]!.queue = 'output-only-change'
     expect(source).toEqual(snapshot)

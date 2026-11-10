@@ -35,7 +35,7 @@ export class InventoryCountImportError extends Error {
     this.name = 'InventoryCountImportError'
   }
 }
-function parse<T, I>(schema: z.ZodType<T, z.ZodTypeDef, I>, raw: unknown): T {
+function parse<T, I>(schema: z.ZodType<T, I>, raw: unknown): T {
   let copied: unknown
   try {
     copied = catalogPolicyOwnJson(raw)

@@ -81,6 +81,9 @@ export const createTargetedCampaignSchema = targetedCampaignBaseSchema
 export type CreateTargetedCampaignInput = z.infer<typeof createTargetedCampaignSchema>
 
 export const updateTargetedCampaignSchema = targetedCampaignBaseSchema.partial().extend({
+  minOrderNetCents: targetedCampaignBaseSchema.shape.minOrderNetCents.unwrap().optional(),
+  marginFloorBasisPoints: targetedCampaignBaseSchema.shape.marginFloorBasisPoints.unwrap().optional(),
+  status: targetedCampaignBaseSchema.shape.status.unwrap().optional(),
   version: z.number().int().min(1)
 })
 

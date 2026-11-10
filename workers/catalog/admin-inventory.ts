@@ -86,7 +86,7 @@ const coordinatorSchema = z
   })
   .strict()
 function checked<T, I>(
-  schema: z.ZodType<T, z.ZodTypeDef, I>,
+  schema: z.ZodType<T, I>,
   value: unknown,
   code: InventoryCommandErrorCode = 'invalid_input'
 ): T {

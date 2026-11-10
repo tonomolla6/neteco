@@ -76,7 +76,7 @@ export const ExperimentVariantSchema = z.object({
   isControl: z.boolean().default(false),
   isHoldout: z.boolean().default(false),
   weight: z.number().int().min(1).max(1000).default(50),
-  payload: z.record(z.unknown()).default({})
+  payload: z.record(z.string(), z.unknown()).default({})
 })
 export type ExperimentVariant = z.infer<typeof ExperimentVariantSchema>
 
@@ -163,7 +163,7 @@ export const TrackEventInputSchema = z.object({
   eventType: z.enum(EVENT_TYPES),
   eventValue: z.number().default(0),
   marginBasisPoints: z.number().int().min(-10000).max(10000).optional(),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.string(), z.unknown()).optional()
 })
 export type TrackEventInput = z.infer<typeof TrackEventInputSchema>
 
