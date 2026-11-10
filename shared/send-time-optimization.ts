@@ -75,7 +75,11 @@ export interface SendTimeOptimizationDecision {
  * Deterministic hash-based holdout allocation.
  * Returns true if customer falls into holdout control group.
  */
-export function isCustomerHeldOut(customerId: string, campaignCode: string = 'global', holdoutRateBasisPoints: number = 1000): boolean {
+export function isCustomerHeldOut(
+  customerId: string,
+  campaignCode: string = 'global',
+  holdoutRateBasisPoints: number = 1000
+): boolean {
   if (holdoutRateBasisPoints <= 0) return false
   if (holdoutRateBasisPoints >= 10000) return true
   let hash = 0

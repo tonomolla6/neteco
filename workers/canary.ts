@@ -84,18 +84,9 @@ import {
 } from './content/downloadable-templates-http'
 import { handleBrandCenterHttp, ownsBrandCenterNamespace } from './brand/brand-center-http'
 import { handleWarehouseAdrAssetsHttp, ownsWarehouseAdrAssetsNamespace } from './fulfillment/warehouse-adr-assets-http'
-import {
-  handleProcurementApprovalsHttp,
-  ownsProcurementApprovalsNamespace
-} from './orders/procurement-approvals-http'
-import {
-  handleSplitBackordersHttp,
-  ownsSplitBackordersNamespace
-} from './orders/split-backorders-http'
-import {
-  handlePaymentContingencyHttp,
-  ownsPaymentContingencyNamespace
-} from './payments/contingency-routing-http'
+import { handleProcurementApprovalsHttp, ownsProcurementApprovalsNamespace } from './orders/procurement-approvals-http'
+import { handleSplitBackordersHttp, ownsSplitBackordersNamespace } from './orders/split-backorders-http'
+import { handlePaymentContingencyHttp, ownsPaymentContingencyNamespace } from './payments/contingency-routing-http'
 import { alternativeProviderFromEnv } from './payments/alternative-contingency-provider'
 import { handleCmsMediaHttp } from './cms/media-delivery'
 import { runCmsSchedules } from './cms/schedules'
@@ -202,10 +193,7 @@ import {
   handlePromotionsAutomationMatrixHttp,
   ownsPromotionsAutomationMatrixNamespace
 } from './marketing/promotions-automation-matrix-http'
-import {
-  handleAccountIsolationHttp,
-  ownsAccountIsolationNamespace
-} from './security/account-isolation-http'
+import { handleAccountIsolationHttp, ownsAccountIsolationNamespace } from './security/account-isolation-http'
 import {
   handleWarehouseRouteOfflineHttp,
   ownsWarehouseRouteOfflineNamespace

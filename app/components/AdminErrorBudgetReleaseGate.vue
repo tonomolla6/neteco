@@ -177,8 +177,7 @@ onMounted(() => {
       v-else-if="overview && !overview.featureFreezeActive"
       class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-emerald-900"
     >
-      <div class="flex items-center gap-2 font-semibold">        <span>Estabilidad Nominal — Error Budget Saludable</span>
-      </div>
+      <div class="flex items-center gap-2 font-semibold"><span>Estabilidad Nominal — Error Budget Saludable</span></div>
       <p class="mt-1 text-sm text-emerald-800">
         Todos los journeys operativos cumplen con sus SLOs objetivos. Decisiones de release estándar admitidas.
       </p>

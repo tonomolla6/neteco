@@ -72,11 +72,7 @@ const commandOptions = z
   .strict()
 type Actor = { claims: VerifiedSessionClaims; customerId: string | null }
 type Clock = () => string
-function checked<T, I>(
-  schema: z.ZodType<T, I>,
-  value: unknown,
-  code: ReturnsErrorCode = 'invalid_input'
-): T {
+function checked<T, I>(schema: z.ZodType<T, I>, value: unknown, code: ReturnsErrorCode = 'invalid_input'): T {
   let data: unknown
   try {
     data = catalogPolicyOwnJson(value)

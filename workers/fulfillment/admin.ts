@@ -54,11 +54,7 @@ const safe = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
 const claimsSchema = z
   .object({ identityId: catalogPolicyUuidSchema, sessionId: catalogPolicyUuidSchema, sessionVersion: positive })
   .strict()
-function checked<T, I>(
-  schema: z.ZodType<T, I>,
-  raw: unknown,
-  code: FulfillmentErrorCode = 'invalid_input'
-): T {
+function checked<T, I>(schema: z.ZodType<T, I>, raw: unknown, code: FulfillmentErrorCode = 'invalid_input'): T {
   let data: unknown
   try {
     data = catalogPolicyOwnJson(raw)

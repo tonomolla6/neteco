@@ -418,7 +418,8 @@ const handleWithdraw = async (review: PublicUgcReview) => {
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="reviews.length === 0" class="py-10 text-center">      <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+    <div v-else-if="reviews.length === 0" class="py-10 text-center">
+      <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">
         Aún no hay opiniones con fotografías para este producto.
       </p>
       <p class="text-xs text-gray-500">Sé el primero en compartir tu experiencia técnica de aplicación.</p>

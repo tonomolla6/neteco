@@ -328,11 +328,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import type {
-  WarehouseMetricsSummary,
-  WarehousePrinter,
-  WarehouseQueueItem
-} from '~~/shared/warehouse-scan-operations'
+import type { WarehouseMetricsSummary, WarehousePrinter, WarehouseQueueItem } from '~~/shared/warehouse-scan-operations'
 
 interface WarehouseQueuesData {
   reception: WarehouseQueueItem[]

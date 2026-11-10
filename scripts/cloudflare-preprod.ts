@@ -74,9 +74,7 @@ export function createPreprodConfig(
         }
       ]
     },
-    workflows: [
-      { name: 'neteco-preprod-catalog', binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }
-    ],
+    workflows: [{ name: 'neteco-preprod-catalog', binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }],
     // Native rate-limit namespaces are account-unique: stable isolated project IDs.
     ratelimits: config.ratelimits.map((binding, index) => ({
       ...binding,

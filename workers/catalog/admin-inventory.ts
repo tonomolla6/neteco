@@ -85,11 +85,7 @@ const coordinatorSchema = z
     idempotencyKey: inventoryIdempotencyKeySchema
   })
   .strict()
-function checked<T, I>(
-  schema: z.ZodType<T, I>,
-  value: unknown,
-  code: InventoryCommandErrorCode = 'invalid_input'
-): T {
+function checked<T, I>(schema: z.ZodType<T, I>, value: unknown, code: InventoryCommandErrorCode = 'invalid_input'): T {
   let copied: unknown
   try {
     copied = catalogPolicyOwnJson(value)

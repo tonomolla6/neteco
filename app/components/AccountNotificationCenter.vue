@@ -233,7 +233,8 @@ watch([activeCategory, activeStatus], () => {
     <div
       v-else-if="notifications.length === 0"
       class="flex flex-col items-center justify-center rounded-[var(--radius-control)] border border-dashed border-[var(--border)] py-12 text-center"
-    >      <h3 class="mt-2 text-sm font-semibold text-[var(--text-strong)]">No tienes notificaciones en esta sección</h3>
+    >
+      <h3 class="mt-2 text-sm font-semibold text-[var(--text-strong)]">No tienes notificaciones en esta sección</h3>
       <p class="mt-1 text-xs text-[var(--text-muted)]">
         Cuando se produzcan actualizaciones relevantes en tus pedidos, facturas o soporte, las verás aquí.
       </p>

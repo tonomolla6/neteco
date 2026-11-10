@@ -27,10 +27,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const config = inputPath
     ? createEnvironmentShopConfig(rawConfig, process.cwd(), environment)
     : createLocalShopConfig(rawConfig, process.cwd())
-  const directory = inputPath ? resolve('.wrangler/environments', String((config.vars as Record<string, string>).APP_ENV)) : resolve('.wrangler/shop')
+  const directory = inputPath
+    ? resolve('.wrangler/environments', String((config.vars as Record<string, string>).APP_ENV))
+    : resolve('.wrangler/shop')
   await mkdir(directory, { recursive: true })
   await writeFile(resolve(directory, 'wrangler.json'), JSON.stringify(config, null, 2) + '\n', { mode: 0o600 })
-  console.log(inputPath
-    ? 'Explicit environment shop configuration generated offline; no remote calls or deployment performed.'
-    : 'Local shop configuration generated; no remote calls or deployment performed.')
+  console.log(
+    inputPath
+      ? 'Explicit environment shop configuration generated offline; no remote calls or deployment performed.'
+      : 'Local shop configuration generated; no remote calls or deployment performed.'
+  )
 }

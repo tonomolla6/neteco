@@ -175,7 +175,10 @@ export async function createCommercialNextAction(
       .bind(commandId, claims.identityId, payloadHash, JSON.stringify(data), now)
   ])
 
-  const created = await database.prepare('SELECT * FROM commercial_next_actions WHERE id = ?').bind(id).first<ActionRow>()
+  const created = await database
+    .prepare('SELECT * FROM commercial_next_actions WHERE id = ?')
+    .bind(id)
+    .first<ActionRow>()
   if (!created) {
     throw new CommercialQuotesAccountsError('not_found', 'Action not found')
   }

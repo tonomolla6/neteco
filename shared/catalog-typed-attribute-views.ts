@@ -77,97 +77,89 @@ const reason = z
   .transform((value) => value.trim())
   .pipe(z.string().min(3))
 const status = z.enum(['draft', 'review', 'published', 'hidden', 'discontinued'])
-export const catalogTypedAttributeDefinitionsViewSchema: z.ZodType<
-  CatalogTypedAttributeDefinitionsView,
-  unknown
-> = z.preprocess(
-  own,
-  z
-    .object({
-      source: z.literal('cloudflare'),
-      categoryId: positive,
-      categoryUuid: durableId,
-      definitions: z.array(catalogTypedAttributeDefinitionSchema).max(32),
-      capabilities: z
-        .object({ read: z.literal(true), create: z.boolean(), update: z.boolean(), retire: z.boolean() })
-        .strict()
-    })
-    .strict()
-    .refine(
-      (view) =>
-        new Set(view.definitions.map((definition) => definition.id)).size === view.definitions.length &&
-        view.definitions.every(
-          (definition) => definition.categoryId === view.categoryId && definition.categoryUuid === view.categoryUuid
-        )
-    )
-)
-export const catalogTypedAttributeProductViewSchema: z.ZodType<
-  CatalogTypedAttributeProductView,
-  unknown
-> = z.preprocess(
-  own,
-  z
-    .object({
-      source: z.literal('cloudflare'),
-      product: z
-        .object({
-          id: positive,
-          uuid: durableId,
-          categoryId: positive,
-          categoryUuid: durableId,
-          catalogVersion: positive,
-          status
-        })
-        .strict(),
-      typed: catalogTypedAttributeValuesSchema,
-      definitions: z.array(catalogTypedAttributeDefinitionSchema).max(64),
-      capabilities: z.object({ read: z.literal(true), update: z.boolean() }).strict()
-    })
-    .strict()
-    .refine((view) => {
-      const revisions = new Set(view.definitions.map((definition) => `${definition.id}:${definition.revision}`))
-      return (
-        revisions.size === view.definitions.length &&
-        view.definitions.every(
-          (definition) =>
-            definition.categoryId === view.product.categoryId && definition.categoryUuid === view.product.categoryUuid
-        ) &&
-        view.typed.values.every((value) => revisions.has(`${value.definitionId}:${value.revision}`)) &&
-        (!view.capabilities.update || view.product.status === 'draft')
+export const catalogTypedAttributeDefinitionsViewSchema: z.ZodType<CatalogTypedAttributeDefinitionsView, unknown> =
+  z.preprocess(
+    own,
+    z
+      .object({
+        source: z.literal('cloudflare'),
+        categoryId: positive,
+        categoryUuid: durableId,
+        definitions: z.array(catalogTypedAttributeDefinitionSchema).max(32),
+        capabilities: z
+          .object({ read: z.literal(true), create: z.boolean(), update: z.boolean(), retire: z.boolean() })
+          .strict()
+      })
+      .strict()
+      .refine(
+        (view) =>
+          new Set(view.definitions.map((definition) => definition.id)).size === view.definitions.length &&
+          view.definitions.every(
+            (definition) => definition.categoryId === view.categoryId && definition.categoryUuid === view.categoryUuid
+          )
       )
-    })
-)
-export const updateCatalogTypedAttributeValuesSchema: z.ZodType<
-  UpdateCatalogTypedAttributeValuesInput,
-  unknown
-> = z.preprocess(
-  own,
-  z
-    .object({
-      expectedVersion: positive.max(Number.MAX_SAFE_INTEGER - 1),
-      reason,
-      typed: catalogTypedAttributeValuesSchema
-    })
-    .strict()
-)
-export const catalogTypedAttributeValuesReceiptSchema: z.ZodType<
-  CatalogTypedAttributeValuesReceipt,
-  unknown
-> = z.preprocess(
-  own,
-  z
-    .object({
-      source: z.literal('cloudflare'),
-      action: z.literal('update_values'),
-      commandId: catalogPolicyUuidSchema,
-      productId: positive,
-      productUuid: durableId,
-      catalogVersion: positive.min(2),
-      typed: catalogTypedAttributeValuesSchema,
-      updated: z.literal(true)
-    })
-    .strict()
-)
+  )
+export const catalogTypedAttributeProductViewSchema: z.ZodType<CatalogTypedAttributeProductView, unknown> =
+  z.preprocess(
+    own,
+    z
+      .object({
+        source: z.literal('cloudflare'),
+        product: z
+          .object({
+            id: positive,
+            uuid: durableId,
+            categoryId: positive,
+            categoryUuid: durableId,
+            catalogVersion: positive,
+            status
+          })
+          .strict(),
+        typed: catalogTypedAttributeValuesSchema,
+        definitions: z.array(catalogTypedAttributeDefinitionSchema).max(64),
+        capabilities: z.object({ read: z.literal(true), update: z.boolean() }).strict()
+      })
+      .strict()
+      .refine((view) => {
+        const revisions = new Set(view.definitions.map((definition) => `${definition.id}:${definition.revision}`))
+        return (
+          revisions.size === view.definitions.length &&
+          view.definitions.every(
+            (definition) =>
+              definition.categoryId === view.product.categoryId && definition.categoryUuid === view.product.categoryUuid
+          ) &&
+          view.typed.values.every((value) => revisions.has(`${value.definitionId}:${value.revision}`)) &&
+          (!view.capabilities.update || view.product.status === 'draft')
+        )
+      })
+  )
+export const updateCatalogTypedAttributeValuesSchema: z.ZodType<UpdateCatalogTypedAttributeValuesInput, unknown> =
+  z.preprocess(
+    own,
+    z
+      .object({
+        expectedVersion: positive.max(Number.MAX_SAFE_INTEGER - 1),
+        reason,
+        typed: catalogTypedAttributeValuesSchema
+      })
+      .strict()
+  )
+export const catalogTypedAttributeValuesReceiptSchema: z.ZodType<CatalogTypedAttributeValuesReceipt, unknown> =
+  z.preprocess(
+    own,
+    z
+      .object({
+        source: z.literal('cloudflare'),
+        action: z.literal('update_values'),
+        commandId: catalogPolicyUuidSchema,
+        productId: positive,
+        productUuid: durableId,
+        catalogVersion: positive.min(2),
+        typed: catalogTypedAttributeValuesSchema,
+        updated: z.literal(true)
+      })
+      .strict()
+  )
 export const catalogTypedAttributeDefinitionHttpUpdateSchema: z.ZodType<
   CatalogTypedAttributeDefinitionHttpUpdate,
   unknown

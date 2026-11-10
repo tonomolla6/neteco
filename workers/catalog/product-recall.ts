@@ -38,8 +38,14 @@ const inputSchema = z
     v.action === 'trace'
       ? v.orderId !== undefined && v.lineIndex !== undefined && v.targetLotId !== undefined && v.quantity !== undefined
       : v.action === 'communicate'
-        ? v.orderId !== undefined && v.lineIndex !== undefined && v.targetLotId === undefined && v.quantity === undefined
-        : v.orderId === undefined && v.lineIndex === undefined && v.targetLotId === undefined && v.quantity === undefined
+        ? v.orderId !== undefined &&
+          v.lineIndex !== undefined &&
+          v.targetLotId === undefined &&
+          v.quantity === undefined
+        : v.orderId === undefined &&
+          v.lineIndex === undefined &&
+          v.targetLotId === undefined &&
+          v.quantity === undefined
   )
 type Options = { now?: () => string; limit?: number; after?: string }
 const cte = `WITH clock AS MATERIALIZED (SELECT COALESCE(?1,strftime('%Y-%m-%dT%H:%M:%SZ','now')) now), authority AS MATERIALIZED (
@@ -115,7 +121,14 @@ export async function readProductRecall(
 ) {
   const limit = options.limit ?? 50
   const cursor = options.after?.split(':')
-  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (cursor && (cursor.length !== 2 || !uuid.safeParse(cursor[0]).success || !/^(0|[1-9]\d{0,6})$/.test(cursor[1] ?? '')))) fail('invalid_input')
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 100 ||
+    (cursor &&
+      (cursor.length !== 2 || !uuid.safeParse(cursor[0]).success || !/^(0|[1-9]\d{0,6})$/.test(cursor[1] ?? '')))
+  )
+    fail('invalid_input')
   await authority(db, claims, lotId, options)
   const row = await db
     .prepare(
@@ -139,7 +152,15 @@ export async function readProductRecall(
  FROM progress WHERE confirmedQuantity>0 OR assignedQuantity<>orderedQuantity ORDER BY orderId,lineIndex LIMIT ?8`
     )
     .bind(...params(claims, lotId, options), cursor?.[0] ?? null, cursor ? Number(cursor[1]) : null, limit + 1)
-    .all<{ orderId: string; lineIndex: number; customerId: string | null; quantity: number; confirmedQuantity: number; untrackedQuantity: number; traceabilityConflict: number }>()
+    .all<{
+      orderId: string
+      lineIndex: number
+      customerId: string | null
+      quantity: number
+      confirmedQuantity: number
+      untrackedQuantity: number
+      traceabilityConflict: number
+    }>()
   await authority(db, claims, lotId, options)
   const rows = affected.results.slice(0, limit)
   const last = rows[rows.length - 1]

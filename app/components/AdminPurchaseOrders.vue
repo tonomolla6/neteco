@@ -302,7 +302,9 @@ onMounted(() => {
               </td>
               <td class="whitespace-nowrap px-4 py-2 text-slate-600">
                 {{ po.receivedUnits }} / {{ po.expectedUnits }}
-                <span v-if="po.hasDiscrepancy" class="ml-1 text-red-600 font-bold" title="Discrepancia detectada">Discrepancia</span>
+                <span v-if="po.hasDiscrepancy" class="ml-1 text-red-600 font-bold" title="Discrepancia detectada"
+                  >Discrepancia</span
+                >
               </td>
               <td class="whitespace-nowrap px-4 py-2 font-semibold text-slate-900">
                 {{ formatCents(po.totalCostCents) }}

@@ -29,9 +29,7 @@ const LOCAL_PLATFORM = {
       }
     ]
   },
-  workflows: [
-    { name: 'neteco-canary-workflow', binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }
-  ],
+  workflows: [{ name: 'neteco-canary-workflow', binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }],
   durable_objects: {
     bindings: [
       { name: 'COORDINATOR', class_name: 'CanaryCoordinator' },

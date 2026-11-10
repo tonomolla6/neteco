@@ -291,9 +291,9 @@ const handleRedactPii = async (review: ModerationItem) => {
           v-if="rev.hiddenIncentiveSuspected"
           class="mt-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
         >
-          <span class="font-bold">Sospecha de incentivo u obsequio no declarado:</span> El cliente declaró que no
-          tenía incentivos, pero el texto incluye términos de regalo, sorteo o muestra gratuita. Requiere revisión
-          previa según política de competencia desleal.
+          <span class="font-bold">Sospecha de incentivo u obsequio no declarado:</span> El cliente declaró que no tenía
+          incentivos, pero el texto incluye términos de regalo, sorteo o muestra gratuita. Requiere revisión previa
+          según política de competencia desleal.
         </div>
 
         <p class="mt-3 text-sm text-gray-800 dark:text-gray-200">

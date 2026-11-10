@@ -25,7 +25,8 @@
       class="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900 shadow-sm"
       data-testid="erp-crm-disclaimer"
     >
-      <div class="flex items-start gap-3">        <div class="text-xs">
+      <div class="flex items-start gap-3">
+        <div class="text-xs">
           <strong>Aviso de Gobernanza de Sistemas:</strong>
           {{
             pipelineData?.erpDisclaimer ??

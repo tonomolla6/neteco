@@ -6,7 +6,15 @@ type Snapshot = {
   version: number
   open: boolean
   nextCursor?: string | null
-  affected: Array<{ orderId: string; lineIndex: number; customerId: string | null; quantity: number; confirmedQuantity: number; untrackedQuantity: number; traceabilityConflict: number }>
+  affected: Array<{
+    orderId: string
+    lineIndex: number
+    customerId: string | null
+    quantity: number
+    confirmedQuantity: number
+    untrackedQuantity: number
+    traceabilityConflict: number
+  }>
 }
 const lot = ref('')
 const evidence = ref('')
@@ -43,12 +51,18 @@ async function nextPage() {
   loading.value = true
   error.value = ''
   try {
-    const page = await request<Snapshot>(`/api/admin/product-recalls/${current.lotId}?after=${encodeURIComponent(current.nextCursor)}`)
+    const page = await request<Snapshot>(
+      `/api/admin/product-recalls/${current.lotId}?after=${encodeURIComponent(current.nextCursor)}`
+    )
     if (lot.value.trim() === current.lotId) {
       selectedLine.value = 0
       snapshot.value = { ...page, lotId: current.lotId }
     }
-  } catch { error.value = 'No se ha podido cargar la siguiente página.' } finally { loading.value = false }
+  } catch {
+    error.value = 'No se ha podido cargar la siguiente página.'
+  } finally {
+    loading.value = false
+  }
 }
 async function command(action: 'open' | 'communicate' | 'trace' | 'resolve') {
   const current = snapshot.value
@@ -62,7 +76,16 @@ async function command(action: 'open' | 'communicate' | 'trace' | 'resolve') {
     error.value = 'Seleccione una línea afectada.'
     return
   }
-  if (action === 'trace' && (!line || !line.untrackedQuantity || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetLotId.value.trim()) || !Number.isInteger(traceQuantity.value) || !traceQuantity.value || traceQuantity.value < 1 || traceQuantity.value > line.untrackedQuantity)) {
+  if (
+    action === 'trace' &&
+    (!line ||
+      !line.untrackedQuantity ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetLotId.value.trim()) ||
+      !Number.isInteger(traceQuantity.value) ||
+      !traceQuantity.value ||
+      traceQuantity.value < 1 ||
+      traceQuantity.value > line.untrackedQuantity)
+  ) {
     error.value = 'Indique un lote verificado y una cantidad válida para la línea sin trazabilidad.'
     return
   }
@@ -70,7 +93,9 @@ async function command(action: 'open' | 'communicate' | 'trace' | 'resolve') {
     action,
     expectedVersion: current.version,
     evidence: evidence.value,
-    ...((action === 'communicate' || action === 'trace') && line ? { orderId: line.orderId, lineIndex: line.lineIndex } : {}),
+    ...((action === 'communicate' || action === 'trace') && line
+      ? { orderId: line.orderId, lineIndex: line.lineIndex }
+      : {}),
     ...(action === 'trace' ? { targetLotId: targetLotId.value.trim(), quantity: traceQuantity.value } : {})
   }
   const signature = JSON.stringify([current.lotId, body])
@@ -116,10 +141,14 @@ async function command(action: 'open' | 'communicate' | 'trace' | 'resolve') {
         <li v-for="line in snapshot.affected" :key="`${line.orderId}:${line.lineIndex}`">
           Pedido {{ line.orderId }}, línea {{ line.lineIndex }}, cliente {{ line.customerId ?? 'invitado' }}:
           {{ line.confirmedQuantity }} confirmadas, {{ line.untrackedQuantity }} sin lote verificado.
-          <strong v-if="line.traceabilityConflict">Hay una inconsistencia de trazabilidad que impide resolver la retirada.</strong>
+          <strong v-if="line.traceabilityConflict"
+            >Hay una inconsistencia de trazabilidad que impide resolver la retirada.</strong
+          >
         </li>
       </ul>
-      <button v-if="snapshot.nextCursor" type="button" data-action="next" :disabled="loading" @click="nextPage">Siguiente página</button>
+      <button v-if="snapshot.nextCursor" type="button" data-action="next" :disabled="loading" @click="nextPage">
+        Siguiente página
+      </button>
       <label for="recall-evidence">Referencia de evidencia</label>
       <input id="recall-evidence" v-model="evidence" name="evidence" :disabled="loading" autocomplete="off" />
       <button v-if="!snapshot.open" type="button" data-action="open" :disabled="loading" @click="command('open')">
@@ -132,12 +161,30 @@ async function command(action: 'open' | 'communicate' | 'trace' | 'resolve') {
             {{ line.orderId }} / {{ line.lineIndex }}
           </option>
         </select>
-        <p>Registre la trazabilidad solo si dispone de evidencia verificable del lote real. Se descontará la cantidad del saldo del lote indicado.</p>
+        <p>
+          Registre la trazabilidad solo si dispone de evidencia verificable del lote real. Se descontará la cantidad del
+          saldo del lote indicado.
+        </p>
         <label for="recall-target-lot">Lote comprobado</label>
         <input id="recall-target-lot" v-model="targetLotId" name="targetLotId" :disabled="loading" autocomplete="off" />
         <label for="recall-trace-quantity">Cantidad comprobada</label>
-        <input id="recall-trace-quantity" v-model.number="traceQuantity" name="quantity" type="number" min="1" max="999" :disabled="loading" />
-        <button type="button" data-action="trace" :disabled="loading || !snapshot.affected.length" @click="command('trace')">Registrar trazabilidad</button>
+        <input
+          id="recall-trace-quantity"
+          v-model.number="traceQuantity"
+          name="quantity"
+          type="number"
+          min="1"
+          max="999"
+          :disabled="loading"
+        />
+        <button
+          type="button"
+          data-action="trace"
+          :disabled="loading || !snapshot.affected.length"
+          @click="command('trace')"
+        >
+          Registrar trazabilidad
+        </button>
         <button
           type="button"
           data-action="communicate"

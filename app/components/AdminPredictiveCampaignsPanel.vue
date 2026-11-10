@@ -164,11 +164,7 @@ onMounted(() => {
     </header>
 
     <!-- Alerts -->
-    <div
-      v-if="errorMessage"
-      data-test="error-alert"
-      class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm"
-    >
+    <div v-if="errorMessage" data-test="error-alert" class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm">
       {{ errorMessage }}
     </div>
     <div

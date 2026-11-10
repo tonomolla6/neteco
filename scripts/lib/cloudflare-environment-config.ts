@@ -38,7 +38,14 @@ export function createEnvironmentShopConfig(
   const variables = { ...(local.vars as Record<string, string>) }
   variables.APP_ENV = contract.environment
   variables.NUXT_PUBLIC_APP_ENV = contract.environment
-  for (const key of ['AUTH_ORIGIN', 'PUBLIC_SITE_ORIGIN', 'MEDIA_ADMIN_ORIGIN', 'PAYMENT_PUBLIC_BASE_URL', 'NEWSLETTER_PUBLIC_ORIGIN', 'NUXT_PUBLIC_BASE_URL']) {
+  for (const key of [
+    'AUTH_ORIGIN',
+    'PUBLIC_SITE_ORIGIN',
+    'MEDIA_ADMIN_ORIGIN',
+    'PAYMENT_PUBLIC_BASE_URL',
+    'NEWSLETTER_PUBLIC_ORIGIN',
+    'NUXT_PUBLIC_BASE_URL'
+  ]) {
     variables[key] = contract.publicOrigin
   }
   return {
@@ -46,23 +53,41 @@ export function createEnvironmentShopConfig(
     name: `neteco-iac-${contract.environment}-shop`,
     account_id: contract.accountId,
     vars: variables,
-    d1_databases: [{
-      binding: 'DB', database_name: contract.resources.d1.name, database_id: contract.resources.d1.id,
-      migrations_dir: (local.d1_databases as { migrations_dir: string }[])[0]!.migrations_dir
-    }],
+    d1_databases: [
+      {
+        binding: 'DB',
+        database_name: contract.resources.d1.name,
+        database_id: contract.resources.d1.id,
+        migrations_dir: (local.d1_databases as { migrations_dir: string }[])[0]!.migrations_dir
+      }
+    ],
     kv_namespaces: [{ binding: 'CACHE', id: contract.resources.kv.id }],
-    r2_buckets: [{ binding: 'MEDIA', bucket_name: contract.resources.r2.name, jurisdiction: contract.resources.r2.jurisdiction }],
+    r2_buckets: [
+      { binding: 'MEDIA', bucket_name: contract.resources.r2.name, jurisdiction: contract.resources.r2.jurisdiction }
+    ],
     images: { binding: 'IMAGES' },
     send_email: (local.send_email as { name: string; allowed_sender_addresses: string[] }[]).map((binding) => ({
-      name: binding.name, allowed_sender_addresses: [...binding.allowed_sender_addresses]
+      name: binding.name,
+      allowed_sender_addresses: [...binding.allowed_sender_addresses]
     })),
     queues: {
       producers: [{ binding: 'ASYNC_JOBS', queue: contract.resources.queue.name }],
-      consumers: [{ queue: contract.resources.queue.name, max_batch_size: 10, max_batch_timeout: 5, max_retries: 3, dead_letter_queue: contract.resources.deadLetterQueue.name }]
+      consumers: [
+        {
+          queue: contract.resources.queue.name,
+          max_batch_size: 10,
+          max_batch_timeout: 5,
+          max_retries: 3,
+          dead_letter_queue: contract.resources.deadLetterQueue.name
+        }
+      ]
     },
-    workflows: [{ name: `neteco-iac-${contract.environment}-catalog`, binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }],
+    workflows: [
+      { name: `neteco-iac-${contract.environment}-catalog`, binding: 'CATALOG_WORKFLOW', class_name: 'CanaryWorkflow' }
+    ],
     ratelimits: (local.ratelimits as { name: keyof typeof contract.rateLimitNamespaceIds }[]).map((binding) => ({
-      ...binding, namespace_id: contract.rateLimitNamespaceIds[binding.name]
+      ...binding,
+      namespace_id: contract.rateLimitNamespaceIds[binding.name]
     }))
   }
 }

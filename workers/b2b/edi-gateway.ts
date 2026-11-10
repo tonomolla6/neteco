@@ -173,10 +173,7 @@ const activeHmacSecrets = new Map<string, string>()
 
 export async function revokeEdiApiKey(database: D1Database, keyId: string, now?: string) {
   const iso = canonicalNow(now)
-  await database
-    .prepare(`UPDATE b2b_edi_api_keys SET revoked_at = ? WHERE id = ?`)
-    .bind(iso, keyId)
-    .run()
+  await database.prepare(`UPDATE b2b_edi_api_keys SET revoked_at = ? WHERE id = ?`).bind(iso, keyId).run()
   return { ok: true }
 }
 
@@ -191,7 +188,13 @@ export async function authenticateEdiRequest(
   }
 ): Promise<{
   authenticated: boolean
-  code?: 'invalid_api_key' | 'key_revoked' | 'key_expired' | 'timestamp_out_of_range' | 'invalid_signature' | 'client_inactive'
+  code?:
+    | 'invalid_api_key'
+    | 'key_revoked'
+    | 'key_expired'
+    | 'timestamp_out_of_range'
+    | 'invalid_signature'
+    | 'client_inactive'
   client?: EdiClientRecord
 }> {
   const currentInstant = params.now ? new Date(params.now).getTime() : Date.now()
@@ -323,7 +326,7 @@ export async function processEdiOrderPlacement(
       .bind(line.variantId)
       .first<{ id: string; price_gross_cents: number; status: string }>()
 
-    const unitGrossCents = line.expectedUnitGrossCents ?? (variant?.price_gross_cents ?? 1500)
+    const unitGrossCents = line.expectedUnitGrossCents ?? variant?.price_gross_cents ?? 1500
     const lineTotal = unitGrossCents * line.quantity
     totalGrossCents += lineTotal
 
@@ -392,17 +395,14 @@ export async function getEdiMonitoringSummary(
   now?: string
 ): Promise<EdiMonitoringSummary> {
   const iso = canonicalNow(now)
-  const client = await database
-    .prepare(`SELECT * FROM b2b_edi_clients WHERE id = ?`)
-    .bind(clientId)
-    .first<{
-      id: string
-      name: string
-      environment: EdiEnvironment
-      supported_versions_json: string
-      rate_limit_per_minute: number
-      daily_request_quota: number
-    }>()
+  const client = await database.prepare(`SELECT * FROM b2b_edi_clients WHERE id = ?`).bind(clientId).first<{
+    id: string
+    name: string
+    environment: EdiEnvironment
+    supported_versions_json: string
+    rate_limit_per_minute: number
+    daily_request_quota: number
+  }>()
 
   if (!client) throw new Error('edi_client_not_found')
 

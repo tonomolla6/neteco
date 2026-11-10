@@ -132,7 +132,8 @@ onMounted(() => {
     <div
       role="alert"
       class="mb-6 p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-3"
-    >      <div class="text-sm text-amber-800 dark:text-amber-200">
+    >
+      <div class="text-sm text-amber-800 dark:text-amber-200">
         <strong>Guardrail de Aceptación:</strong> Altas, cambios y bajas quedan en revisión obligatoria. Ninguna
         modificación o alta se publica silenciosamente sin visto bueno explícito.
       </div>

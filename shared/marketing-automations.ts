@@ -1,8 +1,5 @@
 import { z } from 'zod'
-import {
-  catalogPolicyInstantSchema,
-  catalogPolicyUuidSchema
-} from './catalog-publication-policy'
+import { catalogPolicyInstantSchema, catalogPolicyUuidSchema } from './catalog-publication-policy'
 
 export const WELCOME_STEPS = [
   'professional_value',
@@ -29,20 +26,13 @@ export type WinbackStatus = (typeof WINBACK_STATUSES)[number]
 
 export const winbackStatusSchema = z.enum(WINBACK_STATUSES)
 
-export const POSTPURCHASE_STREAMS = [
-  'transactional_safety_usage',
-  'commercial_replenishment'
-] as const
+export const POSTPURCHASE_STREAMS = ['transactional_safety_usage', 'commercial_replenishment'] as const
 
 export type PostpurchaseStream = (typeof POSTPURCHASE_STREAMS)[number]
 
 export const postpurchaseStreamSchema = z.enum(POSTPURCHASE_STREAMS)
 
-export const POSTPURCHASE_STATUSES = [
-  'delivered',
-  'skipped_no_consent',
-  'suppressed'
-] as const
+export const POSTPURCHASE_STATUSES = ['delivered', 'skipped_no_consent', 'suppressed'] as const
 
 export type PostpurchaseStatus = (typeof POSTPURCHASE_STATUSES)[number]
 
@@ -212,9 +202,7 @@ export const postpurchaseCommercialRecommendationSchema = z
   })
   .strict()
 
-export type PostpurchaseCommercialRecommendation = z.infer<
-  typeof postpurchaseCommercialRecommendationSchema
->
+export type PostpurchaseCommercialRecommendation = z.infer<typeof postpurchaseCommercialRecommendationSchema>
 
 export const postpurchaseDispatchSchema = z
   .object({
@@ -282,9 +270,7 @@ function canonicalizeJson(value: unknown): string {
   }
   const keys = Object.keys(value as Record<string, unknown>).sort()
   return `{${keys
-    .map(
-      (key) => `${JSON.stringify(key)}:${canonicalizeJson((value as Record<string, unknown>)[key])}`
-    )
+    .map((key) => `${JSON.stringify(key)}:${canonicalizeJson((value as Record<string, unknown>)[key])}`)
     .join(',')}}`
 }
 

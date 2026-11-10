@@ -403,7 +403,9 @@ onMounted(() => {
       aria-modal="true"
       @keydown.esc="closeRunbook"
     >
-      <div class="w-full max-w-xl rounded-xl bg-white p-6 shadow-[var(--shadow-overlay)] border border-neutral-200 space-y-4">
+      <div
+        class="w-full max-w-xl rounded-xl bg-white p-6 shadow-[var(--shadow-overlay)] border border-neutral-200 space-y-4"
+      >
         <div class="flex items-center justify-between border-b border-neutral-200 pb-3">
           <div>
             <span class="text-xs font-mono font-bold text-neutral-500">{{ selectedRunbook.id }}</span>

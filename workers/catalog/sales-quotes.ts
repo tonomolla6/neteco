@@ -15,7 +15,13 @@ import {
 import { catalogPolicyInstantSchema, catalogPolicyUuidSchema } from '../../shared/catalog-publication-policy'
 import { authorizeD1Session, type VerifiedSessionClaims } from './authorization'
 import { activeOrderCustomerId } from './customer-orders'
-import { placeOrder, requestShippingOptions, assertCheckoutAddress, type CheckoutInventoryGateway, type PlaceOrderInput } from './checkout'
+import {
+  placeOrder,
+  requestShippingOptions,
+  assertCheckoutAddress,
+  type CheckoutInventoryGateway,
+  type PlaceOrderInput
+} from './checkout'
 import {
   canonicalPayloadHash,
   CartError,
