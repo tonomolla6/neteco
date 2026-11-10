@@ -194,7 +194,7 @@ const handleExecuteReview = async () => {
     <div class="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-800">
       <div>
         <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-          Gestión de Casos de Éxito de Clientes (MED-020 & MKT-031)
+          Gestión de casos de éxito de clientes (MED-020 & MKT-031)
         </h1>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Permisos firmados, contexto operativo, dosificación, resultados auditables y revisión periódica de vigencia.

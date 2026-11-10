@@ -24,6 +24,7 @@ const query = ref('')
 const selectedCategory = ref(props.initialCategory)
 const selectedType = ref(props.initialType)
 const loading = ref(true)
+const unavailable = ref(false)
 const error = ref<string | null>(null)
 const templates = ref<TemplateSummary[]>([])
 const total = ref(0)
@@ -46,6 +47,7 @@ const TYPES: Array<{ value: TemplateType; label: string }> = [
 async function fetchTemplates() {
   loading.value = true
   error.value = null
+  unavailable.value = false
   try {
     const params = new URLSearchParams()
     if (query.value.trim()) params.set('q', query.value.trim())
@@ -56,8 +58,20 @@ async function fetchTemplates() {
     const data = await request<TemplateListResponse>(url, { method: 'GET' })
     templates.value = data.items
     total.value = data.total
-  } catch {
-    error.value = 'No se pudieron cargar las plantillas profesionales. Por favor, reintente más tarde.'
+  } catch (cause: unknown) {
+    const err = cause as {
+      statusCode?: number
+      status?: number
+      response?: { status?: number }
+      data?: { error?: { code?: string } }
+    } | null
+    const status = err?.statusCode ?? err?.status ?? err?.response?.status
+    const code = err?.data?.error?.code
+    if (status === 404 || status === 503 || code === 'feature_disabled') {
+      unavailable.value = true
+    } else {
+      error.value = 'No se pudieron cargar las plantillas profesionales en este momento.'
+    }
   } finally {
     loading.value = false
   }
@@ -81,21 +95,16 @@ onMounted(() => {
 
 <template>
   <div class="mx-auto max-w-6xl px-4 py-8" data-testid="downloadable-templates-panel">
-    <!-- Header banner -->
-    <div class="mb-8 rounded-[var(--radius-panel)] bg-neteco-900 p-8 text-white">
-      <div class="max-w-3xl">
-        <span
-          class="inline-block rounded-full bg-sky-700/60 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-sky-200"
-        >
-          Documentación Oficial y Guías Técnicas
-        </span>
-        <h1 class="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl">Biblioteca de Plantillas Descargables</h1>
-        <p class="mt-3 text-base text-sky-100 sm:text-lg">
-          Checklists higiénicos, planes de limpieza APPCC y protocolos de autocontrol químico versionados. Disponibles
-          para consulta directa en HTML indexable y descarga en PDF accesible conforme a normativa.
-        </p>
-      </div>
-    </div>
+    <!-- Header -->
+    <header class="mb-8 border-b border-slate-200 pb-6">
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+        Biblioteca de plantillas descargables
+      </h1>
+      <p class="mt-2 text-base text-slate-600 sm:text-lg">
+        Checklists higiénicos, planes de limpieza APPCC y protocolos de autocontrol químico versionados. Disponibles
+        para consulta directa en HTML indexable y descarga en PDF accesible conforme a normativa.
+      </p>
+    </header>
 
     <!-- Filter controls -->
     <div class="mb-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -167,6 +176,15 @@ onMounted(() => {
         class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent align-[-0.125em]"
       />
       <p class="mt-3 text-sm text-slate-500">Cargando biblioteca de plantillas...</p>
+    </div>
+
+    <!-- Unavailable state (404/disabled) -->
+    <div
+      v-else-if="unavailable"
+      class="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500"
+      data-testid="templates-unavailable"
+    >
+      Esta sección estará disponible próximamente.
     </div>
 
     <!-- Error state -->

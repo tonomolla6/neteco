@@ -333,7 +333,7 @@ onMounted(() => {
     <section v-if="activeTab === 'template_regression'" class="space-y-4">
       <div class="bg-gray-50 p-4 rounded-lg border space-y-4">
         <div>
-          <h2 class="text-lg font-bold text-gray-900">Regresión Visual Automatizada para Plantillas Críticas</h2>
+          <h2 class="text-lg font-bold text-gray-900">Regresión visual automatizada para plantillas críticas</h2>
           <p class="text-sm text-gray-600">
             Verifica la integridad visual y estructural del DOM en los breakpoints para evitar roturas.
           </p>

@@ -197,7 +197,8 @@ onMounted(() => {
       v-if="calendarFeed?.activeConflicts?.length"
       class="p-4 bg-amber-50 border-2 border-amber-400 rounded-lg space-y-2"
     >
-      <div class="flex items-center gap-2">        <h2 class="text-sm font-bold text-amber-900">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-bold text-amber-900">
           Conflictos Comerciales y Colisiones de Fechas Detectados ({{ calendarFeed.activeConflicts.length }})
         </h2>
       </div>
@@ -324,7 +325,7 @@ onMounted(() => {
     <!-- TAB 2: Commercial Calendar View -->
     <section v-if="activeTab === 'calendar'" class="space-y-4" aria-label="Calendario Comercial">
       <div class="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
-        <h2 class="text-sm font-bold text-gray-800">Calendario Comercial Mensual</h2>
+        <h2 class="text-sm font-bold text-gray-800">Calendario comercial mensual</h2>
         <div class="flex items-center gap-2">
           <label class="text-xs font-semibold text-gray-600">Mes:</label>
           <input
@@ -350,7 +351,9 @@ onMounted(() => {
         >
           <div class="flex items-center justify-between">
             <span class="font-bold text-gray-700">{{ d.date.slice(8, 10) }}</span>
-            <span v-if="d.conflicts.length" class="text-amber-600 font-bold text-[10px]" title="Conflicto detectado">Conflicto</span>
+            <span v-if="d.conflicts.length" class="text-amber-600 font-bold text-[10px]" title="Conflicto detectado"
+              >Conflicto</span
+            >
           </div>
 
           <div class="space-y-1 mt-1">

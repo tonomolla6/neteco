@@ -87,7 +87,7 @@ describe('AdminPreviewVisualComparison.vue (ADM-024)', () => {
     await regressionTabBtn?.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Regresión Visual Automatizada para Plantillas Críticas')
+    expect(wrapper.text()).toContain('Regresión visual automatizada para plantillas críticas')
 
     // Mock regression check response
     mocks.request.mockResolvedValueOnce({

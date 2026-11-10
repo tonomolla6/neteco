@@ -14,14 +14,15 @@ useSeoMeta({
 const selectedType = ref('')
 const selectedSector = ref('')
 const loading = ref(true)
+const unavailable = ref(false)
 const error = ref<string | null>(null)
 const events = ref<EventItemView[]>([])
 
 const types = [
   { value: '', label: 'Todos los formatos' },
-  { value: 'webinar', label: 'Webinars Online' },
-  { value: 'demo', label: 'Demostraciones Prácticas' },
-  { value: 'local_event', label: 'Eventos Locales Presenciales' }
+  { value: 'webinar', label: 'Formación online' },
+  { value: 'demo', label: 'Demostraciones prácticas' },
+  { value: 'local_event', label: 'Eventos presenciales' }
 ]
 
 const sectors = [
@@ -37,6 +38,7 @@ const sectors = [
 async function loadEvents() {
   loading.value = true
   error.value = null
+  unavailable.value = false
   try {
     const params = new URLSearchParams()
     if (selectedType.value) params.set('type', selectedType.value)
@@ -45,8 +47,20 @@ async function loadEvents() {
     const query = params.toString() ? `?${params.toString()}` : ''
     const res = (await requestFetch(`/api/events${query}`)) as { items: EventItemView[] }
     events.value = res.items || []
-  } catch {
-    error.value = 'No se pudieron cargar los eventos en este momento.'
+  } catch (cause: unknown) {
+    const err = cause as {
+      statusCode?: number
+      status?: number
+      response?: { status?: number }
+      data?: { error?: { code?: string } }
+    } | null
+    const status = err?.statusCode ?? err?.status ?? err?.response?.status
+    const code = err?.data?.error?.code
+    if (status === 404 || status === 503 || code === 'feature_disabled') {
+      unavailable.value = true
+    } else {
+      error.value = 'No se pudieron cargar los eventos en este momento.'
+    }
   } finally {
     loading.value = false
   }
@@ -64,8 +78,8 @@ onMounted(() => {
 <template>
   <div class="eventos-page max-w-7xl mx-auto px-4 py-8 space-y-8">
     <div class="border-b pb-6">
-      <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">Webinars, Demos Técnicas y Eventos</h1>
-      <p class="text-base text-gray-600 mt-2 max-w-3xl">
+      <h1 class="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">Formación técnica y eventos</h1>
+      <p class="mt-2 text-base text-gray-600 max-w-3xl">
         Formación especializada para equipos de limpieza profesional, normativas de higiene química, demostraciones de
         maquinaria y protocolos APPCC. Reserva tu plaza con recordatorios personalizados o consulta grabaciones y
         subtítulos accesibles.
@@ -103,6 +117,14 @@ onMounted(() => {
 
     <!-- Loading State -->
     <div v-if="loading" class="py-16 text-center text-gray-500 text-sm">Cargando agenda de eventos técnicos...</div>
+
+    <!-- Unavailable State (404/disabled) -->
+    <div
+      v-else-if="unavailable"
+      class="py-16 text-center text-gray-500 text-sm bg-white border border-gray-200 rounded-lg"
+    >
+      Esta sección estará disponible próximamente.
+    </div>
 
     <!-- Error State -->
     <div v-else-if="error" class="bg-red-50 text-red-700 p-4 rounded text-sm">

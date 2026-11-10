@@ -59,7 +59,7 @@ describe('CAT-019: AdminEditorialContentEditor Component', () => {
     wrappers.push(wrapper)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Contenido Editorial Propio (CAT-019)')
+    expect(wrapper.text()).toContain('Contenido editorial propio (CAT-019)')
     expect(wrapper.text()).toContain('Control Anti-Duplicación y Calidad Profesional')
     expect(wrapper.text()).toContain('Coincidencia con proveedor')
   })

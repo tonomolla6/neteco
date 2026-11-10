@@ -225,7 +225,7 @@ onMounted(() => {
     <!-- Create Campaign Modal -->
     <div v-if="showModal" class="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
       <div class="bg-white rounded-lg max-w-lg w-full p-6 space-y-4 shadow-xl">
-        <h2 class="text-lg font-bold text-slate-900">Crear Nueva Campaña Segmentada</h2>
+        <h2 class="text-lg font-bold text-slate-900">Crear nueva campaña segmentada</h2>
         <div v-if="validationError" class="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
           {{ validationError }}
         </div>

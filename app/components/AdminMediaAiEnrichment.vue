@@ -144,7 +144,7 @@ async function applyEnrichment() {
 <template>
   <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
     <div class="border-b border-gray-100 pb-4 dark:border-gray-800">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Enriquecimiento Visual Asistido (MED-023)</h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Enriquecimiento visual asistido (MED-023)</h2>
       <p class="text-sm text-gray-500 dark:text-gray-400">
         Eliminación de fondo y propuesta de recortes o metadatos accesibles. Prohibida la invención de envases, claims o
         usos. Aprobación humana obligatoria.

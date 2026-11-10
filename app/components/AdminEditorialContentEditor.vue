@@ -173,7 +173,7 @@ onMounted(() => {
   >
     <header class="mb-6 flex flex-wrap justify-between items-center gap-4">
       <div>
-        <h2 class="text-xl font-bold text-zinc-900 dark:text-zinc-100">Contenido Editorial Propio (CAT-019)</h2>
+        <h2 class="text-xl font-bold text-zinc-900 dark:text-zinc-100">Contenido editorial propio (CAT-019)</h2>
         <p class="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
           Objetivo: <span class="font-semibold">{{ targetType.toUpperCase() }}</span> (ID: {{ targetId }})
           <span v-if="currentArticle" class="ml-2 px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded text-xs">

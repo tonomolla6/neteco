@@ -171,11 +171,7 @@ onMounted(() => {
     </header>
 
     <!-- Alerts -->
-    <div
-      v-if="errorMessage"
-      data-test="error-alert"
-      class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm"
-    >
+    <div v-if="errorMessage" data-test="error-alert" class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm">
       {{ errorMessage }}
     </div>
     <div
@@ -372,7 +368,7 @@ onMounted(() => {
       >
         <div class="flex items-center justify-between">
           <h2 id="gate-heading" class="text-lg font-bold text-gray-900 dark:text-gray-100">
-            Resultado del Quality Gate Continuo
+            Resultado del control de calidad continuo
           </h2>
           <span
             :class="[

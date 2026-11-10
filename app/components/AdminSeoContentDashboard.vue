@@ -79,7 +79,7 @@ onMounted(() => {
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-          SEO & Contenido: Rendimiento, Revenue Asistido y Costes
+          SEO & Contenido: rendimiento, revenue asistido y costes
           <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">DAT-019</span>
         </h2>
         <p class="text-sm text-slate-500">

@@ -74,8 +74,9 @@ describe('BrandCenterPanel component (MED-021)', () => {
     expect(wrapper.find('[data-testid="brand-center-panel"]').exists()).toBe(true)
 
     const text = wrapper.text()
-    expect(text).toContain('Centro de Marca y Certificaciones Oficiales')
-    expect(text).toContain('Política de Tolerancia Cero con Sellos Vagos y Greenwashing')
+    expect(text).toContain('Centro de marca y certificaciones oficiales')
+    expect(text).toContain('Política de tolerancia cero con sellos vagos y greenwashing')
+    expect(text).not.toContain('Transparencia y Garantía Oficial')
     expect(text).toContain('ISO-9001')
     expect(text).toContain('AENOR')
     expect(text).toContain('ER-0428/2021')
@@ -84,5 +85,20 @@ describe('BrandCenterPanel component (MED-021)', () => {
     expect(extLink.exists()).toBe(true)
     expect(extLink.attributes('target')).toBe('_blank')
     expect(extLink.attributes('rel')).toContain('noopener')
+  })
+
+  it('renders neutral message without role="alert" when API is 404/disabled', async () => {
+    registerEndpoint('/api/brand-center', () => {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Feature disabled',
+        data: { error: { code: 'feature_disabled' } }
+      })
+    })
+    const wrapper = await mountSuspended(BrandCenterPanel)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Esta sección estará disponible próximamente')
   })
 })

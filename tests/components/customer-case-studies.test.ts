@@ -56,12 +56,30 @@ describe('CustomerCaseStudiesList.vue Component', () => {
     const wrapper = await mountSuspended(CustomerCaseStudiesList)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Casos de Éxito de Clientes Neteco')
+    expect(wrapper.text()).toContain('Casos de éxito de clientes Neteco')
+    expect(wrapper.text()).not.toContain('✓ Evidencia empírica verificada')
     expect(wrapper.text()).toContain('Descarbonización en Lavanderías del Turia')
     expect(wrapper.text()).toContain('-35%')
     expect(wrapper.text()).toContain('Ahorro económico')
     expect(wrapper.text()).toContain('Lavanderías Industriales del Turia S.L.')
     expect(wrapper.text()).toContain('Instituto Tecnológico Textil Levante')
+  })
+
+  it('renders a neutral notice without role="alert" when API is 404/disabled, never internal code', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: { code: 'feature_disabled' } })
+      }))
+    )
+    const wrapper = await mountSuspended(CustomerCaseStudiesList)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Esta sección estará disponible próximamente')
+    expect(wrapper.text()).not.toContain('error_loading_cases')
   })
 
   it('verifies strict absence of community comment forms and social profile links (MKT-031)', async () => {

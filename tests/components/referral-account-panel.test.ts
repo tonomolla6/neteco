@@ -36,7 +36,7 @@ describe('ReferralAccountPanel Component (MKT-026)', () => {
     const wrapper = await mountSuspended(ReferralAccountPanel)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Programa de Referidos')
+    expect(wrapper.text()).toContain('Programa de referidos')
     expect(wrapper.text()).toContain('Términos y condiciones')
     expect(wrapper.find('input[type="checkbox"]').exists()).toBe(true)
     expect(wrapper.find('button[data-testid="enroll-btn"]').exists()).toBe(true)

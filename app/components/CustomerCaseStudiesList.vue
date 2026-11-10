@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useCustomerCaseStudies } from '../composables/useCustomerCaseStudies'
 import type { PublicCaseStudy } from '~~/shared/customer-case-studies'
 
-const { cases, loading, error, fetchPublicCases } = useCustomerCaseStudies()
+const { cases, loading, unavailable, error, fetchPublicCases } = useCustomerCaseStudies()
 
 const selectedSector = ref<string | null>(null)
 const selectedCase = ref<PublicCaseStudy | null>(null)
@@ -36,18 +36,13 @@ const handleSectorFilter = (sector: string | null) => {
     <!-- Header -->
     <header class="border-b border-gray-200 pb-6 dark:border-gray-800">
       <div class="max-w-3xl">
-        <span
-          class="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-        >
-          ✓ Evidencia empírica verificada
-        </span>
         <h1
           id="case-studies-heading"
-          class="mt-3 text-3xl font-extrabold tracking-tight text-gray-900 sm:text-4xl dark:text-gray-100"
+          class="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl dark:text-gray-100"
         >
-          Casos de Éxito de Clientes Neteco
+          Casos de éxito de clientes Neteco
         </h1>
-        <p class="mt-3 text-base leading-relaxed text-gray-600 dark:text-gray-400">
+        <p class="mt-2 text-base leading-relaxed text-gray-600 dark:text-gray-400">
           Auditorías técnicas reales y resultados verificados en plantas industriales, lavanderías y hostelería. Todas
           las publicaciones cuentan con autorización formal y revisión periódica de vigencia.
         </p>
@@ -85,9 +80,17 @@ const handleSectorFilter = (sector: string | null) => {
       </div>
     </header>
 
+    <!-- Unavailable state (404/disabled) -->
+    <div
+      v-if="unavailable"
+      class="rounded-lg border border-gray-200 bg-white p-8 text-center text-sm text-gray-500 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400"
+    >
+      Esta sección estará disponible próximamente.
+    </div>
+
     <!-- Error state -->
     <div
-      v-if="error"
+      v-else-if="error"
       role="alert"
       class="rounded-lg bg-rose-50 p-4 text-sm font-medium text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
     >
@@ -100,7 +103,8 @@ const handleSectorFilter = (sector: string | null) => {
     </div>
 
     <!-- Empty state -->
-    <div v-else-if="filteredCases.length === 0" class="py-16 text-center">      <h3 class="mt-3 text-lg font-bold text-gray-800 dark:text-gray-200">No hay casos publicados para este filtro</h3>
+    <div v-else-if="filteredCases.length === 0" class="py-16 text-center">
+      <h3 class="mt-3 text-lg font-bold text-gray-800 dark:text-gray-200">No hay casos publicados para este filtro</h3>
       <p class="text-sm text-gray-500">
         Los casos de éxito requieren permiso firmado y resultados certificados antes de su difusión pública.
       </p>

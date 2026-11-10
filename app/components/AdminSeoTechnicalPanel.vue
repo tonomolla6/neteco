@@ -448,7 +448,7 @@ onMounted(() => {
       </div>
 
       <div class="ai-tester-card">
-        <h2 class="section-title">Consultar Motor de Búsqueda Semántica Anclado</h2>
+        <h2 class="section-title">Consultar motor de búsqueda semántica anclado</h2>
         <div class="search-form">
           <input
             v-model="testQuery"
@@ -486,7 +486,7 @@ onMounted(() => {
 
       <!-- Curated guides section -->
       <div class="curated-guides-section">
-        <h2 class="section-title">Guías Editoriales Curadas con Aprobación Humana</h2>
+        <h2 class="section-title">Guías editoriales curadas con aprobación humana</h2>
         <p class="help-text">
           Solo las respuestas revisadas y aprobadas por editores con profundidad de contenido demostrada pueden
           publicarse como URLs indexables.

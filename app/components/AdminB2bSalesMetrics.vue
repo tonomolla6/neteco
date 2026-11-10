@@ -67,7 +67,7 @@ onMounted(() => {
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-          Venta a Empresas (B2B): Activación, Conversión, Recurrencia y Condiciones Comerciales
+          Venta a Empresas (B2B): activación, conversión, recurrencia y condiciones comerciales
           <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">DAT-020</span>
         </h2>
         <p class="text-sm text-slate-500">

@@ -5,6 +5,7 @@ import type { BrandCenterView, OfficialCertification } from '~~/shared/brand-cer
 const request = useRequestFetch()
 
 const loading = ref(true)
+const unavailable = ref(false)
 const error = ref<string | null>(null)
 const data = ref<BrandCenterView | null>(null)
 
@@ -17,11 +18,24 @@ const verifyError = ref<string | null>(null)
 async function loadBrandCenter() {
   loading.value = true
   error.value = null
+  unavailable.value = false
   try {
     const res = await request<BrandCenterView>('/api/brand-center', { method: 'GET' })
     data.value = res
-  } catch {
-    error.value = 'No se pudo cargar la información del Centro de Marca y Certificaciones.'
+  } catch (cause: unknown) {
+    const err = cause as {
+      statusCode?: number
+      status?: number
+      response?: { status?: number }
+      data?: { error?: { code?: string } }
+    } | null
+    const status = err?.statusCode ?? err?.status ?? err?.response?.status
+    const code = err?.data?.error?.code
+    if (status === 404 || status === 503 || code === 'feature_disabled') {
+      unavailable.value = true
+    } else {
+      error.value = 'No se pudo cargar la información del centro de marca y certificaciones.'
+    }
   } finally {
     loading.value = false
   }
@@ -52,32 +66,26 @@ onMounted(() => {
 
 <template>
   <div class="mx-auto max-w-6xl px-4 py-8" data-testid="brand-center-panel">
-    <!-- Hero banner -->
-    <div class="mb-10 rounded-[var(--radius-panel)] bg-neteco-900 p-8 text-white">
-      <div class="max-w-3xl">
-        <span
-          class="inline-block rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-emerald-300"
-        >
-          Transparencia y Garantía Oficial
-        </span>
-        <h1 class="mt-3 text-3xl font-extrabold tracking-tight sm:text-4xl">
-          Centro de Marca y Certificaciones Oficiales
-        </h1>
-        <p class="mt-3 text-base text-slate-200 sm:text-lg">
-          Acceso a los activos autorizados de nuestra marca, normativas de uso e inventario auditado de certificaciones
-          de calidad, gestión ambiental y seguridad química.
-        </p>
-      </div>
-    </div>
+    <!-- Header -->
+    <header class="mb-8 border-b border-slate-200 pb-6">
+      <h1 class="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+        Centro de marca y certificaciones oficiales
+      </h1>
+      <p class="mt-2 text-base text-slate-600 sm:text-lg">
+        Acceso a los activos autorizados de nuestra marca, normativas de uso e inventario auditado de certificaciones de
+        calidad, gestión ambiental y seguridad química.
+      </p>
+    </header>
 
     <!-- Anti-greenwashing guarantee banner -->
     <div
       class="mb-8 rounded-xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm"
       data-testid="anti-greenwashing-banner"
     >
-      <div class="flex items-start gap-4">        <div>
+      <div class="flex items-start gap-4">
+        <div>
           <h2 class="text-base font-bold text-emerald-900">
-            Política de Tolerancia Cero con Sellos Vagos y Greenwashing
+            Política de tolerancia cero con sellos vagos y greenwashing
           </h2>
           <p class="mt-1 text-sm text-emerald-800 leading-relaxed">
             En Neteco rechazamos el uso de sellos ecológicos auto-creados, etiquetas vagas sin sustento técnico o
@@ -91,7 +99,7 @@ onMounted(() => {
 
     <!-- Verification tool -->
     <div class="mb-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" data-testid="cert-verification-tool">
-      <h2 class="text-lg font-bold text-slate-900">Verificador Instantáneo de Certificados</h2>
+      <h2 class="text-lg font-bold text-slate-900">Verificador instantáneo de certificados</h2>
       <p class="mt-1 text-xs text-slate-600">
         Introduzca el número de certificado oficial para comprobar en tiempo real su vigencia, alcance auditado y
         entidad certificadora.
@@ -161,6 +169,13 @@ onMounted(() => {
       <p class="mt-3 text-sm text-slate-500">Cargando directorio de certificados y marca...</p>
     </div>
 
+    <div
+      v-else-if="unavailable"
+      class="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500"
+    >
+      Esta sección estará disponible próximamente.
+    </div>
+
     <div v-else-if="error" class="rounded-xl border border-red-200 bg-red-50 p-6 text-center text-red-800" role="alert">
       <p class="text-sm font-semibold">{{ error }}</p>
       <button
@@ -176,7 +191,7 @@ onMounted(() => {
       <!-- Section 1: Official Certifications -->
       <section data-testid="official-certifications-section">
         <div class="border-b border-slate-200 pb-4">
-          <h2 class="text-2xl font-bold text-slate-900">Certificaciones Vigentes y Auditadas</h2>
+          <h2 class="text-2xl font-bold text-slate-900">Certificaciones vigentes y auditadas</h2>
           <p class="mt-1 text-sm text-slate-600">
             Acreditaciones bajo normas ISO, EU Ecolabel y registros oficiales sanitarios/ADR.
           </p>
@@ -239,7 +254,7 @@ onMounted(() => {
       <!-- Section 2: Authorized Brand Assets & Guidelines -->
       <section data-testid="brand-assets-section">
         <div class="border-b border-slate-200 pb-4">
-          <h2 class="text-2xl font-bold text-slate-900">Activos de Marca Autorizados</h2>
+          <h2 class="text-2xl font-bold text-slate-900">Activos de marca autorizados</h2>
           <p class="mt-1 text-sm text-slate-600">
             Logotipos y especificaciones gráficas de Neteco Professional Cleaning.
           </p>
@@ -286,7 +301,7 @@ onMounted(() => {
 
         <!-- Guidelines note -->
         <div class="mt-6 rounded-xl bg-slate-50 p-6 text-xs text-slate-600 border border-slate-200">
-          <h3 class="font-bold text-slate-900 text-sm">Normativa de Uso de la Marca</h3>
+          <h3 class="font-bold text-slate-900 text-sm">Normativa de uso de la marca</h3>
           <ul class="mt-2 list-disc pl-5 space-y-1">
             <li v-for="(rule, idx) in data.usageGuidelines.generalRules" :key="idx">{{ rule }}</li>
           </ul>
@@ -299,7 +314,7 @@ onMounted(() => {
       <!-- Section 3: Authorized Partners & Official Distributors -->
       <section data-testid="brand-authorizations-section">
         <div class="border-b border-slate-200 pb-4">
-          <h2 class="text-2xl font-bold text-slate-900">Directorio de Partners Autorizados</h2>
+          <h2 class="text-2xl font-bold text-slate-900">Directorio de partners autorizados</h2>
           <p class="mt-1 text-sm text-slate-600">
             Entidades formalmente autorizadas para el uso de la marca Neteco en sus canales.
           </p>

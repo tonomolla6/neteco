@@ -68,7 +68,7 @@ onMounted(() => {
 <template>
   <div class="referral-account-panel bg-white border rounded-lg p-6 max-w-2xl">
     <div class="border-b pb-4 mb-6">
-      <h2 class="text-xl font-bold text-gray-900">Programa de Referidos</h2>
+      <h2 class="text-xl font-bold text-gray-900">Programa de referidos</h2>
       <p class="text-sm text-gray-600 mt-1">
         Invita a empresas y profesionales colaboradores. Recibe recompensas directamente en tu cuenta tras cumplirse la
         ventana de devolución reglamentaria de cada pedido.

@@ -42,7 +42,7 @@ describe('AdminCaseStudyEditor.vue Component', () => {
     const wrapper = await mountSuspended(AdminCaseStudyEditor)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Gestión de Casos de Éxito de Clientes')
+    expect(wrapper.text()).toContain('Gestión de casos de éxito de clientes')
     expect(wrapper.text()).toContain('Caso de Prueba Admin')
     expect(wrapper.text()).toContain('Empresa Test S.L.')
     expect(wrapper.text()).toContain('draft')

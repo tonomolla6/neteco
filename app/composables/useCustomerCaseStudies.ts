@@ -1,9 +1,5 @@
 import { ref } from 'vue'
-import type {
-  PublicCaseStudy,
-  CreateCaseStudyInput,
-  PerformPeriodicReviewInput
-} from '~~/shared/customer-case-studies'
+import type { PublicCaseStudy, CreateCaseStudyInput, PerformPeriodicReviewInput } from '~~/shared/customer-case-studies'
 
 export function useCustomerCaseStudies() {
   const cases = ref<PublicCaseStudy[]>([])
@@ -11,6 +7,7 @@ export function useCustomerCaseStudies() {
   const adminCases = ref<Array<Record<string, unknown>>>([])
   const loading = ref(false)
   const saving = ref(false)
+  const unavailable = ref(false)
   const error = ref<string | null>(null)
 
   const errorMessage = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback)
@@ -18,17 +15,24 @@ export function useCustomerCaseStudies() {
   const fetchPublicCases = async (sector?: string) => {
     loading.value = true
     error.value = null
+    unavailable.value = false
     try {
       const url = sector ? `/api/case-studies?sector=${encodeURIComponent(sector)}` : '/api/case-studies'
       const response = await fetch(url)
       if (!response.ok) {
         const err = (await response.json().catch(() => ({}))) as { error?: { code?: string } }
+        if (response.status === 404 || response.status === 503 || err?.error?.code === 'feature_disabled') {
+          unavailable.value = true
+          return
+        }
         throw new Error(err?.error?.code ?? 'error_loading_cases')
       }
       const data = (await response.json()) as { cases?: PublicCaseStudy[] }
       cases.value = data.cases ?? []
-    } catch (e: unknown) {
-      error.value = errorMessage(e, 'error_loading_cases')
+    } catch {
+      if (!unavailable.value) {
+        error.value = 'No se pudieron cargar los casos de éxito en este momento.'
+      }
     } finally {
       loading.value = false
     }
@@ -152,6 +156,7 @@ export function useCustomerCaseStudies() {
     adminCases,
     loading,
     saving,
+    unavailable,
     error,
     fetchPublicCases,
     fetchCaseBySlug,

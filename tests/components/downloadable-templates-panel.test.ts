@@ -44,12 +44,28 @@ describe('DownloadableTemplatesPanel component (MED-019)', () => {
     expect(wrapper.find('[data-testid="downloadable-templates-panel"]').exists()).toBe(true)
 
     const text = wrapper.text()
-    expect(text).toContain('Biblioteca de Plantillas Descargables')
+    expect(text).toContain('Biblioteca de plantillas descargables')
+    expect(text).not.toContain('Documentación Oficial y Guías Técnicas')
     expect(text).toContain('Checklist de Autocontrol APPCC en Cocinas')
     expect(text).toContain('Descargar PDF')
 
     const downloadLink = wrapper.find('a[download]')
     expect(downloadLink.exists()).toBe(true)
     expect(downloadLink.attributes('href')).toBe('/api/templates/checklist-appcc-cocinas/pdf')
+  })
+
+  it('renders neutral message without role="alert" when API is 404/disabled', async () => {
+    registerEndpoint('/api/templates', () => {
+      throw createError({
+        statusCode: 404,
+        statusMessage: 'Feature disabled',
+        data: { error: { code: 'feature_disabled' } }
+      })
+    })
+    const wrapper = await mountSuspended(DownloadableTemplatesPanel)
+    await flushPromises()
+
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('Esta sección estará disponible próximamente')
   })
 })

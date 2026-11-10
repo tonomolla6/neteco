@@ -45,3 +45,48 @@ describe('section headings', () => {
     expect(vueFiles('app').filter((file) => eyebrow.test(readFileSync(file, 'utf8')))).toEqual([])
   })
 })
+
+describe('heading typography and casing', () => {
+  const FORBIDDEN_AI_TITLE_CASE = [
+    'Casos de Éxito de Clientes Neteco',
+    'Kits y Bundles Profesionales',
+    'Webinars, Demos Técnicas y Eventos',
+    'Biblioteca de Plantillas Descargables',
+    'Centro de Marca y Certificaciones Oficiales',
+    'Verificador Instantáneo de Certificados',
+    'Política de Tolerancia Cero con Sellos Vagos y Greenwashing'
+  ]
+
+  it.each(FORBIDDEN_AI_TITLE_CASE)('avoids AI Title Case heading "%s"', (phrase) => {
+    const offenders = vueFiles('app').filter((file) => readFileSync(file, 'utf8').includes(phrase))
+    expect(offenders).toEqual([])
+  })
+
+  it('avoids English Title Case with ≥3 consecutive capitalized words in h1/h2 headings', () => {
+    const headingPattern = /<(?:h1|h2)[^>]*>([\s\S]*?)<\/(?:h1|h2)>/gu
+    const threeCaps =
+      /\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s*,\s*|\s+)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s*,\s*|\s+)[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\b/u
+
+    const offenders: string[] = []
+    for (const file of vueFiles('app')) {
+      const content = readFileSync(file, 'utf8')
+      for (const match of content.matchAll(headingPattern)) {
+        const text = match[1]
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+        if (threeCaps.test(text)) {
+          offenders.push(`${file}: ${text}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('avoids marketing buzzwords (Bundles, Webinars) in public page headings', () => {
+    const kitsContent = readFileSync('app/pages/kits.vue', 'utf8')
+    const eventosContent = readFileSync('app/pages/eventos.vue', 'utf8')
+    expect(kitsContent).not.toMatch(/<h1[^>]*>[\s\S]*?\bBundles\b[\s\S]*?<\/h1>/i)
+    expect(eventosContent).not.toMatch(/<h1[^>]*>[\s\S]*?\bWebinars\b[\s\S]*?<\/h1>/i)
+  })
+})

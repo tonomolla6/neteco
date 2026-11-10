@@ -338,7 +338,7 @@ onMounted(() => {
       <!-- Commercial internal notes card -->
       <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
         <h2 class="text-base font-bold text-slate-900 border-b border-slate-100 pb-2">
-          Notas Comerciales Internas (Confidencial)
+          Notas comerciales internas (confidencial)
         </h2>
 
         <div v-if="notes.length === 0" class="text-xs text-slate-500 py-3 text-center">No hay notas registradas.</div>

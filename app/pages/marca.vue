@@ -4,7 +4,7 @@ import BrandCenterPanel from '~/components/BrandCenterPanel.vue'
 const runtime = useRuntimeConfig()
 
 useSeoMeta({
-  title: 'Centro de Marca y Certificaciones Oficiales',
+  title: 'Centro de marca y certificaciones oficiales',
   description:
     'Logotipos autorizados, normativas de uso y registro oficial de certificaciones ISO, EU Ecolabel y registros sanitarios sin sellos vagos.',
   robots: 'index, follow'

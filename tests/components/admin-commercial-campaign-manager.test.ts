@@ -146,6 +146,6 @@ describe('AdminCommercialCampaignManager.vue (ADM-026)', () => {
     await calTab?.trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Calendario Comercial Mensual')
+    expect(wrapper.text()).toContain('Calendario comercial mensual')
   })
 })
