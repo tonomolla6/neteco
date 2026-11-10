@@ -15,5 +15,7 @@ export default {
   inPlace: true,
   incremental: false,
   cleanTempDir: 'always',
-  tempDirName: '.stryker-tmp'
+  tempDirName: '.stryker-tmp',
+  // The initial run executes the whole vitest suite; on the 3-CPU Oracle runner it exceeds the 5 min default.
+  dryRunTimeoutMinutes: 30
 }

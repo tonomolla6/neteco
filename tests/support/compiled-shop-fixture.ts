@@ -16,8 +16,8 @@ export async function createCompiledShopFixture(overrides: Record<string, string
   const assetsDirectory = resolve('.output-cloudflare/public')
   await Promise.all([access(scriptPath), access(assetsDirectory)])
   const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
-  if (migrations.length !== 153 || migrations.some((file, index) => Number(file.slice(0, 4)) !== index + 1))
-    throw new Error('Compiled-shop fixture requires exactly migrations 0001 through 0153')
+  if (migrations.length !== 154 || migrations.some((file, index) => Number(file.slice(0, 4)) !== index + 1))
+    throw new Error('Compiled-shop fixture requires exactly migrations 0001 through 0154')
 
   const bindings = Object.freeze({
     APP_ENV: 'local',
