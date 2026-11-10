@@ -1,11 +1,19 @@
 <script setup lang="ts">
 const { preferences, acceptAll, rejectOptional, save } = useConsent()
 const runtime = useRuntimeConfig()
-const visible = ref(!preferences.value)
+// Public SWR pages can contain another visitor's rendered banner. Preserve that
+// initial shape for hydration, while useConsent immediately applies this
+// visitor's cookie to analytics and marketing decisions.
+const initialVisible = useState('neteco-consent-initial-visible', () => !preferences.value)
+const visible = ref(initialVisible.value)
 const configuring = ref(false)
 const analytics = ref(preferences.value?.analytics ?? false)
 const marketing = ref(preferences.value?.marketing ?? false)
 const dialog = ref<HTMLElement | null>(null)
+
+function focusDialog() {
+  if (visible.value) dialog.value?.querySelector<HTMLElement>('button')?.focus()
+}
 
 function open() {
   analytics.value = preferences.value?.analytics ?? false
@@ -30,15 +38,16 @@ function saveSelection() {
 }
 
 onMounted(() => {
+  visible.value = !preferences.value
   window.addEventListener('neteco-open-consent', open)
-  if (visible.value) nextTick(() => dialog.value?.querySelector<HTMLElement>('button')?.focus())
+  if (visible.value) nextTick(focusDialog)
 })
 onBeforeUnmount(() => window.removeEventListener('neteco-open-consent', open))
 
 watch(
   visible,
   (shown) => {
-    if (shown) nextTick(() => dialog.value?.querySelector<HTMLElement>('button')?.focus())
+    if (shown) nextTick(focusDialog)
   },
   { immediate: true }
 )
