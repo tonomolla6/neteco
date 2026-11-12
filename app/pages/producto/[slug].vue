@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
 import { catalogPageFailureStatus } from '~~/shared/catalog-page-status'
-import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
-import ProductDetailExtras from '~/components/ProductDetailExtras.vue'
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
-import ProductImageLightbox from '~/components/ProductImageLightbox.vue'
 import ProductEngagementPanel from '~/components/ProductEngagementPanel.vue'
 import ProductVideoMediaGuide from '~/components/ProductVideoMediaGuide.vue'
+import ProductGallery, { type GalleryImage } from '~/components/ProductGallery.vue'
+import ProductInfoTabs, { type ProductInfoTab } from '~/components/ProductInfoTabs.vue'
 import { buildAggregateRatingJsonLd, type ProductReviewSeoSummary } from '~~/shared/review-aggregate'
 import ProductVerifiedReviewsQa from '~/components/ProductVerifiedReviewsQa.vue'
 import VolumePricingTable from '~/components/VolumePricingTable.vue'
@@ -15,7 +14,7 @@ import { dynamicOgMeta } from '~/utils/og-image'
 import { ogVersion } from '~~/shared/og-image'
 import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
-import { provinceForPostalCode } from '~~/shared/delivery-estimate'
+import { productSafety, type ProductRegulatoryData } from '~~/shared/product-safety'
 import { PRICE_ON_REQUEST, PRICE_REQUEST_ACTION, hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
 import type { ProductCardData, ProductVisualData, TypedAttributeDetail } from '~~/shared/types/catalog'
 
@@ -62,16 +61,12 @@ interface ProductDetail {
   visual: ProductVisualData
   image: string | null
   imageAlt?: string | null
+  /** Galería: todas las fotos publicadas del producto, la principal primero. */
+  images?: Array<{ src: string; alt: string | null }>
   datasheet: string | null
   attrs: Array<{ k: string; v: string }>
   typedAttrs?: TypedAttributeDetail[]
-  regulatory: {
-    signalWord?: string
-    ufi?: string
-    registrationNumber?: string
-    hazardStatements?: string[]
-    precautionaryStatements?: string[]
-  }
+  regulatory: ProductRegulatoryData
   variants: ProductVariant[]
   siblings: Array<{ name: string; slug: string; visual: ProductVisualData; image: string | null }>
   breadcrumb: Array<{ name: string; slug: string }>
@@ -109,6 +104,7 @@ const { data: reviewSeo } = await useFetch<ProductReviewSeoSummary>(
   { key: `review-seo-${route.params.slug}` }
 )
 const aggregateRating = computed(() => (reviewSeo.value ? buildAggregateRatingJsonLd(reviewSeo.value) : null))
+const reviewCount = computed(() => (aggregateRating.value ? (reviewSeo.value?.eligibleCount ?? 0) : 0))
 const runtime = useRuntimeConfig()
 const commercial = useCommercialTerms()
 const governedMedia = Boolean(runtime.public.mediaGoverned)
@@ -200,8 +196,10 @@ const engagementScope = computed(() =>
   ])
 )
 const { track } = useAnalytics()
+const recentlyViewed = useRecentlyViewed()
 onMounted(() => {
   void track('product_viewed', { productId: product.value.id, variantId: selected.value.id })
+  recentlyViewed.record(product.value.slug)
 })
 /**
  * Cantidad por formato. Quien repone pide varios formatos a la vez, así que cada variante
@@ -305,8 +303,8 @@ const availability = computed(() => {
   if (selected.value.stock >= selected.value.minimumQuantity) {
     const lowThreshold = Math.max(selected.value.minimumQuantity * 3, 5)
     return selected.value.stock <= lowThreshold
-      ? { label: `Pocas unidades · ${selected.value.stock} disponibles`, tone: 'warning' }
-      : { label: `${selected.value.stock} disponibles`, tone: 'available' }
+      ? { label: `Quedan ${selected.value.stock}`, tone: 'warning' }
+      : { label: 'En stock', tone: 'available' }
   }
   if (selected.value.backorderAllowed) {
     return {
@@ -319,90 +317,22 @@ const availability = computed(() => {
   return { label: 'Agotado', tone: 'unavailable' }
 })
 
-// La estimación por producto existe en el entorno Node; en Cloudflare la entrega se calcula
-// con el carrito, así que aquí no se enseña un formulario que no puede responder.
-const deliveryEstimateAvailable = computed(() => runtime.public.serverRuntime !== 'cloudflare')
-const deliveryMemory = useDeliveryDestination()
-const deliveryEditing = ref(true)
-const deliveryPostalCode = ref('')
-const deliveryCity = ref('')
-const deliveryLoading = ref(false)
-const deliveryError = ref('')
-interface DeliveryQuote {
-  stockCondition: 'in_stock' | 'backorder'
-  leadTimeDays: number | null
-  rates: Array<{
-    serviceCode: string
-    label: string
-    profile: string
-    estimatedDeliveryFrom: string
-    estimatedDeliveryTo: string
-  }>
-}
-const deliveryQuote = ref<DeliveryQuote | null>(null)
-
-function deliveryDate(value: string) {
-  return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(new Date(value))
-}
-
-// Con el código postal basta: el servidor deduce la provincia. La población solo viaja si
-// ya la conocemos (recordada del carrito) y corresponde a ese mismo código postal.
-watch(deliveryPostalCode, (value, previous) => {
-  if (deliveryEditing.value && value.trim() !== previous.trim()) deliveryCity.value = ''
-})
-
-let deliveryRequest = 0
-async function calculateDelivery() {
-  deliveryError.value = ''
-  deliveryQuote.value = null
-  const postalCode = deliveryPostalCode.value.trim()
-  const province = provinceForPostalCode(postalCode)
-  if (!province) {
-    deliveryError.value = 'Indica un código postal de 5 cifras para calcular la entrega.'
-    return
+/**
+ * Días laborables antes de salir, para la fecha de entrega: 0 con stock para la cantidad
+ * pedida; el plazo del proveedor si alguna línea va bajo pedido; `null` si va bajo pedido sin
+ * plazo conocido (entonces no se promete fecha).
+ */
+const preparationDays = computed<number | null>(() => {
+  const lines = orderLines.value.length
+    ? orderLines.value.map((line) => ({ variant: line.variant, quantity: line.quantity }))
+    : [{ variant: selected.value, quantity: qty.value }]
+  let days = 0
+  for (const { variant, quantity } of lines) {
+    if (variant.stock >= quantity) continue
+    if (!variant.backorderAllowed || variant.leadTimeDays === null) return null
+    days = Math.max(days, variant.leadTimeDays)
   }
-  const city = deliveryCity.value.trim()
-  const request = ++deliveryRequest
-  deliveryLoading.value = true
-  try {
-    const quote = await $fetch<DeliveryQuote>('/api/shipping/product-rates', {
-      method: 'POST',
-      body: {
-        variantId: selected.value.uuid,
-        quantity: qty.value,
-        postalCode,
-        ...(city ? { city } : {})
-      }
-    })
-    // Solo cuenta la última petición: una respuesta lenta de otro destino no la pisa.
-    if (request !== deliveryRequest) return
-    deliveryQuote.value = quote
-    if (!quote.rates.length) deliveryError.value = 'No hay un servicio contratado disponible para esa zona.'
-    else if (deliveryMemory.remember({ postalCode, city: city || province })) {
-      deliveryCity.value = city || province
-      deliveryEditing.value = false
-    }
-  } catch (error) {
-    if (request !== deliveryRequest) return
-    deliveryError.value = apiErrorMessage(error, 'No se puede confirmar una fecha de entrega para esa zona.')
-  } finally {
-    if (request === deliveryRequest) deliveryLoading.value = false
-  }
-}
-
-watch([selectedId, qty], () => {
-  deliveryQuote.value = null
-  deliveryError.value = ''
-  if (!deliveryEditing.value) void calculateDelivery()
-})
-onMounted(() => {
-  if (!deliveryEstimateAvailable.value) return
-  const known = deliveryMemory.restore()
-  if (!known) return
-  deliveryPostalCode.value = known.postalCode
-  deliveryCity.value = known.city
-  deliveryEditing.value = false
-  void calculateDelivery()
+  return days
 })
 
 watch(selected, (variant) => {
@@ -505,31 +435,31 @@ const colorOptions = computed(() => {
   if (!axisCount.value || !cur) return parsedVariants.value
   return parsedVariants.value.filter((parsed) => parsed.axes.join('|') === cur.axes.join('|'))
 })
-// en productos por colores, una variante sin foto propia enseña la ilustración neutra:
-// nunca la foto de otro color/producto. Y si la foto FALLA al cargar, también cae a la ilustración.
-const mainImage = computed(() =>
-  colorMode.value
-    ? catalogImageSource(selected.value?.image, governedMedia)
-    : (catalogImageSource(selected.value?.image, governedMedia) ??
-      catalogImageSource(product.value.image, governedMedia))
-)
-// Mientras se comprueba la nueva foto se muestra el estado neutro, nunca el SKU anterior.
-const shownImage = ref<string | null>(mainImage.value)
-// esqueleto pulsante bajo la imagen grande mientras baja el derivado optimizado
-const fichaImgLoaded = ref(false)
-watch(shownImage, () => (fichaImgLoaded.value = false))
-// URL optimizada (webp) que muestra la ficha. La precarga usa EXACTAMENTE esta URL:
-// así al confirmar la carga el navegador ya la tiene en caché y el cambio es inmediato
-// (antes se comprobaba la original y luego se descargaba el derivado: doble descarga)
+
+/**
+ * Fotos de la galería: la del formato elegido primero y después las del producto (envase,
+ * etiqueta, en uso). En productos por colores solo vale la foto del color elegido: nunca la de
+ * otro color. Sin ninguna, la galería enseña la ilustración de familia.
+ */
+const galleryImages = computed<GalleryImage[]>(() => {
+  const list: GalleryImage[] = []
+  const push = (source: string | null | undefined, alt: string) => {
+    const src = catalogImageSource(source, governedMedia)
+    if (src && !list.some((image) => image.src === src)) list.push({ src, alt })
+  }
+  push(selected.value.image, selected.value.imageAlt || `${product.value.name} · ${selected.value.format}`)
+  if (!colorMode.value) {
+    push(product.value.image, product.value.imageAlt || product.value.name)
+    for (const image of product.value.images ?? []) push(image.src, image.alt || product.value.name)
+  }
+  return list
+})
+// La URL que pinta la galería en grande; la precarga usa exactamente esta para no descargar dos veces.
 const imgApi = useImage()
 const fichaUrl = (src: string) =>
   publishedImageUrl(src, 1200, 'jpeg') ??
-  (governedMedia ? '' : imgApi(src, { format: 'webp', quality: 80, width: 1120 }))
-const imageAlt = computed(() =>
-  selected.value.image && selected.value.image === shownImage.value
-    ? selected.value.imageAlt || `${product.value.name} · ${selected.value.format}`
-    : product.value.imageAlt || product.value.name
-)
+  (governedMedia ? '' : imgApi(src, { format: 'webp', quality: 85, width: 1200 }))
+
 useHead(() => ({
   script: [
     {
@@ -541,7 +471,9 @@ useHead(() => ({
         '@id': `${canonicalUrl}#product`,
         name: product.value.name,
         description: product.value.shortDesc ?? product.value.description ?? undefined,
-        image: shownImage.value ? [`${canonicalOrigin}${fichaUrl(shownImage.value)}`] : undefined,
+        image: galleryImages.value.length
+          ? galleryImages.value.map((image) => `${canonicalOrigin}${fichaUrl(image.src)}`)
+          : undefined,
         sku: selected.value.sku,
         ...(selected.value.ean?.length === 8 ? { gtin8: selected.value.ean } : {}),
         ...(selected.value.ean?.length === 12 ? { gtin12: selected.value.ean } : {}),
@@ -585,49 +517,29 @@ useHead(() => ({
     }
   ]
 }))
-watch(
-  mainImage,
-  (src) => {
-    if (!src) {
-      shownImage.value = null
-      return
-    }
-    if (!import.meta.client) {
-      shownImage.value = src
-      return
-    }
-    // Selection has already changed: never present the previous SKU's image
-    // beside the new SKU while its own approved derivative is being checked.
-    shownImage.value = null
-    const im = new Image()
-    im.onload = () => {
-      if (mainImage.value === src) shownImage.value = src
-    }
-    im.onerror = () => {
-      if (mainImage.value === src) shownImage.value = null
-    }
-    im.src = fichaUrl(src)
-  },
-  { immediate: true }
-)
-// candidata LCP: precargar el derivado inicial desde el HTML
+// candidata LCP: precargar desde el HTML la foto grande inicial
 useHead({
-  link: () => (shownImage.value ? [{ rel: 'preload', as: 'image', href: fichaUrl(shownImage.value) }] : [])
+  link: () =>
+    galleryImages.value[0] && fichaUrl(galleryImages.value[0].src)
+      ? [{ rel: 'preload', as: 'image', href: fichaUrl(galleryImages.value[0].src) }]
+      : []
 })
 // pre-descarga en segundo plano (en ratos libres del navegador) de todos los colores
 // de la rama activa: pasar de un color a otro queda instantáneo, ya están en caché
 const prefetched = new Set<string>()
 const colorImageUrls = computed(() =>
-  colorOptions.value
-    .map((parsed) => catalogImageSource(parsed.v.image, governedMedia))
-    .filter((source): source is string => Boolean(source))
-    .map((source) => fichaUrl(source))
+  colorMode.value
+    ? colorOptions.value
+        .map((parsed) => catalogImageSource(parsed.v.image, governedMedia))
+        .filter((source): source is string => Boolean(source))
+        .map((source) => fichaUrl(source))
+    : []
 )
 watch(
   colorImageUrls,
   (opts, _previous, onCleanup) => {
     if (!import.meta.client) return
-    const urls = opts.filter((url) => !prefetched.has(url))
+    const urls = opts.filter((url) => url && !prefetched.has(url))
     if (!urls.length) return
     const go = () =>
       urls.forEach((u: string) => {
@@ -647,7 +559,6 @@ watch(
 )
 
 // precio informativo por unidad/litro/kilo del envase (estilo mayorista)
-
 function perUnit(variant: ProductVariant, grossCents = variant.price): string | null {
   if (!variant.units || !variant.unitLabel) return null
   const per = grossCents / 100 / variant.units
@@ -655,23 +566,14 @@ function perUnit(variant: ProductVariant, grossCents = variant.price): string | 
   return `${per.toLocaleString('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits })} €/${variant.unitLabel}`
 }
 
-// High-resolution selection stays behind the existing governed-media boundary
-// and is evaluated only while the viewer is open.
-const lightbox = ref(false)
-const imageTrigger = ref<HTMLButtonElement | null>(null)
-watch(
-  [shownImage, selectedId],
-  () => {
-    lightbox.value = false
-  },
-  { flush: 'sync' }
-)
-const lightboxSrc = computed(() =>
-  lightbox.value && shownImage.value
-    ? (publishedImageUrl(shownImage.value, 1600, 'jpeg') ??
-      (governedMedia ? null : imgApi(shownImage.value, { format: 'webp', quality: 85, width: 1800 })))
-    : null
-)
+/** Precio por unidad del formato elegido, a la cantidad elegida (con su tramo). */
+const unitPrice = computed(() => (showNetPrices.value ? selectedUnitNetPrice.value : selectedUnitGrossPrice.value))
+/** Rebaja real: solo con precio anterior y referencia de 30 días publicados. */
+const offer = computed(() => {
+  const { compareAtPrice, referencePrice30d, price } = selected.value
+  if (selectedOnRequest.value || !compareAtPrice || !referencePrice30d || compareAtPrice <= price) return null
+  return { before: compareAtPrice, percent: Math.round(((compareAtPrice - price) / compareAtPrice) * 100) }
+})
 
 const cart = useCartStore()
 const toast = useToast()
@@ -693,8 +595,9 @@ async function addFavorite() {
   }
 }
 
-async function addToCart() {
-  if (adding.value || !orderLines.value.length) return
+/** Añade todas las líneas con cantidad. Devuelve si se han añadido todas (para «Comprados juntos»). */
+async function addToCart(options: { silent?: boolean } = {}): Promise<boolean> {
+  if (adding.value || !orderLines.value.length) return false
   adding.value = true
   const lines = [...orderLines.value]
   let current = lines[0]!
@@ -719,15 +622,18 @@ async function addToCart() {
         line.quantity
       )
     }
-    toast.add({
-      title: 'Añadido al carrito',
-      description:
-        lines.length === 1
-          ? `${product.value.name} · ${current.variant.format} × ${current.quantity}`
-          : `${product.value.name} · ${lines.length} formatos, ${orderTotal.value.units} uds`,
-      icon: 'i-lucide-shopping-cart',
-      color: 'success'
-    })
+    if (!options.silent)
+      toast.add({
+        title: 'Añadido al carrito',
+        description:
+          lines.length === 1
+            ? `${product.value.name} · ${current.variant.format} × ${current.quantity}`
+            : `${product.value.name} · ${lines.length} formatos, ${orderTotal.value.units} uds`,
+        icon: 'i-lucide-shopping-cart',
+        color: 'success',
+        actions: [{ label: 'Ver carrito', to: '/carrito' }]
+      })
+    return true
   } catch {
     toast.add({
       title: 'No se ha podido añadir',
@@ -735,20 +641,117 @@ async function addToCart() {
       icon: 'i-lucide-triangle-alert',
       color: 'error'
     })
+    return false
   } finally {
     adding.value = false
   }
 }
 
-/** Productos con información regulatoria: necesitan su ficha de seguridad a mano. */
-const regulated = computed(() => {
-  const info = product.value.regulatory ?? {}
-  return !!(info.signalWord || info.ufi || info.registrationNumber || info.hazardStatements?.length)
+/**
+ * Seguridad química. El menaje no lleva ningún bloque de peligros. En un químico, la ficha
+ * enseña pictogramas, frases H y P y la FDS; los datos de transporte (ADR) completan lo que
+ * falte en el producto, nunca lo sustituyen por un aviso genérico.
+ */
+interface HazardInfo {
+  classified: boolean
+  pictograms: string[]
+  signalWord?: string | null
+  hazardStatements: string[]
+  precautionaryStatements: string[]
+  ufiCode?: string | null
+}
+const hazardInfo = ref<HazardInfo | null>(null)
+const baseSafety = computed(() => productSafety(product.value.regulatory, technicalDocuments.value))
+const safety = computed(() => {
+  const hazard = hazardInfo.value
+  if (!hazard?.classified) return baseSafety.value
+  const base = product.value.regulatory ?? {}
+  return productSafety(
+    {
+      ...base,
+      pictograms:
+        (Array.isArray(base.pictograms) && base.pictograms.length ? base.pictograms : hazard.pictograms) ?? [],
+      signalWord: base.signalWord ?? hazard.signalWord ?? undefined,
+      hazardStatements:
+        baseSafety.value.hazardStatements.length || !hazard.hazardStatements.length
+          ? base.hazardStatements
+          : hazard.hazardStatements,
+      precautionaryStatements:
+        baseSafety.value.precautionaryStatements.length || !hazard.precautionaryStatements.length
+          ? base.precautionaryStatements
+          : hazard.precautionaryStatements,
+      ufi: base.ufi ?? hazard.ufiCode ?? undefined
+    },
+    technicalDocuments.value
+  )
 })
+let hazardRequest = 0
+watch(
+  () => [selected.value.id, baseSafety.value.chemical] as const,
+  async ([variantId, chemical]) => {
+    const token = ++hazardRequest
+    hazardInfo.value = null
+    // Solo se consulta en químicos: un producto sin datos regulatorios no es «pendiente de verificar».
+    if (!import.meta.client || !chemical || !engagementEnabled.value) return
+    try {
+      const data = await $fetch<HazardInfo>('/api/storefront/adr/hazard-info', {
+        query: { variantId: String(variantId) }
+      })
+      if (token === hazardRequest) hazardInfo.value = data
+    } catch {
+      /* Sin datos de transporte se queda lo publicado en el producto. */
+    }
+  },
+  { immediate: true }
+)
+
+const tabsRef = useTemplateRef<InstanceType<typeof ProductInfoTabs>>('tabs')
+const infoTabs = computed<ProductInfoTab[]>(() => [
+  { id: 'descripcion', label: 'Descripción' },
+  { id: 'caracteristicas', label: 'Características' },
+  { id: 'opiniones', label: 'Reseñas y preguntas', count: reviewCount.value || null },
+  ...(safety.value.chemical ? [{ id: 'seguridad', label: 'Seguridad y fichas' }] : []),
+  ...(engagementEnabled.value ? [{ id: 'avisos', label: 'Avisos y reposición' }] : []),
+  { id: 'envio', label: 'Envío y devoluciones' }
+])
+const nonSafetyDocuments = computed(() =>
+  safety.value.chemical ? [] : technicalDocuments.value.filter((document) => document.role !== 'sds')
+)
+const DOCUMENT_LABELS = {
+  sds: 'Ficha de datos de seguridad',
+  datasheet: 'Ficha técnica',
+  label: 'Etiqueta',
+  certificate: 'Certificado'
+} as const
+
+// Recomendaciones: una sola petición para «Comprados juntos» y las tres franjas.
+const recommendations = useProductRecommendations({
+  product: () => product.value.slug,
+  strips: ['bought_together', 'also_viewed', 'for_you', 'trending'],
+  limit: 10
+})
+const boughtTogether = recommendations.strip('bought_together')
+const browseStrips = computed(() => recommendations.strips.value.filter((strip) => strip.kind !== 'bought_together'))
+const fbtMain = computed(() =>
+  orderLines.value.length && !requestOnly.value
+    ? {
+        name: product.value.name,
+        image: galleryImages.value[0]?.src ?? null,
+        visual: product.value.visual,
+        grossCents: orderTotal.value.gross,
+        netCents: orderTotal.value.net,
+        detail:
+          orderLines.value.length === 1
+            ? `${orderLines.value[0]!.variant.format} × ${orderLines.value[0]!.quantity}`
+            : `${orderLines.value.length} formatos, ${orderTotal.value.units} uds`,
+        add: () => addToCart({ silent: true })
+      }
+    : null
+)
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1600px] px-4 py-8 pb-24 lg:pb-8">
+  <div class="mx-auto max-w-[1440px] px-4 pb-28 pt-4 sm:px-6 lg:pb-12 lg:pt-6">
     <PromotionalBlocks
       :context="{
         placement: 'product',
@@ -756,85 +759,55 @@ const regulated = computed(() => {
         productSlug: product.slug,
         categorySlug: product.breadcrumb.at(-1)?.slug
       }"
-      class="mb-6"
+      class="mb-4"
     />
-    <!-- migas -->
-    <nav aria-label="Migas de pan" class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
-      <NuxtLink to="/" class="hover:text-neteco-600">Inicio</NuxtLink>
+    <!-- Migas solo en escritorio: en el móvil la foto va arriba, sin rodeos. -->
+    <nav
+      aria-label="Migas de pan"
+      class="hidden flex-wrap items-center gap-1.5 text-[13px] text-[var(--text-muted)] lg:flex"
+    >
+      <NuxtLink to="/" class="hover:text-[var(--link)] hover:underline">Inicio</NuxtLink>
       <template v-for="c in product.breadcrumb" :key="c.slug">
-        <UIcon name="i-lucide-chevron-right" class="size-3.5" />
-        <NuxtLink :to="`/categoria/${c.slug}`" class="hover:text-neteco-600">{{ c.name }}</NuxtLink>
+        <UIcon name="i-lucide-chevron-right" class="size-3.5" aria-hidden="true" />
+        <NuxtLink :to="`/categoria/${c.slug}`" class="hover:text-[var(--link)] hover:underline">{{ c.name }}</NuxtLink>
       </template>
     </nav>
 
-    <div class="mt-6 grid items-start gap-8 grid-cols-1 lg:grid-cols-2 xl:grid-cols-12">
-      <!-- imagen -->
-      <div
-        class="relative self-start rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 sm:p-10 xl:col-span-4"
-      >
-        <button
-          v-if="shownImage"
-          ref="imageTrigger"
-          type="button"
-          class="group relative block w-full cursor-zoom-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
-          aria-label="Ver la imagen a pantalla completa"
-          @click="lightbox = true"
-        >
-          <span
-            v-if="!fichaImgLoaded"
-            class="absolute inset-0 animate-pulse rounded-xl bg-slate-100"
-            aria-hidden="true"
-          />
-          <PublishedProductImage
-            v-if="publishedImageSources(shownImage)"
-            :src="shownImage"
-            :alt="imageAlt"
-            sizes="(min-width: 1280px) 33vw, (min-width: 1024px) 50vw, 100vw"
-            loading="eager"
-            image-class="relative mx-auto aspect-square w-full rounded-xl bg-white object-contain"
-            @load="fichaImgLoaded = true"
-            @error="shownImage = null"
-          />
-          <img
-            v-else
-            :src="fichaUrl(shownImage)"
-            :alt="imageAlt"
-            width="800"
-            height="800"
-            class="relative mx-auto aspect-square w-full rounded-xl bg-white object-contain"
-            @load="fichaImgLoaded = true"
-            @error="shownImage = null"
-          />
-          <span
-            class="absolute bottom-3 right-3 rounded-full bg-white/95 p-2.5 text-slate-600 opacity-0 shadow-md transition group-hover:opacity-100 group-focus-visible:opacity-100"
-          >
-            <UIcon name="i-lucide-zoom-in" class="block size-5" />
-          </span>
-        </button>
-        <!--
-          Sin foto, la ilustración de familia dice el formato y el color, que ya es
-          información. Lo que faltaba era la salida: en B2B, quien duda por no ver el
-          producto llama y pregunta, así que se lo ofrecemos aquí en vez de dejarle
-          con la duda.
-        -->
-        <div v-else class="flex aspect-square w-full flex-col items-center justify-center px-6">
-          <ProductVisual :visual="product.visual" class="w-full max-w-[220px]" />
-          <p class="mt-3 max-w-xs text-center text-sm text-[var(--text-muted)]">
-            Todavía no tenemos foto de esta referencia.
-            <NuxtLink
-              :to="
-                runtime.public.serverRuntime === 'cloudflare'
-                  ? { path: '/contacto', query: { producto: product.slug } }
-                  : '/contacto'
-              "
-              class="font-medium text-neteco-700 underline underline-offset-2"
+    <div class="grid grid-cols-1 items-start gap-x-8 gap-y-5 lg:mt-4 lg:grid-cols-12">
+      <!-- Galería -->
+      <div class="relative min-w-0 lg:col-span-6 lg:row-span-2 xl:col-span-5">
+        <ProductGallery :images="galleryImages" :name="product.name" :context-key="selectedId">
+          <template #empty>
+            <!--
+              Sin foto, la ilustración de familia dice el formato y el color, que ya es
+              información. En B2B quien duda por no ver el producto llama y pregunta, así que
+              se le ofrece la salida aquí.
+            -->
+            <div
+              class="flex aspect-square w-full flex-col items-center justify-center rounded-[var(--radius-surface)] bg-[var(--surface)] px-6"
             >
-              Pídenosla
-            </NuxtLink>
-            y te la mandamos.
-          </p>
-        </div>
-        <div class="absolute left-6 top-6 flex flex-col items-start gap-1.5">
+              <ProductVisual :visual="product.visual" class="w-full max-w-[220px]" />
+              <p class="mt-3 max-w-xs text-center text-[13px] text-[var(--text-muted)]">
+                Todavía no tenemos foto de esta referencia.
+                <NuxtLink
+                  :to="
+                    runtime.public.serverRuntime === 'cloudflare'
+                      ? { path: '/contacto', query: { producto: product.slug } }
+                      : '/contacto'
+                  "
+                  class="font-medium text-[var(--link)] underline underline-offset-2"
+                >
+                  Pídenosla
+                </NuxtLink>
+                y te la mandamos.
+              </p>
+            </div>
+          </template>
+        </ProductGallery>
+        <div
+          v-if="product.badges.length"
+          class="pointer-events-none absolute left-3 top-3 flex flex-col items-start gap-1.5 lg:left-[88px]"
+        >
           <UBadge
             v-for="b in product.badges"
             :key="b"
@@ -847,37 +820,95 @@ const regulated = computed(() => {
         </div>
       </div>
 
-      <!-- info y compra -->
-      <div class="xl:col-span-5">
+      <!-- Nombre, precio, resumen y formatos -->
+      <div class="min-w-0 lg:col-span-6 xl:col-span-4">
         <p
           v-if="product.brand && !product.name.toUpperCase().startsWith(product.brand.toUpperCase())"
           class="text-[13px] font-medium text-[var(--text-muted)]"
         >
           {{ product.brand }}
         </p>
-        <h1 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{{ product.name }}</h1>
-        <NuxtLink
-          v-if="runtime.public.serverRuntime === 'cloudflare'"
-          :to="{ path: '/contacto', query: { producto: product.slug } }"
-          class="mt-2 inline-block text-sm font-medium text-neteco-700 underline underline-offset-2"
-          >Consultar sobre este producto</NuxtLink
+        <h1 class="mt-0.5 text-2xl font-bold leading-tight text-[var(--text-strong)] lg:text-[28px]">
+          {{ product.name }}
+        </h1>
+        <p class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[var(--text-muted)]">
+          <span class="tabular">Ref. {{ selected.sku }}</span>
+          <button
+            v-if="reviewCount && reviewSeo"
+            type="button"
+            class="inline-flex min-h-6 items-center gap-1 text-[var(--link)] hover:underline"
+            @click="tabsRef?.show('opiniones')"
+          >
+            <UIcon name="i-lucide-star" class="size-4 text-amber-600" aria-hidden="true" />
+            {{ reviewSeo.averageRating.toFixed(1).replace('.', ',') }} · {{ reviewCount }}
+            {{ reviewCount === 1 ? 'opinión' : 'opiniones' }}
+          </button>
+        </p>
+
+        <!-- Precio del formato elegido: la cifra que decide, arriba y grande -->
+        <div class="mt-3 border-y border-[var(--border)] py-3" data-product-price>
+          <p v-if="selectedOnRequest" class="font-display text-[26px] font-bold text-[var(--text-strong)]">
+            {{ PRICE_ON_REQUEST }}
+          </p>
+          <template v-else>
+            <p class="flex flex-wrap items-baseline gap-x-2">
+              <span v-if="offer" class="text-[15px] font-semibold text-[var(--price-offer)]"
+                >−{{ offer.percent }} %</span
+              >
+              <span
+                class="tabular font-display text-[26px] font-bold leading-none text-[var(--text-strong)] lg:text-[30px]"
+              >
+                {{ formatPrice(unitPrice) }}
+              </span>
+              <span class="text-[13px] font-medium text-[var(--text-muted)]">
+                {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+              </span>
+            </p>
+            <p class="tabular mt-1 text-[13px] text-[var(--text-muted)]">
+              <template v-if="product.variants.length > 1">{{ selected.format }} · </template>
+              {{ formatPrice(showNetPrices ? selectedUnitGrossPrice : selectedUnitNetPrice) }}
+              {{ showNetPrices ? 'con IVA' : 'sin IVA' }}
+              <template v-if="perUnit(selected, unitPrice)"> · {{ perUnit(selected, unitPrice) }}</template>
+            </p>
+            <p v-if="offer && selected.referencePrice30d" class="mt-1 text-[13px] text-[var(--text-muted)]">
+              Antes <s>{{ formatPrice(offer.before) }}</s> · Precio más bajo de los 30 días anteriores:
+              {{ formatPrice(selected.referencePrice30d) }}
+            </p>
+          </template>
+        </div>
+
+        <p v-if="product.shortDesc" class="mt-3 text-[15px] leading-relaxed text-[var(--text)]">
+          {{ product.shortDesc }}
+        </p>
+
+        <!-- Seguridad junto a la compra, solo en químicos -->
+        <div
+          v-if="safety.chemical"
+          class="mt-4 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] p-3"
         >
-        <p v-if="product.shortDesc" class="mt-3 text-slate-600">{{ product.shortDesc }}</p>
+          <ProductSafetyPanel
+            :safety="safety"
+            :product-slug="product.slug"
+            summary
+            @details="tabsRef?.show('seguridad')"
+          />
+        </div>
 
         <!-- selector de color (variantes con color propio; eje opcional de acabado) -->
-        <div v-if="colorMode" class="mt-6 space-y-4">
+        <div v-if="colorMode" class="mt-5 space-y-4">
           <div v-for="level in axisCount" :key="level">
-            <p class="mb-2 text-sm font-semibold text-slate-700">{{ axisLabel(level - 1) }}</p>
+            <p class="mb-2 text-[15px] font-semibold text-[var(--text-strong)]">{{ axisLabel(level - 1) }}</p>
             <div class="flex flex-wrap gap-2">
               <button
                 v-for="o in axisOptions(level - 1)"
                 :key="o"
+                type="button"
                 :aria-pressed="selectedParsed?.axes[level - 1] === o"
-                class="rounded-xl border-2 bg-white px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
+                class="min-h-11 rounded-[var(--radius-control)] border-2 bg-white px-4 text-[15px] font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--action)] focus-visible:ring-offset-2"
                 :class="
                   selectedParsed?.axes[level - 1] === o
-                    ? 'border-neteco-500 text-neteco-700 ring-1 ring-neteco-500'
-                    : 'border-slate-200 text-slate-700 hover:border-neteco-300'
+                    ? 'border-[var(--action)] text-[var(--text-strong)]'
+                    : 'border-[var(--border)] text-[var(--text)] hover:border-[var(--border-strong)]'
                 "
                 @click="pickAxis(level - 1, o)"
               >
@@ -886,41 +917,31 @@ const regulated = computed(() => {
             </div>
           </div>
           <div>
-            <p class="mb-2.5 text-sm font-semibold text-slate-700">
-              Color <span class="font-normal text-slate-500">({{ colorOptions.length }} disponibles)</span>
-              <span class="font-normal text-slate-400"> · </span>
-              <span class="text-neteco-700">{{ selectedParsed?.colorName }}</span>
+            <p class="mb-2.5 text-[15px] font-semibold text-[var(--text-strong)]">
+              Color <span class="font-normal text-[var(--text-muted)]">({{ colorOptions.length }} disponibles)</span>
+              ·
+              <span class="font-normal">{{ selectedParsed?.colorName }}</span>
             </p>
             <div class="flex flex-wrap gap-2.5">
               <button
                 v-for="p in colorOptions"
                 :key="p.v.id"
+                type="button"
                 :aria-pressed="selectedId === p.v.id"
                 :aria-label="p.v.format"
                 :title="p.colorName ?? p.v.format"
-                class="size-9 rounded-full border border-black/15 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500 focus-visible:ring-offset-2"
-                :class="selectedId === p.v.id ? 'ring-2 ring-neteco-500 ring-offset-2' : 'hover:scale-110'"
+                class="size-11 rounded-full border border-black/15 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--action)] focus-visible:ring-offset-2"
+                :class="selectedId === p.v.id ? 'ring-2 ring-[var(--action)] ring-offset-2' : 'hover:scale-105'"
                 :style="{ backgroundColor: p.v.color ?? '#94a3b8' }"
                 @click="selectedId = p.v.id"
               />
             </div>
-            <p class="tabular mt-2.5 text-[13px] font-medium text-[var(--text-muted)]">Ref. {{ selected.sku }}</p>
-          </div>
-          <div class="flex items-center gap-3">
-            <span class="text-[15px] font-semibold text-[var(--text-strong)]">Cantidad</span>
-            <QuantityStepper
-              v-model="qty"
-              :minimum="selected.minimumQuantity"
-              :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
-              :step="selected.quantityIncrement"
-              label="Cantidad"
-              :disabled="outOfStock || selectedOnRequest"
-            />
           </div>
         </div>
 
         <!-- formatos -->
-        <div v-else class="mt-6">
+        <div v-else-if="product.variants.length > 1" class="mt-5">
+          <p class="mb-2 text-[15px] font-semibold text-[var(--text-strong)]">Elige formato y cantidad</p>
           <VariantOrderTable
             v-model="selectedId"
             :variants="product.variants"
@@ -963,14 +984,14 @@ const regulated = computed(() => {
         </div>
 
         <!-- otros colores/versiones de la gama -->
-        <div v-if="product.siblings?.length" class="mt-6">
-          <p class="mb-2 text-sm font-semibold text-slate-700">Otros colores y versiones de la gama</p>
+        <div v-if="product.siblings?.length" class="mt-5">
+          <p class="mb-2 text-[15px] font-semibold text-[var(--text-strong)]">Otros colores y versiones de la gama</p>
           <div class="flex flex-wrap gap-2">
             <NuxtLink
               v-for="s in product.siblings"
               :key="s.slug"
               :to="`/producto/${s.slug}`"
-              class="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-neteco-300 hover:text-neteco-700"
+              class="flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-white px-3 text-[15px] font-medium text-[var(--text)] transition hover:border-[var(--border-strong)]"
             >
               <span
                 class="size-3 shrink-0 rounded-full border border-black/10"
@@ -982,16 +1003,17 @@ const regulated = computed(() => {
         </div>
       </div>
 
-      <!-- Caja de compra fija, al estilo de las fichas de Amazon: precio, disponibilidad,
-           cantidad y acción viven juntos y siguen visibles al bajar por la ficha. Antes
-           estaban repartidos por la columna central y quedaban fuera de pantalla en cuanto
-           se leía la descripción. -->
-      <aside class="xl:col-span-3">
+      <!-- Caja de compra: precio, entrega, cantidad y acción juntos. Fija al bajar en escritorio. -->
+      <aside
+        class="min-w-0 lg:col-span-6 lg:col-start-7 xl:col-span-3 xl:col-start-auto xl:row-span-2 xl:row-start-1"
+        aria-label="Compra"
+      >
         <div
-          class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 xl:sticky xl:top-24"
+          data-buy-box
+          class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5 xl:sticky xl:top-24"
         >
           <div v-if="requestOnly" data-order-summary data-price-on-request>
-            <p class="font-display text-[1.625rem] font-bold leading-tight text-[var(--text-strong)] sm:text-3xl">
+            <p class="font-display text-[26px] font-bold leading-tight text-[var(--text-strong)]">
               {{ PRICE_ON_REQUEST }}
             </p>
             <p class="tabular mt-1 text-[13px] font-medium text-[var(--text-muted)]">Ref. {{ selected.sku }}</p>
@@ -1000,14 +1022,14 @@ const regulated = computed(() => {
           <div v-else data-order-summary>
             <p class="text-[13px] font-medium text-[var(--text-muted)]">
               <template v-if="orderTotal.units">
-                {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds'
+                Total · {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds'
                 }}<template v-if="orderLines.length > 1"> · {{ orderLines.length }} formatos</template>
               </template>
               <template v-else>Indica una cantidad</template>
             </p>
             <p
               data-order-total
-              class="tabular font-display text-[1.625rem] font-bold leading-tight text-[var(--text-strong)] sm:text-3xl"
+              class="tabular font-display text-[26px] font-bold leading-tight text-[var(--text-strong)] lg:text-[30px]"
             >
               {{ formatPrice(showNetPrices ? orderTotal.net : orderTotal.gross) }}
               <span class="font-sans text-[13px] font-medium text-[var(--text-muted)]">
@@ -1017,62 +1039,69 @@ const regulated = computed(() => {
             <p class="tabular text-[13px] text-[var(--text-muted)]">
               {{ formatPrice(showNetPrices ? orderTotal.gross : orderTotal.net) }}
               {{ showNetPrices ? 'con IVA' : 'sin IVA' }} ({{ selected.taxRateBasisPoints / 100 }} %)
-              <template
-                v-if="
-                  orderLines.length <= 1 &&
-                  perUnit(selected, showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice)
-                "
-              >
-                · {{ perUnit(selected, showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) }}
-              </template>
             </p>
-            <p
-              v-if="orderLines.length <= 1"
-              class="mt-2 flex items-center gap-1.5 text-[15px] font-medium"
-              :class="
+          </div>
+
+          <!-- Fecha de entrega concreta, en verde y negrita: la duda nº 1 de quien repone -->
+          <div v-if="!requestOnly && !outOfStock" class="mt-4">
+            <DeliveryPromiseLine :preparation-days="preparationDays" />
+          </div>
+
+          <p
+            v-if="!requestOnly && orderLines.length <= 1"
+            data-availability
+            class="mt-3 flex items-center gap-1.5 text-[15px] font-semibold"
+            :class="
+              availability.tone === 'unavailable'
+                ? 'text-[var(--stock-out)]'
+                : availability.tone === 'warning' || availability.tone === 'backorder'
+                  ? 'text-[var(--stock-low)]'
+                  : 'text-[var(--stock-ok)]'
+            "
+          >
+            <UIcon
+              :name="
                 availability.tone === 'unavailable'
-                  ? 'text-[var(--stock-out)]'
-                  : availability.tone === 'warning' || availability.tone === 'backorder'
-                    ? 'text-[var(--stock-low)]'
-                    : 'text-[var(--stock-ok)]'
+                  ? 'i-lucide-circle-x'
+                  : availability.tone === 'warning'
+                    ? 'i-lucide-circle-alert'
+                    : availability.tone === 'backorder'
+                      ? 'i-lucide-clock'
+                      : 'i-lucide-circle-check'
               "
-            >
-              <UIcon
-                :name="
-                  availability.tone === 'unavailable'
-                    ? 'i-lucide-circle-x'
-                    : availability.tone === 'warning'
-                      ? 'i-lucide-circle-alert'
-                      : availability.tone === 'backorder'
-                        ? 'i-lucide-clock'
-                        : 'i-lucide-circle-check'
-                "
-                class="size-4 shrink-0"
-              />
-              {{ availability.label }}
-            </p>
-            <p v-if="sellingRule" class="mt-1 text-[13px] text-[var(--text-muted)]">{{ sellingRule }}</p>
+              class="size-4 shrink-0"
+            />
+            {{ availability.label }}
+          </p>
+          <p v-if="sellingRule && !requestOnly" class="mt-1 text-[13px] text-[var(--text-muted)]">{{ sellingRule }}</p>
+
+          <!-- Cantidad: en la tabla de formatos cada fila lleva la suya; aquí, con un solo formato o con colores -->
+          <div
+            v-if="!requestOnly && (colorMode || product.variants.length === 1)"
+            class="mt-4 flex items-center justify-between gap-3"
+          >
+            <span class="text-[15px] font-semibold text-[var(--text-strong)]">Cantidad</span>
+            <QuantityStepper
+              v-model="qty"
+              :minimum="selected.minimumQuantity"
+              :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
+              :step="selected.quantityIncrement"
+              label="Cantidad"
+              :disabled="outOfStock || selectedOnRequest"
+            />
           </div>
 
           <VolumePricingTable
             v-if="!selectedOnRequest && selected.priceTiers.length"
             class="mt-4"
             :base-gross-cents="selected.price"
-            :tax-rate-basis-points="2100"
+            :tax-rate-basis-points="selected.taxRateBasisPoints"
             :tiers="selected.priceTiers"
             :current-quantity="qty"
             :show-net-prices="showNetPrices"
           />
-          <p
-            v-if="!selectedOnRequest && selected.compareAtPrice && selected.referencePrice30d"
-            class="mt-3 text-xs text-slate-500"
-          >
-            Precio anterior: <s>{{ formatPrice(selected.compareAtPrice) }}</s> · Precio más bajo de los 30 días
-            anteriores: {{ formatPrice(selected.referencePrice30d) }}.
-          </p>
 
-          <!-- Una sola acción principal. «Comprar ahora» se ha quitado: en reposición nadie compra
-               una sola referencia. «Guardar en lista» lleva su texto, no un corazón suelto. -->
+          <!-- Una sola acción principal; «Guardar en lista» lleva su texto, no un corazón suelto. -->
           <div class="mt-5 flex flex-col gap-2">
             <NuxtLink
               v-if="requestOnly"
@@ -1088,7 +1117,7 @@ const regulated = computed(() => {
               data-add-to-cart
               :disabled="!orderLines.length || adding"
               class="inline-flex h-12 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-              @click="addToCart"
+              @click="addToCart()"
             >
               <UIcon name="i-lucide-shopping-cart" class="size-5" />Añadir al carrito
             </button>
@@ -1105,193 +1134,77 @@ const regulated = computed(() => {
             </UButton>
           </div>
 
-          <section
-            v-if="deliveryEstimateAvailable"
-            class="mt-5 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-4"
-            aria-labelledby="delivery-title"
-          >
-            <h2
-              id="delivery-title"
-              class="font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
-            >
-              ¿Cuándo me llega?
-            </h2>
-            <p v-if="!deliveryEditing" data-delivery-destination class="mt-1 text-[15px] text-[var(--text)]">
-              Entrega en {{ deliveryPostalCode }} {{ deliveryCity }}
-              <button
-                type="button"
-                data-delivery-change
-                class="ml-1 font-semibold text-[var(--link)] underline"
-                @click="deliveryEditing = true"
-              >
-                Cambiar
-              </button>
-            </p>
-            <template v-else>
-              <p class="mt-1 text-[13px] text-[var(--text-muted)]">
-                Dinos tu código postal una vez y te damos la fecha estimada. La confirmamos al pagar.
-              </p>
-              <form class="mt-3 flex flex-col gap-2" @submit.prevent="calculateDelivery">
-                <label class="sr-only" for="delivery-postal-code">Código postal</label>
-                <UInput
-                  id="delivery-postal-code"
-                  v-model="deliveryPostalCode"
-                  inputmode="numeric"
-                  autocomplete="postal-code"
-                  maxlength="5"
-                  placeholder="Código postal"
-                  class="w-full"
-                />
-                <UButton type="submit" variant="outline" block :loading="deliveryLoading">Ver fecha estimada</UButton>
-              </form>
-            </template>
-            <p v-if="deliveryError" class="mt-2 text-sm text-amber-800" role="alert">{{ deliveryError }}</p>
-            <ul v-else-if="deliveryQuote?.rates.length" class="mt-3 space-y-2" aria-live="polite">
-              <li v-for="rate in deliveryQuote.rates" :key="rate.serviceCode" class="text-sm text-slate-700">
-                <span class="font-semibold">{{ rate.label }}:</span>
-                {{ deliveryDate(rate.estimatedDeliveryFrom) }}–{{ deliveryDate(rate.estimatedDeliveryTo) }}
-                <span v-if="deliveryQuote.stockCondition === 'backorder'" class="text-amber-700">
-                  · bajo pedido<template v-if="deliveryQuote.leadTimeDays">
-                    (preparación estimada {{ deliveryQuote.leadTimeDays }} días)</template
-                  >
-                </span>
-              </li>
-            </ul>
-          </section>
-
-          <div class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-sm text-[var(--text-muted)]">
-            <p class="flex items-start gap-2">
-              <UIcon name="i-lucide-truck" class="mt-0.5 size-4 shrink-0" /> {{ commercial.ownDelivery.value.text }}
-            </p>
-            <p v-if="commercial.parcel.value" class="flex items-start gap-2">
-              <UIcon name="i-lucide-package-check" class="mt-0.5 size-4 shrink-0" /> {{ commercial.parcel.value.text }}
-            </p>
-            <p class="flex items-start gap-2">
-              <UIcon name="i-lucide-phone" class="mt-0.5 size-4 shrink-0" />
+          <ul class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-[13px] text-[var(--text-muted)]">
+            <li class="flex items-start gap-2">
+              <UIcon name="i-lucide-receipt-text" class="mt-px size-4 shrink-0" aria-hidden="true" />
+              Factura con tus datos fiscales en cada pedido.
+            </li>
+            <li class="flex items-start gap-2">
+              <UIcon name="i-lucide-undo-2" class="mt-px size-4 shrink-0" aria-hidden="true" />
+              <span>
+                <NuxtLink to="/devoluciones" class="underline underline-offset-2 hover:text-[var(--link)]">
+                  Devoluciones
+                </NuxtLink>
+                y
+                <NuxtLink to="/envios" class="underline underline-offset-2 hover:text-[var(--link)]">envíos</NuxtLink>
+              </span>
+            </li>
+            <li class="flex items-start gap-2">
+              <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0" aria-hidden="true" />
               <span>Asesoramiento: <ContactAction link-class="underline" /></span>
-            </p>
-          </div>
+            </li>
+          </ul>
         </div>
       </aside>
-
-      <!-- Documentos y seguridad junto a la compra: en un químico profesional la ficha de datos
-           de seguridad es requisito de compra, no letra pequeña al final de la página. -->
-      <section
-        v-if="technicalDocuments.length || regulated"
-        data-product-documents
-        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 xl:col-span-5 xl:col-start-5"
-        aria-labelledby="documents-title"
-      >
-        <h2 id="documents-title" class="text-lg font-bold text-[var(--text-strong)]">Documentos</h2>
-        <ul v-if="technicalDocuments.length" class="mt-3 flex flex-col gap-2">
-          <li v-for="document in technicalDocuments" :key="`${document.id}-${document.role}-${document.version}`">
-            <a
-              :href="document.url"
-              target="_blank"
-              rel="noopener"
-              class="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border-strong)] px-3 text-[15px] font-medium text-[var(--text-strong)] hover:border-[var(--action)] hover:text-[var(--action)]"
-            >
-              <UIcon name="i-lucide-file-down" class="size-4 shrink-0 text-[var(--text-muted)]" />
-              {{
-                document.role === 'sds'
-                  ? 'Ficha de datos de seguridad'
-                  : document.role === 'datasheet'
-                    ? 'Ficha técnica'
-                    : document.role === 'label'
-                      ? 'Etiqueta'
-                      : 'Certificado'
-              }}
-              <span class="text-[13px] font-normal text-[var(--text-muted)]">
-                PDF · v{{ document.version }}<template v-if="document.language"> · {{ document.language }}</template>
-              </span>
-            </a>
-          </li>
-        </ul>
-        <p
-          v-if="regulated && !technicalDocuments.some((document) => document.role === 'sds')"
-          class="mt-3 text-[15px] text-[var(--text)]"
-        >
-          Pídenos la ficha de seguridad: <ContactAction />.
-        </p>
-
-        <div v-if="regulated" data-product-safety class="mt-4 border-t border-[var(--border)] pt-4 text-[15px]">
-          <h3 class="font-semibold text-[var(--text-strong)]">Seguridad</h3>
-          <p v-if="product.regulatory.signalWord" class="mt-1 flex items-center gap-1.5">
-            <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0 text-[var(--stock-low)]" />
-            Palabra de advertencia: <strong>{{ product.regulatory.signalWord }}</strong>
-          </p>
-          <p v-if="product.regulatory.ufi" class="mt-1">
-            UFI: <strong class="tabular">{{ product.regulatory.ufi }}</strong>
-          </p>
-          <p v-if="product.regulatory.registrationNumber" class="mt-1">
-            Registro: <strong class="tabular">{{ product.regulatory.registrationNumber }}</strong>
-          </p>
-          <details
-            v-if="product.regulatory.hazardStatements?.length || product.regulatory.precautionaryStatements?.length"
-            class="mt-2"
-            open
-          >
-            <summary class="cursor-pointer font-medium text-[var(--link)] underline">
-              Indicaciones de peligro y consejos de prudencia
-            </summary>
-            <ul class="mt-2 list-disc pl-5 text-[var(--text)]">
-              <li v-for="statement in product.regulatory.hazardStatements ?? []" :key="statement">
-                {{ statement }}
-              </li>
-              <li v-for="statement in product.regulatory.precautionaryStatements ?? []" :key="statement">
-                {{ statement }}
-              </li>
-            </ul>
-          </details>
-        </div>
-      </section>
-      <!-- SHP-029: peligros químicos/ADR de la variante elegida, siempre visibles -->
-      <AdrHazardNotice
-        v-if="engagementEnabled"
-        :variant-id="String(selected.id)"
-        class="xl:col-span-5 xl:col-start-5"
-      />
-
-      <section
-        v-if="product.description || product.usage"
-        class="border-t border-[var(--border)] pt-6 xl:col-span-5 xl:col-start-5"
-      >
-        <h2 class="text-lg font-bold text-[var(--text-strong)]">Descripción</h2>
-        <p class="mt-3 whitespace-pre-line leading-relaxed text-[var(--text)]">{{ product.description }}</p>
-        <template v-if="product.usage">
-          <h3 class="mt-6 flex items-center gap-2 font-semibold text-[var(--text-strong)]">
-            <UIcon name="i-lucide-beaker" class="size-4 text-[var(--text-muted)]" /> Modo de empleo y dosificación
-          </h3>
-          <p class="mt-2 leading-relaxed text-[var(--text)]">{{ product.usage }}</p>
-        </template>
-      </section>
     </div>
 
-    <!-- ficha técnica -->
-    <div class="mt-10">
-      <div class="rounded-2xl border border-slate-200 bg-white p-6">
-        <h2 class="text-lg font-bold text-slate-900">Características</h2>
+    <!-- Comprados juntos frecuentemente -->
+    <FrequentlyBoughtTogether v-if="boughtTogether" :strip="boughtTogether" :main="fbtMain" class="mt-10" />
+
+    <!-- Información en pestañas (escritorio) y acordeón (móvil) -->
+    <ProductInfoTabs ref="tabs" :tabs="infoTabs" class="mt-10">
+      <template #descripcion>
+        <div class="max-w-3xl">
+          <p v-if="product.description" class="whitespace-pre-line text-[15px] leading-relaxed text-[var(--text)]">
+            {{ product.description }}
+          </p>
+          <p v-else-if="product.shortDesc" class="text-[15px] leading-relaxed text-[var(--text)]">
+            {{ product.shortDesc }}
+          </p>
+          <template v-if="product.usage">
+            <h3 class="mt-6 flex items-center gap-2 text-[15px] font-semibold text-[var(--text-strong)]">
+              <UIcon name="i-lucide-beaker" class="size-4 text-[var(--text-muted)]" aria-hidden="true" /> Modo de empleo
+              y dosificación
+            </h3>
+            <p class="mt-2 whitespace-pre-line text-[15px] leading-relaxed text-[var(--text)]">{{ product.usage }}</p>
+          </template>
+        </div>
+        <!-- Guía de vídeo, dosificación y montaje (MED-016 y PDP-018) -->
+        <ProductVideoMediaGuide :product-id="product.id" class="mt-6" />
+      </template>
+
+      <template #caracteristicas>
         <dl
-          class="mt-3 text-sm sm:columns-2 sm:gap-x-10 [&>div]:break-inside-avoid [&>div]:border-b [&>div]:border-slate-100"
+          class="text-[15px] sm:columns-2 sm:gap-x-10 [&>div]:break-inside-avoid [&>div]:border-b [&>div]:border-[var(--border)]"
         >
-          <div v-if="product.brand" class="flex justify-between py-2">
-            <dt class="text-slate-500">Marca</dt>
-            <dd class="font-medium text-slate-700">{{ product.brand }}</dd>
+          <div v-if="product.brand" class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Marca</dt>
+            <dd class="font-medium text-[var(--text-strong)]">{{ product.brand }}</dd>
           </div>
-          <div class="flex justify-between py-2">
-            <dt class="text-slate-500">Referencia</dt>
-            <dd class="font-mono font-medium text-slate-700">{{ selected.sku }}</dd>
+          <div class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Referencia</dt>
+            <dd class="tabular font-medium text-[var(--text-strong)]">{{ selected.sku }}</dd>
           </div>
-          <div v-if="selected.ean || selected.gtin || selected.mpn" class="flex justify-between py-2">
-            <dt class="text-slate-500">EAN / GTIN / MPN</dt>
-            <dd class="font-mono text-right font-medium text-slate-700">
+          <div v-if="selected.ean || selected.gtin || selected.mpn" class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">EAN / GTIN / MPN</dt>
+            <dd class="tabular text-right font-medium text-[var(--text-strong)]">
               {{ selected.ean || selected.gtin || selected.mpn }}
             </dd>
           </div>
           <template v-if="selectedSpecs">
             <div v-for="(s, index) in selectedSpecs" :key="`${s.k}-${index}`" class="flex justify-between gap-4 py-2">
-              <dt class="shrink-0 text-slate-500">{{ s.k }}</dt>
-              <dd class="flex items-center justify-end gap-1.5 text-right font-medium text-slate-700">
+              <dt class="shrink-0 text-[var(--text-muted)]">{{ s.k }}</dt>
+              <dd class="flex items-center justify-end gap-1.5 text-right font-medium text-[var(--text-strong)]">
                 <span
                   v-if="s.color"
                   class="size-3.5 shrink-0 rounded-full border border-black/15"
@@ -1301,29 +1214,29 @@ const regulated = computed(() => {
               </dd>
             </div>
           </template>
-          <div v-else class="flex justify-between py-2">
-            <dt class="text-slate-500">Formato</dt>
-            <dd class="font-medium text-slate-700">{{ selected.format }}</dd>
+          <div v-else class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Formato</dt>
+            <dd class="text-right font-medium text-[var(--text-strong)]">{{ selected.format }}</dd>
           </div>
-          <div v-if="selected.units && selected.unitLabel === 'ud'" class="flex justify-between py-2">
-            <dt class="text-slate-500">Unidades por envase</dt>
-            <dd class="font-medium text-slate-700">{{ selected.units }}</dd>
+          <div v-if="selected.units && selected.unitLabel === 'ud'" class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Unidades por envase</dt>
+            <dd class="font-medium text-[var(--text-strong)]">{{ selected.units }}</dd>
           </div>
-          <div v-if="sellingRule" class="flex justify-between py-2">
-            <dt class="text-slate-500">Venta</dt>
-            <dd class="font-medium text-slate-700">{{ sellingRule }}</dd>
+          <div v-if="sellingRule" class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Venta</dt>
+            <dd class="text-right font-medium text-[var(--text-strong)]">{{ sellingRule }}</dd>
           </div>
-          <div v-if="selected.unitsPerCase > 1" class="flex justify-between py-2">
-            <dt class="text-slate-500">Unidades por caja</dt>
-            <dd class="font-medium text-slate-700">{{ selected.unitsPerCase }}</dd>
+          <div v-if="selected.unitsPerCase > 1" class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Unidades por caja</dt>
+            <dd class="font-medium text-[var(--text-strong)]">{{ selected.unitsPerCase }}</dd>
           </div>
-          <div v-if="selected.casesPerPallet" class="flex justify-between py-2">
-            <dt class="text-slate-500">Cajas por palé</dt>
-            <dd class="font-medium text-slate-700">{{ selected.casesPerPallet }}</dd>
+          <div v-if="selected.casesPerPallet" class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Cajas por palé</dt>
+            <dd class="font-medium text-[var(--text-strong)]">{{ selected.casesPerPallet }}</dd>
           </div>
           <div v-for="attribute in product.attrs" :key="attribute.k" class="flex justify-between gap-4 py-2">
-            <dt class="shrink-0 text-slate-500">{{ attribute.k }}</dt>
-            <dd class="text-right font-medium text-slate-700">{{ attribute.v }}</dd>
+            <dt class="shrink-0 text-[var(--text-muted)]">{{ attribute.k }}</dt>
+            <dd class="text-right font-medium text-[var(--text-strong)]">{{ attribute.v }}</dd>
           </div>
           <div
             v-for="attribute in product.typedAttrs ?? []"
@@ -1331,74 +1244,117 @@ const regulated = computed(() => {
             :data-typed-detail="attribute.definitionId"
             class="flex min-w-0 justify-between gap-4 py-2"
           >
-            <dt class="min-w-0 break-words text-slate-500">{{ attribute.label }}</dt>
-            <dd class="min-w-0 break-words text-right font-medium text-slate-700">{{ attribute.displayValue }}</dd>
+            <dt class="min-w-0 break-words text-[var(--text-muted)]">{{ attribute.label }}</dt>
+            <dd class="min-w-0 break-words text-right font-medium text-[var(--text-strong)]">
+              {{ attribute.displayValue }}
+            </dd>
           </div>
-          <div class="flex justify-between py-2">
-            <dt class="text-slate-500">Categoría</dt>
-            <dd class="font-medium text-slate-700">{{ product.breadcrumb.at(-1)?.name }}</dd>
+          <div class="flex justify-between gap-4 py-2">
+            <dt class="text-[var(--text-muted)]">Categoría</dt>
+            <dd class="text-right font-medium text-[var(--text-strong)]">{{ product.breadcrumb.at(-1)?.name }}</dd>
           </div>
         </dl>
+        <ul v-if="nonSafetyDocuments.length" data-product-documents class="mt-5 flex flex-wrap gap-2">
+          <li v-for="document in nonSafetyDocuments" :key="`${document.id}-${document.role}-${document.version}`">
+            <a
+              :href="document.url"
+              target="_blank"
+              rel="noopener"
+              class="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border-strong)] px-3 text-[15px] font-medium text-[var(--text-strong)] hover:border-[var(--action)] hover:text-[var(--action)]"
+            >
+              <UIcon name="i-lucide-file-down" class="size-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+              {{ DOCUMENT_LABELS[document.role] }}
+              <span class="text-[13px] font-normal text-[var(--text-muted)]">PDF · v{{ document.version }}</span>
+            </a>
+          </li>
+        </ul>
         <UButton
-          v-if="datasheet && runtime.public.appEnv !== 'production'"
+          v-else-if="datasheet && !safety.chemical && runtime.public.appEnv !== 'production'"
           :href="datasheet"
           target="_blank"
-          variant="soft"
-          size="sm"
+          variant="outline"
+          color="neutral"
           icon="i-lucide-file-down"
-          class="mt-4"
+          class="mt-5"
         >
           Descargar ficha técnica (PDF)
         </UButton>
-      </div>
-    </div>
+      </template>
 
-    <!-- Guía de vídeo, dosificación y montaje (MED-016 y PDP-018) -->
-    <ProductVideoMediaGuide :product-id="product.id" class="mt-8" />
+      <template #opiniones>
+        <!-- Reviews verificadas y Q&A moderado (PDP-016) -->
+        <div v-if="reviewSeo" class="mb-4" aria-label="Valoración de clientes" data-testid="review-aggregate">
+          <p v-if="aggregateRating" class="text-[15px] text-[var(--text-strong)]">
+            <strong>{{ reviewSeo.averageRating.toFixed(1).replace('.', ',') }} / 5</strong>
+            · {{ reviewSeo.eligibleCount }} opiniones de compradores verificados
+          </p>
+          <p class="text-[13px] text-[var(--text-muted)]">{{ reviewSeo.policy.text }}</p>
+        </div>
+        <ProductVerifiedReviewsQa :product-id="product.id" :product-name="product.name" />
+      </template>
 
-    <ProductEngagementPanel
-      v-if="engagementEnabled"
-      :product-id="product.id"
-      :variant-id="selected.id"
-      :scope-key="engagementScope"
-      :enabled="engagementEnabled"
-      :customer-enabled="engagementCustomerEnabled"
-      class="mt-8"
+      <template v-if="safety.chemical" #seguridad>
+        <ProductSafetyPanel :safety="safety" :product-slug="product.slug" />
+      </template>
+
+      <template v-if="engagementEnabled" #avisos>
+        <ProductEngagementPanel
+          :product-id="product.id"
+          :variant-id="selected.id"
+          :scope-key="engagementScope"
+          :enabled="engagementEnabled"
+          :customer-enabled="engagementCustomerEnabled"
+        />
+      </template>
+
+      <template #envio>
+        <div class="max-w-3xl space-y-4 text-[15px] leading-relaxed text-[var(--text)]">
+          <DeliveryPromiseLine v-if="!requestOnly && !outOfStock" :preparation-days="preparationDays" />
+          <p class="flex items-start gap-2">
+            <UIcon name="i-lucide-truck" class="mt-1 size-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+            {{ commercial.ownDelivery.value.text }}
+          </p>
+          <p v-if="commercial.parcel.value" class="flex items-start gap-2">
+            <UIcon
+              name="i-lucide-package-check"
+              class="mt-1 size-4 shrink-0 text-[var(--text-muted)]"
+              aria-hidden="true"
+            />
+            {{ commercial.parcel.value.text }}
+          </p>
+          <p class="flex items-start gap-2">
+            <UIcon name="i-lucide-undo-2" class="mt-1 size-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+            <span>
+              Condiciones de cambio y devolución en
+              <NuxtLink to="/devoluciones" class="font-medium text-[var(--link)] underline underline-offset-2">
+                Devoluciones</NuxtLink
+              >. Plazos y costes por zona en
+              <NuxtLink to="/envios" class="font-medium text-[var(--link)] underline underline-offset-2"
+                >Envíos</NuxtLink
+              >.
+            </span>
+          </p>
+        </div>
+      </template>
+    </ProductInfoTabs>
+
+    <!-- Recomendaciones: tres franjas en escritorio, una en móvil -->
+    <RecommendationStrips
+      v-if="recommendations.available"
+      :strips="browseStrips"
+      :loading="recommendations.state.value === 'loading' || recommendations.state.value === 'idle'"
+      :placeholders="0"
+      :mobile-count="1"
+      class="mt-12"
     />
-
-    <!-- Reviews verificadas y Q&A moderado (PDP-016) -->
-    <section v-if="reviewSeo" class="mt-8" aria-label="Valoración de clientes" data-testid="review-aggregate">
-      <p v-if="aggregateRating" class="text-sm">
-        <strong>{{ reviewSeo.averageRating.toFixed(1).replace('.', ',') }} / 5</strong>
-        · {{ reviewSeo.eligibleCount }} opiniones de compradores verificados
-      </p>
-      <p class="text-xs text-gray-600">{{ reviewSeo.policy.text }}</p>
-    </section>
-    <ProductVerifiedReviewsQa :product-id="product.id" :product-name="product.name" class="mt-8" />
-
-    <!-- Disponibilidad en el almacén único, alternativas revisadas y complementos (PDP-014/015/020) -->
-    <ProductDetailExtras :product-slug="String(route.params.slug)" :variant-id="selected.id" class="mt-8" />
-
-    <PublishedProductRelations :product-slugs="[String(route.params.slug)]" class="mt-8" />
-
-    <!-- relacionados -->
-    <section v-if="product.related?.length" class="mt-12">
-      <h2 class="mb-4 text-xl font-bold text-slate-900">También te puede interesar</h2>
+    <section v-else-if="product.related?.length" class="mt-12">
+      <h2 class="mb-4 text-lg font-bold text-[var(--text-strong)] lg:text-[22px]">Más productos de esta familia</h2>
       <div class="grid grid-cols-2 gap-4 md:grid-cols-4">
         <ProductCard v-for="p in product.related" :key="p.id" :product="p" />
       </div>
     </section>
 
-    <ProductImageLightbox
-      v-model:open="lightbox"
-      :src="lightboxSrc"
-      :alt="imageAlt"
-      :name="product.name"
-      :trigger="imageTrigger"
-      :context-key="selectedId"
-    />
-
-    <!-- barra de compra fija (móvil): unidades, total y la misma acción que la caja de compra -->
+    <!-- barra de compra fija (móvil): total, fecha y la misma acción que la caja de compra -->
     <div
       data-mobile-buy-bar
       class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] lg:hidden"
@@ -1432,7 +1388,7 @@ const regulated = computed(() => {
         type="button"
         :disabled="!orderLines.length || adding"
         class="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-4 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"
-        @click="addToCart"
+        @click="addToCart()"
       >
         <UIcon name="i-lucide-shopping-cart" class="size-5" />Añadir al carrito
       </button>
