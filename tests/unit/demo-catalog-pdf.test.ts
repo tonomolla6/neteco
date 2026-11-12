@@ -38,6 +38,7 @@ const SOURCE = {
       familia: 'Cubiertos',
       marca: 'Garinox',
       descripcion: 'Cubiertos de acero inoxidable.',
+      atributos_tecnicos: { marcados: ['RoHS', 'CE'] },
       pagina_pdf: 60,
       referencia_imagen: 'G100',
       variantes: [{ referencia: 'G100', atributos: { color: 'negro', unidad_venta: '12' }, precio: null }]
@@ -118,6 +119,7 @@ describe('preproduction PDF catalogue loader', () => {
     expect(variants[0]!.format).toBe('Diámetro 20 cm · Capacidad 5,50 l')
     expect(variants[2]).toMatchObject({ format: 'Color negro', unitsPerCase: 12 })
     expect(variants[3]!.format).toBe('Ref. 62020')
+    expect(JSON.parse(plan.products[1]!.attributes).attrs).toContainEqual({ k: 'Marcados', v: 'RoHS, CE' })
     expect(() => planCatalogPdf({ productos: [{ ...SOURCE.productos[0], familia: 'Desconocida' }] })).toThrow(
       'catalog_pdf_family_unmapped'
     )

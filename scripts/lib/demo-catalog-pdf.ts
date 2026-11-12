@@ -90,7 +90,9 @@ const sourceSchema = z.object({
         familia: text(120),
         marca: z.enum(CATALOG_PDF_BRANDS),
         descripcion: text(2000),
-        atributos_tecnicos: z.record(z.string(), z.string()).default({}),
+        atributos_tecnicos: z
+          .record(z.string(), z.union([z.string(), z.array(z.string()).transform((values) => values.join(', '))]))
+          .default({}),
         pagina_pdf: z.number().int().positive(),
         pagina_impresa: z.number().int().positive().nullable().optional(),
         referencia_imagen: z.string().regex(/^[A-Za-z0-9-]{1,40}$/),
