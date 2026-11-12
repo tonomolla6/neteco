@@ -1,6 +1,6 @@
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { defineComponent, h, nextTick, proxyRefs, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CheckoutPage from '../../app/pages/checkout.vue'
@@ -157,7 +157,12 @@ describe('checkout shell', () => {
   })
 
   it('speaks plainly about saved cards and has no all-caps subheadings', () => {
-    const source = readFileSync('app/pages/checkout.vue', 'utf8')
+    const source = [
+      'app/pages/checkout.vue',
+      ...readdirSync('app/components/checkout').map((file) => `app/components/checkout/${file}`)
+    ]
+      .map((file) => readFileSync(file, 'utf8'))
+      .join('\n')
     expect(source).toContain('Guardar esta tarjeta para próximos pedidos')
     expect(source).not.toContain('referencia tokenizada')
     expect(source).not.toMatch(/\buppercase\b/)

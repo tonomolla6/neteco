@@ -4,6 +4,18 @@ import { z } from 'zod'
 import CartRecoverySection from '~/components/CartRecoverySection.vue'
 import { useCartStore } from '~/stores/cart'
 import CartReadFeedback from '~/components/CartReadFeedback.vue'
+import CheckoutAddressFields from '~/components/checkout/CheckoutAddressFields.vue'
+import CheckoutBillingAddress from '~/components/checkout/CheckoutBillingAddress.vue'
+import CheckoutContactFields from '~/components/checkout/CheckoutContactFields.vue'
+import CheckoutCoupon from '~/components/checkout/CheckoutCoupon.vue'
+import CheckoutDeliveryMethods from '~/components/checkout/CheckoutDeliveryMethods.vue'
+import CheckoutInvoiceChoice from '~/components/checkout/CheckoutInvoiceChoice.vue'
+import CheckoutMarketSummary from '~/components/checkout/CheckoutMarketSummary.vue'
+import CheckoutPaymentMethods from '~/components/checkout/CheckoutPaymentMethods.vue'
+import CheckoutReview from '~/components/checkout/CheckoutReview.vue'
+import CheckoutStep from '~/components/checkout/CheckoutStep.vue'
+import CheckoutTotals from '~/components/checkout/CheckoutTotals.vue'
+import CheckoutTrust from '~/components/checkout/CheckoutTrust.vue'
 import { submitHostedPayment } from '~/utils/hosted-payment'
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 import { promotionCodeSchema, promotionReasonSchema, type PromotionReason } from '~~/shared/promotions'
@@ -576,6 +588,20 @@ const creditEligible = computed(
     [15, 30, 60].includes(creditTerms.value.paymentDays ?? 0) &&
     creditTerms.value.availableCents > 0
 )
+const transferAvailable = computed(() =>
+  Boolean(
+    ((runtime.public.bankTransferEnabled && !cloudflareCheckout.value) ||
+      (cloudflareCheckout.value && creditEligible.value)) &&
+    (!isInternationalMarket.value ||
+      marketProfile.value?.paymentMethods.includes('credit') ||
+      marketProfile.value?.paymentMethods.includes('bank_transfer'))
+  )
+)
+const transferHint = computed(() =>
+  cloudflareCheckout.value
+    ? `Transferencia a ${creditTerms.value?.paymentDays} días`
+    : 'El pedido se prepara al recibir el ingreso'
+)
 watch(
   () => [
     runtime.public.serverRuntime,
@@ -630,6 +656,36 @@ const shippingCost = computed(() => quotedShippingGross.value)
 const freeShipping = useFreeShipping()
 const total = computed(() => selectedShippingRate.value?.totalGrossCents ?? cart.subtotal + shippingCost.value)
 const tax = computed(() => selectedShippingRate.value?.taxCents ?? cart.tax)
+const subtotalLabel = computed(() =>
+  promotion.value?.applied
+    ? showNetPrices.value
+      ? 'Subtotal neto (descuento incluido)'
+      : 'Productos (descuento incluido)'
+    : showNetPrices.value
+      ? 'Subtotal neto'
+      : 'Subtotal'
+)
+const subtotalCents = computed(() =>
+  showNetPrices.value
+    ? (selectedShippingRate.value?.subtotalNetCents ?? cart.subtotalNet)
+    : promotion.value?.applied && selectedShippingRate.value
+      ? selectedShippingRate.value.totalGrossCents - shippingCost.value
+      : cart.subtotal
+)
+const shippingText = computed(() => {
+  const market = marketPresentment.value
+  if (market) return formatMarketCurrency(market.shippingGrossMinor, market.currency)
+  if (!selectedShippingRate.value) return 'Por calcular'
+  return shippingCost.value ? formatPrice(shippingCost.value) : 'Gratis'
+})
+const taxText = computed(() => {
+  const market = marketPresentment.value
+  return market ? formatMarketCurrency(market.taxMinor, market.currency) : formatPrice(tax.value)
+})
+const totalText = computed(() => {
+  const market = marketPresentment.value
+  return market ? formatMarketCurrency(market.totalMinor, market.currency) : formatPrice(total.value)
+})
 
 const submitting = ref(false)
 const errorMsg = ref('')
@@ -987,9 +1043,79 @@ function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
 function scrollToFirstError() {
   if (Object.entries(errors).some(([key, value]) => key !== 'terms' && value)) {
     reviewing.value = false
-    scrollTo('sec-datos')
+    const step = STEP_FIELDS.entrega.some((key) => errors[key]) ? 'entrega' : 'facturacion'
+    if (guided.value) openStep.value = step
+    scrollTo(STEP_ANCHORS[step])
   } else scrollTo('checkout-alert', 'center')
 }
+
+/**
+ * Invitado: tres pasos en acordeón (entrega, facturación, pago), uno abierto cada vez.
+ * «Continuar» valida solo lo pedido hasta ese paso; las condiciones se piden al pagar.
+ * Con cuenta todos los pasos quedan abiertos (y, con datos guardados, en revisión).
+ */
+type CheckoutStepId = 'entrega' | 'facturacion' | 'pago'
+const STEP_ORDER: CheckoutStepId[] = ['entrega', 'facturacion', 'pago']
+const STEP_ANCHORS: Record<CheckoutStepId, string> = {
+  entrega: 'sec-datos',
+  facturacion: 'sec-facturacion',
+  pago: 'sec-pago'
+}
+const STEP_FIELDS: Record<'entrega' | 'facturacion', string[]> = {
+  entrega: [
+    'name',
+    'email',
+    'phone',
+    'shippingRecipientName',
+    'shippingPhone',
+    'shippingLine1',
+    'shippingPostalCode',
+    'shippingCity'
+  ],
+  facturacion: [
+    'company',
+    'nif',
+    'purchaseOrderReference',
+    'billingRecipientName',
+    'billingLine1',
+    'billingPostalCode',
+    'billingCity',
+    'billingTaxId'
+  ]
+}
+const guided = computed(() => !loggedIn.value)
+const openStep = ref<CheckoutStepId>('entrega')
+const stepOpen = (step: CheckoutStepId) => !guided.value || openStep.value === step
+const stepDone = (step: CheckoutStepId) => guided.value && STEP_ORDER.indexOf(openStep.value) > STEP_ORDER.indexOf(step)
+
+function continueFrom(step: 'entrega' | 'facturacion') {
+  validate()
+  const checked = step === 'entrega' ? STEP_FIELDS.entrega : [...STEP_FIELDS.entrega, ...STEP_FIELDS.facturacion]
+  for (const key of Object.keys(errors)) if (!checked.includes(key)) errors[key] = ''
+  if (checked.some((key) => errors[key])) {
+    scrollToFirstError()
+    return
+  }
+  openStep.value = step === 'entrega' ? 'facturacion' : 'pago'
+  scrollTo(STEP_ANCHORS[openStep.value])
+}
+
+const deliverySummary = computed(() => {
+  const method = SHIPPING_METHODS.find((entry) => entry.value === shippingMethod.value)?.label
+  return [form.email.trim(), form.phone.trim(), reviewDelivery.value, method].filter(Boolean).join(' · ')
+})
+const billingSummary = computed(() => {
+  const document =
+    invoice.value === 'company'
+      ? ['Factura de empresa', form.company.trim(), form.nif.trim()].filter(Boolean).join(' · ')
+      : 'Ticket a mi nombre'
+  if (billingSameAsShipping.value) return document
+  const address = [billingAddress.line1, `${billingAddress.postalCode} ${billingAddress.city}`.trim()]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(', ')
+  return [document, address].filter(Boolean).join(' · ')
+})
 
 async function submitWithWallet(method: 'apple_pay' | 'google_pay') {
   if (submitting.value || checkingOrder.value || uncertainOrder.value) return
@@ -1405,93 +1531,117 @@ async function finish(order: { id: string; token?: string }) {
             </p>
           </section>
 
-          <!-- datos -->
-          <section id="sec-datos" class="scroll-mt-40 rounded-2xl border border-slate-200 bg-white p-6">
-            <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <span
-                class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
-                >1</span
-              >
-              Contacto, entrega y facturación
-            </h2>
-            <div v-if="reviewing" data-checkout-review class="mt-5 space-y-3">
-              <div
-                class="flex items-start justify-between gap-3 rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
-              >
-                <div class="min-w-0">
-                  <p class="text-[13px] font-semibold text-[var(--text-muted)]">Contacto</p>
-                  <p class="mt-0.5 break-words text-[15px] text-[var(--text-strong)]">{{ reviewContact }}</p>
-                </div>
-                <button
-                  type="button"
-                  data-review-change
-                  class="min-h-11 shrink-0 font-semibold text-[var(--link)] underline"
-                  @click="reviewing = false"
-                >
-                  Cambiar
-                </button>
-              </div>
-              <div
-                class="flex items-start justify-between gap-3 rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
-              >
-                <div class="min-w-0">
-                  <p class="text-[13px] font-semibold text-[var(--text-muted)]">Entrega</p>
-                  <p class="mt-0.5 break-words text-[15px] text-[var(--text-strong)]">
-                    {{ shippingAddress.recipientName }} · {{ reviewDelivery }}
-                  </p>
-                  <p v-if="shippingAddress.instructions" class="mt-0.5 text-[13px] text-[var(--text-muted)]">
-                    {{ shippingAddress.instructions }}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  class="min-h-11 shrink-0 font-semibold text-[var(--link)] underline"
-                  @click="reviewing = false"
-                >
-                  Cambiar
-                </button>
-              </div>
-            </div>
+          <CheckoutStep
+            step="entrega"
+            :number="1"
+            title="Entrega"
+            anchor="sec-datos"
+            :open="stepOpen('entrega')"
+            :done="stepDone('entrega')"
+            :current="guided && openStep === 'entrega'"
+            :continue-label="guided ? 'Continuar con la facturación' : undefined"
+            @continue="continueFrom('entrega')"
+            @change="openStep = 'entrega'"
+          >
+            <template #summary>{{ deliverySummary }}</template>
+            <CheckoutReview
+              v-if="reviewing"
+              :contact="reviewContact"
+              :recipient="shippingAddress.recipientName"
+              :delivery="reviewDelivery"
+              :instructions="shippingAddress.instructions"
+              @change="reviewing = false"
+            />
             <h3
               v-show="!reviewing"
               class="mt-5 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
             >
               Datos de contacto
             </h3>
-            <div v-show="!reviewing" data-checkout-contact-fields class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2">
-              <UFormField label="Nombre y apellidos" required :error="errors.name">
-                <UInput v-model="form.name" class="w-full" autocomplete="name" />
-              </UFormField>
-              <UFormField label="Teléfono" required :error="errors.phone">
-                <UInput v-model="form.phone" type="tel" inputmode="tel" class="w-full" autocomplete="tel" />
-              </UFormField>
-              <UFormField label="Email" required class="sm:col-span-2" :error="errors.email">
-                <UInput v-model="form.email" type="email" inputmode="email" class="w-full" autocomplete="email" />
-              </UFormField>
-            </div>
+            <CheckoutContactFields v-show="!reviewing" v-model:contact="form" :errors="errors" />
+            <h3
+              v-show="!reviewing"
+              class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
+            >
+              Dirección de entrega
+            </h3>
+            <p
+              v-if="prefilledAddress"
+              v-show="!reviewing"
+              data-checkout-prefilled
+              class="mt-2 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-[13px] text-[var(--text)]"
+            >
+              Hemos rellenado tu dirección guardada: {{ prefilledAddress }}. Puedes cambiarla aquí mismo.
+            </p>
+            <CheckoutAddressFields v-show="!reviewing" v-model:address="shippingAddress" :errors="errors">
+              <template #market>
+                <div v-if="runtime.public.serverRuntime === 'cloudflare'" class="sm:col-span-2">
+                  <label for="shipping-country" class="block text-sm font-medium text-slate-700"
+                    >País / mercado de destino</label
+                  >
+                  <select
+                    id="shipping-country"
+                    v-model="shippingAddress.countryCode"
+                    data-testid="checkout-market-select"
+                    :disabled="Boolean(checkoutCommand || pendingOrder || submitting)"
+                    class="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60"
+                  >
+                    <option v-for="c in CHECKOUT_COUNTRIES" :key="c.code" :value="c.code">{{ c.label }}</option>
+                  </select>
+                  <p
+                    v-if="marketProfileLoading"
+                    data-testid="checkout-market-loading"
+                    role="status"
+                    aria-live="polite"
+                    class="mt-2 text-sm text-slate-600"
+                  >
+                    Cargando perfil fiscal y de envío del mercado…
+                  </p>
+                  <p
+                    v-if="marketProfileError"
+                    data-testid="checkout-market-error"
+                    role="alert"
+                    class="mt-2 text-sm text-red-700"
+                  >
+                    {{ marketProfileError }}
+                  </p>
+                  <CheckoutMarketSummary
+                    v-if="marketProfile && marketPresentment"
+                    :profile="marketProfile"
+                    :presentment="marketPresentment"
+                    :format="formatMarketCurrency"
+                  />
+                </div>
+              </template>
+            </CheckoutAddressFields>
+            <h3 class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
+              Método de entrega
+            </h3>
+            <CheckoutDeliveryMethods
+              v-model="shippingMethod"
+              :methods="eligibleShippingMethods"
+              :rate-for="methodRate"
+              :free-shipping-label="freeShipping.label.value"
+              :cloudflare="runtime.public.serverRuntime === 'cloudflare'"
+              :loading="shippingRateLoading"
+              :error="shippingRateError"
+            />
+          </CheckoutStep>
 
-            <!-- Primero la pregunta; los datos fiscales solo si hacen falta, y entonces son obligatorios. -->
-            <fieldset data-invoice-choice class="mt-5">
-              <legend class="text-[15px] font-semibold text-[var(--text-strong)]">¿Qué documento necesitas?</legend>
-              <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-[15px] text-[var(--text)]">
-                <label class="flex min-h-11 items-center gap-2">
-                  <input v-model="invoice" type="radio" name="invoice" value="ticket" class="accent-neteco-600" />
-                  Ticket a mi nombre
-                </label>
-                <label class="flex min-h-11 items-center gap-2">
-                  <input v-model="invoice" type="radio" name="invoice" value="company" class="accent-neteco-600" />
-                  Factura de empresa
-                </label>
-              </div>
-            </fieldset>
-            <div v-if="invoice === 'company'" data-invoice-fields class="mt-3 grid gap-4 grid-cols-1 sm:grid-cols-2">
-              <UFormField label="Razón social" required :error="errors.company">
-                <UInput v-model="form.company" class="w-full" autocomplete="organization" />
-              </UFormField>
-              <UFormField label="NIF o CIF" required :error="errors.nif">
-                <UInput v-model="form.nif" class="w-full" autocapitalize="characters" />
-              </UFormField>
-            </div>
+          <CheckoutStep
+            step="facturacion"
+            :number="2"
+            title="Facturación"
+            anchor="sec-facturacion"
+            :open="stepOpen('facturacion')"
+            :done="stepDone('facturacion')"
+            :current="guided && openStep === 'facturacion'"
+            :continue-label="guided ? 'Continuar al pago' : undefined"
+            @continue="continueFrom('facturacion')"
+            @change="openStep = 'facturacion'"
+          >
+            <template #summary>{{ billingSummary }}</template>
+            <CheckoutInvoiceChoice v-model="invoice" v-model:contact="form" :errors="errors" />
 
             <div v-if="runtime.public.serverRuntime === 'cloudflare'" class="mt-4">
               <label for="purchase-order-reference" class="block text-sm font-medium"
@@ -1514,414 +1664,41 @@ async function finish(order: { id: string; token?: string }) {
               </p>
             </div>
 
-            <h3
-              v-show="!reviewing"
-              class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
-            >
-              Dirección de entrega
-            </h3>
-            <p
-              v-if="prefilledAddress"
-              v-show="!reviewing"
-              data-checkout-prefilled
-              class="mt-2 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-[13px] text-[var(--text)]"
-            >
-              Hemos rellenado tu dirección guardada: {{ prefilledAddress }}. Puedes cambiarla aquí mismo.
-            </p>
-            <div v-show="!reviewing" data-checkout-address-fields class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
-              <UFormField label="Destinatario" required :error="errors.shippingRecipientName">
-                <UInput v-model="shippingAddress.recipientName" class="w-full" autocomplete="shipping name" />
-              </UFormField>
-              <UFormField label="Empresa" hint="opcional">
-                <UInput v-model="shippingAddress.companyName" class="w-full" autocomplete="shipping organization" />
-              </UFormField>
-              <UFormField label="Teléfono de entrega" required :error="errors.shippingPhone">
-                <UInput
-                  v-model="shippingAddress.phone"
-                  type="tel"
-                  inputmode="tel"
-                  class="w-full"
-                  autocomplete="shipping tel"
-                />
-              </UFormField>
-              <UFormField label="Dirección" required :error="errors.shippingLine1">
-                <UInput v-model="shippingAddress.line1" class="w-full" autocomplete="shipping address-line1" />
-              </UFormField>
-              <UFormField label="Piso, puerta, nave…" hint="opcional" class="sm:col-span-2">
-                <UInput v-model="shippingAddress.line2" class="w-full" autocomplete="shipping address-line2" />
-              </UFormField>
-              <UFormField label="Código postal" required :error="errors.shippingPostalCode">
-                <UInput
-                  v-model="shippingAddress.postalCode"
-                  inputmode="numeric"
-                  class="w-full"
-                  autocomplete="shipping postal-code"
-                />
-              </UFormField>
-              <UFormField label="Población" required :error="errors.shippingCity">
-                <UInput v-model="shippingAddress.city" class="w-full" autocomplete="shipping address-level2" />
-              </UFormField>
-              <UFormField label="Provincia">
-                <UInput v-model="shippingAddress.region" class="w-full" autocomplete="shipping address-level1" />
-              </UFormField>
-              <div v-if="runtime.public.serverRuntime === 'cloudflare'" class="sm:col-span-2">
-                <label for="shipping-country" class="block text-sm font-medium text-slate-700"
-                  >País / mercado de destino</label
-                >
-                <select
-                  id="shipping-country"
-                  v-model="shippingAddress.countryCode"
-                  data-testid="checkout-market-select"
-                  :disabled="Boolean(checkoutCommand || pendingOrder || submitting)"
-                  class="mt-1.5 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 disabled:opacity-60"
-                >
-                  <option v-for="c in CHECKOUT_COUNTRIES" :key="c.code" :value="c.code">{{ c.label }}</option>
-                </select>
-                <p
-                  v-if="marketProfileLoading"
-                  data-testid="checkout-market-loading"
-                  role="status"
-                  aria-live="polite"
-                  class="mt-2 text-sm text-slate-600"
-                >
-                  Cargando perfil fiscal y de envío del mercado…
-                </p>
-                <p
-                  v-if="marketProfileError"
-                  data-testid="checkout-market-error"
-                  role="alert"
-                  class="mt-2 text-sm text-red-700"
-                >
-                  {{ marketProfileError }}
-                </p>
-                <div
-                  v-if="marketProfile && marketPresentment"
-                  data-testid="checkout-market-summary"
-                  role="region"
-                  aria-label="Condiciones del mercado de destino"
-                  class="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700"
-                >
-                  <p class="font-semibold text-slate-900">
-                    Mercado {{ marketProfile.market }} · Divisa {{ marketProfile.currency }} · Versión v{{
-                      marketProfile.version
-                    }}
-                  </p>
-                  <p class="mt-1" data-testid="checkout-market-tax">
-                    Impuestos aplicables ({{ (marketProfile.goodsTaxBps / 100).toFixed(2) }}%):
-                    {{ formatMarketCurrency(marketPresentment.goodsTaxMinor, marketPresentment.currency) }}
-                  </p>
-                  <p class="mt-0.5" data-testid="checkout-market-shipping">
-                    Envío internacional ({{ (marketProfile.shippingTaxBps / 100).toFixed(2) }}% imp. incl.):
-                    {{ formatMarketCurrency(marketPresentment.shippingGrossMinor, marketPresentment.currency) }}
-                  </p>
-                  <p class="mt-0.5" data-testid="checkout-market-terms">
-                    Versión de términos del mercado: <span class="font-mono">{{ marketProfile.termsVersion }}</span>
-                  </p>
-                  <p class="mt-1 font-semibold text-slate-900" data-testid="checkout-market-total">
-                    Total en divisa de destino:
-                    {{ formatMarketCurrency(marketPresentment.totalMinor, marketPresentment.currency) }}
-                  </p>
-                </div>
-              </div>
-              <UFormField label="Notas para el reparto" hint="opcional">
-                <UInput v-model="shippingAddress.instructions" placeholder="Horario, muelle de carga…" class="w-full" />
-              </UFormField>
-            </div>
-
             <label class="mt-7 flex items-center gap-2 text-sm font-medium text-slate-700">
               <input v-model="billingSameAsShipping" type="checkbox" class="accent-neteco-600" />
-              Usar esta dirección también para facturación
+              Usar la dirección de entrega también para facturación
             </label>
-            <div v-if="!billingSameAsShipping" class="mt-5 border-t border-slate-100 pt-5">
-              <h3 class="font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
-                Dirección de facturación
-              </h3>
-              <div class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
-                <UFormField label="Titular / razón social" required :error="errors.billingRecipientName">
-                  <UInput v-model="billingAddress.recipientName" class="w-full" autocomplete="billing name" />
-                </UFormField>
-                <UFormField label="Empresa" hint="opcional">
-                  <UInput v-model="billingAddress.companyName" class="w-full" autocomplete="billing organization" />
-                </UFormField>
-                <UFormField label="NIF / NIE / CIF" hint="opcional" :error="errors.billingTaxId">
-                  <UInput v-model="billingAddress.taxId" class="w-full" />
-                </UFormField>
-                <UFormField label="Dirección fiscal" required :error="errors.billingLine1">
-                  <UInput v-model="billingAddress.line1" class="w-full" autocomplete="billing address-line1" />
-                </UFormField>
-                <UFormField label="Dirección adicional" hint="opcional" class="sm:col-span-2">
-                  <UInput v-model="billingAddress.line2" class="w-full" autocomplete="billing address-line2" />
-                </UFormField>
-                <UFormField label="Código postal" required :error="errors.billingPostalCode">
-                  <UInput
-                    v-model="billingAddress.postalCode"
-                    inputmode="numeric"
-                    class="w-full"
-                    autocomplete="billing postal-code"
-                  />
-                </UFormField>
-                <UFormField label="Población" required :error="errors.billingCity">
-                  <UInput v-model="billingAddress.city" class="w-full" autocomplete="billing address-level2" />
-                </UFormField>
-                <UFormField label="Provincia">
-                  <UInput v-model="billingAddress.region" class="w-full" autocomplete="billing address-level1" />
-                </UFormField>
-                <UFormField label="Teléfono" hint="opcional">
-                  <UInput v-model="billingAddress.phone" type="tel" class="w-full" autocomplete="billing tel" />
-                </UFormField>
-              </div>
-            </div>
-          </section>
+            <CheckoutBillingAddress v-if="!billingSameAsShipping" v-model:address="billingAddress" :errors="errors" />
+          </CheckoutStep>
 
-          <!-- entrega -->
-          <section class="rounded-2xl border border-slate-200 bg-white p-6">
-            <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <span
-                class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
-                >2</span
-              >
-              Método de entrega
-            </h2>
-            <fieldset class="mt-5 space-y-2">
-              <legend class="sr-only">Selecciona el método de entrega</legend>
-              <label
-                v-for="m in eligibleShippingMethods"
-                :key="m.value"
-                class="flex cursor-pointer items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="
-                  shippingMethod === m.value
-                    ? 'border-neteco-500 ring-1 ring-neteco-500'
-                    : 'border-slate-200 hover:border-neteco-300'
-                "
-              >
-                <span class="flex items-center gap-3">
-                  <input v-model="shippingMethod" type="radio" :value="m.value" class="accent-neteco-500" />
-                  <span>
-                    <span class="block font-medium text-slate-800">{{ m.label }}</span>
-                    <span class="block text-xs text-slate-500">
-                      {{ methodRate(m.value)?.label ?? m.desc }}
-                      <template v-if="!methodRate(m.value) && m.value === 'envio' && freeShipping.label.value">
-                        · {{ freeShipping.label.value.toLowerCase() }}
-                      </template>
-                      <template v-if="methodRate(m.value)?.estimatedDeliveryTo">
-                        <template v-if="methodRate(m.value)!.etaStatus === 'estimated'"
-                          >· estimado {{ methodRate(m.value)!.estimatedDeliveryTo!.split('-').reverse().join('/') }} (no
-                          garantizado)</template
-                        >
-                        <template v-else
-                          >· antes del
-                          {{
-                            new Date(methodRate(m.value)!.estimatedDeliveryTo!).toLocaleDateString('es-ES')
-                          }}</template
-                        >
-                      </template>
-                      <template v-else-if="runtime.public.serverRuntime === 'cloudflare' && methodRate(m.value)">
-                        <template v-if="methodRate(m.value)!.etaReason === 'lead_time_unknown'"
-                          >· plazo de disponibilidad pendiente</template
-                        >
-                        <template v-else-if="methodRate(m.value)!.etaReason === 'no_operating_window'"
-                          >· sin ventana operativa estimable</template
-                        >
-                        <template v-else>· pendiente de calendario operativo</template>
-                      </template>
-                    </span>
-                  </span>
-                </span>
-                <span class="font-semibold text-slate-800">
-                  <template v-if="methodRate(m.value)">
-                    {{
-                      methodRate(m.value)!.netCents
-                        ? formatPrice(
-                            methodRate(m.value)!.netCents +
-                              Math.round(
-                                (methodRate(m.value)!.netCents * methodRate(m.value)!.taxRateBasisPoints) / 10_000
-                              )
-                          )
-                        : 'Gratis'
-                    }}
-                  </template>
-                  <template v-else>Por calcular</template>
-                </span>
-              </label>
-            </fieldset>
-            <p v-if="shippingRateLoading" role="status" aria-live="polite" class="mt-3 text-sm text-slate-500">
-              Calculando disponibilidad y fecha…
-            </p>
-            <p v-if="shippingRateError" role="alert" class="mt-3 text-sm text-red-700">{{ shippingRateError }}</p>
-          </section>
-
-          <!-- pago -->
-          <section id="sec-pago" class="scroll-mt-40 rounded-2xl border border-slate-200 bg-white p-6">
-            <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900">
-              <span
-                class="flex size-7 items-center justify-center rounded-full bg-neteco-600 text-sm font-bold text-white"
-                >3</span
-              >
-              Pago
-            </h2>
-            <fieldset class="mt-5 space-y-2">
-              <legend class="sr-only">Selecciona el método de pago</legend>
-              <label
-                class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="
-                  paymentMethod === 'tarjeta'
-                    ? 'border-neteco-500 ring-1 ring-neteco-500'
-                    : 'border-slate-200 hover:border-neteco-300'
-                "
-              >
-                <input v-model="paymentMethod" type="radio" value="tarjeta" class="accent-neteco-500" />
-                <UIcon name="i-lucide-credit-card" class="size-5 text-slate-500" />
-                <span class="font-medium text-slate-800">Tarjeta de crédito / débito</span>
-              </label>
-              <div
-                v-if="paymentMethod === 'tarjeta'"
-                class="ml-2 space-y-3 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"
-              >
-                <p>
-                  <UIcon name="i-lucide-shield-check" class="mr-1 inline size-4 text-emerald-600" />
-                  Introducirás la tarjeta y completarás la autenticación bancaria en la página segura de Redsys. NETECO
-                  no recibe ni almacena el número de tarjeta ni el CVC.
-                </p>
-
-                <!-- PAY-022: Tarjetas guardadas elegibles para pago en un clic y consentimiento explícito -->
-                <div
-                  v-if="savedCardsAvailable"
-                  class="space-y-3 border-t border-slate-200 pt-3"
-                  data-testid="saved-cards-section"
-                >
-                  <div v-if="savedPaymentTokens.length" class="space-y-2" data-testid="saved-cards-list">
-                    <p class="text-[13px] font-semibold text-slate-700">Tarjetas guardadas para pago rápido</p>
-                    <div
-                      v-for="token in savedPaymentTokens"
-                      :key="token.id"
-                      class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800"
-                    >
-                      <span>
-                        Referencia guardada <span class="font-mono">{{ token.id.slice(0, 8) }}</span> (v{{
-                          token.version
-                        }})
-                      </span>
-                      <UButton
-                        type="button"
-                        size="xs"
-                        :data-testid="`one-click-pay-${token.id}`"
-                        :loading="submitting && selectedSavedTokenId === token.id"
-                        :disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
-                        @click="payWithOneClick(token)"
-                      >
-                        Pagar en 1 clic
-                      </UButton>
-                    </div>
-                  </div>
-
-                  <label class="flex items-start gap-2 text-xs text-slate-700">
-                    <input
-                      v-model="saveCardConsent"
-                      type="checkbox"
-                      data-testid="save-card-consent"
-                      :disabled="Boolean(checkoutCommand || pendingOrder || submitting)"
-                      class="mt-0.5 accent-neteco-600"
-                    />
-                    <span>
-                      Guardar esta tarjeta para próximos pedidos. El banco nos da una referencia para cobrar en un clic
-                      (condiciones versión <span class="tabular">{{ savedCardsConsentVersion }}</span
-                      >); nunca guardamos el número ni el código de seguridad.
-                    </span>
-                  </label>
-
-                  <p class="text-xs text-slate-600">
-                    Puedes consultar o revocar tus tarjetas guardadas en cualquier momento desde
-                    <a
-                      href="/cuenta/metodos-de-pago"
-                      data-testid="revoke-saved-card-link"
-                      class="font-medium text-neteco-700 underline hover:text-neteco-600"
-                      >Mis métodos de pago</a
-                    >.
-                  </p>
-                </div>
-
-                <!-- PAY-019: Apple Pay / Google Pay solo cuando capabilities lo habilitan -->
-                <div
-                  v-if="walletCapabilities.apple_pay || walletCapabilities.google_pay"
-                  class="space-y-2 border-t border-slate-200 pt-3"
-                  data-testid="wallet-payment-options"
-                >
-                  <p class="text-[13px] font-semibold text-slate-700">Pago rápido con wallet</p>
-                  <div class="flex flex-wrap gap-2">
-                    <UButton
-                      v-if="walletCapabilities.apple_pay"
-                      type="button"
-                      variant="outline"
-                      data-testid="wallet-pay-apple_pay"
-                      :loading="submitting && selectedWallet === 'apple_pay'"
-                      :disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
-                      @click="submitWithWallet('apple_pay')"
-                    >
-                      Pagar con Apple Pay
-                    </UButton>
-                    <UButton
-                      v-if="walletCapabilities.google_pay"
-                      type="button"
-                      variant="outline"
-                      data-testid="wallet-pay-google_pay"
-                      :loading="submitting && selectedWallet === 'google_pay'"
-                      :disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
-                      @click="submitWithWallet('google_pay')"
-                    >
-                      Pagar con Google Pay
-                    </UButton>
-                  </div>
-                </div>
-              </div>
-
-              <label
-                v-if="!isInternationalMarket"
-                class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="
-                  paymentMethod === 'bizum'
-                    ? 'border-neteco-500 ring-1 ring-neteco-500'
-                    : 'border-slate-200 hover:border-neteco-300'
-                "
-              >
-                <input v-model="paymentMethod" type="radio" value="bizum" class="accent-neteco-500" />
-                <UIcon name="i-lucide-smartphone" class="size-5 text-slate-500" />
-                <span class="font-medium text-slate-800">Bizum</span>
-              </label>
-              <div
-                v-if="!isInternationalMarket && paymentMethod === 'bizum'"
-                class="ml-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600"
-              >
-                Te enviaremos a Redsys para autorizar el pago con Bizum de forma segura.
-              </div>
-
-              <label
-                v-if="
-                  ((runtime.public.bankTransferEnabled && !cloudflareCheckout) ||
-                    (cloudflareCheckout && creditEligible)) &&
-                  (!isInternationalMarket ||
-                    marketProfile?.paymentMethods.includes('credit') ||
-                    marketProfile?.paymentMethods.includes('bank_transfer'))
-                "
-                class="flex cursor-pointer items-center gap-3 rounded-xl border-2 px-4 py-3 transition"
-                :class="
-                  paymentMethod === 'transferencia'
-                    ? 'border-neteco-500 ring-1 ring-neteco-500'
-                    : 'border-slate-200 hover:border-neteco-300'
-                "
-              >
-                <input v-model="paymentMethod" type="radio" value="transferencia" class="accent-neteco-500" />
-                <UIcon name="i-lucide-landmark" class="size-5 text-slate-500" />
-                <span>
-                  <span class="block font-medium text-slate-800">Transferencia bancaria</span>
-                  <span class="block text-xs text-slate-500">{{
-                    cloudflareCheckout
-                      ? `Transferencia a ${creditTerms?.paymentDays} días`
-                      : 'El pedido se prepara al recibir el ingreso'
-                  }}</span>
-                </span>
-              </label>
-            </fieldset>
-          </section>
+          <CheckoutStep
+            step="pago"
+            :number="3"
+            title="Pago"
+            anchor="sec-pago"
+            :open="stepOpen('pago')"
+            :done="false"
+            :current="guided && openStep === 'pago'"
+          >
+            <CheckoutPaymentMethods
+              v-model="paymentMethod"
+              v-model:save-card="saveCardConsent"
+              :saved-cards-available="savedCardsAvailable"
+              :saved-tokens="savedPaymentTokens"
+              :consent-version="savedCardsConsentVersion"
+              :consent-locked="Boolean(checkoutCommand || pendingOrder || submitting)"
+              :wallets="walletCapabilities"
+              :submitting="submitting"
+              :actions-disabled="submitting || uncertainOrder || checkingOrder || cart.pendingMutation"
+              :selected-token-id="selectedSavedTokenId"
+              :selected-wallet="selectedWallet"
+              :bizum-available="!isInternationalMarket"
+              :transfer-available="transferAvailable"
+              :transfer-hint="transferHint"
+              @one-click="payWithOneClick"
+              @wallet="submitWithWallet"
+            />
+          </CheckoutStep>
         </div>
 
         <!-- resumen lateral -->
@@ -1948,123 +1725,25 @@ async function finish(order: { id: string; token?: string }) {
               </p>
             </li>
           </ul>
-          <section
+          <CheckoutCoupon
             v-if="couponRuntime"
-            class="mt-4 border-t border-slate-100 pt-4"
-            aria-labelledby="checkout-coupon-label"
-          >
-            <label
-              id="checkout-coupon-label"
-              for="checkout-coupon-code"
-              class="block text-sm font-medium text-slate-700"
-              >Código de descuento</label
-            >
-            <input
-              id="checkout-coupon-code"
-              v-model="couponDraft"
-              data-testid="checkout-coupon-code"
-              type="text"
-              maxlength="64"
-              autocomplete="off"
-              :disabled="couponLocked"
-              class="mt-2 w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
-              @keydown.enter.prevent="applyCoupon"
-            />
-            <div class="mt-2 flex flex-wrap gap-2">
-              <UButton
-                type="button"
-                data-testid="checkout-coupon-apply"
-                :disabled="couponLocked || !couponDraft.trim()"
-                @click="applyCoupon"
-                >Aplicar</UButton
-              >
-              <UButton
-                type="button"
-                data-testid="checkout-coupon-remove"
-                variant="outline"
-                :disabled="couponLocked || (!couponCode && !couponDraft.trim())"
-                @click="removeCoupon"
-                >Quitar</UButton
-              >
-            </div>
-            <p
-              v-if="couponFeedback"
-              data-testid="checkout-coupon-feedback"
-              :role="couponError ? 'alert' : 'status'"
-              class="mt-2 text-sm text-slate-700"
-            >
-              {{ couponFeedback }}
-            </p>
-          </section>
-          <dl class="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
-            <div class="flex justify-between">
-              <dt class="text-slate-500">
-                {{
-                  promotion?.applied
-                    ? showNetPrices
-                      ? 'Subtotal neto (descuento incluido)'
-                      : 'Productos (descuento incluido)'
-                    : showNetPrices
-                      ? 'Subtotal neto'
-                      : 'Subtotal'
-                }}
-              </dt>
-              <dd data-testid="checkout-subtotal">
-                {{
-                  formatPrice(
-                    showNetPrices
-                      ? (selectedShippingRate?.subtotalNetCents ?? cart.subtotalNet)
-                      : promotion?.applied && selectedShippingRate
-                        ? selectedShippingRate.totalGrossCents - shippingCost
-                        : cart.subtotal
-                  )
-                }}
-              </dd>
-            </div>
-            <div
-              v-if="promotion?.applied"
-              class="flex justify-between gap-3 text-sm"
-              data-testid="checkout-coupon-discount"
-            >
-              <dt>
-                Descuento aplicado (IVA incluido)<span class="block text-xs text-slate-500"
-                  >Ya incluido en el total</span
-                >
-              </dt>
-              <dd class="shrink-0">{{ formatPrice(promotion.discountGrossCents) }}</dd>
-            </div>
-            <div class="flex justify-between gap-3">
-              <dt class="min-w-0 truncate text-slate-500">
-                Envío · {{ SHIPPING_METHODS.find((m) => m.value === shippingMethod)?.label }}
-              </dt>
-              <dd class="shrink-0">
-                <template v-if="marketPresentment">
-                  {{ formatMarketCurrency(marketPresentment.shippingGrossMinor, marketPresentment.currency) }}
-                </template>
-                <template v-else>
-                  {{ selectedShippingRate ? (shippingCost ? formatPrice(shippingCost) : 'Gratis') : 'Por calcular' }}
-                </template>
-              </dd>
-            </div>
-            <div class="flex justify-between text-xs text-slate-500">
-              <dt>IVA incluido según producto y servicio</dt>
-              <dd>
-                <template v-if="marketPresentment">
-                  {{ formatMarketCurrency(marketPresentment.taxMinor, marketPresentment.currency) }}
-                </template>
-                <template v-else>{{ formatPrice(tax) }}</template>
-              </dd>
-            </div>
-            <div class="flex justify-between border-t border-slate-100 pt-3">
-              <dt class="text-base font-semibold">Total</dt>
-              <dd data-testid="checkout-total" class="text-xl font-bold">
-                <template v-if="marketPresentment">
-                  {{ formatMarketCurrency(marketPresentment.totalMinor, marketPresentment.currency) }}
-                </template>
-                <template v-else>{{ formatPrice(total) }}</template>
-              </dd>
-            </div>
-          </dl>
+            v-model="couponDraft"
+            :locked="couponLocked"
+            :applied="Boolean(couponCode)"
+            :feedback="couponFeedback"
+            :is-error="Boolean(couponError)"
+            @apply="applyCoupon"
+            @remove="removeCoupon"
+          />
+          <CheckoutTotals
+            :subtotal-label="subtotalLabel"
+            :subtotal-cents="subtotalCents"
+            :discount-cents="promotion?.applied ? promotion.discountGrossCents : null"
+            :shipping-label="SHIPPING_METHODS.find((m) => m.value === shippingMethod)?.label ?? ''"
+            :shipping-text="shippingText"
+            :tax-text="taxText"
+            :total-text="totalText"
+          />
 
           <label class="mt-4 flex items-start gap-2 text-xs text-slate-600">
             <input v-model="acceptTerms" type="checkbox" class="mt-0.5 accent-neteco-600" />
@@ -2135,34 +1814,14 @@ async function finish(order: { id: string; token?: string }) {
                 ? 'Reintentar el pago del pedido original'
                 : paymentMethod === 'transferencia'
                   ? 'Confirmar pedido'
-                  : marketPresentment
-                    ? `Pagar ${formatMarketCurrency(marketPresentment.totalMinor, marketPresentment.currency)}`
-                    : `Pagar ${formatPrice(total)}`
+                  : `Pagar ${totalText}`
             }}
           </UButton>
-          <!-- La confianza se pone donde está la duda: el momento anterior a introducir la
-               tarjeta. Tres hechos verificables, no adornos: quién cobra, qué documento
-               recibe y con quién habla si algo va mal. -->
-          <ul class="mt-4 space-y-2 border-t border-[var(--border)] pt-4 text-xs text-[var(--text-muted)]">
-            <li class="flex items-start gap-2">
-              <UIcon name="i-lucide-shield-check" class="mt-px size-4 shrink-0 text-neteco-600" />
-              El pago se hace en la pasarela del banco. NETECO no ve ni guarda tu tarjeta.
-            </li>
-            <li class="flex items-start gap-2">
-              <UIcon name="i-lucide-file-text" class="mt-px size-4 shrink-0 text-neteco-600" />
-              Recibirás la factura por email. Para factura de empresa, indica razón social y NIF.
-            </li>
-            <li class="flex items-start gap-2">
-              <UIcon
-                :name="contactPhone ? 'i-lucide-phone' : 'i-lucide-mail'"
-                class="mt-px size-4 shrink-0 text-neteco-600"
-              />
-              {{ contactPhone ? contactPhone.display : contactEmail
-              }}<template v-if="contactPhone && commercialTerms.supportHours">
-                · {{ commercialTerms.supportHours }}</template
-              >
-            </li>
-          </ul>
+          <CheckoutTrust
+            :phone="contactPhone?.display ?? ''"
+            :email="contactEmail"
+            :hours="commercialTerms.supportHours ?? ''"
+          />
         </aside>
       </form>
 
