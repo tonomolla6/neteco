@@ -60,6 +60,14 @@ describe('shop footer', () => {
     expect(footer.text()).toContain('de lunes a viernes de 9:00 a 18:00')
   })
 
+  it('states how long the shop has been supplying only with the configured founding year', async () => {
+    let footer = await mountSuspended(AppFooter)
+    expect(footer.text()).not.toMatch(/\d+ años|Desde \d{4}/)
+    config.commercial = { foundedYear: 1998 }
+    footer = await mountSuspended(AppFooter)
+    expect(footer.text()).toContain('Desde 1998')
+  })
+
   it('never shows the internal demo notice in production', async () => {
     expect((await mountSuspended(AppFooter)).text()).toContain('Demo interna')
     config.appEnv = 'production'

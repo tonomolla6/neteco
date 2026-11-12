@@ -166,8 +166,9 @@ function configureCookies() {
           <span class="text-lg font-bold text-white">NETECO</span>
         </div>
         <p class="mt-3 hidden text-sm leading-relaxed text-slate-400 sm:block">
-          Más de 25 años suministrando higiene, limpieza y equipamiento a empresas, hostelería y colectividades de la
-          Vall d'Albaida.
+          <template v-if="terms.foundedYear">Desde {{ terms.foundedYear }} suministrando</template
+          ><template v-else>Suministramos</template> higiene, limpieza y equipamiento a empresas, hostelería y
+          colectividades de la Vall d'Albaida.
         </p>
         <form class="mt-4 space-y-2" @submit.prevent="subscribeNewsletter">
           <label for="footer-newsletter-email" class="block text-sm font-semibold text-white">Boletín</label>

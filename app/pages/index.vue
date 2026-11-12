@@ -186,7 +186,9 @@ const ecoRangeAvailable = computed(() => families.value.some((family) => family.
         :class="offers.length ? 'lg:grid-cols-[1fr_460px]' : ''"
       >
         <div class="max-w-2xl px-4 py-10 sm:py-12">
-          <p class="mb-3 text-sm font-medium text-neteco-200">Más de 25 años al servicio de tu negocio</p>
+          <p v-if="commercialTerms.foundedYear" class="mb-3 text-sm font-medium text-neteco-200">
+            Desde {{ commercialTerms.foundedYear }} al servicio de tu negocio
+          </p>
           <!-- `text-white` explícito: la regla global de titulares fija `--text-strong`, y una
                regla de elemento gana siempre al color heredado del contenedor oscuro. -->
           <h1 class="text-3xl font-bold leading-tight text-white sm:text-5xl">

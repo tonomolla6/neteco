@@ -32,3 +32,10 @@ describe('customer screens speak plainly', () => {
     expect(visibleText(file).filter((text) => JARGON.test(text))).toEqual([])
   })
 })
+
+describe('no unconfigured track-record claims', () => {
+  it('never writes "más de N años" by hand: the founding year comes from COMMERCIAL_FOUNDED_YEAR', () => {
+    for (const file of ['app/components/AppFooter.vue', 'app/pages/index.vue'])
+      expect(readFileSync(file, 'utf8')).not.toMatch(/\d+\s+años/)
+  })
+})
