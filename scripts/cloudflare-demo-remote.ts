@@ -3,7 +3,15 @@ import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { getPlatformProxy } from 'wrangler'
 import { splitDemoSql } from './lib/d1-demo-sql'
-import { DEMO_ACCOUNT, DEMO_DATABASE, DEMO_BUCKET, DEMO_WORKER } from './generate-demo-config'
+import { demoCredentialsPath, readDemoCredentials } from './lib/demo-credentials'
+import {
+  DEMO_ACCOUNT,
+  DEMO_DATABASE,
+  DEMO_BUCKET,
+  DEMO_WORKER,
+  demoProviderContractHolds,
+  prepareDemoRedsysSandboxSecret
+} from './generate-demo-config'
 import { DEMO_ORIGIN } from '../shared/demo-access'
 
 export function prepareDemoSecrets(names: ReadonlySet<string>) {
@@ -63,31 +71,10 @@ if (
   (selected.name !== DEMO_WORKER ||
     selected.vars?.APP_ENV !== 'preview' ||
     selected.vars?.AUTH_ORIGIN !== DEMO_ORIGIN ||
-    [
-      'BEPLY_ENABLED',
-      'REDSYS_ENABLED',
-      'FISCAL_ISSUANCE_ENABLED',
-      'REFUND_DISPATCH_ENABLED',
-      'CREDIT_DISPATCH_ENABLED',
-      'AUTH_EMAIL_ENABLED',
-      'NEWSLETTER_CAMPAIGN_DELIVERY_ENABLED',
-      'TRANSACTIONAL_EMAIL_ENABLED',
-      'INVOICE_EMAIL_ENABLED'
-    ].some((name) => selected.vars?.[name] !== 'false'))
+    !demoProviderContractHolds(selected.vars))
 )
   throw new Error('demo_provider_contract_mismatch')
-const raw = await readFile('/devtono/cloudflare.txt', 'utf8')
-const credentials = Object.fromEntries(
-  raw
-    .split(/\r?\n/)
-    .filter((line) => line.includes('='))
-    .map((line) => {
-      const i = line.indexOf('=')
-      return [line.slice(0, i).trim(), line.slice(i + 1).trim()]
-    })
-)
-const token = credentials['TOKEN_mail@tonomolla.es']
-if (!token || credentials['IDCUENTA_mail@tonomolla.es'] !== DEMO_ACCOUNT) throw new Error('demo_credentials_required')
+const token = await readDemoCredentials(demoCredentialsPath(process.env), DEMO_ACCOUNT)
 process.env.CLOUDFLARE_ACCOUNT_ID = DEMO_ACCOUNT
 process.env.CLOUDFLARE_API_TOKEN = token
 process.env.WRANGLER_SEND_METRICS = 'false'
@@ -183,7 +170,7 @@ if (operation === 'migrate') {
 } else if (operation === 'secrets') {
   const existing = (await api(`${base}/workers/scripts/${DEMO_WORKER}/secrets`, 'GET')) as Array<{ name: string }>
   const names = new Set(existing.map((secret) => secret.name))
-  const secrets = prepareDemoSecrets(names)
+  const secrets = { ...prepareDemoSecrets(names), ...prepareDemoRedsysSandboxSecret(names) }
   if (Object.keys(secrets).length)
     await api(`${base}/workers/scripts/${DEMO_WORKER}/secrets-bulk`, 'PATCH', { secrets })
   console.log(JSON.stringify({ demoSecretsProvisioned: Object.keys(secrets), valuesDisclosed: false }))

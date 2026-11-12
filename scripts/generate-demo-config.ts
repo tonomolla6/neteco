@@ -4,11 +4,70 @@ import { fileURLToPath } from 'node:url'
 import { experimental_readRawConfig } from 'wrangler'
 import { createLocalShopConfig } from './generate-shop-config'
 import { DEMO_ORIGIN } from '../shared/demo-access'
+import { REDSYS_REDIRECT_URLS } from '../workers/payments/redsys'
 
 export const DEMO_ACCOUNT = '15f0ac470ce8d173cf7633c7bbcba3ec'
 export const DEMO_DATABASE = 'd8c99c59-57b3-434d-8f9b-6d6935adfaba'
 export const DEMO_BUCKET = 'neteco-preprod-media'
 export const DEMO_WORKER = 'neteco-demo'
+
+/** Redsys public test merchant (https://pagosonline.redsys.es/entornosPruebas.html): sis-t only, never production. */
+const DEMO_REDSYS_SANDBOX = {
+  REDSYS_ENABLED: 'true',
+  REDSYS_ENVIRONMENT: 'sandbox',
+  REDSYS_MERCHANT_CODE: '999008881',
+  REDSYS_TERMINAL: '1',
+  REDSYS_BIZUM_ENABLED: 'false'
+} as const
+const REDSYS_PUBLIC_SANDBOX_SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'
+const DEMO_DISABLED_PROVIDERS = [
+  'BEPLY_ENABLED',
+  'FISCAL_ISSUANCE_ENABLED',
+  'REFUND_DISPATCH_ENABLED',
+  'CREDIT_DISPATCH_ENABLED',
+  'AUTH_EMAIL_ENABLED',
+  'NEWSLETTER_CAMPAIGN_DELIVERY_ENABLED',
+  'TRANSACTIONAL_EMAIL_ENABLED',
+  'INVOICE_EMAIL_ENABLED'
+] as const
+
+/** Provisional commercial terms agreed for preproduction (neteco-preview runtime); replace with the real ones. */
+const DEMO_COMMERCIAL_TERMS = {
+  NUXT_PUBLIC_COMMERCIAL_OWN_DELIVERY_DAYS: "martes y jueves (Ontinyent y la Vall d'Albaida)",
+  NUXT_PUBLIC_COMMERCIAL_ORDER_CUTOFF_TIME: '13:00',
+  NUXT_PUBLIC_COMMERCIAL_OWN_DELIVERY_COST_CENTS: '600',
+  NUXT_PUBLIC_COMMERCIAL_OWN_DELIVERY_FREE_FROM_CENTS: '15000',
+  NUXT_PUBLIC_COMMERCIAL_OWN_DELIVERY_MINIMUM_ORDER_CENTS: '3000',
+  NUXT_PUBLIC_COMMERCIAL_PARCEL_LEAD_TIME: '24-72 h',
+  NUXT_PUBLIC_COMMERCIAL_PARCEL_COST_CENTS: '990',
+  NUXT_PUBLIC_COMMERCIAL_DEFERRED_PAYMENT_DAYS: '30',
+  NUXT_PUBLIC_COMMERCIAL_DEFERRED_PAYMENT_CONDITIONS: '30 días fecha factura para empresas aprobadas',
+  NUXT_PUBLIC_COMMERCIAL_SUPPORT_HOURS: 'Lunes a viernes, 8:00-14:00 y 16:00-19:00',
+  NUXT_PUBLIC_COMMERCIAL_CONTACT_EMAIL: 'tienda@neteco.es',
+  NUXT_PUBLIC_COMMERCIAL_CONTACT_PHONE: '600 861 334',
+  NUXT_PUBLIC_COMMERCIAL_FOUNDED_YEAR: '1998',
+  NUXT_PUBLIC_COMMERCIAL_COMPANY_TAX_ID: 'B00000000',
+  NUXT_PUBLIC_COMMERCIAL_COMPANY_ADDRESS: 'Polígono Industrial El Pla, 46870 Ontinyent (Valencia)',
+  FREE_SHIPPING_THRESHOLD_CENTS: '15000',
+  NUXT_PUBLIC_FREE_SHIPPING_THRESHOLD_CENTS: '15000'
+} as const
+
+/** Every outbound provider stays off; Redsys may only be on against the public sandbox merchant at sis-t. */
+export function demoProviderContractHolds(vars: Record<string, string | undefined> | undefined) {
+  if (!vars || DEMO_DISABLED_PROVIDERS.some((name) => vars[name] !== 'false')) return false
+  if (vars.REDSYS_ENABLED === 'false') return true
+  if (vars.REDSYS_ENABLED !== 'true') return false
+  const sandbox = Object.entries(DEMO_REDSYS_SANDBOX).every(([name, value]) => vars[name] === value)
+  return sandbox && new URL(REDSYS_REDIRECT_URLS.sandbox).hostname === 'sis-t.redsys.es'
+}
+
+/** The documented public test key only; an existing Worker secret is never rotated or overwritten. */
+export function prepareDemoRedsysSandboxSecret(names: ReadonlySet<string>) {
+  if (names.has('REDSYS_SECRET_KEY')) return {}
+  return {
+    REDSYS_SECRET_KEY: { name: 'REDSYS_SECRET_KEY', type: 'secret_text' as const, text: REDSYS_PUBLIC_SANDBOX_SECRET }
+  }
+}
 
 /** Separate deployment contract: never changes the production/local generators. */
 export function createDemoConfig(source: Record<string, unknown>, projectRoot: string) {
@@ -63,6 +122,8 @@ export function createDemoConfig(source: Record<string, unknown>, projectRoot: s
       NUXT_PUBLIC_APP_ENV: 'preview',
       NUXT_PUBLIC_DEMO_ENABLED: 'true',
       NUXT_PUBLIC_BANK_TRANSFER_ENABLED: 'false',
+      ...DEMO_REDSYS_SANDBOX,
+      ...DEMO_COMMERCIAL_TERMS,
       NUXT_PUBLIC_LEGAL_TERMS_URL: `${DEMO_ORIGIN}/legal`,
       NUXT_PUBLIC_PRIVACY_URL: `${DEMO_ORIGIN}/legal`,
       NUXT_PUBLIC_COOKIES_URL: `${DEMO_ORIGIN}/cookies`

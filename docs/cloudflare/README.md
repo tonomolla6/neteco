@@ -959,6 +959,23 @@ npx tsx scripts/cloudflare-demo-remote.ts attach
 npx tsx scripts/audit-demo-browser.ts --run-demo
 ```
 
+Credentials are read from `NETECO_DEMO_CLOUDFLARE_CREDENTIALS` (absolute path),
+defaulting to `/root/.config/workspace/credentials/cloudflare.txt`; the token is
+used only when the file's account equals `DEMO_ACCOUNT` and is never printed.
+
+**Preproduction payments (2026-11-12).** The demo enables Redsys only against the
+public test merchant (`999008881`, terminal `1`, `REDSYS_ENVIRONMENT=sandbox`,
+redirect `https://sis-t.redsys.es:25443`); the deploy contract rejects any other
+environment, merchant, terminal or Bizum, and `secrets` provisions only the public
+Redsys test key when no `REDSYS_SECRET_KEY` exists. Beply, fiscal issuance,
+refund/credit dispatch and every email transport stay OFF. The hostname is behind
+Cloudflare Access, so Redsys' server-to-server notification cannot reach the
+Worker: to receive it, exclude **only** `POST /api/payments/redsys/notification`
+(and `/api/payments/redsys/preauth-notification` if pre-authorisations are used)
+from Access with a bypass policy for that exact path. The notification is
+authenticated by its HMAC_SHA512_V2 signature, not by Access. Until then a sandbox
+payment returns the shopper to the shop but the order stays pending.
+
 Deployment initially has no public target; `attach` binds only the exact demo
 hostname after data/secrets are ready. Migration/seed use maintained native remote
 D1/R2 bindings and dispose their temporary proxies. Wrangler's 4.124 SQL splitter
