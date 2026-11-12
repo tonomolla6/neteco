@@ -10,13 +10,17 @@ useSeoMeta({
 
 const route = useRoute()
 const { user } = useUserSession()
+/** «Pedir precio» llega con asunto y mensaje escritos: solo se aceptan textos, con el límite del formulario. */
+const queryText = (value: unknown, max: number) => (typeof value === 'string' ? value.slice(0, max) : '')
+const prefilledSubject = queryText(route.query.asunto, 200)
+const prefilledMessage = queryText(route.query.mensaje, 5000)
 const form = reactive({
   name: user.value?.name ?? '',
   email: user.value?.email ?? '',
   phone: user.value?.phone ?? '',
   category: route.query.producto ? 'product' : route.query.pedido ? 'order' : 'other',
-  subject: route.query.producto ? `Consulta sobre ${String(route.query.producto)}` : '',
-  message: '',
+  subject: prefilledSubject || (route.query.producto ? `Consulta sobre ${String(route.query.producto)}` : ''),
+  message: prefilledMessage,
   orderNumber: String(route.query.pedido ?? ''),
   productSlug: String(route.query.producto ?? ''),
   privacyAcknowledged: false,
@@ -53,6 +57,8 @@ async function submit() {
       :order-reference="String(route.query.pedido ?? '')"
       :product-slug="typeof route.query.producto === 'string' ? route.query.producto : undefined"
       :category-slug="typeof route.query.categoria === 'string' ? route.query.categoria : undefined"
+      :initial-subject="prefilledSubject"
+      :initial-message="prefilledMessage"
     />
     <template v-else>
       <!-- Para un proveedor local, el teléfono es la vía principal: esconderlo detrás de un

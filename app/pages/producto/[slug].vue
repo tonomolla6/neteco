@@ -14,6 +14,7 @@ import { dynamicOgMeta } from '~/utils/og-image'
 import { ogVersion } from '~~/shared/og-image'
 import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
+import { PRICE_ON_REQUEST, PRICE_REQUEST_ACTION, hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
 import type { ProductCardData, ProductVisualData, TypedAttributeDetail } from '~~/shared/types/catalog'
 
 interface ProductVariant {
@@ -200,6 +201,8 @@ onMounted(() => {
 const quantities = reactive<Record<number, number>>({})
 const quantitiesTouched = ref(false)
 function variantMaximum(variant: ProductVariant) {
+  // Sin precio público el formato no se pide online: se pide su precio.
+  if (!hasPublicPrice(variant.price)) return 0
   return Math.min(
     MAX_CART_QUANTITY,
     variant.maximumQuantity ?? Infinity,
@@ -273,6 +276,17 @@ const outOfStock = computed(
   () =>
     selected.value.minimumQuantity > MAX_CART_QUANTITY ||
     (selected.value.stock < selected.value.minimumQuantity && !selected.value.backorderAllowed)
+)
+/** El formato elegido no tiene precio público: ni total, ni stock, ni «Añadir»; se pide el precio. */
+const selectedOnRequest = computed(() => !hasPublicPrice(selected.value.price))
+const requestOnly = computed(() => selectedOnRequest.value && !orderLines.value.length)
+const priceRequestTo = computed(() =>
+  priceRequestPath({
+    slug: product.value.slug,
+    name: product.value.name,
+    sku: selected.value.sku,
+    format: product.value.variants.length > 1 ? selected.value.format : null
+  })
 )
 const availability = computed(() => {
   if (selected.value.minimumQuantity > MAX_CART_QUANTITY)
@@ -509,14 +523,19 @@ useHead(() => ({
         ...(selected.value.mpn ? { mpn: selected.value.mpn } : {}),
         brand: product.value.brand ? { '@type': 'Brand', name: product.value.brand } : undefined,
         ...(aggregateRating.value ? { aggregateRating: aggregateRating.value } : {}),
-        offers: {
-          '@type': 'Offer',
-          url: `${canonicalUrl}?sku=${encodeURIComponent(selected.value.sku)}`,
-          priceCurrency: 'EUR',
-          price: (selected.value.price / 100).toFixed(2),
-          availability: outOfStock.value ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
-          itemCondition: 'https://schema.org/NewCondition'
-        }
+        // Una oferta a 0 € sería falsa: sin precio público no se publica oferta.
+        ...(hasPublicPrice(selected.value.price)
+          ? {
+              offers: {
+                '@type': 'Offer',
+                url: `${canonicalUrl}?sku=${encodeURIComponent(selected.value.sku)}`,
+                priceCurrency: 'EUR',
+                price: (selected.value.price / 100).toFixed(2),
+                availability: outOfStock.value ? 'https://schema.org/OutOfStock' : 'https://schema.org/InStock',
+                itemCondition: 'https://schema.org/NewCondition'
+              }
+            }
+          : {})
       }).replace(/</g, '\\u003c')
     },
     {
@@ -868,7 +887,7 @@ const regulated = computed(() => {
               :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
               :step="selected.quantityIncrement"
               label="Cantidad"
-              :disabled="outOfStock"
+              :disabled="outOfStock || selectedOnRequest"
             />
           </div>
         </div>
@@ -880,6 +899,7 @@ const regulated = computed(() => {
             :variants="product.variants"
             :quantities="quantities"
             :maximum="(variant) => (Number.isFinite(variantMaximum(variant)) ? variantMaximum(variant) : null)"
+            :without-quantity="(variant) => !hasPublicPrice(variant.price)"
             @quantity="setQuantity"
           >
             <template #default="{ variant: v }">
@@ -887,6 +907,7 @@ const regulated = computed(() => {
                 <span class="block font-medium text-[var(--text-strong)]">{{ v.format }}</span>
                 <span class="tabular block text-[13px] text-[var(--text-muted)]">Ref. {{ v.sku }}</span>
                 <span
+                  v-if="hasPublicPrice(v.price)"
                   class="mt-0.5 flex items-center gap-1 text-[13px] font-medium"
                   :class="variantAvailability(v).tone"
                 >
@@ -894,7 +915,12 @@ const regulated = computed(() => {
                   {{ variantAvailability(v).label }}
                 </span>
               </span>
-              <span class="text-right">
+              <span v-if="!hasPublicPrice(v.price)" data-price-on-request class="text-right">
+                <span class="block font-display text-[15px] font-bold text-[var(--text-strong)]">
+                  {{ PRICE_ON_REQUEST }}
+                </span>
+              </span>
+              <span v-else class="text-right">
                 <span class="tabular block font-display text-lg font-bold text-[var(--text-strong)]">
                   {{ formatPrice(showNetPrices ? v.netPrice : v.price) }}
                 </span>
@@ -937,7 +963,14 @@ const regulated = computed(() => {
         <div
           class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 xl:sticky xl:top-24"
         >
-          <div data-order-summary>
+          <div v-if="requestOnly" data-order-summary data-price-on-request>
+            <p class="font-display text-[1.625rem] font-bold leading-tight text-[var(--text-strong)] sm:text-3xl">
+              {{ PRICE_ON_REQUEST }}
+            </p>
+            <p class="tabular mt-1 text-[13px] font-medium text-[var(--text-muted)]">Ref. {{ selected.sku }}</p>
+            <p v-if="sellingRule" class="mt-1 text-[13px] text-[var(--text-muted)]">{{ sellingRule }}</p>
+          </div>
+          <div v-else data-order-summary>
             <p class="text-[13px] font-medium text-[var(--text-muted)]">
               <template v-if="orderTotal.units">
                 {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds'
@@ -995,7 +1028,7 @@ const regulated = computed(() => {
           </div>
 
           <VolumePricingTable
-            v-if="selected.priceTiers.length"
+            v-if="!selectedOnRequest && selected.priceTiers.length"
             class="mt-4"
             :base-gross-cents="selected.price"
             :tax-rate-basis-points="2100"
@@ -1003,7 +1036,10 @@ const regulated = computed(() => {
             :current-quantity="qty"
             :show-net-prices="showNetPrices"
           />
-          <p v-if="selected.compareAtPrice && selected.referencePrice30d" class="mt-3 text-xs text-slate-500">
+          <p
+            v-if="!selectedOnRequest && selected.compareAtPrice && selected.referencePrice30d"
+            class="mt-3 text-xs text-slate-500"
+          >
             Precio anterior: <s>{{ formatPrice(selected.compareAtPrice) }}</s> · Precio más bajo de los 30 días
             anteriores: {{ formatPrice(selected.referencePrice30d) }}.
           </p>
@@ -1011,7 +1047,16 @@ const regulated = computed(() => {
           <!-- Una sola acción principal. «Comprar ahora» se ha quitado: en reposición nadie compra
                una sola referencia. «Guardar en lista» lleva su texto, no un corazón suelto. -->
           <div class="mt-5 flex flex-col gap-2">
+            <NuxtLink
+              v-if="requestOnly"
+              :to="priceRequestTo"
+              data-price-request
+              class="inline-flex h-12 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)]"
+            >
+              <UIcon name="i-lucide-message-circle" class="size-5" />{{ PRICE_REQUEST_ACTION }}
+            </NuxtLink>
             <button
+              v-else
               type="button"
               data-add-to-cart
               :disabled="!orderLines.length || adding"
@@ -1338,7 +1383,11 @@ const regulated = computed(() => {
       data-mobile-buy-bar
       class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] lg:hidden"
     >
-      <div class="min-w-0">
+      <div v-if="requestOnly" class="min-w-0">
+        <p class="truncate text-[13px] text-[var(--text-muted)]">Ref. {{ selected.sku }}</p>
+        <p class="font-display text-lg font-bold text-[var(--text-strong)]">{{ PRICE_ON_REQUEST }}</p>
+      </div>
+      <div v-else class="min-w-0">
         <p class="truncate text-[13px] text-[var(--text-muted)]">
           <template v-if="orderTotal.units">
             {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds' }} ·
@@ -1350,7 +1399,16 @@ const regulated = computed(() => {
           {{ formatPrice(showNetPrices ? orderTotal.net : orderTotal.gross) }}
         </p>
       </div>
+      <NuxtLink
+        v-if="requestOnly"
+        :to="priceRequestTo"
+        data-price-request
+        class="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-4 font-semibold text-white transition-colors hover:bg-[var(--action-hover)]"
+      >
+        <UIcon name="i-lucide-message-circle" class="size-5" />{{ PRICE_REQUEST_ACTION }}
+      </NuxtLink>
       <button
+        v-else
         type="button"
         :disabled="!orderLines.length || adding"
         class="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-4 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"

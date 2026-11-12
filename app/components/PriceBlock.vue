@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { PRICE_ON_REQUEST, hasPublicPrice } from '~~/shared/price-on-request'
+
 /**
  * El precio, dicho siempre igual en toda la tienda.
  *
@@ -22,6 +24,8 @@ const props = withDefaults(
   { from: false, units: null, unitLabel: null, compareAtCents: null, size: 'listing' }
 )
 const { net } = usePriceDisplay()
+/** Sin precio público no hay cifra, ni IVA, ni precio por unidad: se pide. */
+const onRequest = computed(() => !hasPublicPrice(props.grossCents))
 
 const main = computed(() => (net.value ? props.netCents : props.grossCents))
 const other = computed(() => (net.value ? props.grossCents : props.netCents))
@@ -35,7 +39,15 @@ const perUnit = computed(() => {
 </script>
 
 <template>
-  <div data-product-price>
+  <div v-if="onRequest" data-product-price data-price-on-request>
+    <p
+      class="font-display font-bold leading-tight text-[var(--text-strong)]"
+      :class="size === 'detail' ? 'text-[1.625rem] sm:text-3xl' : 'text-lg'"
+    >
+      {{ PRICE_ON_REQUEST }}
+    </p>
+  </div>
+  <div v-else data-product-price>
     <p
       class="tabular font-display font-bold leading-tight"
       :class="[

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
 import type { SearchSuggestion } from '~~/shared/types/catalog'
+import { PRICE_ON_REQUEST, PRICE_REQUEST_ACTION, hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
 
 const props = defineProps<{ size?: 'sm' | 'md' | 'lg' | 'xl'; placeholder?: string }>()
 
@@ -100,7 +101,8 @@ onBeforeUnmount(() => {
 })
 
 async function addSuggestion(item: SearchSuggestion) {
-  if (adding.value || cart.blockedMutations) return
+  // Sin precio público no se añade: se pide el precio.
+  if (adding.value || cart.blockedMutations || !hasPublicPrice(item.minPrice)) return
   adding.value = item.slug
   addError.value = ''
   announcement.value = ''
@@ -113,6 +115,11 @@ async function addSuggestion(item: SearchSuggestion) {
       (detail.variants.length === 1 ? detail.variants[0] : undefined)
     if (!variant) {
       formatsNotice.value = { name: item.name, slug: item.slug }
+      return
+    }
+    if (!hasPublicPrice(variant.price)) {
+      formatsNotice.value = null
+      addError.value = `${item.name}: ${PRICE_ON_REQUEST.toLowerCase()}.`
       return
     }
     if (!variantAvailability(variant).orderable) {
@@ -155,7 +162,9 @@ function onEnter() {
   if (open.value && active.value >= 0 && item) return select(item)
   // Una referencia exacta va la primera: Intro la añade al carrito sin salir de la página.
   const first = items.value[0]
-  if (open.value && first && isExact(first)) return void addSuggestion(first)
+  // Sin precio público, la referencia exacta lleva a su ficha (con «Pedir precio»), no al carrito.
+  if (open.value && first && isExact(first))
+    return hasPublicPrice(first.minPrice) ? void addSuggestion(first) : select(first)
   goToResults()
 }
 
@@ -224,12 +233,25 @@ function onFocusOut(e: FocusEvent) {
               <span class="tabular block text-[13px] text-[var(--text-muted)]">
                 <span v-if="isExact(item)" class="font-semibold text-[var(--stock-ok)]">Referencia exacta · </span>
                 <template v-if="item.sku">Ref. {{ item.sku }} · </template>
-                {{ formatPrice(showNetPrices ? item.minNetPrice : item.minPrice) }}
-                {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+                <template v-if="hasPublicPrice(item.minPrice)">
+                  {{ formatPrice(showNetPrices ? item.minNetPrice : item.minPrice) }}
+                  {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+                </template>
+                <template v-else>{{ PRICE_ON_REQUEST }}</template>
               </span>
             </span>
           </button>
+          <NuxtLink
+            v-if="!hasPublicPrice(item.minPrice)"
+            :to="priceRequestPath({ slug: item.slug, name: item.name, sku: item.sku })"
+            tabindex="-1"
+            data-price-request
+            class="inline-flex h-11 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-[var(--border-strong)] px-3 text-[15px] font-semibold text-[var(--text-strong)] transition-colors hover:border-[var(--action)] hover:text-[var(--action)]"
+            @click="open = false"
+            >{{ PRICE_REQUEST_ACTION }}</NuxtLink
+          >
           <button
+            v-else
             type="button"
             data-suggestion-add
             :disabled="adding === item.slug"

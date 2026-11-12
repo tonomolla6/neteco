@@ -31,9 +31,11 @@ const props = withDefaults(
     quantities: Record<number, number>
     /** Máximo que se puede pedir de un formato; 0 o menos lo deja sin cantidad. */
     maximum: (variant: T) => number | null
+    /** Formatos que no se piden online (sin precio público): la fila no lleva cantidad. */
+    withoutQuantity?: (variant: T) => boolean
     label?: string
   }>(),
-  { label: 'Elige formato y cantidad' }
+  { label: 'Elige formato y cantidad', withoutQuantity: () => false }
 )
 const emit = defineEmits<{ 'update:modelValue': [value: number]; quantity: [variantId: number, value: number] }>()
 
@@ -103,6 +105,7 @@ function setQuantity(variant: T, value: number) {
           </slot>
         </button>
         <QuantityStepper
+          v-if="!withoutQuantity(variant)"
           class="justify-self-end"
           :model-value="quantities[variant.id] ?? 0"
           :minimum="variant.minimumQuantity"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ProductCardData } from '~~/shared/types/catalog'
+import { hasPublicPrice } from '~~/shared/price-on-request'
 
 /**
  * Tarjeta de producto: una superficie de pedido, no un enlace.
@@ -18,7 +19,10 @@ const props = withDefaults(
 )
 
 const single = computed(() => props.product.single ?? null)
-const availability = computed(() => (single.value ? variantAvailability(single.value) : null))
+// Sin precio público el stock no se interpreta: un producto que se pide por teléfono no está «agotado».
+const availability = computed(() =>
+  single.value && hasPublicPrice(props.product.minPrice) ? variantAvailability(single.value) : null
+)
 
 /**
  * Ahorro sobre el precio anterior. Se muestra solo si es real y significativo: por debajo

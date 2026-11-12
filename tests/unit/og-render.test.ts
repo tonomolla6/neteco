@@ -143,6 +143,8 @@ describe('card layout', () => {
     const lines = (spec: OgCardSpec) => layoutCard(spec).textLines.map((line) => line.text)
     expect(lines(product({ fromPriceCents: null, formats: 1 }))).toContain('1 formato')
     expect(lines(product({ fromPriceCents: null })).join('|')).not.toMatch(/€|desde/)
+    // catálogo importado sin tarifa: un precio 0 no se dibuja nunca como «0,00 €»
+    expect(lines(product({ fromPriceCents: 0 })).join('|')).not.toMatch(/€|desde|0,00/)
     expect(lines(product({ fromPriceCents: 123456 })).join('|')).toContain('desde 1.234,56 € IVA incl.')
     expect(lines({ kind: 'categoria', title: 'Guantes', productCount: 1, photos: [] })).toContain('1 producto')
     expect(lines({ kind: 'categoria', title: 'Guantes', productCount: 0, photos: [] })).not.toContain('0 productos')

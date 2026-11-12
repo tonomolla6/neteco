@@ -1,5 +1,6 @@
 import { useCartStore } from '~/stores/cart'
 import type { ProductCardData } from '~~/shared/types/catalog'
+import { hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
 
 /**
  * Pedir desde el listado.
@@ -12,7 +13,14 @@ import type { ProductCardData } from '~~/shared/types/catalog'
 export function useListingOrder(product: () => ProductCardData) {
   const cart = useCartStore()
   const single = computed(() => product().single ?? null)
-  const availability = computed(() => (single.value ? variantAvailability(single.value) : null))
+  /** Publicado sin precio público: no se añade, se pide el precio. */
+  const onRequest = computed(() => !hasPublicPrice(product().minPrice))
+  const requestPath = computed(() => {
+    const item = product()
+    return priceRequestPath({ slug: item.slug, name: item.name, sku: single.value?.sku, format: single.value?.format })
+  })
+  /** El stock 0 de un producto sin precio no es «Agotado»: no se enseña disponibilidad. */
+  const availability = computed(() => (single.value && !onRequest.value ? variantAvailability(single.value) : null))
   const quantity = ref(single.value?.minimumQuantity ?? 1)
   watch(
     () => single.value?.variantId,
@@ -34,7 +42,12 @@ export function useListingOrder(product: () => ProductCardData) {
   onBeforeUnmount(() => clearTimeout(timer))
 
   const canAdd = computed(
-    () => !!single.value && !!availability.value?.orderable && state.value !== 'adding' && !cart.blockedMutations
+    () =>
+      !onRequest.value &&
+      !!single.value &&
+      !!availability.value?.orderable &&
+      state.value !== 'adding' &&
+      !cart.blockedMutations
   )
 
   async function add() {
@@ -76,5 +89,5 @@ export function useListingOrder(product: () => ProductCardData) {
     }
   }
 
-  return { single, availability, quantity, maximum, state, announcement, error, canAdd, add }
+  return { onRequest, requestPath, single, availability, quantity, maximum, state, announcement, error, canAdd, add }
 }

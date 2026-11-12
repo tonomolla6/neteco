@@ -9,6 +9,9 @@ const props = defineProps<{
   orderReference?: string
   productSlug?: string
   categorySlug?: string
+  /** Texto público de la dirección («Pedir precio»); nunca datos de la sesión. */
+  initialSubject?: string
+  initialMessage?: string
 }>()
 const emit = defineEmits<{ confirmed: [receipt: SupportReceipt] }>()
 const { ready, loggedIn, user } = useUserSession(),
@@ -95,6 +98,8 @@ watch(
       :order-reference="orderReference"
       :product-slug="productSlug"
       :category-slug="categorySlug"
+      :initial-subject="initialSubject"
+      :initial-message="initialMessage"
       @confirmed="emit('confirmed', $event)"
     >
       <template #challenge="slotProps">

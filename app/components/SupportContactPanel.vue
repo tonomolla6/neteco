@@ -18,6 +18,8 @@ const props = defineProps<{
   orderReference?: string
   productSlug?: string
   categorySlug?: string
+  initialSubject?: string
+  initialMessage?: string
 }>()
 const emit = defineEmits<{ confirmed: [receipt: SupportReceipt]; pending: [value: boolean] }>()
 const form = reactive({
@@ -25,8 +27,8 @@ const form = reactive({
   email: '',
   phone: '',
   category: 'other',
-  subject: '',
-  message: '',
+  subject: props.initialSubject ?? '',
+  message: props.initialMessage ?? '',
   orderReference: props.orderReference ?? '',
   privacyAcknowledged: false,
   website: ''
@@ -111,8 +113,10 @@ watch(
     form.name = ''
     form.email = ''
     form.phone = ''
-    form.subject = ''
-    form.message = ''
+    // El asunto y el mensaje de «Pedir precio» vienen de la dirección pública, no de la sesión:
+    // se conservan al cambiar de identidad; lo que haya escrito la persona anterior, no.
+    form.subject = props.initialSubject ?? ''
+    form.message = props.initialMessage ?? ''
     form.orderReference = ''
     form.category = 'other'
     form.privacyAcknowledged = false

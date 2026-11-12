@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ProductCardData } from '~~/shared/types/catalog'
+import { hasPublicPrice } from '~~/shared/price-on-request'
 
 /**
  * Fila de pedido: la vista del profesional que repone. Referencia, formato,
@@ -8,7 +9,10 @@ import type { ProductCardData } from '~~/shared/types/catalog'
 const props = withDefaults(defineProps<{ product: ProductCardData; showBrand?: boolean }>(), { showBrand: false })
 
 const single = computed(() => props.product.single ?? null)
-const availability = computed(() => (single.value ? variantAvailability(single.value) : null))
+// Sin precio público el stock no se interpreta: un producto que se pide por teléfono no está «agotado».
+const availability = computed(() =>
+  single.value && hasPublicPrice(props.product.minPrice) ? variantAvailability(single.value) : null
+)
 const discount = computed(() => {
   const before = props.product.compareAtPrice
   return before && before > props.product.minPrice ? before : null

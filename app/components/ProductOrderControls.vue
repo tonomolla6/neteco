@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ProductCardData } from '~~/shared/types/catalog'
+import { PRICE_REQUEST_ACTION } from '~~/shared/price-on-request'
 
 /**
  * Cantidad y «Añadir» de un producto en un listado. Con varios formatos no adivina una
@@ -7,12 +8,20 @@ import type { ProductCardData } from '~~/shared/types/catalog'
  */
 const props = withDefaults(defineProps<{ product: ProductCardData; compact?: boolean }>(), { compact: false })
 const order = useListingOrder(() => props.product)
-const { single, quantity, maximum, state, announcement, error, canAdd } = order
+const { onRequest, requestPath, single, quantity, maximum, state, announcement, error, canAdd } = order
 </script>
 
 <template>
   <div>
-    <div v-if="single" class="flex items-center gap-2">
+    <NuxtLink
+      v-if="onRequest"
+      :to="requestPath"
+      data-price-request
+      class="inline-flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-[15px] font-semibold text-[var(--text-strong)] transition-colors hover:border-[var(--action)] hover:text-[var(--action)]"
+      :class="compact ? 'h-9' : 'h-11'"
+      >{{ PRICE_REQUEST_ACTION }}</NuxtLink
+    >
+    <div v-else-if="single" class="flex items-center gap-2">
       <QuantityStepper
         v-model="quantity"
         :minimum="single.minimumQuantity"
