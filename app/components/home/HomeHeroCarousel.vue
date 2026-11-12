@@ -10,8 +10,9 @@ import type { ProductCardData } from '~~/shared/types/catalog'
  * diapositiva es una superficie de marca con los productos destacados.
  *
  * Accesibilidad (patrón de carrusel de WAI-ARIA):
- * - avanza solo cada 7 s y se detiene al pasar el ratón, al enfocar con teclado, al tocarlo
- *   y con el botón de pausa, que siempre está visible (WCAG 2.2.2);
+ * - está siempre en reproducción: avanza solo cada 6 s y, tras usar las flechas, los puntos
+ *   o el dedo, sigue avanzando desde la diapositiva elegida. Solo se detiene con el botón de
+ *   pausa, que siempre está visible (WCAG 2.2.2), o mientras se arrastra con el dedo;
  * - con `prefers-reduced-motion` no avanza solo;
  * - las diapositivas fuera de vista son `inert`, para que el tabulador no se pierda en ellas;
  * - en móvil se desliza con el dedo (scroll-snap nativo), sin librerías.
@@ -26,6 +27,12 @@ interface BrandSlide {
   kind: 'brand'
   key: string
   image: HomeImage | null
+  /**
+   * Punto de la foto que nunca debe recortarse (`object-position`). Las fotos son muy
+   * apaisadas y las caras quedan arriba: se ancla el borde superior para no cortar cabezas,
+   * y en móvil, donde se recorta a lo ancho, se centra en la persona protagonista.
+   */
+  focus: string
   title: string
   text: string
   to: string
@@ -49,6 +56,7 @@ const intro = computed<BrandSlide>(() => ({
   kind: 'brand',
   key: 'intro',
   image: homeImage('hero-cocina'),
+  focus: '54% 0%',
   title: 'Limpieza profesional, higiene y menaje para tu negocio',
   text: terms.value.foundedYear
     ? `Desde ${terms.value.foundedYear} en Ontinyent. Químicos, celulosa, guantes y menaje para hostelería, comercio, industria y colectividades.`
@@ -63,6 +71,7 @@ const brandSlides = computed<BrandSlide[]>(() =>
       kind: 'brand' as const,
       key: 'reparto',
       image: homeImage('hero-reparto-bar'),
+      focus: '48% 0%',
       title: 'Te lo llevamos nosotros',
       text: ownDelivery.value.text,
       to: '/envios',
@@ -72,6 +81,7 @@ const brandSlides = computed<BrandSlide[]>(() =>
       kind: 'brand' as const,
       key: 'hotel',
       image: homeImage('hero-hotel'),
+      focus: '70% 0%',
       title: 'Para hoteles, residencias y colectividades',
       text: 'Higiene, celulosa y protección con formatos profesionales y precio por volumen.',
       to: '/catalogo',
@@ -81,6 +91,7 @@ const brandSlides = computed<BrandSlide[]>(() =>
       kind: 'brand' as const,
       key: 'pedido',
       image: homeImage('hero-almacen'),
+      focus: '27% 0%',
       title: '¿Ya sabes lo que necesitas?',
       text: 'Escribe las referencias o pega tu lista y añádelo todo al carrito en un minuto.',
       to: '/pedido-rapido',
@@ -90,6 +101,7 @@ const brandSlides = computed<BrandSlide[]>(() =>
       kind: 'brand' as const,
       key: 'comercio',
       image: homeImage('hero-comercio'),
+      focus: '50% 0%',
       title: 'Tu local, a punto cada mañana',
       text: 'Limpiadores, ambientadores y útiles para comercio y oficina.',
       to: '/catalogo',
@@ -140,8 +152,7 @@ function discount(product: ProductCardData) {
 }
 
 const index = ref(0)
-const hovering = ref(false)
-const focused = ref(false)
+const touching = ref(false)
 const stopped = ref(false)
 const reducedMotion = ref(false)
 const track = ref<HTMLElement | null>(null)
@@ -161,10 +172,17 @@ function go(next: number, behavior: ScrollBehavior = 'smooth') {
   if (element) element.scrollTo({ left: index.value * element.clientWidth, behavior })
 }
 
-/** Cualquier gesto del visitante detiene el avance automático: ya está mirando. */
+/** Un gesto del visitante no detiene el pase: reinicia la cuenta desde la diapositiva elegida. */
 function userGo(next: number) {
-  stopped.value = true
   go(next)
+  restart()
+}
+
+function restart() {
+  clearInterval(timer)
+  timer = setInterval(() => {
+    if (playing.value && !touching.value && document.visibilityState === 'visible') go(index.value + 1)
+  }, 6000)
 }
 
 function onScroll() {
@@ -184,10 +202,7 @@ function onKeydown(event: KeyboardEvent) {
 
 onMounted(() => {
   reducedMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  timer = setInterval(() => {
-    if (playing.value && !hovering.value && !focused.value && document.visibilityState === 'visible')
-      go(index.value + 1)
-  }, 7000)
+  restart()
 })
 onBeforeUnmount(() => {
   clearInterval(timer)
@@ -201,10 +216,6 @@ onBeforeUnmount(() => {
     aria-roledescription="carrusel"
     aria-label="Novedades y ofertas"
     class="relative bg-neteco-950"
-    @mouseenter="hovering = true"
-    @mouseleave="hovering = false"
-    @focusin="focused = true"
-    @focusout="focused = false"
     @keydown="onKeydown"
   >
     <div
@@ -212,7 +223,9 @@ onBeforeUnmount(() => {
       class="scrollbar-none flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain"
       :aria-live="playing ? 'off' : 'polite'"
       @scroll.passive="onScroll"
-      @touchstart.passive="stopped = true"
+      @touchstart.passive="touching = true"
+      @touchend.passive="((touching = false), restart())"
+      @touchcancel.passive="((touching = false), restart())"
     >
       <div
         v-for="(slide, position) in slides"
@@ -221,7 +234,7 @@ onBeforeUnmount(() => {
         aria-roledescription="diapositiva"
         :aria-label="`${position + 1} de ${slides.length}`"
         :inert="position !== index || undefined"
-        class="relative h-[460px] w-full shrink-0 snap-start overflow-hidden sm:h-[380px] lg:h-[420px]"
+        class="relative h-[460px] w-full shrink-0 snap-start overflow-hidden sm:h-[400px] lg:h-[460px]"
       >
         <!-- Foto de ambiente: imagen a sangre y el texto sobre una veladura de marca -->
         <template v-if="slide.kind === 'brand'">
@@ -234,11 +247,12 @@ onBeforeUnmount(() => {
             :loading="position === 0 ? 'eager' : 'lazy'"
             :fetchpriority="position === 0 ? 'high' : 'auto'"
             class="absolute inset-0 h-full w-full object-cover"
+            :style="{ objectPosition: slide.focus }"
           />
           <div
             v-if="slide.image"
             aria-hidden="true"
-            class="absolute inset-0 bg-gradient-to-t from-neteco-950 via-neteco-950/70 to-neteco-950/10 sm:bg-gradient-to-r sm:from-neteco-950/95 sm:via-neteco-950/70 sm:to-transparent"
+            class="absolute inset-0 bg-gradient-to-t from-neteco-950 via-neteco-950/55 to-transparent sm:bg-gradient-to-r sm:from-neteco-950/95 sm:via-neteco-950/70 sm:to-transparent"
           />
           <!-- Sin foto: superficie de marca con los productos destacados a la derecha -->
           <div
@@ -256,7 +270,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div
-            class="relative mx-auto flex h-full max-w-[1440px] flex-col justify-end px-4 pb-20 sm:justify-center sm:px-6 sm:pb-12"
+            class="relative mx-auto flex h-full max-w-[1600px] flex-col justify-end px-4 pb-20 sm:justify-center sm:px-6 sm:pb-12 md:px-20"
           >
             <div class="max-w-xl">
               <component
@@ -293,7 +307,7 @@ onBeforeUnmount(() => {
           :aria-label="`${slide.label}: ${slide.product.name}`"
         >
           <div
-            class="order-2 flex min-w-0 flex-col justify-start px-4 pb-16 pt-4 sm:order-1 sm:justify-center sm:px-6 sm:pb-12 lg:pl-[max(1.5rem,calc((100vw_-_1440px)/2_+_1.5rem))]"
+            class="order-2 flex min-w-0 flex-col justify-start px-4 pb-16 pt-4 sm:order-1 sm:justify-center sm:px-6 sm:pb-12 md:pl-20 2xl:pl-[max(5rem,calc((100vw_-_1600px)/2_+_5rem))]"
           >
             <p class="flex items-center gap-2 text-sm font-semibold">
               <span v-if="discount(slide.product)" class="text-[var(--price-offer)]"
@@ -328,7 +342,7 @@ onBeforeUnmount(() => {
             </span>
           </div>
           <div class="order-1 flex min-h-0 items-center justify-center bg-[var(--canvas)] p-4 sm:order-2 sm:p-8">
-            <div class="aspect-square h-full max-h-[180px] sm:max-h-[300px] lg:max-h-[340px]">
+            <div class="aspect-square h-full max-h-[180px] sm:max-h-[310px] lg:max-h-[370px]">
               <ProductImage
                 :product="slide.product"
                 sizes="(min-width: 640px) 340px, 180px"

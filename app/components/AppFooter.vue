@@ -46,7 +46,7 @@ function configureCookies() {
 <template>
   <footer class="mt-16 bg-neteco-950 text-slate-300">
     <div
-      class="mx-auto grid max-w-[1600px] grid-cols-1 gap-x-10 px-4 py-6 sm:grid-cols-3 sm:gap-y-10 sm:py-12 lg:grid-cols-4"
+      class="mx-auto grid max-w-[1600px] grid-cols-1 gap-x-10 px-4 py-6 sm:grid-cols-3 sm:px-6 sm:gap-y-10 sm:py-12 lg:grid-cols-4"
     >
       <div class="border-b border-white/10 sm:border-0">
         <h3 class="font-sans text-[15px] font-semibold tracking-normal text-white">
@@ -203,7 +203,7 @@ function configureCookies() {
 
     <div class="border-t border-white/10">
       <div
-        class="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-2 px-4 py-4 text-xs text-slate-400 sm:flex-row"
+        class="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-2 px-4 py-4 text-xs sm:px-6 text-slate-400 sm:flex-row"
       >
         <p data-footer-legal class="text-center sm:text-left">
           © {{ year }} {{ terms.companyLegalName || 'NETECO'

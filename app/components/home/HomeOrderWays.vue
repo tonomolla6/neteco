@@ -17,7 +17,7 @@ const listSamples = computed(() => props.samples.filter((product) => product.ima
 </script>
 
 <template>
-  <section aria-labelledby="home-order-ways" class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10">
+  <section aria-labelledby="home-order-ways" class="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 sm:py-10">
     <h2 id="home-order-ways" class="text-xl font-bold text-[var(--text-strong)] sm:text-2xl">
       Haz tu pedido en menos tiempo
     </h2>

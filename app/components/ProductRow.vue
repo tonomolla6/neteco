@@ -1,18 +1,15 @@
 <script setup lang="ts">
 import type { ProductCardData } from '~~/shared/types/catalog'
-import { hasPublicPrice } from '~~/shared/price-on-request'
 
 /**
- * Fila de pedido: la vista del profesional que repone. Referencia, formato,
- * disponibilidad, precio —el mismo bloque que la tarjeta— y cantidad con «Añadir».
+ * Fila de la vista de lista: la misma foto grande que la cuadrícula, con nombre, precio y
+ * fecha de entrega al lado, y el pedido directo a la derecha para quien repone y ya sabe
+ * lo que quiere. La foto y el nombre llevan a la ficha.
  */
 const props = withDefaults(defineProps<{ product: ProductCardData; showBrand?: boolean }>(), { showBrand: false })
 
 const single = computed(() => props.product.single ?? null)
-// Sin precio público el stock no se interpreta: un producto que se pide por teléfono no está «agotado».
-const availability = computed(() =>
-  single.value && hasPublicPrice(props.product.minPrice) ? variantAvailability(single.value) : null
-)
+const { label: delivery } = useListingDelivery(() => props.product)
 const discount = computed(() => {
   const before = props.product.compareAtPrice
   return before && before > props.product.minPrice ? before : null
@@ -21,39 +18,26 @@ const discount = computed(() => {
 
 <template>
   <article
-    class="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--border-strong)] md:grid-cols-[5rem_minmax(0,1fr)_9rem_18rem] md:gap-x-4"
+    data-product-row
+    class="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 rounded-[var(--radius-surface)] bg-[var(--surface)] p-3 transition-shadow hover:shadow-[var(--shadow-raised)] sm:grid-cols-[11rem_minmax(0,1fr)] sm:p-4 lg:grid-cols-[14rem_minmax(0,1fr)_17rem] lg:items-center lg:gap-x-6"
   >
-    <NuxtLink :to="`/producto/${product.slug}`" tabindex="-1" aria-hidden="true" class="row-span-2 block md:row-span-1">
-      <ProductImage :product="product" />
+    <NuxtLink :to="`/producto/${product.slug}`" tabindex="-1" aria-hidden="true" class="block self-start">
+      <ProductImage :product="product" bare sizes="(max-width: 640px) 120px, 224px" />
     </NuxtLink>
 
     <div class="min-w-0">
       <p v-if="showBrand && product.brand" class="text-[13px] font-medium text-[var(--text-muted)]">
         {{ product.brand }}
       </p>
-      <h3 class="font-sans text-[15px] font-semibold leading-snug tracking-normal">
+      <h3 class="font-sans text-base font-medium leading-snug tracking-normal sm:text-lg">
         <NuxtLink
           :to="`/producto/${product.slug}`"
-          class="line-clamp-2 text-[var(--text-strong)] hover:text-[var(--link)] hover:underline"
+          class="line-clamp-3 text-[var(--text-strong)] hover:text-[var(--link)] hover:underline"
         >
           {{ product.name }}
         </NuxtLink>
       </h3>
-      <p v-if="single" class="tabular mt-0.5 text-[13px] font-medium text-[var(--text-muted)]">
-        <span data-product-reference>Ref. {{ single.sku }}</span>
-        <span aria-hidden="true"> · </span>
-        <span data-product-format>{{ single.format }}</span>
-      </p>
-      <p v-else class="mt-0.5 text-[13px] font-medium text-[var(--text-muted)]">{{ product.formats }} formatos</p>
-      <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p
-          v-if="availability"
-          data-product-availability
-          class="flex items-center gap-1 text-[13px] font-medium"
-          :class="availability.tone"
-        >
-          <UIcon :name="availability.icon" class="size-3.5 shrink-0" />{{ availability.label }}
-        </p>
+      <div v-if="product.badges.length" class="mt-1.5 flex flex-wrap items-center gap-1.5">
         <UBadge
           v-for="b in product.badges"
           :key="b"
@@ -64,21 +48,26 @@ const discount = computed(() => {
           {{ BADGES[b]?.label ?? b }}
         </UBadge>
       </div>
+      <PriceBlock
+        class="mt-2"
+        :gross-cents="product.minPrice"
+        :net-cents="product.minNetPrice"
+        :from="product.formats > 1"
+        :units="single?.units"
+        :unit-label="single?.unitLabel"
+        :compare-at-cents="discount"
+      />
+      <p
+        data-product-delivery
+        class="mt-1.5 min-h-[1.2em] text-[13px] font-semibold leading-tight text-[var(--stock-ok)]"
+      >
+        {{ delivery }}
+      </p>
     </div>
 
-    <PriceBlock
-      class="col-start-2 md:col-start-auto md:text-right"
-      :gross-cents="product.minPrice"
-      :net-cents="product.minNetPrice"
-      :from="product.formats > 1"
-      :units="single?.units"
-      :unit-label="single?.unitLabel"
-      :compare-at-cents="discount"
-    />
-
-    <div class="col-span-2 flex items-center gap-2 md:col-span-1">
-      <ProductOrderControls :product="product" class="min-w-0 flex-1" />
-      <CompareToggle :slug="product.slug" :name="product.name" class="hidden shrink-0 md:inline-flex" />
+    <div class="col-span-2 flex flex-col gap-2 lg:col-span-1">
+      <ProductOrderControls :product="product" />
+      <CompareToggle :slug="product.slug" :name="product.name" with-label class="self-start" />
     </div>
   </article>
 </template>

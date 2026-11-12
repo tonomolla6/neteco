@@ -81,7 +81,7 @@ const visible = computed(() => props.strips.filter((strip) => strip.items.length
       </div>
       <ul
         :ref="(element) => (rows[strip.kind] = element as HTMLElement | null)"
-        class="-mx-4 mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-2 [scrollbar-width:thin] sm:gap-4 lg:mx-0 lg:px-0"
+        class="scrollbar-none -mx-4 mt-4 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-px-4 px-4 pb-2 sm:gap-4 lg:mx-0 lg:px-0"
       >
         <li
           v-for="item in strip.items"

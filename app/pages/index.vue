@@ -2,8 +2,7 @@
 import type { CategoryResponse, ProductCardData, ProductListResponse, ProductSummary } from '~~/shared/types/catalog'
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
 import type { HomeFamilyTile } from '~/components/home/HomeFamilyTiles.vue'
-
-const governedMedia = useRuntimeConfig().public.mediaGoverned
+import type { HomeImage } from '~/utils/homeImages'
 
 const homeTitle = 'Suministros profesionales de limpieza e higiene'
 const homeDescription =
@@ -33,7 +32,13 @@ const { data: poolData } = await useFetch<ProductListResponse>('/api/products', 
   key: 'home-pool',
   params: { limit: 60 }
 })
-const pool = computed(() => (poolData.value?.items ?? []) as ProductSummary[])
+/**
+ * Lo que se enseña en la portada: ni los productos de la demo original ni lo que no se
+ * puede servir. Un escaparate con artículos de prueba o agotados resta confianza.
+ */
+const showable = (item: ProductSummary) => !isDemoProduct(item) && listingOrderable(item)
+const pool = computed(() => ((poolData.value?.items ?? []) as ProductSummary[]).filter(showable))
+const featuredItems = computed(() => ((featured.value?.items ?? []) as ProductSummary[]).filter(showable))
 
 /**
  * Ofertas: solo las que tienen un ahorro real de al menos un 5 % sobre el precio anterior.
@@ -53,16 +58,24 @@ const offers = computed(() =>
 )
 
 /**
- * Destacados en rejilla (8 en escritorio, 4 en móvil). Si hay pocos marcados como
+ * Destacados en rejilla (10 en escritorio ancho, 4 en móvil). Si hay pocos marcados como
  * destacados se completa con el catálogo, sin repetir lo que ya está en ofertas: una fila
  * incompleta se lee como un fallo de la página.
  */
 const featuredGrid = computed(() => {
   const inOffers = new Set(offers.value.map((item) => item.id))
-  const picked = (featured.value?.items ?? []).filter((item) => !inOffers.has(item.id))
+  const picked = featuredItems.value.filter((item) => !inOffers.has(item.id))
   const seen = new Set([...inOffers, ...picked.map((item) => item.id)])
-  const filler = pool.value.filter((item) => !seen.has(item.id))
-  return [...picked, ...filler].slice(0, 8)
+  // El relleno alterna familias para que la fila no sean ocho variantes del mismo artículo.
+  const byCategory = new Map<number, ProductSummary[]>()
+  for (const item of pool.value) {
+    if (seen.has(item.id) || !item.image) continue
+    byCategory.set(item.categoryId, [...(byCategory.get(item.categoryId) ?? []), item])
+  }
+  const filler: ProductSummary[] = []
+  for (let round = 0; filler.length < 10 && round < 10; round++)
+    for (const items of byCategory.values()) if (items[round]) filler.push(items[round]!)
+  return [...picked, ...filler].slice(0, 10)
 })
 
 /**
@@ -76,6 +89,47 @@ const families = computed(() =>
     .sort((left, right) => right.count - left.count)
     .slice(0, 12)
 )
+
+/**
+ * «Compra por familias»: las categorías principales reales con producto, hasta ocho. Si hay
+ * menos de ocho principales, la rejilla se completa con sus familias de más surtido para
+ * que siempre sean ocho tarjetas (dos filas de cuatro, o cuatro de dos en móvil).
+ */
+const FAMILY_TILES = 8
+const tileCategories = computed(() => {
+  const mains = (catData.value?.roots ?? []).filter((root) => root.count > 0).slice(0, FAMILY_TILES)
+  const picked = new Set(mains.map((category) => category.id))
+  const rest = mains
+    .flatMap((root) => root.children)
+    .filter((category) => category.count > 0 && !picked.has(category.id))
+    .sort((left, right) => right.count - left.count)
+  return [...mains, ...rest].slice(0, FAMILY_TILES)
+})
+
+/** Fotografía de ambiente que mejor encaja con una categoría sin foto propia, por su nombre. */
+const PHOTO_HINTS: Array<[RegExp, string]> = [
+  [/reposter|pasteler|molde/, 'reposteria-y-moldes'],
+  [/mesa|buffet|servicio|cuberter/, 'mesa-y-servicio'],
+  [/corte|cuchill|prepara/, 'corte-y-preparacion'],
+  [/termo|botella|sifon|bar|bebida|cafe/, 'termos-botellas-y-sifones'],
+  [/coccion|cacerola|cocina profesional|sarten|olla/, 'coccion-y-cacerolas'],
+  [/menaje|utensilio|equipamiento|cocina/, 'menaje-de-cocina'],
+  [/hosteler/, 'menaje-y-hosteleria'],
+  [/guante|protecc|epi/, 'guantes-y-proteccion'],
+  [/celulosa|papel|desechable/, 'celulosa-y-desechables'],
+  [/quimic|limpieza|higiene/, 'productos-quimicos']
+]
+function hintedPhoto(name: string, used: Set<string>): HomeImage | null {
+  const folded = name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+  for (const [pattern, slug] of PHOTO_HINTS) {
+    const photo = pattern.test(folded) ? familyPhoto(slug) : null
+    if (photo && !used.has(photo.src)) return photo
+  }
+  return null
+}
 
 /** Categoría de cada producto → familia del escaparate a la que pertenece. */
 const familyOfCategory = computed(() => {
@@ -121,26 +175,57 @@ const familyStrips = computed(() => {
   const shown = new Set(featuredGrid.value.map((item) => item.id))
   return (familyRows.value ?? [])
     .map((row) => {
-      const fresh = row.items.filter((item) => !shown.has(item.id))
-      return { ...row, items: fresh.length >= 4 ? fresh : row.items }
+      const items = (row.items as ProductSummary[]).filter(showable)
+      const fresh = items.filter((item) => !shown.has(item.id))
+      return { ...row, items: fresh.length >= 4 ? fresh : items }
     })
     .filter((row) => row.items.length >= 2)
 })
 
-/** Tarjetas de familia con su foto de reserva: un producto real de la familia con foto. */
-const familyTiles = computed<HomeFamilyTile[]>(() =>
-  families.value.map((family) => {
-    const fromPool = pool.value.find((item) => item.image && familyOfCategory.value.get(item.categoryId) === family.id)
-    const fromStrip = familyRows.value?.find((row) => row.id === family.id)?.items.find((item) => item.image)
-    const sample: HomeFamilyTile['sample'] =
-      fromPool ??
-      fromStrip ??
-      (governedMedia
-        ? null
-        : { image: familyImage(family.slug), name: family.name, visual: { type: 'bottle', color: 'slate' } })
-    return { id: family.id, name: family.name, slug: family.slug, count: family.count, sample }
+/** Productos con foto de las categorías del escaparate que no tienen fotografía propia. */
+const { data: tileSamples } = await useAsyncData('home-family-tile-samples', async () => {
+  const missing = tileCategories.value.filter((category) => !familyPhoto(category.slug))
+  const results = await Promise.all(
+    missing.map((category) =>
+      $fetch<ProductListResponse>('/api/products', { params: { category: category.slug, limit: 12 } }).catch(() => null)
+    )
+  )
+  return missing.map((category, index) => ({
+    id: category.id,
+    items: (results[index]?.items ?? []).filter((item) => item.image)
+  }))
+})
+
+/**
+ * Tarjetas de familia, cada una con una imagen distinta: su fotografía propia; si no la
+ * tiene, la de ambiente que encaja con su nombre; y si tampoco, la foto de un producto real
+ * de la familia. Ninguna imagen se repite entre tarjetas.
+ */
+const familyTiles = computed<HomeFamilyTile[]>(() => {
+  const used = new Set<string>()
+  // Las fotografías propias se reservan primero para que ninguna reserva se las quite.
+  for (const category of tileCategories.value) {
+    const own = familyPhoto(category.slug)
+    if (own) used.add(own.src)
+  }
+  return tileCategories.value.map((category) => {
+    const base = { id: category.id, name: category.name, slug: category.slug, count: category.count }
+    const own = familyPhoto(category.slug)
+    if (own) return { ...base, photo: own, sample: null }
+    const hinted = hintedPhoto(category.name, used)
+    if (hinted) {
+      used.add(hinted.src)
+      return { ...base, photo: hinted, sample: null }
+    }
+    const candidates = [
+      ...(tileSamples.value?.find((row) => row.id === category.id)?.items ?? []),
+      ...pool.value.filter((item) => item.image && familyOfCategory.value.get(item.categoryId) === category.id)
+    ]
+    const sample = candidates.find((item) => item.image && !used.has(item.image)) ?? null
+    if (sample?.image) used.add(sample.image)
+    return { ...base, photo: null, sample }
   })
-)
+})
 
 const { promises, terms: commercialTerms } = useCommercialTerms()
 
@@ -163,12 +248,12 @@ const orderSamples = computed<ProductCardData[]>(() => featuredGrid.value)
   <div>
     <ClientOnly><HomeReorder v-if="returning" /></ClientOnly>
 
-    <HomeHeroCarousel :offers="offers" :featured="featured?.items ?? []" :heading="returning ? 'h2' : 'h1'" />
+    <HomeHeroCarousel :offers="offers" :featured="featuredItems" :heading="returning ? 'h2' : 'h1'" />
 
     <!-- Garantías en una línea, bajo el carrusel: lo primero que decide quien compra para un negocio -->
     <div class="border-b border-[var(--border)] bg-[var(--surface)]">
       <ul
-        class="scrollbar-none mx-auto flex max-w-[1440px] snap-x gap-6 overflow-x-auto px-4 py-3 sm:px-6 lg:justify-between"
+        class="scrollbar-none mx-auto flex max-w-[1600px] snap-x gap-6 overflow-x-auto px-4 py-3 sm:px-6 lg:justify-between"
         aria-label="Condiciones de compra"
       >
         <li
@@ -189,7 +274,7 @@ const orderSamples = computed<ProductCardData[]>(() => featuredGrid.value)
       </ul>
     </div>
 
-    <PromotionalBlocks :context="{ placement: 'home', path: '/' }" class="mx-auto max-w-[1440px] px-4 pt-6 sm:px-6" />
+    <PromotionalBlocks :context="{ placement: 'home', path: '/' }" class="mx-auto max-w-[1600px] px-4 pt-6 sm:px-6" />
 
     <HomeFamilyTiles :families="familyTiles" />
 
@@ -206,17 +291,19 @@ const orderSamples = computed<ProductCardData[]>(() => featuredGrid.value)
     <section
       v-if="featuredGrid.length"
       aria-labelledby="home-featured"
-      class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8"
+      class="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8"
     >
       <h2 id="home-featured" class="mb-4 text-xl font-bold text-[var(--text-strong)] sm:text-2xl">
         Productos destacados
       </h2>
-      <ul class="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
+      <ul class="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4 xl:grid-cols-5">
         <li
           v-for="(product, position) in featuredGrid"
           :key="product.id"
           class="flex [&>*]:w-full"
-          :class="position >= 6 ? 'hidden lg:flex' : position >= 4 ? 'hidden sm:flex' : ''"
+          :class="
+            position >= 8 ? 'hidden xl:flex' : position >= 6 ? 'hidden lg:flex' : position >= 4 ? 'hidden sm:flex' : ''
+          "
         >
           <ProductCard :product="product" />
         </li>
@@ -246,7 +333,7 @@ const orderSamples = computed<ProductCardData[]>(() => featuredGrid.value)
     <HomeTrustBand />
 
     <!-- línea eco: acento verde sobre una superficie del sistema, no un anuncio a sangre -->
-    <section v-if="ecoRangeAvailable" class="mx-auto max-w-[1440px] px-4 pb-10 sm:px-6">
+    <section v-if="ecoRangeAvailable" class="mx-auto max-w-[1600px] px-4 pb-10 sm:px-6">
       <NuxtLink
         to="/categoria/linea-eco-profesional"
         class="group flex flex-col justify-between gap-4 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 transition-colors hover:border-[var(--border-strong)] sm:flex-row sm:items-center sm:p-8"

@@ -18,6 +18,48 @@
     "height": 800
   },
   {
+    "file": "familia-ambientadores-y-desodorantes.webp",
+    "alt": "Pulverizador blanco en una habitación luminosa de hotel",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-automocion.webp",
+    "alt": "Profesional lavando una furgoneta blanca",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-box-c-complementos.webp",
+    "alt": "Pulverizadores, jarra medidora y grifo de dosificación en una estantería",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-box-c-lavado-de-vajillas.webp",
+    "alt": "Caja con grifo junto a vajilla en una cocina profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-box-c-lavanderia.webp",
+    "alt": "Caja con grifo y toallas dobladas en una lavandería",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-box-c-system-super-concentrados-bag-in-box.webp",
+    "alt": "Caja con grifo y pulverizador de recarga en un cuarto de limpieza",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-capsulas-hidrosolubles.webp",
+    "alt": "Cápsulas de detergente junto a un recipiente blanco en una lavandería",
+    "width": 800,
+    "height": 800
+  },
+  {
     "file": "familia-celulosa-y-desechables.webp",
     "alt": "Servilletas, papel y envases desechables en una mesa de trabajo",
     "width": 800,
@@ -30,6 +72,24 @@
     "height": 800
   },
   {
+    "file": "familia-colonias.webp",
+    "alt": "Frasco transparente de colonia junto a toallas blancas",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-complementos-para-los-concentrados.webp",
+    "alt": "Botella, jarra medidora y bomba dosificadora",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-concentrados-para-diluir-con-agua.webp",
+    "alt": "Garrafa de concentrado y jarra medidora junto a un fregadero",
+    "width": 800,
+    "height": 800
+  },
+  {
     "file": "familia-corte-y-preparacion.webp",
     "alt": "Cocinero cortando verduras en una cocina profesional",
     "width": 800,
@@ -38,6 +98,24 @@
   {
     "file": "familia-desengrasantes.webp",
     "alt": "Pulverizador y paño ante una campana de cocina profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-desincrustantes.webp",
+    "alt": "Pulverizador y paño junto a un grifo de baño limpio",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-desmanchantes.webp",
+    "alt": "Profesional de lavandería tratando una mancha en una prenda blanca",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-difusores-de-aroma.webp",
+    "alt": "Difusor de aroma en la recepción de un hotel",
     "width": 800,
     "height": 800
   },
@@ -60,8 +138,92 @@
     "height": 800
   },
   {
+    "file": "familia-higiene-alimentaria.webp",
+    "alt": "Profesional limpia una superficie de preparación de alimentos",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-higiene-personal.webp",
+    "alt": "Jabón y artículos de higiene junto a toallas y un lavabo",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-insecticidas-y-desinfectantes.webp",
+    "alt": "Pulverizador blanco y paños azules sobre una mesa de trabajo",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-lavado-automatico-de-vajilla.webp",
+    "alt": "Platos en un lavavajillas profesional junto a una garrafa sin marca",
+    "width": 800,
+    "height": 800
+  },
+  {
     "file": "familia-lavado-manual-de-vajilla.webp",
     "alt": "Profesional lavando un plato a mano en una cocina",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-lavanderia-liquidos.webp",
+    "alt": "Garrafa de detergente líquido y toallas junto a una lavadora",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-lavanderia-solidos.webp",
+    "alt": "Detergente en polvo y ropa doblada en una lavandería",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-limpiadores-generales.webp",
+    "alt": "Pulverizadores blancos y paños azules de limpieza",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-limpiadores-maquina.webp",
+    "alt": "Profesional usando una máquina limpiadora de suelos",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-limpieza-de-graffitis.webp",
+    "alt": "Profesional limpiando pintura en una pared exterior",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-limpieza-de-manos.webp",
+    "alt": "Manos lavándose con agua y jabón en un lavabo",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-linea-eco-profesional.webp",
+    "alt": "Envases blancos y paños reutilizables junto a una planta",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-linea-naturex-productos-ecologicos.webp",
+    "alt": "Envases blancos de limpieza, paños reutilizables y una planta",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-mantenimiento-de-piscinas.webp",
+    "alt": "Profesional analizando una muestra de agua junto a una piscina",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-marketing-olfativo.webp",
+    "alt": "Difusor de aroma y pequeño frasco en la recepción de un hotel",
     "width": 800,
     "height": 800
   },
@@ -84,6 +246,30 @@
     "height": 800
   },
   {
+    "file": "familia-multiusos.webp",
+    "alt": "Profesional limpiando una superficie con un paño azul",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-perfumador-textil.webp",
+    "alt": "Mano con pulverizador junto a ropa de cama doblada",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-perfumes-super-concentrados-uso-en-difusor.webp",
+    "alt": "Frasco de perfume concentrado junto a un difusor eléctrico",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-perfumes-uso-en-pulverizador.webp",
+    "alt": "Pulverizador transparente en una habitación de hotel",
+    "width": 800,
+    "height": 800
+  },
+  {
     "file": "familia-productos-quimicos.webp",
     "alt": "Envases blancos y azules de productos de limpieza profesional",
     "width": 800,
@@ -96,8 +282,32 @@
     "height": 800
   },
   {
+    "file": "familia-suavizantes-y-neutralizantes.webp",
+    "alt": "Envase de suavizante junto a toallas blancas dobladas",
+    "width": 800,
+    "height": 800
+  },
+  {
     "file": "familia-termos-botellas-y-sifones.webp",
     "alt": "Termo, botella y sifón de hostelería sobre un mostrador",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-toallitas-humedas-limpieza-refrescante.webp",
+    "alt": "Paquete blanco de toallitas húmedas abierto",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-tratamiento-de-suelos.webp",
+    "alt": "Profesional limpiando el suelo de un comedor",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-tratamiento-para-torres-de-refrigeracion.webp",
+    "alt": "Técnico revisando una torre de refrigeración industrial",
     "width": 800,
     "height": 800
   },

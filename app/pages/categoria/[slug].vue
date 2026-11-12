@@ -354,7 +354,7 @@ watch(
 </script>
 
 <template>
-  <div v-if="category" class="mx-auto max-w-[1600px] px-4 py-8">
+  <div v-if="category" class="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
     <PromotionalBlocks
       :context="{ placement: 'category', path: `/categoria/${category.slug}`, categorySlug: category.slug }"
       class="mb-6"
@@ -433,7 +433,10 @@ watch(
     </div>
 
     <!-- subcategorías (carril móvil; en escritorio van en la barra lateral) -->
-    <div v-if="category.children?.length" class="-mx-4 mt-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:hidden">
+    <div
+      v-if="category.children?.length"
+      class="-mx-4 mt-4 scrollbar-none flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:hidden"
+    >
       <NuxtLink
         v-for="child in category.children.filter((item) => item.count > 0)"
         :key="child.id"
@@ -465,7 +468,7 @@ watch(
     <div class="mt-6 grid grid-cols-1 items-start gap-8 lg:grid-cols-[250px_1fr]">
       <!-- barra lateral (escritorio) -->
       <aside
-        class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
+        class="scrollbar-none sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 lg:block"
       >
         <div v-if="category.children?.length" class="border-b border-slate-100 pb-4">
           <p class="text-sm font-semibold text-slate-800">Subcategorías</p>
@@ -571,7 +574,7 @@ watch(
               <UIcon name="i-lucide-x" class="block size-5" />
             </button>
           </div>
-          <div class="flex-1 overflow-y-auto p-5">
+          <div class="scrollbar-none flex-1 overflow-y-auto overscroll-contain p-5">
             <ProductFilters :facets="facets" :filters="filters" @update:filters="Object.assign(filters, $event)" />
           </div>
           <div class="border-t border-slate-100 p-4">

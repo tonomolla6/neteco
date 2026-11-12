@@ -66,6 +66,7 @@ const accountLinks = [
   { to: '/cuenta/seguridad', label: 'Acceso y seguridad', icon: 'i-lucide-shield-check' }
 ]
 const helpLinks = [
+  { to: '/ayuda', label: 'Centro de ayuda', icon: 'i-lucide-life-buoy' },
   { to: '/envios', label: 'Envíos y reparto', icon: 'i-lucide-truck' },
   { to: '/formas-de-pago', label: 'Formas de pago', icon: 'i-lucide-credit-card' },
   { to: '/devoluciones', label: 'Devoluciones', icon: 'i-lucide-undo-2' },
@@ -93,7 +94,7 @@ function repeatLastOrder() {
 <template>
   <!-- franja superior: contacto, reparto y conmutador de IVA. Se desplaza con la página. -->
   <div class="bg-neteco-950 text-white">
-    <div class="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-1.5 text-[13px] sm:px-6">
+    <div class="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-1.5 text-[13px] sm:px-6">
       <div class="flex shrink-0 items-center gap-4">
         <a
           v-if="contactPhone"
@@ -130,7 +131,7 @@ function repeatLastOrder() {
 
   <header class="sticky top-0 z-40 border-b border-[var(--border)] bg-white">
     <!-- barra principal -->
-    <div class="mx-auto flex max-w-[1440px] items-center gap-2 px-2 py-2 sm:gap-5 sm:px-6 sm:py-3">
+    <div class="mx-auto flex max-w-[1600px] items-center gap-2 px-2 py-2 sm:gap-5 sm:px-6 sm:py-3">
       <button
         ref="menuBtn"
         type="button"
@@ -261,7 +262,7 @@ function repeatLastOrder() {
 
     <!-- navegación de categorías (escritorio) -->
     <nav aria-label="Familias" class="hidden border-t border-[var(--border)] lg:block">
-      <div class="mx-auto flex max-w-[1440px] items-center gap-1 px-4 sm:px-6">
+      <div class="mx-auto flex max-w-[1600px] items-center gap-1 px-4 sm:px-6">
         <NuxtLink
           to="/catalogo"
           class="flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold text-[var(--text-strong)] hover:text-[var(--link)]"
@@ -317,20 +318,27 @@ function repeatLastOrder() {
             </NuxtLink>
           </div>
         </div>
-        <NuxtLink to="/ayuda" class="px-3 py-2.5 text-sm font-medium text-[var(--text)] hover:text-[var(--link)]">
-          Ayuda
-        </NuxtLink>
-        <ClientOnly>
-          <button
-            v-if="lastOrder"
-            type="button"
-            data-header-reorder
-            class="ml-auto flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold text-neteco-700 hover:text-neteco-500"
-            @click="reorderDialog?.start(lastOrder.id)"
+        <!-- A la derecha del todo, separado de las familias: no es una categoría más. -->
+        <div class="ml-auto flex items-center gap-1">
+          <ClientOnly>
+            <button
+              v-if="lastOrder"
+              type="button"
+              data-header-reorder
+              class="flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold text-neteco-700 hover:text-neteco-500"
+              @click="reorderDialog?.start(lastOrder.id)"
+            >
+              <UIcon name="i-lucide-rotate-cw" class="size-4" /> Repetir último pedido
+            </button>
+          </ClientOnly>
+          <NuxtLink
+            to="/ayuda"
+            data-header-help
+            class="flex items-center gap-1.5 py-2.5 pl-3 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--link)]"
           >
-            <UIcon name="i-lucide-rotate-cw" class="size-4" /> Repetir último pedido
-          </button>
-        </ClientOnly>
+            <UIcon name="i-lucide-life-buoy" class="size-4" /> Ayuda
+          </NuxtLink>
+        </div>
       </div>
     </nav>
     <ClientOnly><ReorderDialog v-if="lastOrder" ref="reorderDialog" /></ClientOnly>

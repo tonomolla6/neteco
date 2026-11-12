@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import type { ProductCardData } from '~~/shared/types/catalog'
-import { hasPublicPrice } from '~~/shared/price-on-request'
 
 /**
- * Tarjeta de producto: una superficie de pedido, no un enlace.
+ * Tarjeta de producto, como en las grandes tiendas: foto libre, nombre, precio y cuándo
+ * llega. Toda la tarjeta es un único enlace a la ficha: ahí se elige formato y cantidad.
  *
- * Quien repone reconoce la referencia del albarán antes que el nombre comercial y quiere
- * añadir sin entrar en la ficha. Por eso solo la imagen y el nombre navegan; la cantidad y
- * «Añadir» son controles propios. El formato va en su línea para que el nombre no lo corte.
+ * No lleva cantidad, botón de añadir, referencia ni disponibilidad. Lo que no se puede
+ * servir no se enseña en los listados, y el plazo se dice con la fecha de entrega.
  */
 const props = withDefaults(
   defineProps<{
@@ -19,10 +18,7 @@ const props = withDefaults(
 )
 
 const single = computed(() => props.product.single ?? null)
-// Sin precio público el stock no se interpreta: un producto que se pide por teléfono no está «agotado».
-const availability = computed(() =>
-  single.value && hasPublicPrice(props.product.minPrice) ? variantAvailability(single.value) : null
-)
+const { label: delivery } = useListingDelivery(() => props.product)
 
 /**
  * Ahorro sobre el precio anterior. Se muestra solo si es real y significativo: por debajo
@@ -39,12 +35,16 @@ const discount = computed(() => {
 
 <template>
   <article
-    class="flex flex-col gap-3 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] p-3 transition-colors hover:border-[var(--border-strong)] sm:p-4"
+    data-product-card
+    class="group relative flex flex-col rounded-[var(--radius-surface)] bg-[var(--surface)] p-3 transition-shadow hover:shadow-[var(--shadow-overlay)] has-[:focus-visible]:shadow-[var(--shadow-overlay)] sm:p-4"
   >
     <div class="relative">
-      <NuxtLink :to="`/producto/${product.slug}`" tabindex="-1" aria-hidden="true" class="mx-auto block max-w-[190px]">
-        <ProductImage :product="product" />
-      </NuxtLink>
+      <ProductImage
+        :product="product"
+        bare
+        class="transition-transform duration-300 group-hover:scale-[1.03]"
+        sizes="(max-width: 640px) 45vw, (max-width: 1280px) 30vw, 280px"
+      />
       <div class="pointer-events-none absolute left-0 top-0 flex flex-col items-start gap-1">
         <UBadge v-if="discount" color="error" variant="solid" class="font-bold"> −{{ discount.percent }} % </UBadge>
         <UBadge
@@ -59,44 +59,37 @@ const discount = computed(() => {
       </div>
     </div>
 
-    <div class="min-w-0">
+    <div class="mt-3 flex min-w-0 flex-1 flex-col">
       <p v-if="showBrand && product.brand" class="text-[13px] font-medium text-[var(--text-muted)]">
         {{ product.brand }}
       </p>
-      <h3 class="font-sans text-[15px] font-semibold leading-snug tracking-normal">
+      <h3 class="font-sans text-[15px] font-medium leading-snug tracking-normal">
+        <!-- El enlace se estira a toda la tarjeta: un clic en cualquier punto abre la ficha. -->
         <NuxtLink
           :to="`/producto/${product.slug}`"
-          class="line-clamp-3 text-[var(--text-strong)] hover:text-[var(--link)] hover:underline"
+          class="line-clamp-2 text-[var(--text-strong)] after:absolute after:inset-0 after:rounded-[var(--radius-surface)] after:content-[''] focus-visible:outline-none focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-neteco-600 group-hover:text-[var(--link)]"
         >
           {{ product.name }}
         </NuxtLink>
       </h3>
-      <p v-if="single" class="tabular mt-1 text-[13px] font-medium text-[var(--text-muted)]">
-        <span data-product-reference>Ref. {{ single.sku }}</span>
-        <span aria-hidden="true"> · </span>
-        <span data-product-format>{{ single.format }}</span>
-      </p>
-      <p v-else class="mt-1 text-[13px] font-medium text-[var(--text-muted)]">{{ product.formats }} formatos</p>
-      <p
-        v-if="availability"
-        data-product-availability
-        class="mt-1 flex items-center gap-1 text-[13px] font-medium"
-        :class="availability.tone"
-      >
-        <UIcon :name="availability.icon" class="size-3.5 shrink-0" />{{ availability.label }}
-      </p>
-    </div>
 
-    <div class="mt-auto space-y-3">
-      <PriceBlock
-        :gross-cents="product.minPrice"
-        :net-cents="product.minNetPrice"
-        :from="product.formats > 1"
-        :units="single?.units"
-        :unit-label="single?.unitLabel"
-        :compare-at-cents="discount?.before"
-      />
-      <ProductOrderControls :product="product" />
+      <div class="mt-auto pt-2">
+        <PriceBlock
+          :gross-cents="product.minPrice"
+          :net-cents="product.minNetPrice"
+          :from="product.formats > 1"
+          :units="single?.units"
+          :unit-label="single?.unitLabel"
+          :compare-at-cents="discount?.before"
+        />
+        <!-- Reserva su línea: la fecha llega tras montar y la tarjeta no debe saltar. -->
+        <p
+          data-product-delivery
+          class="mt-1.5 min-h-[2.4em] text-[13px] font-semibold leading-tight text-[var(--stock-ok)] sm:min-h-[1.2em]"
+        >
+          {{ delivery }}
+        </p>
+      </div>
     </div>
   </article>
 </template>

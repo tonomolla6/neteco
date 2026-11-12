@@ -30,8 +30,15 @@ const props = withDefaults(
     }
     sizes?: string
     context?: 'card' | 'detail'
+    /** Imagen «libre»: sin el marco ni el borde redondeado, para las tarjetas de listado. */
+    bare?: boolean
   }>(),
-  { sizes: '(max-width: 640px) 45vw, 320px', context: 'card' }
+  { sizes: '(max-width: 640px) 45vw, 320px', context: 'card', bare: false }
+)
+const imageClass = computed(() =>
+  props.bare
+    ? 'block aspect-square w-full object-contain'
+    : 'block aspect-square w-full rounded-2xl border border-slate-100 bg-white object-contain'
 )
 const publishedSources = computed(() => publishedImageSources(props.product.image))
 const governedMedia = useRuntimeConfig().public.mediaGoverned
@@ -65,7 +72,7 @@ onMounted(() => {
       :src="displayImage"
       :alt="product.imageAlt || product.name || ''"
       :sizes="sizes"
-      image-class="block aspect-square w-full rounded-2xl border border-slate-100 bg-white object-contain"
+      :image-class="imageClass"
       @load="loaded = true"
       @error="failed = true"
     />
@@ -79,7 +86,7 @@ onMounted(() => {
       height="800"
       format="webp"
       loading="lazy"
-      class="block aspect-square w-full rounded-2xl border border-slate-100 bg-white object-contain"
+      :class="imageClass"
       @load="loaded = true"
       @error="failed = true"
     />

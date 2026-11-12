@@ -203,7 +203,7 @@ watch(
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1600px] px-4 py-8">
+  <div class="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">
       <template v-if="q">Resultados para «{{ q }}»</template>
       <template v-else>Buscar</template>
@@ -319,7 +319,7 @@ watch(
       <!-- barra lateral -->
       <aside
         v-if="showSidebar"
-        class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
+        class="scrollbar-none sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 lg:block"
       >
         <div v-if="categoryFacet.length" class="border-b border-slate-100 pb-4">
           <p class="text-sm font-semibold text-slate-800">Categoría</p>
@@ -434,7 +434,7 @@ watch(
               <UIcon name="i-lucide-x" class="block size-5" />
             </button>
           </div>
-          <div class="flex-1 overflow-y-auto p-5">
+          <div class="scrollbar-none flex-1 overflow-y-auto overscroll-contain p-5">
             <div v-if="categoryFacet.length" class="border-b border-slate-100 pb-4">
               <p class="text-sm font-semibold text-slate-800">Categoría</p>
               <ul class="mt-3 space-y-1">

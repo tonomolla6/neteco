@@ -6,7 +6,7 @@ import type { ProductCardData } from '~~/shared/types/catalog'
  *
  * Sirve para «ir viendo cosas»: en móvil asoma la tarjeta siguiente para que se entienda
  * que la fila sigue y se desliza con el dedo; en escritorio, con las flechas de la cabecera.
- * Cada tarjeta es la tarjeta de pedido normal: se añade al carrito sin salir de la portada.
+ * Sin barra de desplazamiento a la vista. Cada tarjeta lleva a la ficha con un clic.
  */
 const props = defineProps<{
   title: string
@@ -43,7 +43,7 @@ watch(
 </script>
 
 <template>
-  <section v-if="items.length" :aria-labelledby="headingId" class="mx-auto max-w-[1440px] py-6 sm:py-8">
+  <section v-if="items.length" :aria-labelledby="headingId" class="mx-auto max-w-[1600px] py-6 sm:py-8">
     <div class="mb-3 flex items-end justify-between gap-3 px-4 sm:px-6">
       <div class="min-w-0">
         <h2 :id="headingId" class="text-xl font-bold text-[var(--text-strong)] sm:text-2xl">{{ title }}</h2>
@@ -87,7 +87,7 @@ watch(
       <li
         v-for="product in items"
         :key="product.id"
-        class="flex w-[44%] shrink-0 snap-start sm:w-[220px] lg:w-[236px] [&>*]:w-full"
+        class="flex w-[44%] shrink-0 snap-start sm:w-[220px] lg:w-[240px] [&>*]:w-full"
       >
         <ProductCard :product="product" />
       </li>

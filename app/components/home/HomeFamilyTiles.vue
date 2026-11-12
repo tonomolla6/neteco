@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import type { ProductCardData } from '~~/shared/types/catalog'
+import type { HomeImage } from '~/utils/homeImages'
 
 /**
- * «Compra por familias»: una tarjeta grande con imagen por familia.
+ * «Compra por familias»: ocho tarjetas grandes con imagen, una por categoría.
  *
  * El comprador reconoce antes una foto de vasos o de garrafas que un nombre de familia.
- * Cada tarjeta usa la fotografía de la familia si existe (`familia-<slug>` en el manifiesto
- * de imágenes de portada) y, si no, la mejor foto de un producto real de esa familia.
- * Solo se enseñan familias con producto: una tarjeta que lleva a una página vacía resta.
+ * La portada decide qué categorías salen y con qué imagen (`photo`, o la foto de un
+ * producto real en `sample`), y garantiza que ninguna imagen se repite entre tarjetas.
+ * Solo se enseñan categorías con producto: una tarjeta que lleva a una página vacía resta.
  */
 export interface HomeFamilyTile {
   id: number
   name: string
   slug: string
   count: number
+  /** Fotografía de ambiente de la categoría, si la hay. */
+  photo: HomeImage | null
   /** Producto de la familia cuya foto se usa si no hay fotografía propia. */
   sample: Pick<ProductCardData, 'image' | 'name' | 'visual'> | null
 }
@@ -25,7 +28,7 @@ defineProps<{ families: HomeFamilyTile[] }>()
   <section
     v-if="families.length"
     aria-labelledby="home-families"
-    class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8"
+    class="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8"
   >
     <div class="mb-4 flex items-end justify-between gap-3">
       <h2 id="home-families" class="text-xl font-bold text-[var(--text-strong)] sm:text-2xl">Compra por familias</h2>
@@ -42,11 +45,11 @@ defineProps<{ families: HomeFamilyTile[] }>()
         >
           <div class="relative aspect-[4/3] overflow-hidden bg-[var(--canvas)]">
             <img
-              v-if="familyPhoto(family.slug)"
-              :src="familyPhoto(family.slug)!.src"
+              v-if="family.photo"
+              :src="family.photo.src"
               alt=""
-              :width="familyPhoto(family.slug)!.width"
-              :height="familyPhoto(family.slug)!.height"
+              :width="family.photo.width"
+              :height="family.photo.height"
               loading="lazy"
               class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
             />
@@ -54,8 +57,12 @@ defineProps<{ families: HomeFamilyTile[] }>()
               v-else-if="family.sample"
               class="flex h-full items-center justify-center bg-white p-3 transition-transform duration-500 group-hover:scale-[1.04]"
             >
-              <div class="aspect-square h-full [&_img]:border-0">
-                <ProductImage :product="{ ...family.sample, imageAlt: '' }" sizes="(min-width: 1024px) 240px, 40vw" />
+              <div class="aspect-square h-full">
+                <ProductImage
+                  :product="{ ...family.sample, imageAlt: '' }"
+                  bare
+                  sizes="(min-width: 1024px) 240px, 40vw"
+                />
               </div>
             </div>
             <div v-else class="flex h-full items-center justify-center">

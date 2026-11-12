@@ -339,7 +339,7 @@ watch(() => route.fullPath, applyRouteFilters)
 </script>
 
 <template>
-  <div v-if="filters" class="mx-auto max-w-[1600px] px-4 py-8">
+  <div v-if="filters" class="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
     <PromotionalBlocks :context="{ placement: 'catalog', path: '/catalogo' }" class="mb-6" />
     <!-- cabecera -->
     <div class="flex flex-wrap items-end justify-between gap-3">
@@ -383,7 +383,7 @@ watch(() => route.fullPath, applyRouteFilters)
     <!-- familias en dos niveles: grupos temáticos → familias del grupo elegido -->
     <div class="mt-5 space-y-2">
       <div
-        class="-mx-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
+        class="-mx-4 scrollbar-none flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
       >
         <button
           class="shrink-0 whitespace-nowrap rounded-full border px-3.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
@@ -419,7 +419,7 @@ watch(() => route.fullPath, applyRouteFilters)
 
       <div
         v-if="activeGroupItems.length"
-        class="-mx-4 flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
+        class="-mx-4 scrollbar-none flex flex-nowrap gap-2 overflow-x-auto px-4 pb-1 lg:mx-0 lg:flex-wrap lg:overflow-visible lg:px-0"
       >
         <button
           v-for="child in activeGroupItems"
@@ -460,7 +460,7 @@ watch(() => route.fullPath, applyRouteFilters)
     <div class="mt-6 grid grid-cols-1 items-start gap-8 lg:grid-cols-[260px_1fr]">
       <!-- barra lateral (escritorio): solo filtros; las familias van en chips arriba -->
       <aside
-        class="sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 lg:block"
+        class="scrollbar-none sticky top-44 hidden max-h-[calc(100vh-13rem)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 lg:block"
       >
         <ProductFilters
           :facets="facets"
@@ -552,7 +552,7 @@ watch(() => route.fullPath, applyRouteFilters)
               <UIcon name="i-lucide-x" class="block size-5" />
             </button>
           </div>
-          <div class="flex-1 overflow-y-auto p-5">
+          <div class="scrollbar-none flex-1 overflow-y-auto overscroll-contain p-5">
             <ProductFilters
               :facets="facets"
               :filters="filters"

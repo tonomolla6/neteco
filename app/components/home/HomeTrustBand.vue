@@ -23,7 +23,7 @@ const intro = computed(() =>
 </script>
 
 <template>
-  <section aria-labelledby="home-trust" class="mx-auto max-w-[1440px] px-4 py-8 sm:px-6 sm:py-10">
+  <section aria-labelledby="home-trust" class="mx-auto max-w-[1600px] px-4 py-8 sm:px-6 sm:py-10">
     <div
       class="grid overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] lg:grid-cols-[5fr_6fr]"
     >

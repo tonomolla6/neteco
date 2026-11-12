@@ -68,7 +68,7 @@ async function add(item: HabitualProduct) {
 
 <template>
   <section v-if="lastOrder" data-home-reorder class="border-b border-[var(--border)] bg-[var(--surface)]">
-    <div class="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-8">
+    <div class="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 sm:py-8">
       <h1 class="text-2xl font-bold text-[var(--text-strong)] sm:text-3xl">
         Hola<template v-if="greeting">, {{ greeting }}</template>
       </h1>
