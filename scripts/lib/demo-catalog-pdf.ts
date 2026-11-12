@@ -82,7 +82,7 @@ export const CATALOG_PDF_GROUPS: Record<string, readonly string[]> = {
 export const CATALOG_PDF_BRANDS = ['Lacor', 'Garinox'] as const
 
 const text = (max: number) => z.string().trim().min(1).max(max)
-const sourceSchema = z.object({
+export const catalogPdfSourceSchema = z.object({
   productos: z
     .array(
       z.object({
@@ -110,7 +110,7 @@ const sourceSchema = z.object({
     )
     .min(1)
 })
-export type CatalogPdfSource = z.input<typeof sourceSchema>
+export type CatalogPdfSource = z.input<typeof catalogPdfSourceSchema>
 
 const UNITS = new Set(['cm', 'mm', 'l', 'ml', 'w', 'kg', 'g', 'rpm', 'c', 'h'])
 const LABELS: Record<string, string> = {
@@ -212,7 +212,7 @@ export function categoryIdFor(group: string) {
 
 /** Pure, deterministic plan. Identifiers are stable across runs, so re-running never duplicates rows. */
 export function planCatalogPdf(input: unknown): CatalogPdfPlan {
-  const source = sourceSchema.parse(input)
+  const source = catalogPdfSourceSchema.parse(input)
   const groupOf = new Map(
     Object.entries(CATALOG_PDF_GROUPS).flatMap(([group, families]) => families.map((f) => [f, group]))
   )
@@ -296,10 +296,11 @@ function assertBatch(value: unknown, length: number) {
 }
 
 /** A short-lived, MFA-flagged internal session for the governed media commands; always revoked afterwards. */
-async function withLoaderSession<T>(
+export async function withLoaderSession<T>(
   database: D1Database,
   now: string,
-  work: (actor: VerifiedSessionClaims) => Promise<T>
+  work: (actor: VerifiedSessionClaims) => Promise<T>,
+  permissions: readonly string[] = BOOTSTRAP_PERMISSIONS
 ) {
   const expiry = utc(Date.parse(now) + 2 * 3600_000)
   const actor: VerifiedSessionClaims = {
@@ -317,7 +318,7 @@ async function withLoaderSession<T>(
     database
       .prepare('INSERT INTO roles(code,name,description) VALUES(?,?,?) ON CONFLICT(code) DO NOTHING')
       .bind(BOOTSTRAP_ROLE, 'Bootstrap offline DEMO', 'Actor interno sintético, acceso temporal revocado al terminar'),
-    ...BOOTSTRAP_PERMISSIONS.flatMap((permission) => {
+    ...permissions.flatMap((permission) => {
       const [resource, action] = permission.split('.')
       return [
         database
@@ -344,7 +345,7 @@ async function withLoaderSession<T>(
       )
       .bind(actor.sessionId, actor.identityId, now, expiry)
   ])
-  assertBatch(grants, 4 + BOOTSTRAP_PERMISSIONS.length * 2)
+  assertBatch(grants, 4 + permissions.length * 2)
   try {
     return await work(actor)
   } finally {
