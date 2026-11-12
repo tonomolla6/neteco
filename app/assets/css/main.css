@@ -126,3 +126,12 @@ td[data-numeric] {
     scroll-behavior: auto !important;
   }
 }
+
+/* Filas deslizables (carrusel de portada, franjas de producto, accesos rápidos): se
+   desplazan con el dedo o con las flechas, sin barra de desplazamiento a la vista. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
