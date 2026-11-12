@@ -718,6 +718,63 @@ function normalizeBillingFromShipping(shipping: AddressInput): AddressInput {
   return { ...shipping, phone: undefined }
 }
 
+/**
+ * El plan de envíos que el cliente aceptó (todo junto o un envío por plazo) queda inmutable
+ * con el pedido. Un pedido dividido deja además constancia del consentimiento y del porte
+ * extra, que es lo que lee la operativa de envíos parciales (ORD-021).
+ */
+function shipmentPlanStatements(
+  database: D1Database,
+  orderId: string,
+  selected: ShippingOptionSnapshot,
+  now: string,
+  customerId: string | null
+): D1PreparedStatement[] {
+  const shipments = selected.shipments ?? []
+  if (!shipments.length) return []
+  const mode = selected.shipmentMode ?? 'together'
+  const statements = shipments.map((shipment) =>
+    database
+      .prepare(
+        `INSERT INTO order_shipment_plans (
+           order_id, shipment_index, mode, lead_days, eta_from, eta_to,
+           net_cents, tax_cents, gross_cents, lines_json, created_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`
+      )
+      .bind(
+        orderId,
+        shipment.index,
+        mode,
+        shipment.leadDays,
+        shipment.from,
+        shipment.to,
+        shipment.netCents,
+        shipment.taxCents,
+        shipment.grossCents,
+        JSON.stringify(shipment.lines),
+        now
+      )
+  )
+  if (mode === 'split' && shipments.length > 1)
+    statements.push(
+      database
+        .prepare(
+          `INSERT INTO order_split_shipment_preferences (
+             order_id, customer_accepts_split, accepted_extra_shipping_cents, shipping_cost_payer,
+             customer_consent_at, customer_id, version, created_at, updated_at
+           ) VALUES (?1, 1, ?2, 'customer', ?3, ?4, 1, ?3, ?3)
+           ON CONFLICT(order_id) DO NOTHING`
+        )
+        .bind(
+          orderId,
+          shipments.slice(1).reduce((sum, shipment) => sum + shipment.grossCents, 0),
+          now,
+          customerId
+        )
+    )
+  return statements
+}
+
 type RevalidationOutcome = Extract<PlaceOrderResult, { outcome: 'revalidation_required' }>
 
 // Applied to every saved line, including W2 recovery. Snapshots record a past
@@ -1458,6 +1515,9 @@ export async function placeOrder(
     reservationExpiresAt,
     shippingGrossCents: ledgerShipping.grossCents,
     shippingMethodCode: selected.methodCode,
+    ...(selected.shipments?.length
+      ? { shipmentMode: selected.shipmentMode ?? 'together', shipments: selected.shipments }
+      : {}),
     status: 'awaiting_payment',
     ...(creditTerms
       ? {
@@ -1650,6 +1710,7 @@ export async function placeOrder(
       ...(redemption ? redemption.statements : []),
       addressInsert(database, orderId, 'order_shipping_address', input.shippingAddress, input.now),
       addressInsert(database, orderId, 'order_billing_address', billingAddress, input.now),
+      ...shipmentPlanStatements(database, orderId, selected, input.now, customerId),
       ...(marketOrder ? [marketSnapshotInsert(database, orderId, marketOrder, input.now)] : []),
       database
         .prepare(

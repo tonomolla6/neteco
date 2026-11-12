@@ -8,7 +8,7 @@ import CheckoutAddressFields from '~/components/checkout/CheckoutAddressFields.v
 import CheckoutBillingAddress from '~/components/checkout/CheckoutBillingAddress.vue'
 import CheckoutContactFields from '~/components/checkout/CheckoutContactFields.vue'
 import CheckoutCoupon from '~/components/checkout/CheckoutCoupon.vue'
-import CheckoutDeliveryMethods from '~/components/checkout/CheckoutDeliveryMethods.vue'
+import CheckoutShipments from '~/components/checkout/CheckoutShipments.vue'
 import CheckoutInvoiceChoice from '~/components/checkout/CheckoutInvoiceChoice.vue'
 import CheckoutMarketSummary from '~/components/checkout/CheckoutMarketSummary.vue'
 import CheckoutPaymentMethods from '~/components/checkout/CheckoutPaymentMethods.vue'
@@ -19,6 +19,7 @@ import CheckoutTrust from '~/components/checkout/CheckoutTrust.vue'
 import { submitHostedPayment } from '~/utils/hosted-payment'
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 import { promotionCodeSchema, promotionReasonSchema, type PromotionReason } from '~~/shared/promotions'
+import type { ShipmentMode, ShipmentPlanEntry } from '~~/shared/shipment-plan'
 
 definePageMeta({ layout: 'checkout' })
 useSeoMeta({ title: 'Tramitar pedido', robots: 'noindex, nofollow' })
@@ -233,6 +234,8 @@ watch(
 )
 
 const shippingMethod = ref<'reparto' | 'envio' | 'recogida'>('reparto')
+/** Todo junto (un porte, fecha del producto más lento) o un envío por plazo (un porte cada uno). */
+const shipmentMode = ref<ShipmentMode>('together')
 const paymentMethod = ref<'tarjeta' | 'bizum' | 'transferencia'>('tarjeta')
 const acceptTerms = ref(false)
 const marketingConsent = ref(false)
@@ -256,6 +259,8 @@ interface ShippingRate {
   shippingQuoteId?: string
   optionIndex?: number
   optionHash?: string
+  shipmentMode?: ShipmentMode
+  shipments?: ShipmentPlanEntry[]
 }
 
 function isCloudflareRate(rate: ShippingRate): rate is ShippingRate & {
@@ -308,14 +313,18 @@ function methodForRate(rate: ShippingRate) {
   return 'envio'
 }
 
-function methodRate(method: string) {
-  return shippingRates.value.find((rate) => methodForRate(rate) === method)
+function methodRate(method: string, mode: ShipmentMode = 'together') {
+  return shippingRates.value.find(
+    (rate) => methodForRate(rate) === method && (rate.shipmentMode ?? 'together') === mode
+  )
 }
 
 const eligibleShippingMethods = computed(() =>
   shippingRates.value.length ? SHIPPING_METHODS.filter((method) => methodRate(method.value)) : SHIPPING_METHODS
 )
-const selectedShippingRate = computed(() => methodRate(shippingMethod.value))
+const selectedShippingRate = computed(
+  () => methodRate(shippingMethod.value, shipmentMode.value) ?? methodRate(shippingMethod.value)
+)
 const cloudflareCheckout = computed(() => !!selectedShippingRate.value && isCloudflareRate(selectedShippingRate.value))
 
 // CHK-023: Market / destination country checkout profile & presentment calculation
@@ -653,7 +662,6 @@ const quotedShippingGross = computed(() => {
   return rate.netCents + Math.round((rate.netCents * rate.taxRateBasisPoints) / 10_000)
 })
 const shippingCost = computed(() => quotedShippingGross.value)
-const freeShipping = useFreeShipping()
 const total = computed(() => selectedShippingRate.value?.totalGrossCents ?? cart.subtotal + shippingCost.value)
 const tax = computed(() => selectedShippingRate.value?.taxCents ?? cart.tax)
 const subtotalLabel = computed(() =>
@@ -672,6 +680,11 @@ const subtotalCents = computed(() =>
       ? selectedShippingRate.value.totalGrossCents - shippingCost.value
       : cart.subtotal
 )
+const shippingLabel = computed(() => {
+  const method = SHIPPING_METHODS.find((entry) => entry.value === shippingMethod.value)?.label ?? ''
+  const shipments = selectedShippingRate.value?.shipments?.length ?? 1
+  return shipments > 1 ? `${method} · ${shipments} envíos` : method
+})
 const shippingText = computed(() => {
   const market = marketPresentment.value
   if (market) return formatMarketCurrency(market.shippingGrossMinor, market.currency)
@@ -883,6 +896,7 @@ async function refreshShippingRates() {
     if (!methodRate(shippingMethod.value)) {
       shippingMethod.value = methodForRate(quote.rates[0]!)
     }
+    if (!methodRate(shippingMethod.value, shipmentMode.value)) shipmentMode.value = 'together'
     return true
   } catch (error) {
     if (requestId === shippingRateRequestId) {
@@ -923,6 +937,7 @@ watch(
   [
     paymentMethod,
     shippingMethod,
+    shipmentMode,
     form,
     shippingAddress,
     billingAddress,
@@ -1054,12 +1069,13 @@ function scrollToFirstError() {
  * «Continuar» valida solo lo pedido hasta ese paso; las condiciones se piden al pagar.
  * Con cuenta todos los pasos quedan abiertos (y, con datos guardados, en revisión).
  */
-type CheckoutStepId = 'entrega' | 'facturacion' | 'pago'
-const STEP_ORDER: CheckoutStepId[] = ['entrega', 'facturacion', 'pago']
+type CheckoutStepId = 'entrega' | 'facturacion' | 'pago' | 'envio'
+const STEP_ORDER: CheckoutStepId[] = ['entrega', 'facturacion', 'pago', 'envio']
 const STEP_ANCHORS: Record<CheckoutStepId, string> = {
   entrega: 'sec-datos',
   facturacion: 'sec-facturacion',
-  pago: 'sec-pago'
+  pago: 'sec-pago',
+  envio: 'sec-envio'
 }
 const STEP_FIELDS: Record<'entrega' | 'facturacion', string[]> = {
   entrega: [
@@ -1088,7 +1104,12 @@ const openStep = ref<CheckoutStepId>('entrega')
 const stepOpen = (step: CheckoutStepId) => !guided.value || openStep.value === step
 const stepDone = (step: CheckoutStepId) => guided.value && STEP_ORDER.indexOf(openStep.value) > STEP_ORDER.indexOf(step)
 
-function continueFrom(step: 'entrega' | 'facturacion') {
+function continueFrom(step: 'entrega' | 'facturacion' | 'pago') {
+  if (step === 'pago') {
+    openStep.value = 'envio'
+    scrollTo(STEP_ANCHORS.envio)
+    return
+  }
   validate()
   const checked = step === 'entrega' ? STEP_FIELDS.entrega : [...STEP_FIELDS.entrega, ...STEP_FIELDS.facturacion]
   for (const key of Object.keys(errors)) if (!checked.includes(key)) errors[key] = ''
@@ -1100,10 +1121,11 @@ function continueFrom(step: 'entrega' | 'facturacion') {
   scrollTo(STEP_ANCHORS[openStep.value])
 }
 
-const deliverySummary = computed(() => {
-  const method = SHIPPING_METHODS.find((entry) => entry.value === shippingMethod.value)?.label
-  return [form.email.trim(), form.phone.trim(), reviewDelivery.value, method].filter(Boolean).join(' · ')
-})
+const deliverySummary = computed(() =>
+  [form.email.trim(), form.phone.trim(), reviewDelivery.value].filter(Boolean).join(' · ')
+)
+const PAYMENT_LABELS = { tarjeta: 'Tarjeta', bizum: 'Bizum', transferencia: 'Transferencia' } as const
+const paymentSummary = computed(() => PAYMENT_LABELS[paymentMethod.value])
 const billingSummary = computed(() => {
   const document =
     invoice.value === 'company'
@@ -1463,7 +1485,7 @@ async function finish(order: { id: string; token?: string }) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1600px] px-4 py-8">
+  <div class="mx-auto max-w-[1600px] px-4 py-8 sm:px-6">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Tramitar pedido</h1>
 
     <ClientOnly>
@@ -1534,7 +1556,7 @@ async function finish(order: { id: string; token?: string }) {
           <CheckoutStep
             step="entrega"
             :number="1"
-            title="Entrega"
+            title="Dirección de entrega"
             anchor="sec-datos"
             :open="stepOpen('entrega')"
             :done="stepDone('entrega')"
@@ -1614,24 +1636,12 @@ async function finish(order: { id: string; token?: string }) {
                 </div>
               </template>
             </CheckoutAddressFields>
-            <h3 class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
-              Método de entrega
-            </h3>
-            <CheckoutDeliveryMethods
-              v-model="shippingMethod"
-              :methods="eligibleShippingMethods"
-              :rate-for="methodRate"
-              :free-shipping-label="freeShipping.label.value"
-              :cloudflare="runtime.public.serverRuntime === 'cloudflare'"
-              :loading="shippingRateLoading"
-              :error="shippingRateError"
-            />
           </CheckoutStep>
 
           <CheckoutStep
             step="facturacion"
             :number="2"
-            title="Facturación"
+            title="Dirección de facturación"
             anchor="sec-facturacion"
             :open="stepOpen('facturacion')"
             :done="stepDone('facturacion')"
@@ -1677,9 +1687,13 @@ async function finish(order: { id: string; token?: string }) {
             title="Pago"
             anchor="sec-pago"
             :open="stepOpen('pago')"
-            :done="false"
+            :done="stepDone('pago')"
             :current="guided && openStep === 'pago'"
+            :continue-label="guided ? 'Continuar con el envío' : undefined"
+            @continue="continueFrom('pago')"
+            @change="openStep = 'pago'"
           >
+            <template #summary>{{ paymentSummary }}</template>
             <CheckoutPaymentMethods
               v-model="paymentMethod"
               v-model:save-card="saveCardConsent"
@@ -1699,6 +1713,30 @@ async function finish(order: { id: string; token?: string }) {
               @wallet="submitWithWallet"
             />
           </CheckoutStep>
+
+          <!-- Lo último, como en Amazon: método y fecha de entrega, producto a producto -->
+          <CheckoutStep
+            step="envio"
+            :number="4"
+            title="Envío y fecha de entrega"
+            anchor="sec-envio"
+            :open="stepOpen('envio') || shippingRates.length > 0"
+            :done="false"
+            :current="guided && openStep === 'envio'"
+          >
+            <CheckoutShipments
+              v-model="shippingMethod"
+              v-model:mode="shipmentMode"
+              :methods="eligibleShippingMethods"
+              :rate-for="methodRate"
+              :items="cart.items"
+              :postal-code="shippingAddress.postalCode"
+              :ready="shippingRateReady"
+              :loading="shippingRateLoading"
+              :error="shippingRateError"
+              :disabled="Boolean(checkoutCommand || pendingOrder || submitting)"
+            />
+          </CheckoutStep>
         </div>
 
         <!-- resumen lateral -->
@@ -1706,25 +1744,26 @@ async function finish(order: { id: string; token?: string }) {
           id="resumen-pedido"
           class="scroll-mt-4 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 lg:sticky lg:top-6"
         >
-          <div class="flex items-baseline justify-between">
-            <h2 class="text-lg font-bold text-slate-900">Tu pedido</h2>
-            <NuxtLink to="/carrito" class="text-sm font-medium text-neteco-600 hover:text-neteco-500">Editar</NuxtLink>
+          <div class="flex items-baseline justify-between gap-3">
+            <h2 class="text-lg font-bold text-[var(--text-strong)]">Resumen del pedido</h2>
+            <NuxtLink to="/carrito" class="text-[13px] font-semibold text-[var(--link)] underline underline-offset-2">
+              Editar carrito
+            </NuxtLink>
           </div>
-          <ul class="mt-4 max-h-64 space-y-3 overflow-y-auto pr-1">
-            <li v-for="item in cart.items" :key="item.variantId" class="flex items-center gap-3">
-              <div class="w-10 shrink-0"><ProductImage :product="item" /></div>
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm text-slate-700">{{ item.name }}</p>
-                <p class="text-xs text-slate-500">{{ item.format }} × {{ item.qty }}</p>
-              </div>
-              <p class="text-right text-sm font-semibold">
-                {{ formatPrice(showNetPrices ? (item.lineNet ?? item.netPrice * item.qty) : item.price * item.qty) }}
-                <span v-if="showNetPrices" class="block text-xs font-normal text-slate-500">
-                  {{ formatPrice(item.price * item.qty) }} con IVA
-                </span>
-              </p>
-            </li>
-          </ul>
+          <p class="mt-1 text-[13px] text-[var(--text-muted)]">
+            {{ cart.items.length }} {{ cart.items.length === 1 ? 'referencia' : 'referencias' }} · {{ cart.count }}
+            {{ cart.count === 1 ? 'unidad' : 'unidades' }}
+          </p>
+          <CheckoutTotals
+            :subtotal-label="subtotalLabel"
+            :subtotal-cents="subtotalCents"
+            :discount-cents="promotion?.applied ? promotion.discountGrossCents : null"
+            :shipping-label="shippingLabel"
+            :shipping-text="shippingText"
+            :tax-text="taxText"
+            :total-text="totalText"
+          />
+
           <CheckoutCoupon
             v-if="couponRuntime"
             v-model="couponDraft"
@@ -1735,45 +1774,65 @@ async function finish(order: { id: string; token?: string }) {
             @apply="applyCoupon"
             @remove="removeCoupon"
           />
-          <CheckoutTotals
-            :subtotal-label="subtotalLabel"
-            :subtotal-cents="subtotalCents"
-            :discount-cents="promotion?.applied ? promotion.discountGrossCents : null"
-            :shipping-label="SHIPPING_METHODS.find((m) => m.value === shippingMethod)?.label ?? ''"
-            :shipping-text="shippingText"
-            :tax-text="taxText"
-            :total-text="totalText"
-          />
 
-          <label class="mt-4 flex items-start gap-2 text-xs text-slate-600">
-            <input v-model="acceptTerms" type="checkbox" class="mt-0.5 accent-neteco-600" />
-            <span>
-              Acepto las
-              <a href="/condiciones-generales" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
-                >condiciones generales de venta</a
-              >, incluido el
+          <!-- Condiciones: una casilla clara, junto al botón de pagar -->
+          <div
+            data-checkout-terms
+            class="mt-4 rounded-[var(--radius-control)] border bg-[var(--surface-sunken)] p-3"
+            :class="errors.terms ? 'border-[var(--ui-error)]' : 'border-[var(--border)]'"
+          >
+            <label class="flex cursor-pointer items-start gap-3 text-[13px] leading-snug text-[var(--text)]">
+              <input
+                v-model="acceptTerms"
+                type="checkbox"
+                class="mt-0.5 size-5 shrink-0 accent-[var(--action)]"
+                :aria-invalid="errors.terms ? 'true' : undefined"
+                :aria-describedby="errors.terms ? 'checkout-terms-error' : undefined"
+              />
+              <span>
+                He leído y acepto las
+                <a
+                  href="/condiciones-generales"
+                  target="_blank"
+                  rel="noopener"
+                  class="font-semibold text-[var(--link)] underline underline-offset-2"
+                  >condiciones generales de venta</a
+                >.
+              </span>
+            </label>
+            <p
+              v-if="errors.terms"
+              id="checkout-terms-error"
+              role="alert"
+              class="mt-2 text-[13px] font-semibold text-[var(--ui-error)]"
+            >
+              {{ errors.terms }}
+            </p>
+            <p class="mt-2 border-t border-[var(--border)] pt-2 text-[13px] leading-snug text-[var(--text-muted)]">
+              Incluyen el
               <a
                 href="/condiciones-generales#desistimiento"
                 target="_blank"
                 rel="noopener"
-                class="underline hover:text-neteco-600"
+                class="underline underline-offset-2 hover:text-[var(--link)]"
                 >derecho de desistimiento</a
-              >. La
-              <a href="/privacidad" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
+              >. Tratamos tus datos según la
+              <a
+                href="/privacidad"
+                target="_blank"
+                rel="noopener"
+                class="underline underline-offset-2 hover:text-[var(--link)]"
                 >política de privacidad</a
-              >
-              explica cómo tratamos los datos necesarios para tramitar el pedido.
-            </span>
-          </label>
-          <p v-if="errors.terms" class="mt-1.5 text-xs font-medium text-red-600">{{ errors.terms }}</p>
-
-          <label v-if="!cloudflareCheckout" class="mt-3 flex items-start gap-2 text-xs text-slate-500">
-            <input v-model="marketingConsent" type="checkbox" class="mt-0.5 accent-neteco-600" />
-            <span>{{ NEWSLETTER_CONSENT_TEXT }} {{ NEWSLETTER_CONFIRMATION_NOTICE }}</span>
-          </label>
-          <p v-else class="mt-3 text-xs text-slate-500">
-            La suscripción a la newsletter no está disponible en este proceso de pago.
-          </p>
+              >.
+            </p>
+            <label
+              v-if="!cloudflareCheckout"
+              class="mt-2 flex cursor-pointer items-start gap-3 text-[13px] leading-snug text-[var(--text-muted)]"
+            >
+              <input v-model="marketingConsent" type="checkbox" class="mt-0.5 size-5 shrink-0 accent-[var(--action)]" />
+              <span>{{ NEWSLETTER_CONSENT_TEXT }} {{ NEWSLETTER_CONFIRMATION_NOTICE }}</span>
+            </label>
+          </div>
 
           <div v-if="errorMsg" id="checkout-alert" role="alert" class="mt-4 scroll-mt-40">
             <UAlert color="error" variant="subtle" icon="i-lucide-alert-circle" :title="errorMsg" />

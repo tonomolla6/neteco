@@ -48,7 +48,7 @@ const form = ref<Record<string, unknown>>({
     widthMm: 0,
     heightMm: 0,
     depthMm: 0,
-    backorderAllowed: false,
+    backorderAllowed: true,
     leadTimeDays: null,
     color: null
   }

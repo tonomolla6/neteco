@@ -1,49 +1,108 @@
 <script setup lang="ts">
-defineProps<{ locked: boolean; applied: boolean; feedback: string; isError: boolean }>()
-defineEmits<{ apply: []; remove: [] }>()
+/**
+ * Código de descuento, fuera de la vista hasta que se pide: un enlace en el resumen abre un
+ * modal con el campo. Quien no tiene código no ve un formulario vacío que le haga dudar.
+ */
+const props = defineProps<{ locked: boolean; applied: boolean; feedback: string; isError: boolean }>()
+const emit = defineEmits<{ apply: []; remove: [] }>()
 const draft = defineModel<string>({ required: true })
+const open = ref(false)
+
+function apply() {
+  emit('apply')
+}
+function remove() {
+  emit('remove')
+}
+// Aplicado: el modal ha cumplido y se cierra solo; el resultado queda en el resumen.
+watch(
+  () => props.feedback,
+  (feedback) => {
+    if (props.applied && !props.isError && feedback.startsWith('Cupón aplicado')) open.value = false
+  }
+)
 </script>
 
 <template>
-  <section class="mt-4 border-t border-slate-100 pt-4" aria-labelledby="checkout-coupon-label">
-    <label id="checkout-coupon-label" for="checkout-coupon-code" class="block text-sm font-medium text-slate-700"
-      >Código de descuento</label
-    >
-    <input
-      id="checkout-coupon-code"
-      v-model="draft"
-      data-testid="checkout-coupon-code"
-      type="text"
-      maxlength="64"
-      autocomplete="off"
-      :disabled="locked"
-      class="mt-2 w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-60"
-      @keydown.enter.prevent="$emit('apply')"
-    />
-    <div class="mt-2 flex flex-wrap gap-2">
-      <UButton
+  <section class="mt-3" aria-label="Código de descuento" data-checkout-coupon>
+    <div class="flex flex-wrap items-center justify-between gap-2 text-[13px]">
+      <button
         type="button"
-        data-testid="checkout-coupon-apply"
-        :disabled="locked || !draft.trim()"
-        @click="$emit('apply')"
-        >Aplicar</UButton
+        data-testid="checkout-coupon-open"
+        class="inline-flex min-h-9 items-center gap-1.5 font-semibold text-[var(--link)] underline underline-offset-2"
+        @click="open = true"
       >
-      <UButton
+        <UIcon name="i-lucide-ticket-percent" class="size-4" aria-hidden="true" />
+        {{ applied ? `Código ${draft.trim().toUpperCase()}` : '¿Tienes un código de descuento?' }}
+      </button>
+      <button
+        v-if="applied"
         type="button"
-        data-testid="checkout-coupon-remove"
-        variant="outline"
-        :disabled="locked || (!applied && !draft.trim())"
-        @click="$emit('remove')"
-        >Quitar</UButton
+        class="min-h-9 text-[var(--text-muted)] underline underline-offset-2"
+        :disabled="locked"
+        @click="remove"
       >
+        Quitar
+      </button>
     </div>
     <p
-      v-if="feedback"
+      v-if="feedback && !open"
       data-testid="checkout-coupon-feedback"
       :role="isError ? 'alert' : 'status'"
-      class="mt-2 text-sm text-slate-700"
+      class="mt-1 text-[13px]"
+      :class="isError ? 'text-[var(--ui-error)]' : 'text-[var(--text)]'"
     >
       {{ feedback }}
     </p>
+
+    <UModal v-model:open="open" title="Código de descuento" :ui="{ content: 'sm:max-w-md' }">
+      <template #body>
+        <label for="checkout-coupon-code" class="block text-[15px] font-medium text-[var(--text-strong)]">
+          Escribe tu código
+        </label>
+        <input
+          id="checkout-coupon-code"
+          v-model="draft"
+          data-testid="checkout-coupon-code"
+          type="text"
+          maxlength="64"
+          autocomplete="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          :disabled="locked"
+          class="mt-2 h-11 w-full min-w-0 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3 text-[15px] uppercase disabled:opacity-60"
+          @keydown.enter.prevent="apply"
+        />
+        <p
+          v-if="feedback"
+          data-testid="checkout-coupon-feedback"
+          :role="isError ? 'alert' : 'status'"
+          class="mt-2 text-[13px]"
+          :class="isError ? 'text-[var(--ui-error)]' : 'text-[var(--text)]'"
+        >
+          {{ feedback }}
+        </p>
+        <p v-else class="mt-2 text-[13px] text-[var(--text-muted)]">
+          El descuento se aplica al total antes de pagar. Un código por pedido.
+        </p>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton
+            type="button"
+            data-testid="checkout-coupon-remove"
+            color="neutral"
+            variant="ghost"
+            :disabled="locked || (!applied && !draft.trim())"
+            @click="remove"
+          >
+            Quitar
+          </UButton>
+          <UButton type="button" data-testid="checkout-coupon-apply" :disabled="locked || !draft.trim()" @click="apply">
+            Aplicar código
+          </UButton>
+        </div>
+      </template>
+    </UModal>
   </section>
 </template>

@@ -135,7 +135,7 @@ export function deliveryPromise(input: DeliveryPromiseInput): DeliveryPromise | 
   const preparation = Math.max(0, Math.min(60, Math.trunc(input.preparationDays ?? 0)))
 
   const now = madridNow(input.now)
-  const cutoffMatch = terms.orderCutoffTime.match(/^(\d{1,2}):(\d{2})$/)
+  const cutoffMatch = terms.orderCutoffTime.match(/^([01]?\d|2[0-3]):([0-5]\d)$/)
   const cutoffMinutes = cutoffMatch ? Number(cutoffMatch[1]) * 60 + Number(cutoffMatch[2]) : null
   // Sin hora de corte no se sabe si el pedido de hoy entra hoy: se cuenta desde el siguiente laborable.
   const entersToday = cutoffMinutes !== null && businessDay(now.date) && now.minutes < cutoffMinutes
@@ -156,7 +156,7 @@ export function deliveryPromise(input: DeliveryPromiseInput): DeliveryPromise | 
     let day = readyDay + DAY
     for (let guard = 0; guard < 21 && (!routeDays.includes(isoWeekday(day)) || closed.has(key(day))); guard++)
       day += DAY
-    if (!routeDays.includes(isoWeekday(day))) return null
+    if (!routeDays.includes(isoWeekday(day)) || closed.has(key(day))) return null
     return {
       method: 'own_delivery',
       from: key(day),
@@ -200,6 +200,24 @@ export function formatPromiseHeadline(promise: DeliveryPromise, today?: string):
     return day.startsWith('mañana') ? `Te llega ${day}` : `Te llega el ${day}`
   }
   return `Te llega entre el ${formatPromiseDay(promise.from)} y el ${formatPromiseDay(promise.to, today)}`
+}
+
+/**
+ * «miércoles, 18 de noviembre»: la fecha entera, como la escribe Amazon. Sin «mañana» ni
+ * rangos: una fecha que se lee de un vistazo.
+ */
+export function formatDeliveryDate(day: string): string {
+  const date = new Date(Date.parse(`${day}T00:00:00Z`))
+  return `${weekdayFormatter.format(date)}, ${date.getUTCDate()} de ${monthFormatter.format(date)}`
+}
+
+/** Tiempo que queda hasta la hora de corte, «3 h 12 min»; `null` si el pedido ya no entra hoy. */
+export function formatCutoffCountdown(promise: Pick<DeliveryPromise, 'cutoff'>): string | null {
+  if (!promise.cutoff) return null
+  const { minutesLeft } = promise.cutoff
+  const hours = Math.floor(minutesLeft / 60)
+  const minutes = minutesLeft % 60
+  return hours ? `${hours} h ${String(minutes).padStart(2, '0')} min` : `${minutes} min`
 }
 
 /** «si lo pides hoy antes de las 13:00»; con poco margen, el tiempo que queda. */

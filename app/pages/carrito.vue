@@ -5,6 +5,8 @@ import CartSnapshotsPanel from '~/components/CartSnapshotsPanel.vue'
 import CartRecoverySection from '~/components/CartRecoverySection.vue'
 import FreeShippingProgressBar from '~/components/FreeShippingProgressBar.vue'
 import type { OrderSummary } from '~/composables/useAccount'
+import { provinceForPostalCode } from '~~/shared/delivery-estimate'
+import { formatDeliveryDate } from '~~/shared/delivery-promise'
 
 useSeoMeta({ title: 'Carrito', robots: 'noindex, nofollow' })
 const cart = useCartStore()
@@ -14,45 +16,58 @@ const { net: showNetPrices } = usePriceDisplay()
 
 const tax = computed(() => cart.tax)
 const shipping = useCartShippingEstimate()
-const destinationForm = reactive({ postalCode: '', city: '' })
+const destinationForm = reactive({ postalCode: '' })
 const editingDestination = ref(false)
 const destinationError = ref('')
 function editDestination() {
   destinationForm.postalCode = shipping.destination.value?.postalCode ?? ''
-  destinationForm.city = shipping.destination.value?.city ?? ''
   editingDestination.value = true
 }
+/** Solo el código postal: la población se conserva si ya la sabíamos y, si no, vale la provincia. */
 async function submitDestination() {
   destinationError.value = ''
-  const target = { postalCode: destinationForm.postalCode.trim(), city: destinationForm.city.trim() }
-  if (!/^\d{5}$/.test(target.postalCode) || target.city.length < 2) {
-    destinationError.value = 'Indica un código postal de cinco cifras y la población.'
+  const postalCode = destinationForm.postalCode.trim()
+  const province = provinceForPostalCode(postalCode)
+  if (!province) {
+    destinationError.value = 'Escribe un código postal de 5 cifras.'
     return
   }
-  await shipping.calculate(target)
+  const known = shipping.destination.value
+  await shipping.calculate({ postalCode, city: known?.postalCode === postalCode ? known.city : province })
   if (shipping.rate.value) editingDestination.value = false
 }
-/** Total a pagar con lo que se sabe: con envío si hay estimación vigente, sin él si no. */
 /**
- * Fecha de entrega concreta. Con cotización del servidor manda su día; sin ella, la previsión
- * con las condiciones comerciales y el código postal recordado (`DeliveryPromiseLine`).
+ * Fecha de entrega concreta, escrita entera («miércoles, 18 de noviembre»). Con cotización del
+ * servidor manda su último día estimado; sin ella, la previsión con las condiciones
+ * comerciales y el código postal recordado (`DeliveryPromiseLine`).
  */
-const serverDeliveryHeadline = computed(() => {
-  const day = shipping.deliveryDay.value
-  if (!shipping.rate.value || shipping.stale.value || !day) return ''
-  return day.startsWith('entre') ? `Te llega ${day}` : `Te llega el ${day}`
+const serverDeliveryDate = computed(() => {
+  const rate = shipping.rate.value
+  const day = rate?.estimatedDeliveryTo ?? rate?.estimatedDeliveryFrom
+  if (!rate || shipping.stale.value || !day) return ''
+  return formatDeliveryDate(day.slice(0, 10))
 })
 
-// «Comprados juntos frecuentemente» y, si no hay co-compra, «Recomendado para ti».
+// Una franja de sugerencias: «Comprados juntos» si hay co-compra y, si no, «Recomendado para ti».
+// Son tarjetas que llevan a la ficha: sin cantidades, casillas ni botones de añadir.
 const cartSlugs = computed(() => cart.items.map((item) => item.slug))
 const recommendations = useProductRecommendations({
   cart: cartSlugs,
   strips: ['bought_together', 'for_you'],
   limit: 8
 })
-const cartBoughtTogether = recommendations.strip('bought_together')
-const cartForYou = computed(() =>
-  cartBoughtTogether.value ? [] : recommendations.strips.value.filter((strip) => strip.kind === 'for_you')
+const cartSuggestions = computed(() => {
+  const strips = recommendations.strips.value
+  const together = strips.filter((strip) => strip.kind === 'bought_together')
+  return together.length ? together : strips.filter((strip) => strip.kind === 'for_you')
+})
+
+// Sin fecha del servidor, el código postal se cambia en `DeliveryPromiseLine`: se recotiza al cambiar.
+watch(
+  () => shipping.destination.value?.postalCode,
+  (postalCode, previous) => {
+    if (postalCode && previous && postalCode !== previous && !shipping.loading.value) void shipping.calculate()
+  }
 )
 
 const totalWithShipping = computed(() =>
@@ -157,7 +172,7 @@ async function retryOriginalAdd() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1600px] px-4 py-8 pb-28 lg:pb-8">
+  <div class="mx-auto max-w-[1600px] px-4 py-8 pb-28 sm:px-6 lg:pb-8">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Tu carrito</h1>
 
     <ClientOnly>
@@ -259,8 +274,13 @@ async function retryOriginalAdd() {
           </div>
 
           <!-- Venta cruzada y carritos guardados van debajo de las líneas, nunca antes. -->
-          <FrequentlyBoughtTogether v-if="cartBoughtTogether" :strip="cartBoughtTogether" :max="4" class="mt-4" />
-          <RecommendationStrips v-else-if="cartForYou.length" :strips="cartForYou" :mobile-count="1" class="pt-6" />
+          <RecommendationStrips
+            v-if="cartSuggestions.length"
+            data-cart-suggestions
+            :strips="cartSuggestions"
+            :mobile-count="1"
+            class="pt-6"
+          />
           <CartSnapshotsPanel v-if="runtime.public.serverRuntime === 'cloudflare'" />
         </div>
 
@@ -270,20 +290,82 @@ async function retryOriginalAdd() {
           class="h-fit rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 lg:sticky lg:top-24"
         >
           <h2 class="text-lg font-bold text-[var(--text-strong)]">Resumen</h2>
-          <!-- La fecha de entrega, lo primero: es lo que decide si se pide hoy -->
-          <div data-cart-delivery-date class="mt-3">
-            <p v-if="serverDeliveryHeadline" class="text-[15px] leading-snug">
-              <UIcon
-                name="i-lucide-truck"
-                class="mr-1 inline size-4 -translate-y-px align-middle text-[var(--stock-ok)]"
-                aria-hidden="true"
-              />
-              <strong data-delivery-date class="font-semibold text-[var(--stock-ok)]">{{
-                serverDeliveryHeadline
-              }}</strong>
-              <span class="block text-[13px] text-[var(--text-muted)]">{{ shipping.rate.value?.label }}</span>
-            </p>
-            <DeliveryPromiseLine v-else :preparation-days="0" />
+          <!-- La fecha de entrega, lo primero y en su propio bloque: es lo que decide si se pide hoy -->
+          <div data-cart-delivery-date class="mt-3 border-b border-[var(--border)] pb-4">
+            <template v-if="serverDeliveryDate">
+              <p class="text-[15px] leading-snug text-[var(--text)]">
+                Entrega
+                <strong v-if="shipping.shippingGross.value === 0" class="font-semibold text-[var(--stock-ok)]"
+                  >GRATIS</strong
+                >
+                el
+                <strong data-delivery-date class="font-semibold text-[var(--text-strong)]">{{
+                  serverDeliveryDate
+                }}</strong>
+              </p>
+              <p class="mt-1 text-[13px] text-[var(--text-muted)]">
+                Si lo pides ahora · {{ shipping.rate.value?.label }}
+              </p>
+            </template>
+            <DeliveryPromiseLine v-else earliest :free="freeShippingEvaluation.status === 'reached'" />
+            <!-- Código postal, compacto: una línea para verlo o cambiarlo -->
+            <div v-if="shipping.available.value" data-shipping-estimate class="text-[13px]">
+              <p
+                v-if="serverDeliveryDate && shipping.destination.value && !editingDestination"
+                class="mt-1.5 flex items-start gap-1.5 text-[var(--text-muted)]"
+              >
+                <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+                <span>
+                  Enviar a {{ shipping.destination.value.postalCode }} {{ shipping.destination.value.city }} ·
+                  <button
+                    type="button"
+                    data-shipping-change
+                    class="font-semibold text-[var(--link)] underline underline-offset-2"
+                    @click="editDestination"
+                  >
+                    Cambiar
+                  </button>
+                </span>
+              </p>
+              <form
+                v-else-if="serverDeliveryDate && editingDestination"
+                class="mt-2 flex items-center gap-2"
+                @submit.prevent="submitDestination"
+              >
+                <label for="cart-postal-code" class="shrink-0 text-[var(--text)]">Código postal</label>
+                <input
+                  id="cart-postal-code"
+                  v-model="destinationForm.postalCode"
+                  inputmode="numeric"
+                  autocomplete="postal-code"
+                  maxlength="5"
+                  class="tabular h-9 w-20 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-2 text-[15px]"
+                />
+                <button
+                  type="submit"
+                  :disabled="shipping.loading.value"
+                  class="h-9 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3 font-semibold text-[var(--text-strong)] hover:border-[var(--action)] disabled:opacity-50"
+                >
+                  {{ shipping.loading.value ? 'Calculando…' : 'Calcular' }}
+                </button>
+              </form>
+              <p v-if="shipping.stale.value" class="mt-1.5 text-[var(--text)]">
+                El carrito ha cambiado.
+                <button
+                  type="button"
+                  class="font-semibold text-[var(--link)] underline"
+                  :disabled="shipping.loading.value"
+                  @click="shipping.calculate()"
+                >
+                  Recalcular el envío
+                </button>
+              </p>
+              <p v-if="destinationError" role="alert" class="mt-1 text-[var(--ui-error)]">{{ destinationError }}</p>
+              <p v-if="shipping.error.value" role="status" class="mt-1 text-[var(--text)]">
+                {{ shipping.error.value }}
+              </p>
+            </div>
+            <FreeShippingProgressBar v-if="freeShippingThreshold" class="mt-3" :evaluation="freeShippingEvaluation" />
           </div>
           <dl class="tabular mt-4 space-y-2 text-[15px]">
             <div class="flex justify-between gap-3">
@@ -306,7 +388,7 @@ async function retryOriginalAdd() {
               <dd v-else-if="!shipping.available.value" class="max-w-[12rem] text-right text-[var(--text-muted)]">
                 Lo ves en el siguiente paso, antes de pagar
               </dd>
-              <dd v-else class="text-[var(--text-muted)]">Indica tu código postal</dd>
+              <dd v-else class="text-[var(--text-muted)]">Según código postal</dd>
             </div>
             <div class="flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-3">
               <dt class="font-semibold text-[var(--text-strong)]">Total</dt>
@@ -321,84 +403,6 @@ async function retryOriginalAdd() {
           >
             IVA incluido, sin envío
           </p>
-
-          <div
-            v-if="shipping.available.value"
-            data-shipping-estimate
-            class="mt-4 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3 text-[15px]"
-          >
-            <template v-if="shipping.rate.value && !editingDestination">
-              <p class="font-medium text-[var(--text-strong)]">
-                {{ shipping.rate.value.label
-                }}<template v-if="shipping.deliveryDay.value"> · {{ shipping.deliveryDay.value }}</template>
-              </p>
-              <p class="text-[13px] text-[var(--text-muted)]">
-                Entrega en {{ shipping.destination.value?.postalCode }} {{ shipping.destination.value?.city }}
-                <button
-                  type="button"
-                  data-shipping-change
-                  class="ml-1 font-semibold text-[var(--link)] underline"
-                  @click="editDestination"
-                >
-                  Cambiar
-                </button>
-              </p>
-              <p v-if="shipping.pickup.value" class="mt-1 text-[13px] text-[var(--text-muted)]">
-                También puedes recogerlo en nuestro almacén de Ontinyent.
-              </p>
-              <p v-if="shipping.stale.value" class="mt-2 text-[13px] text-[var(--text)]">
-                El carrito ha cambiado.
-                <button
-                  type="button"
-                  class="font-semibold text-[var(--link)] underline"
-                  :disabled="shipping.loading.value"
-                  @click="shipping.calculate()"
-                >
-                  Recalcular el envío
-                </button>
-              </p>
-            </template>
-            <form v-else class="space-y-2" @submit.prevent="submitDestination">
-              <p class="font-medium text-[var(--text-strong)]">¿Dónde te lo llevamos?</p>
-              <div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
-                <div>
-                  <label for="cart-postal-code" class="block text-[13px] text-[var(--text-muted)]">Código postal</label>
-                  <input
-                    id="cart-postal-code"
-                    v-model="destinationForm.postalCode"
-                    inputmode="numeric"
-                    autocomplete="postal-code"
-                    maxlength="5"
-                    class="tabular mt-1 h-11 w-full rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3"
-                  />
-                </div>
-                <div>
-                  <label for="cart-city" class="block text-[13px] text-[var(--text-muted)]">Población</label>
-                  <input
-                    id="cart-city"
-                    v-model="destinationForm.city"
-                    autocomplete="address-level2"
-                    maxlength="80"
-                    class="mt-1 h-11 w-full min-w-0 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3"
-                  />
-                </div>
-              </div>
-              <button
-                type="submit"
-                :disabled="shipping.loading.value"
-                class="inline-flex h-11 w-full items-center justify-center rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 font-semibold text-[var(--text-strong)] hover:border-[var(--action)] disabled:opacity-50"
-              >
-                {{ shipping.loading.value ? 'Calculando…' : 'Ver coste y día de entrega' }}
-              </button>
-              <p v-if="destinationError" role="alert" class="text-[13px] text-[var(--ui-error)]">
-                {{ destinationError }}
-              </p>
-            </form>
-            <p v-if="shipping.error.value" role="status" class="mt-2 text-[13px] text-[var(--text)]">
-              {{ shipping.error.value }}
-            </p>
-          </div>
-          <FreeShippingProgressBar v-if="freeShippingThreshold" class="mt-4" :evaluation="freeShippingEvaluation" />
 
           <!-- En móvil la acción vive en la barra fija; aquí solo desde `lg`. Una acción por vista. -->
           <NuxtLink

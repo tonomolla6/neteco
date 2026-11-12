@@ -1,6 +1,8 @@
 import type { MaybeRefOrGetter } from 'vue'
 import {
   deliveryPromise,
+  formatCutoffCountdown,
+  formatDeliveryDate,
   formatPromiseCondition,
   formatPromiseHeadline,
   madridToday,
@@ -15,6 +17,12 @@ export interface DeliveryPromiseView {
   condition: string
   /** «Reparto propio» o «Envío por agencia». */
   methodLabel: string
+  /** «miércoles, 18 de noviembre»: el último día estimado, entero. */
+  dateLabel: string
+  /** «3 h 12 min» hasta la hora de corte; `null` si el pedido ya entra mañana. */
+  countdown: string | null
+  /** Hora de corte de hoy, «13:00»; `null` si ya ha pasado. */
+  cutoffTime: string | null
 }
 
 /**
@@ -56,9 +64,14 @@ export function useDeliveryPromise(options: { preparationDays?: MaybeRefOrGetter
       promise,
       headline: formatPromiseHeadline(promise, today),
       condition: formatPromiseCondition(promise),
-      methodLabel: promise.method === 'own_delivery' ? 'Reparto propio' : 'Envío por agencia'
+      methodLabel: promise.method === 'own_delivery' ? 'Reparto propio' : 'Envío por agencia',
+      dateLabel: formatDeliveryDate(promise.to),
+      countdown: formatCutoffCountdown(promise),
+      cutoffTime: promise.cutoff?.time ?? null
     }
   })
 
-  return { view, destination: memory.destination, remember: memory.remember }
+  /** Ya hay reloj: si `view` sigue vacío es que no hay fecha que prometer, no que falte por calcular. */
+  const ready = computed(() => now.value !== null)
+  return { view, ready, destination: memory.destination, remember: memory.remember }
 }

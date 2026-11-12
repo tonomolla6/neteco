@@ -162,7 +162,8 @@ export async function getPublishedProductDetail(
         v.units_per_case AS unitsPerCase, v.cases_per_pallet AS casesPerPallet,
         v.minimum_quantity AS minimumQuantity, v.maximum_quantity AS maximumQuantity,
         v.quantity_increment AS quantityIncrement, v.backorder_allowed AS backorderAllowed,
-        v.lead_time_days AS leadTimeDays, v.color, v.image
+        COALESCE(v.lead_time_days, (SELECT restock_default_days FROM fulfillment_lead_time_policy WHERE id = 1)) AS leadTimeDays,
+        v.color, v.image
       FROM variants v
       JOIN tax_classes tax ON tax.id = v.tax_class_id
       LEFT JOIN variant_price_versions pv ON pv.id = ${selectedVersion} AND pv.variant_id = v.id

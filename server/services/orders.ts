@@ -12,6 +12,7 @@ import { hashAccessToken } from '../utils/access-token'
 import { shippingCommercialPolicy } from '../utils/shipping-policy'
 import { requestNewsletterSubscription, type NewsletterSecrets } from './newsletter'
 import { priceOnRequestError } from './pricing'
+import { availableSql, plannedLine, planRateShipments, sameCarrierService, SPLIT_SERVICE_SUFFIX } from './shipping'
 
 export const TERMS_VERSION = process.env.LEGAL_TERMS_VERSION || 'purchase-2026-08-12'
 export const PRIVACY_VERSION = process.env.LEGAL_PRIVACY_VERSION || 'privacy-2026-08-12'
@@ -83,6 +84,8 @@ interface VariantRecord {
   width_mm: number
   height_mm: number
   depth_mm: number
+  lead_time_days: number | null
+  available: number
 }
 
 interface InventoryRecord {
@@ -175,7 +178,8 @@ export async function createOrder(input: CreateOrderInput) {
              v.minimum_quantity, v.maximum_quantity, v.quantity_increment,
              v.safety_stock, v.backorder_allowed, t.rate_basis_points AS tax_rate_basis_points,
              price.pricing_version AS source_version, shipping.kind AS shipping_profile,
-             v.weight_grams, v.width_mm, v.height_mm, v.depth_mm
+             v.weight_grams, v.width_mm, v.height_mm, v.depth_mm, v.lead_time_days,
+             ${transaction.unsafe(availableSql('v'))} AS available
       FROM variants v
       JOIN effective_variant_prices price ON price.variant_id = v.id
       JOIN products p ON p.id = v.product_id
@@ -226,8 +230,23 @@ export async function createOrder(input: CreateOrderInput) {
       estimatedDeliveryTo: now.toISOString(),
       profile: 'pickup'
     }
+    // «Servicio::split»: el cliente ha elegido un envío por plazo en lugar de todo junto.
+    const splitRequested = input.shippingServiceCode.endsWith(SPLIT_SERVICE_SUFFIX)
+    const baseServiceCode = splitRequested
+      ? input.shippingServiceCode.slice(0, -SPLIT_SERVICE_SUFFIX.length)
+      : input.shippingServiceCode
+    const rateDestination = {
+      name: input.shippingAddress.recipientName,
+      line1: input.shippingAddress.line1,
+      line2: input.shippingAddress.line2,
+      postalCode: input.shippingAddress.postalCode,
+      city: input.shippingAddress.city,
+      region: input.shippingAddress.region,
+      countryCode: input.shippingAddress.countryCode,
+      phone: input.shippingAddress.phone
+    }
     const availableRates =
-      input.shippingServiceCode === pickupRate.serviceCode
+      baseServiceCode === pickupRate.serviceCode
         ? [pickupRate]
         : await provider.rates({
             originPostalCode: '46870',
@@ -243,7 +262,7 @@ export async function createOrder(input: CreateOrderInput) {
             },
             parcels
           })
-    const selectedRate = availableRates.find((rate) => rate.serviceCode === input.shippingServiceCode)
+    const selectedRate = availableRates.find((rate) => rate.serviceCode === baseServiceCode)
     if (!selectedRate) throw createError({ statusCode: 422, statusMessage: 'El servicio de entrega ya no es elegible' })
     const expectedMethod =
       selectedRate.profile === 'pickup' ? 'recogida' : selectedRate.profile === 'own_delivery' ? 'reparto' : 'envio'
@@ -255,7 +274,31 @@ export async function createOrder(input: CreateOrderInput) {
       commercialPolicy.freeShippingThresholdCents !== null &&
       goodsGross >= commercialPolicy.freeShippingThresholdCents &&
       ['parcel', 'multi_parcel'].includes(selectedRate.profile)
-    const shippingNet = freeParcelShipping ? 0 : selectedRate.netCents
+    const plans = await planRateShipments(
+      { ...selectedRate, netCents: freeParcelShipping ? 0 : selectedRate.netCents },
+      variants.map((variant, index) =>
+        plannedLine({
+          variantId: variant.id,
+          sku: variant.sku,
+          quantity: quantityByVariant.get(variant.legacy_id)!,
+          available: variant.available,
+          leadTimeDays: variant.lead_time_days,
+          parcel: parcels[index]!
+        })
+      ),
+      async (groupParcels) => {
+        if (selectedRate.profile === 'pickup') return { netCents: 0 }
+        const own = (
+          await provider.rates({ originPostalCode: '46870', destination: rateDestination, parcels: groupParcels })
+        ).find((candidate) => sameCarrierService(candidate.profile, selectedRate.profile))
+        return own ? { netCents: own.netCents } : null
+      }
+    )
+    const shipmentPlan = plans.find((plan) => plan.shipmentMode === (splitRequested ? 'split' : 'together'))
+    if (!shipmentPlan) {
+      throw createError({ statusCode: 422, statusMessage: 'La entrega por separado ya no está disponible' })
+    }
+    const shippingNet = shipmentPlan.netCents
     const shippingGross = shippingNet + Math.round((shippingNet * selectedRate.taxRateBasisPoints) / 10_000)
     if (
       input.shippingMethod === 'reparto' &&
@@ -267,7 +310,7 @@ export async function createOrder(input: CreateOrderInput) {
       pricingVersion: `catalog:${variants
         .map((variant) => variant.source_version ?? 'unknown')
         .sort()
-        .join('+')};shipping:${selectedRate.provider}:${selectedRate.serviceCode}`,
+        .join('+')};shipping:${selectedRate.provider}:${shipmentPlan.serviceCode}`,
       lines,
       shippingGrossCents: shippingGross,
       shippingTaxRateBasisPoints: selectedRate.taxRateBasisPoints
@@ -365,8 +408,10 @@ export async function createOrder(input: CreateOrderInput) {
       shippingProfile: selectedRate.profile,
       serviceCode: selectedRate.serviceCode,
       serviceLabel: selectedRate.label,
-      estimatedDeliveryFrom: selectedRate.estimatedDeliveryFrom,
-      estimatedDeliveryTo: selectedRate.estimatedDeliveryTo
+      estimatedDeliveryFrom: shipmentPlan.estimatedDeliveryFrom,
+      estimatedDeliveryTo: shipmentPlan.estimatedDeliveryTo,
+      shipmentMode: shipmentPlan.shipmentMode,
+      shipments: shipmentPlan.shipments
     }
     const billingSnapshot = addressSnapshot(input.billingAddress)
     const customerSnapshot = {

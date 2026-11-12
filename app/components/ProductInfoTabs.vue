@@ -66,7 +66,7 @@ const label = (tab: ProductInfoTab) => (tab.count ? `${tab.label} (${tab.count})
     <div
       role="tablist"
       aria-label="Información del producto"
-      class="hidden gap-1 overflow-x-auto border-b border-[var(--border)] lg:flex"
+      class="scrollbar-none hidden gap-1 overflow-x-auto overflow-y-hidden border-b border-[var(--border)] lg:flex"
     >
       <button
         v-for="(tab, index) in tabs"

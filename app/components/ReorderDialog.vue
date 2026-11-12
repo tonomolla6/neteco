@@ -38,7 +38,18 @@ defineExpose({ start: reorder.open })
 </script>
 
 <template>
-  <UModal v-model:open="open" title="Volver a pedir">
+  <!--
+    Un pedido de treinta referencias no puede convertir el modal en una página: la altura queda
+    acotada y la lista se desplaza dentro, con la cabecera y los botones siempre a la vista.
+  -->
+  <UModal
+    v-model:open="open"
+    title="Volver a pedir"
+    :ui="{
+      content: 'max-h-[min(40rem,calc(100dvh-2rem))] sm:max-w-xl',
+      body: 'min-h-0 overflow-y-auto overscroll-contain [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]'
+    }"
+  >
     <template #body>
       <div v-if="reorder.loading.value" role="status" aria-busy="true" class="space-y-3 py-2">
         <p class="sr-only">Preparando la repetición del pedido.</p>
@@ -49,16 +60,13 @@ defineExpose({ start: reorder.open })
         />
       </div>
 
-      <div v-else-if="reorder.plan.value" class="space-y-5">
-        <p v-if="reorder.addedCount.value" role="status" class="text-sm">
+      <div v-else-if="reorder.plan.value" class="space-y-4" data-reorder-plan>
+        <p v-if="reorder.addedCount.value" role="status" class="text-[13px] text-[var(--text)]">
           {{ reorder.addedCount.value }} líneas ya añadidas al carrito. No se volverán a añadir al reintentar.
         </p>
-        <p class="text-sm text-[var(--text-muted)]">
-          Del pedido
-          <span class="tabular font-semibold text-[var(--text-strong)]">{{ reorder.plan.value.orderId }}</span> de
-          {{ formatAccountDate(reorder.plan.value.orderedAt) }}. Revisa las cantidades antes de añadirlas al carrito:
-          son cantidades y precios históricos. Al añadir, el carrito comprobará el precio, el stock y las condiciones
-          vigentes.
+        <p class="text-[13px] text-[var(--text-muted)]">
+          Pedido del {{ formatAccountDate(reorder.plan.value.orderedAt) }}. Se añaden con el precio de hoy; podrás
+          cambiar las cantidades en el carrito.
         </p>
 
         <ul
@@ -68,47 +76,21 @@ defineExpose({ start: reorder.open })
           <li v-for="line in reorder.availableLines.value" :key="line.sku" class="flex items-center gap-3 p-3">
             <OrderLineThumb :line="line" size="sm" />
             <div class="min-w-0 flex-1">
-              <p class="truncate text-sm font-medium text-[var(--text-strong)]">{{ line.name }}</p>
-              <p class="truncate text-xs text-[var(--text-muted)]">{{ line.format }} · Ref. {{ line.sku }}</p>
-              <p class="mt-2 text-xs text-[var(--text-muted)]">
-                Precio histórico: {{ formatPrice(line.unitGross) }} por unidad · {{ formatPrice(line.lineGross) }} por
-                línea (IVA incluido).
-              </p>
-              <div v-if="line.reorderOffer" class="mt-2 space-y-1 text-xs text-[var(--text-muted)]">
-                <p
-                  v-if="
-                    line.unitGross !== line.reorderOffer.unitGross || line.lineGross !== line.reorderOffer.lineGross
-                  "
-                  class="font-semibold text-[var(--text-strong)]"
+              <p class="truncate text-[15px] font-medium text-[var(--text-strong)]">{{ line.name }}</p>
+              <p class="truncate text-[13px] text-[var(--text-muted)]">{{ line.format }} · Ref. {{ line.sku }}</p>
+              <p class="tabular mt-0.5 text-[13px] text-[var(--text)]">
+                {{ formatPrice(line.reorderOffer?.unitGross ?? line.unitGross) }}/ud
+                <span
+                  v-if="line.reorderOffer && line.reorderOffer.unitGross !== line.unitGross"
+                  class="text-[var(--text-muted)]"
                 >
-                  El precio ha cambiado respecto al pedido original.
-                </p>
-                <p>
-                  Precio vigente observado: {{ formatPrice(line.reorderOffer.unitGross) }} por unidad ·
-                  {{ formatPrice(line.reorderOffer.lineGross) }} por línea (IVA incluido).
-                </p>
-                <p>
-                  Sin IVA: {{ formatPrice(line.reorderOffer.unitNet) }} por unidad ·
-                  {{ formatPrice(line.reorderOffer.lineNet) }} por línea. IVA
-                  {{ line.reorderOffer.taxRateBasisPoints / 100 }} %.
-                </p>
-                <p>
-                  Límites vigentes: mínimo {{ line.reorderOffer.minimumQuantity }},
-                  {{
-                    line.reorderOffer.maximumQuantity === null
-                      ? 'sin máximo'
-                      : `máximo ${line.reorderOffer.maximumQuantity}`
-                  }}, incremento {{ line.reorderOffer.quantityIncrement }}.
-                </p>
-                <p>
-                  Disponibilidad observada: {{ line.reorderOffer.availableQuantity }} unidades como máximo en una
-                  ubicación activa.
-                  <span v-if="line.reorderOffer.backorderAllowed">Venta bajo pedido admitida.</span>
-                  No reserva stock ni garantiza el precio al añadir.
-                </p>
-              </div>
+                  · antes {{ formatPrice(line.unitGross) }}
+                </span>
+              </p>
             </div>
-            <span class="tabular shrink-0 text-sm font-semibold">× {{ line.quantity }}</span>
+            <span class="tabular shrink-0 text-[15px] font-semibold text-[var(--text-strong)]"
+              >× {{ line.quantity }}</span
+            >
           </li>
         </ul>
 
@@ -116,7 +98,7 @@ defineExpose({ start: reorder.open })
           v-if="reorder.unavailableLines.value.length"
           class="rounded-[var(--radius-surface)] border border-amber-200 bg-amber-50 p-3"
         >
-          <p class="text-sm font-semibold text-amber-900">
+          <p class="text-[13px] font-semibold text-amber-900">
             {{ reorder.unavailableLines.value.length }}
             {{
               reorder.unavailableLines.value.length === 1
@@ -124,19 +106,9 @@ defineExpose({ start: reorder.open })
                 : 'referencias no se pueden añadir'
             }}
           </p>
-          <ul class="mt-2 space-y-1">
-            <li v-for="line in reorder.unavailableLines.value" :key="line.sku" class="text-sm text-amber-900">
+          <ul class="mt-1.5 space-y-1">
+            <li v-for="line in reorder.unavailableLines.value" :key="line.sku" class="text-[13px] text-amber-900">
               {{ line.name }} × {{ line.quantity }} — {{ reorder.unavailableReason(line) }}
-              <p v-if="line.reorderOffer" class="text-xs">
-                Límites vigentes: mínimo {{ line.reorderOffer.minimumQuantity }},
-                {{
-                  line.reorderOffer.maximumQuantity === null
-                    ? 'sin máximo'
-                    : `máximo ${line.reorderOffer.maximumQuantity}`
-                }}, incremento {{ line.reorderOffer.quantityIncrement }}. Disponibilidad observada:
-                {{ line.reorderOffer.availableQuantity }} unidades como máximo en una ubicación activa. No reserva
-                stock.
-              </p>
             </li>
           </ul>
         </div>

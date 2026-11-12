@@ -1,5 +1,6 @@
 import { useDatabase } from '../../db/client'
 import { splitGross } from '../../domain/money'
+import { DEFAULT_RESTOCK_LEAD_DAYS } from '../../../shared/shipment-plan'
 
 interface ProductDetail {
   uuid: string
@@ -94,7 +95,7 @@ export default defineEventHandler(async (event) => {
            v.units_per_case AS "unitsPerCase", v.cases_per_pallet AS "casesPerPallet",
            v.minimum_quantity AS "minimumQuantity", v.maximum_quantity AS "maximumQuantity",
            v.quantity_increment AS "quantityIncrement", v.backorder_allowed AS "backorderAllowed",
-           v.lead_time_days AS "leadTimeDays", v.color, v.image
+           COALESCE(v.lead_time_days, ${DEFAULT_RESTOCK_LEAD_DAYS}) AS "leadTimeDays", v.color, v.image
     FROM variants v
     JOIN effective_variant_prices price ON price.variant_id = v.id
     JOIN tax_classes tax ON tax.id = v.tax_class_id

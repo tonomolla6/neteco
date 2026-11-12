@@ -33,6 +33,8 @@ interface Line {
   name?: string
   slug?: string
   variant?: QuickOrderVariant
+  image?: string | null
+  visual?: { type: string; color: string } | null
   message?: string
   suggestion?: QuickOrderSuggestion
 }
@@ -110,6 +112,8 @@ function reset(line: Line) {
     name: undefined,
     slug: undefined,
     variant: undefined,
+    image: undefined,
+    visual: undefined,
     message: undefined,
     suggestion: undefined
   })
@@ -138,12 +142,19 @@ async function resolve(line: Line, options: { focus?: boolean } = {}) {
     return fail(line, 'Esta referencia ya está en la lista.')
   const rules = quickOrderQuantityRules(result.variant)
   if (rules.maximumQuantity < rules.minimumQuantity)
-    return fail(line, 'Ahora mismo no tenemos existencias de esta referencia.')
+    return fail(line, 'Esta referencia no se puede pedir online ahora mismo.')
   // La cantidad tecleada se lleva a la cantidad válida más cercana de esta variante.
   const steps = Math.max(0, Math.round((line.quantity - rules.minimumQuantity) / rules.quantityIncrement))
   const reachable = Math.floor((rules.maximumQuantity - rules.minimumQuantity) / rules.quantityIncrement)
   line.quantity = rules.minimumQuantity + Math.min(steps, reachable) * rules.quantityIncrement
-  Object.assign(line, { state: 'found', name: result.name, slug: result.slug, variant: result.variant })
+  Object.assign(line, {
+    state: 'found',
+    name: result.name,
+    slug: result.slug,
+    variant: result.variant,
+    image: result.image,
+    visual: result.visual
+  })
   ensureBlankRow()
   if (options.focus) await nextTick(() => steppers.get(line.key)?.focus())
 }
@@ -261,7 +272,9 @@ async function addAll() {
             format: variant.format,
             minimumQuantity: variant.minimumQuantity,
             maximumQuantity: variant.maximumQuantity,
-            quantityIncrement: variant.quantityIncrement
+            quantityIncrement: variant.quantityIncrement,
+            ...(line.visual ? { visual: line.visual } : {}),
+            image: line.image ?? null
           },
           line.quantity
         )
@@ -275,7 +288,8 @@ async function addAll() {
         return
       }
     }
-    notice.value = `${summary()}Revisa allí las cantidades antes de tramitar el pedido.`
+    // Confirmación discreta: quien repone sigue tecleando referencias, no se le lleva al carrito.
+    notice.value = `${summary()}Puedes seguir añadiendo referencias.`
   } finally {
     if (current(epoch)) adding.value = false
   }
@@ -422,7 +436,7 @@ async function addAll() {
               v-if="line.state !== 'empty' || line.reference"
               type="button"
               data-quick-remove
-              class="order-2 flex size-11 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-strong)] md:order-none md:col-start-6"
+              class="col-start-2 row-start-1 flex size-11 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-strong)] md:col-start-6"
               :aria-label="`Quitar la fila ${index + 1}`"
               :disabled="adding"
               @click="remove(line)"
@@ -453,27 +467,38 @@ async function addAll() {
                   </button>
                 </p>
               </template>
-              <template v-else>
+              <div v-else class="flex min-w-0 items-center gap-3">
                 <NuxtLink
                   :to="`/producto/${line.slug}`"
-                  class="line-clamp-2 text-[15px] font-semibold leading-snug text-[var(--text-strong)] hover:underline"
+                  data-quick-image
+                  tabindex="-1"
+                  aria-hidden="true"
+                  class="block w-12 shrink-0"
                 >
-                  {{ line.name }}
+                  <ProductImage :product="{ image: line.image, visual: line.visual, name: line.name }" sizes="48px" />
                 </NuxtLink>
-                <p class="text-[13px] text-[var(--text-muted)]">{{ line.variant!.format }}</p>
-                <p
-                  v-if="line.state === 'added'"
-                  class="mt-0.5 flex items-center gap-1 text-[13px] font-medium text-[var(--stock-ok)]"
-                >
-                  <UIcon name="i-lucide-check" class="size-3.5" /> En el carrito
-                </p>
-                <p
-                  v-else-if="line.state === 'uncertain'"
-                  class="mt-0.5 text-[13px] font-medium text-[var(--stock-low)]"
-                >
-                  Compruébala en el carrito: no sabemos si se añadió.
-                </p>
-              </template>
+                <div class="min-w-0">
+                  <NuxtLink
+                    :to="`/producto/${line.slug}`"
+                    class="line-clamp-2 text-[15px] font-semibold leading-snug text-[var(--text-strong)] hover:underline"
+                  >
+                    {{ line.name }}
+                  </NuxtLink>
+                  <p class="text-[13px] text-[var(--text-muted)]">{{ line.variant!.format }}</p>
+                  <p
+                    v-if="line.state === 'added'"
+                    class="mt-0.5 flex items-center gap-1 text-[13px] font-medium text-[var(--stock-ok)]"
+                  >
+                    <UIcon name="i-lucide-check" class="size-3.5" /> Añadido al carrito
+                  </p>
+                  <p
+                    v-else-if="line.state === 'uncertain'"
+                    class="mt-0.5 text-[13px] font-medium text-[var(--stock-low)]"
+                  >
+                    Compruébala en el carrito: no sabemos si se añadió.
+                  </p>
+                </div>
+              </div>
             </div>
 
             <template v-if="line.variant">
@@ -550,8 +575,12 @@ async function addAll() {
           data-quick-notice
           class="border-t border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-[15px] text-[var(--text)]"
         >
-          {{ notice }}
-          <NuxtLink to="/carrito" class="ml-1 font-semibold text-[var(--link)] underline">Ir al carrito</NuxtLink>
+          <UIcon
+            name="i-lucide-circle-check"
+            class="mr-1 inline size-4 -translate-y-px align-middle text-[var(--stock-ok)]"
+            aria-hidden="true"
+          />{{ notice }}
+          <NuxtLink to="/carrito" class="ml-1 text-[13px] text-[var(--link)] underline">Ver carrito</NuxtLink>
         </p>
       </div>
     </div>

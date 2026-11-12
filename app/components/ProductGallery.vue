@@ -316,7 +316,7 @@ const viewerStyle = computed(() => ({
         role="listbox"
         :aria-label="`Fotos de ${name}`"
         aria-orientation="vertical"
-        class="flex gap-2 overflow-x-auto pb-1 lg:max-h-[560px] lg:w-[72px] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:overflow-x-visible lg:pb-0"
+        class="scrollbar-none flex gap-2 overflow-x-auto pb-1 lg:max-h-[560px] lg:w-[72px] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:overflow-x-visible lg:pb-0"
       >
         <button
           v-for="(image, index) in shown"

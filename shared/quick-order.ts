@@ -46,11 +46,15 @@ const variantSchema = z.object({
   maximumQuantity: positive.nullable(),
   quantityIncrement: positive,
   stock: money,
-  backorderAllowed: z.boolean()
+  backorderAllowed: z.boolean(),
+  image: z.string().max(2000).nullish()
 })
+const visualSchema = z.object({ type: z.string().max(80), color: z.string().max(80) })
 const detailSchema = z.object({
   slug,
   name: z.string().min(1).max(500),
+  image: z.string().max(2000).nullish(),
+  visual: visualSchema.nullish().catch(null),
   variants: z.array(variantSchema).min(1).max(500)
 })
 const searchSchema = z.object({ items: z.array(z.object({ slug })).max(SEARCH_PAGE) })
@@ -74,7 +78,15 @@ export type QuickOrderRow =
   QuickOrderReady | (QuickOrderInput & { status: 'error'; message: string; suggestion?: QuickOrderSuggestion })
 export type QuickOrderVariant = z.infer<typeof variantSchema>
 export type QuickOrderResolution =
-  | { status: 'found'; name: string; slug: string; variant: QuickOrderVariant }
+  | {
+      status: 'found'
+      name: string
+      slug: string
+      variant: QuickOrderVariant
+      /** Foto del formato o, si no tiene, la del producto; para reconocer la línea de un vistazo. */
+      image: string | null
+      visual: { type: string; color: string } | null
+    }
   | { status: 'error'; message: string; suggestion?: QuickOrderSuggestion }
 export type QuickOrderRead = (
   path: string,
@@ -261,7 +273,14 @@ export async function resolveQuickOrderReference(
 ): Promise<QuickOrderResolution> {
   try {
     const { detail, variant } = await resolveReference(reference.parse(value), read, cache)
-    return { status: 'found', name: detail.name, slug: detail.slug, variant }
+    return {
+      status: 'found',
+      name: detail.name,
+      slug: detail.slug,
+      variant,
+      image: variant.image ?? detail.image ?? null,
+      visual: detail.visual ?? null
+    }
   } catch (error) {
     return { status: 'error', ...problemMessage(error) }
   }

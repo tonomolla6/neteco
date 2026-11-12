@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import type { FreeShippingProgressEvaluation } from '~~/shared/free-shipping-progress'
 
+/**
+ * Portes gratis en una línea y una barra: «Te faltan 143,50 € para el envío gratis». El
+ * detalle (palés, mercancías peligrosas, zonas) vive en /envios, a un clic, no en el carrito.
+ */
 const props = defineProps<{
   evaluation: FreeShippingProgressEvaluation
 }>()
@@ -11,62 +15,41 @@ const isReached = computed(() => props.evaluation.status === 'reached')
 </script>
 
 <template>
-  <div
-    class="rounded-[var(--radius-surface)] border p-4 transition-all"
-    :class="[
-      isExcluded
-        ? 'border-amber-300 bg-amber-50 text-amber-900'
-        : isReached
-          ? 'border-green-200 bg-green-50 text-green-950'
-          : 'border-slate-200 bg-slate-50 text-slate-800'
-    ]"
-  >
-    <!-- Caso 1: Exclusión (ADR, palé, zona, margen) -->
-    <div v-if="isExcluded" class="space-y-1.5">
-      <div class="flex items-center gap-2 font-medium">
-        <span class="inline-flex size-2 rounded-full bg-amber-500" aria-hidden="true" />
-        <span>{{ evaluation.badgeText }}</span>
-      </div>
-      <p class="text-sm leading-relaxed">
-        {{ evaluation.message }}
+  <div v-if="isExcluded || isInProgress || isReached" data-free-shipping class="text-[13px] leading-snug">
+    <p v-if="isExcluded" class="text-[var(--text-muted)]">
+      {{ evaluation.badgeText }}.
+      <NuxtLink to="/envios" class="underline underline-offset-2 hover:text-[var(--link)]">Ver envíos</NuxtLink>
+    </p>
+    <template v-else>
+      <p v-if="isReached" class="font-semibold text-[var(--stock-ok)]">
+        <UIcon
+          name="i-lucide-circle-check"
+          class="mr-0.5 inline size-4 -translate-y-px align-middle"
+          aria-hidden="true"
+        />
+        Tienes el envío gratis
       </p>
-      <p v-if="evaluation.detailedExplanation" class="text-xs text-amber-700/90">
-        {{ evaluation.detailedExplanation }}
+      <p v-else class="text-[var(--text)]">
+        Te faltan
+        <strong class="tabular font-semibold text-[var(--text-strong)]">{{
+          formatPrice(evaluation.missingCents)
+        }}</strong>
+        para el envío gratis
       </p>
-    </div>
-
-    <!-- Caso 2: En progreso o completado -->
-    <div v-else-if="isInProgress || isReached" class="space-y-2">
-      <div class="flex items-center justify-between text-sm">
-        <span class="font-medium">
-          {{ evaluation.message }}
-        </span>
-      </div>
-
-      <p v-if="evaluation.detailedExplanation" class="text-xs text-slate-500">
-        {{ evaluation.detailedExplanation }}
-      </p>
-
-      <!-- Barra de progreso accesible -->
       <div
-        class="h-2 w-full overflow-hidden rounded-full bg-slate-200"
+        class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-sunken)]"
         role="progressbar"
         :aria-valuenow="evaluation.progressPercent"
         :aria-valuemin="0"
         :aria-valuemax="100"
-        :aria-label="`Progreso hacia el umbral de envío gratuito: ${evaluation.progressPercent}%`"
+        :aria-label="`Progreso hacia el envío gratis: ${evaluation.progressPercent} %`"
       >
         <div
           class="h-full rounded-full transition-all duration-300"
-          :class="isReached ? 'bg-green-700' : 'bg-neteco-600'"
+          :class="isReached ? 'bg-[var(--stock-ok)]' : 'bg-[var(--action)]'"
           :style="{ width: `${evaluation.progressPercent}%` }"
         />
       </div>
-
-      <!-- La página no conoce el perfil logístico real: el umbral es una referencia, no una promesa. -->
-      <p data-free-shipping-qualifier class="text-xs text-slate-500">
-        Solo para paquetería estándar elegible a península. Palés y mercancías peligrosas no están incluidos.
-      </p>
-    </div>
+    </template>
   </div>
 </template>

@@ -20,6 +20,13 @@ import { readSalesQuoteShippingAuthority, type SalesQuoteCheckoutReference } fro
 import type { VerifiedSessionClaims } from './authorization'
 import type { ShippingCalendarEta } from '../../shared/shipping-calendar'
 import {
+  DEFAULT_RESTOCK_LEAD_DAYS,
+  groupByLeadDays,
+  lineLeadDays,
+  type ShipmentMode,
+  type ShipmentPlanEntry
+} from '../../shared/shipment-plan'
+import {
   calculateShippingCalendarEta,
   readD1ShippingCalendarConfiguration,
   shippingCalendarRevalidationDeadline
@@ -72,6 +79,12 @@ export interface ShippingOption {
   /** Local-date estimate, not a carrier guarantee. Absent only in legacy snapshots. */
   eta?: ShippingCalendarEta
   etaValidUntil?: string | null
+  /**
+   * `together`: un solo envío con todo, en la fecha del producto más lento. `split`: un envío
+   * por plazo, cada uno con su porte. Ausente en instantáneas anteriores al plan de envíos.
+   */
+  shipmentMode?: ShipmentMode
+  shipments?: ShipmentPlanEntry[]
 }
 
 export interface ShippingOptionSnapshot extends ShippingOption {
@@ -90,6 +103,8 @@ export interface CartWeightRow {
   availableQuantity?: number
   backorderAllowed?: number
   leadTimeDays?: number | null
+  sku?: string
+  defaultRestockDays?: number | null
 }
 
 export interface RateRow {
@@ -145,12 +160,15 @@ export async function resolveShippingOptions(
               CASE WHEN v.status = 'published' AND p.status = 'published' THEN 1 ELSE 0 END AS published,
               COALESCE(sp.kind, 'parcel') AS profileKind,
               (SELECT TOTAL(${sellableExpression()}) FROM inventory_balances b WHERE b.variant_id=v.id) AS availableQuantity,
-              v.backorder_allowed AS backorderAllowed,v.lead_time_days AS leadTimeDays
+              v.backorder_allowed AS backorderAllowed,v.lead_time_days AS leadTimeDays,
+              v.sku AS sku,
+              (SELECT restock_default_days FROM fulfillment_lead_time_policy WHERE id = 1) AS defaultRestockDays
        FROM cart_lines cl
        LEFT JOIN variants v ON v.id = cl.variant_id
        LEFT JOIN products p ON p.id = v.product_id
        LEFT JOIN shipping_profiles sp ON sp.id = v.shipping_profile_id
-       WHERE cl.cart_id = ?1`
+       WHERE cl.cart_id = ?1
+       ORDER BY cl.variant_id`
     )
     .bind(input.cartId)
     .all<CartWeightRow>()
@@ -176,24 +194,36 @@ export async function resolveShippingOptions(
     })
   }
   const calendar = await readD1ShippingCalendarConfiguration(database)
-  let stockLeadTimeDays: number | null = 0
+  // Plazo de cada línea: 0 con existencias; si no, su reposición (variante o plazo por defecto).
+  // Una variante que no admite pedido sin existencias deja la fecha sin estimar, como antes.
+  let leadKnown = true
+  const leadByVariant = new Map<string, number>()
   for (const line of lines.results) {
     if (!Number.isFinite(line.availableQuantity) || Number(line.availableQuantity) < 0)
       throw new ShippingError('invalid_input', 'Invalid authoritative stock position')
-    if (Number(line.availableQuantity) >= line.quantity) continue
-    if (line.backorderAllowed !== 1 || line.leadTimeDays === null || line.leadTimeDays === undefined) {
-      stockLeadTimeDays = null
-      break
-    }
-    if (!Number.isSafeInteger(line.leadTimeDays) || line.leadTimeDays < 0 || line.leadTimeDays > 365)
+    if (
+      line.leadTimeDays !== null &&
+      line.leadTimeDays !== undefined &&
+      (!Number.isSafeInteger(line.leadTimeDays) || line.leadTimeDays < 0 || line.leadTimeDays > 365)
+    )
       throw new ShippingError('invalid_input', 'Invalid authoritative supplier lead time')
-    stockLeadTimeDays = Math.max(stockLeadTimeDays, line.leadTimeDays)
+    const available = Number(line.availableQuantity)
+    if (available < line.quantity && line.backorderAllowed !== 1) leadKnown = false
+    leadByVariant.set(
+      line.variantId,
+      lineLeadDays({
+        quantity: line.quantity,
+        availableQuantity: available,
+        leadTimeDays: line.leadTimeDays,
+        defaultRestockDays: line.defaultRestockDays ?? DEFAULT_RESTOCK_LEAD_DAYS
+      })
+    )
   }
+  const groups = groupByLeadDays(lines.results, (line) => leadByVariant.get(line.variantId) ?? 0)
+  const slowestLeadDays = groups.reduce((slowest, group) => Math.max(slowest, group.leadDays), 0)
   const etaValidUntil = shippingCalendarRevalidationDeadline(calendar, input.now)
-  options = options.map((option) => ({
-    ...option,
-    etaValidUntil,
-    eta: calculateShippingCalendarEta(calendar, {
+  const etaFor = (option: ShippingOption, stockLeadTimeDays: number | null) =>
+    calculateShippingCalendarEta(calendar, {
       now: input.now,
       postalCode: input.destination.postalCode,
       methodCode: option.methodCode,
@@ -203,7 +233,86 @@ export async function resolveShippingOptions(
       transitMaxDays: option.etaMaxDays,
       stockLeadTimeDays
     })
-  }))
+  const planLines = (group: { lines: CartWeightRow[] }) =>
+    group.lines.map((line) => ({
+      variantId: line.variantId,
+      sku: line.sku ?? '',
+      quantity: line.quantity
+    }))
+  const together: ShippingOption[] = options.map((option) => {
+    const eta = etaFor(option, leadKnown ? slowestLeadDays : null)
+    return {
+      ...option,
+      etaValidUntil,
+      eta,
+      shipmentMode: 'together' as const,
+      shipments: [
+        {
+          index: 0,
+          leadDays: slowestLeadDays,
+          from: eta.from,
+          to: eta.to,
+          netCents: option.netCents,
+          taxCents: option.taxCents,
+          grossCents: option.grossCents,
+          lines: planLines({ lines: lines.results })
+        }
+      ]
+    }
+  })
+  // Por separado: el porte ya cotizado cubre el primer envío; cada envío adicional paga el
+  // suyo, calculado con el peso y el perfil de sus propias líneas. Un presupuesto aprobado
+  // fija un único porte, así que no admite dividir.
+  const split: ShippingOption[] = []
+  if (groups.length > 1 && leadKnown && !approved) {
+    for (const option of together) {
+      const shipments: ShipmentPlanEntry[] = []
+      let consistent = true
+      for (const [index, group] of groups.entries()) {
+        const eta = etaFor(option, group.leadDays)
+        let cost = { netCents: option.netCents, taxCents: option.taxCents, grossCents: option.grossCents }
+        if (index > 0) {
+          const own = mapShippingOptions(group.lines, results, input.destination).find(
+            (candidate) => candidate.methodCode === option.methodCode
+          )
+          if (!own) {
+            consistent = false
+            break
+          }
+          cost = { netCents: own.netCents, taxCents: own.taxCents, grossCents: own.grossCents }
+        }
+        shipments.push({
+          index,
+          leadDays: group.leadDays,
+          from: eta.from,
+          to: eta.to,
+          ...cost,
+          lines: planLines(group)
+        })
+      }
+      if (!consistent) continue
+      const netCents = shipments.reduce((sum, shipment) => sum + shipment.netCents, 0)
+      // El IVA del porte se redondea una vez sobre el neto total, como en cualquier otra
+      // opción; la diferencia de céntimo con la suma por envío la absorbe el último.
+      const taxCents = roundRatio(BigInt(netCents) * BigInt(option.taxRateBasisPoints), 10_000n)
+      const last = shipments[shipments.length - 1]!
+      const drift = taxCents - shipments.reduce((sum, shipment) => sum + shipment.taxCents, 0)
+      if (last.taxCents + drift < 0) continue
+      last.taxCents += drift
+      last.grossCents = last.netCents + last.taxCents
+      split.push({
+        ...option,
+        netCents,
+        taxCents,
+        grossCents: netCents + taxCents,
+        // La fecha del pedido dividido es la de su último envío.
+        eta: etaFor(option, slowestLeadDays),
+        shipmentMode: 'split',
+        shipments
+      })
+    }
+  }
+  options = [...together, ...split]
   return { destinationHash: hash, options }
 }
 

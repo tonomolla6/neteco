@@ -269,7 +269,10 @@ export async function handleStorefrontShippingHttp(
       shippingQuoteId: shipping.body.shippingQuoteId,
       optionIndex: option.optionIndex,
       optionHash: option.optionHash,
-      expiresAt: shipping.body.expiresAt
+      expiresAt: shipping.body.expiresAt,
+      shippingGrossCents: option.grossCents,
+      shipmentMode: option.shipmentMode ?? 'together',
+      shipments: option.shipments ?? []
     }))
     return json({
       cartVersion: expectedVersion,

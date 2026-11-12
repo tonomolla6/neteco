@@ -7,6 +7,127 @@ import { shippingCommercialPolicy } from '../utils/shipping-policy'
 import { calculateQuote } from '../domain/money'
 import { selectVolumeUnitPrice, type VolumePriceTier } from '../domain/money'
 import { classifyShipment } from '../domain/shipping'
+import {
+  DEFAULT_RESTOCK_LEAD_DAYS,
+  groupByLeadDays,
+  lineLeadDays,
+  type ShipmentMode,
+  type ShipmentPlanEntry
+} from '../../shared/shipment-plan'
+
+/** Sufijo del código de servicio cuando el cliente elige un envío por plazo. */
+export const SPLIT_SERVICE_SUFFIX = '::split'
+
+interface PlannedLine {
+  variantId: string
+  sku: string
+  quantity: number
+  leadDays: number
+  parcel: Parcel
+}
+
+const shiftDays = (instant: string | null, days: number) =>
+  instant ? new Date(Date.parse(instant) + days * 86_400_000).toISOString() : null
+
+/**
+ * Plan de envíos del carrito: «todo junto» (un porte, fecha del producto más lento) y, si hay
+ * plazos distintos, «por separado» (el porte cotizado cubre el primer envío y cada envío
+ * adicional paga el suyo). `rate` es la tarifa ya cotizada para todo el carrito.
+ */
+export async function planRateShipments<
+  Rate extends {
+    serviceCode: string
+    netCents: number
+    taxRateBasisPoints: number
+    estimatedDeliveryFrom: string | null
+    estimatedDeliveryTo: string | null
+  }
+>(
+  rate: Rate,
+  lines: PlannedLine[],
+  groupRate: (parcels: Parcel[]) => Promise<{ netCents: number } | null>
+): Promise<Array<Rate & { shipmentMode: ShipmentMode; shipments: ShipmentPlanEntry[] }>> {
+  const groups = groupByLeadDays(lines, (line) => line.leadDays)
+  const slowest = groups.reduce((days, group) => Math.max(days, group.leadDays), 0)
+  const gross = (net: number) => net + Math.round((net * rate.taxRateBasisPoints) / 10_000)
+  const entry = (index: number, leadDays: number, netCents: number, grouped: PlannedLine[]): ShipmentPlanEntry => ({
+    index,
+    leadDays,
+    from: shiftDays(rate.estimatedDeliveryFrom, leadDays)?.slice(0, 10) ?? null,
+    to: shiftDays(rate.estimatedDeliveryTo, leadDays)?.slice(0, 10) ?? null,
+    netCents,
+    taxCents: gross(netCents) - netCents,
+    grossCents: gross(netCents),
+    lines: grouped.map((line) => ({ variantId: line.variantId, sku: line.sku, quantity: line.quantity }))
+  })
+  const together = {
+    ...rate,
+    estimatedDeliveryFrom: shiftDays(rate.estimatedDeliveryFrom, slowest),
+    estimatedDeliveryTo: shiftDays(rate.estimatedDeliveryTo, slowest),
+    shipmentMode: 'together' as const,
+    shipments: [entry(0, slowest, rate.netCents, lines)]
+  }
+  if (groups.length < 2) return [together]
+  const shipments: ShipmentPlanEntry[] = []
+  for (const [index, group] of groups.entries()) {
+    let netCents = rate.netCents
+    if (index > 0) {
+      const own = await groupRate(group.lines.map((line) => line.parcel))
+      if (!own) return [together]
+      netCents = own.netCents
+    }
+    shipments.push(entry(index, group.leadDays, netCents, group.lines))
+  }
+  return [
+    together,
+    {
+      ...together,
+      serviceCode: `${rate.serviceCode}${SPLIT_SERVICE_SUFFIX}`,
+      netCents: shipments.reduce((sum, shipment) => sum + shipment.netCents, 0),
+      shipmentMode: 'split' as const,
+      shipments
+    }
+  ]
+}
+
+/**
+ * Un grupo más pequeño puede viajar con otro perfil de la misma agencia (un bulto en lugar de
+ * varios): cuenta como el mismo método mientras no cambie entre reparto propio y agencia.
+ */
+export function sameCarrierService(candidate: string, selected: string): boolean {
+  return (candidate === 'own_delivery') === (selected === 'own_delivery')
+}
+
+export function plannedLine(line: {
+  variantId: string
+  sku: string
+  quantity: number
+  available: number
+  leadTimeDays: number | null
+  parcel: Parcel
+}): PlannedLine {
+  return {
+    variantId: line.variantId,
+    sku: line.sku,
+    quantity: line.quantity,
+    parcel: line.parcel,
+    leadDays: lineLeadDays({
+      quantity: line.quantity,
+      availableQuantity: line.available,
+      leadTimeDays: line.leadTimeDays,
+      defaultRestockDays: DEFAULT_RESTOCK_LEAD_DAYS
+    })
+  }
+}
+
+/** Existencias vendibles de la variante, como en la ficha: físico − bloqueado − seguridad − reservas vivas. */
+export const availableSql = (alias: string) => `greatest(COALESCE((
+    SELECT sum(balance.physical_quantity - balance.blocked_quantity) FROM inventory_balances balance
+    WHERE balance.variant_id = ${alias}.id
+  ), 0) - ${alias}.safety_stock - COALESCE((
+    SELECT sum(reservation.quantity) FROM inventory_reservations reservation
+    WHERE reservation.variant_id = ${alias}.id AND reservation.status = 'active' AND reservation.expires_at > now()
+  ), 0), 0)::int`
 
 interface ShipmentOrder {
   id: string
@@ -103,9 +224,14 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
       volumeTiers: VolumePriceTier[]
       taxRateBasisPoints: number
       sourceVersion: string | null
+      variantId: string
+      available: number
+      leadTimeDays: number | null
     }>
   >`
-    SELECT variant.sku, item.quantity, price.gross_cents AS "priceGrossCents",
+    SELECT variant.id AS "variantId", ${sql.unsafe(availableSql('variant'))} AS available,
+           variant.lead_time_days AS "leadTimeDays",
+           variant.sku, item.quantity, price.gross_cents AS "priceGrossCents",
            price.volume_tiers AS "volumeTiers", tax.rate_basis_points AS "taxRateBasisPoints",
            price.pricing_version AS "sourceVersion",
            variant.weight_grams AS "weightGrams",
@@ -146,7 +272,8 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
         : rate.netCents
   }))
   const now = new Date()
-  return [
+  const planned = pricedLines.map((line, index) => plannedLine({ ...line, parcel: parcels[index]! }))
+  const base = [
     ...rates,
     {
       provider: 'neteco',
@@ -158,7 +285,22 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
       estimatedDeliveryTo: now.toISOString(),
       profile: 'pickup' as const
     }
-  ].map((rate) => {
+  ]
+  const plannedRates = (
+    await Promise.all(
+      base.map((rate) =>
+        planRateShipments(rate, planned, async (groupParcels) => {
+          if (rate.profile === 'pickup') return { netCents: 0 }
+          // Un envío adicional paga siempre su porte: el envío gratis cubre el primero.
+          const own = (await provider.rates({ originPostalCode: '46870', destination, parcels: groupParcels })).find(
+            (candidate) => sameCarrierService(candidate.profile, rate.profile)
+          )
+          return own ? { netCents: own.netCents } : null
+        })
+      )
+    )
+  ).flat()
+  return plannedRates.map((rate) => {
     const shippingNetCents = rate.netCents
     const shippingGrossCents = shippingNetCents + Math.round((shippingNetCents * rate.taxRateBasisPoints) / 10_000)
     const pricingVersion = `catalog:${pricedLines
@@ -179,6 +321,7 @@ export async function quoteCartShipping(cartId: string, destination: ShippingAdd
     })
     return {
       ...rate,
+      shippingGrossCents,
       pricingVersion,
       subtotalNetCents: quote.subtotalNetCents,
       taxCents: quote.taxCents,

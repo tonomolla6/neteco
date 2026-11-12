@@ -16,6 +16,7 @@ import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
 import { productSafety, type ProductRegulatoryData } from '~~/shared/product-safety'
 import { PRICE_ON_REQUEST, PRICE_REQUEST_ACTION, hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
+import { DEFAULT_RESTOCK_LEAD_DAYS, businessDaysForLead } from '~~/shared/shipment-plan'
 import type { ProductCardData, ProductVisualData, TypedAttributeDetail } from '~~/shared/types/catalog'
 
 interface ProductVariant {
@@ -202,10 +203,9 @@ onMounted(() => {
   recentlyViewed.record(product.value.slug)
 })
 /**
- * Cantidad por formato. Quien repone pide varios formatos a la vez, así que cada variante
- * tiene la suya y un solo botón las añade todas. El formato elegido empieza en su mínimo y
- * el resto en cero; mientras no se toque ninguna cantidad, elegir otro formato se lleva ese
- * punto de partida consigo, de modo que «elegir y añadir» sigue funcionando como siempre.
+ * Cantidad del formato elegido. Como en Amazon, se elige el formato en el centro y la cantidad
+ * en la caja de compra, junto a «Añadir al carrito»: un formato cada vez. El formato elegido
+ * empieza en su mínimo; al cambiar de formato, la cantidad vuelve al mínimo del nuevo.
  */
 const quantities = reactive<Record<number, number>>({})
 const quantitiesTouched = ref(false)
@@ -297,48 +297,75 @@ const priceRequestTo = computed(() =>
     format: product.value.variants.length > 1 ? selected.value.format : null
   })
 )
-const availability = computed(() => {
-  if (selected.value.minimumQuantity > MAX_CART_QUANTITY)
-    return { label: 'No disponible para compra online', tone: 'unavailable' }
-  if (selected.value.stock >= selected.value.minimumQuantity) {
+/**
+ * Disponibilidad junto a la compra. Nunca «agotado» ni «sin stock»: lo que no está en el
+ * almacén se sirve con su plazo de reposición y lo único que cambia es la fecha de entrega.
+ */
+const availability = computed<{ label: string; tone: 'available' | 'warning' | 'unavailable' } | null>(() => {
+  if (outOfStock.value) return { label: 'No disponible para compra online', tone: 'unavailable' }
+  if (selected.value.stock >= qty.value) {
     const lowThreshold = Math.max(selected.value.minimumQuantity * 3, 5)
     return selected.value.stock <= lowThreshold
-      ? { label: `Quedan ${selected.value.stock}`, tone: 'warning' }
+      ? { label: `En stock · quedan ${selected.value.stock}`, tone: 'warning' }
       : { label: 'En stock', tone: 'available' }
   }
-  if (selected.value.backorderAllowed) {
-    return {
-      label: selected.value.leadTimeDays
-        ? `Bajo pedido · plazo estimado ${selected.value.leadTimeDays} días`
-        : 'Bajo pedido',
-      tone: 'backorder'
-    }
-  }
-  return { label: 'Agotado', tone: 'unavailable' }
+  return null
 })
 
 /**
- * Días laborables antes de salir, para la fecha de entrega: 0 con stock para la cantidad
- * pedida; el plazo del proveedor si alguna línea va bajo pedido; `null` si va bajo pedido sin
- * plazo conocido (entonces no se promete fecha).
+ * Días laborables antes de salir, para la fecha de entrega: 0 si hay existencias para la
+ * cantidad pedida; si no, el plazo de reposición de la variante o el de la tienda.
  */
 const preparationDays = computed<number | null>(() => {
-  const lines = orderLines.value.length
-    ? orderLines.value.map((line) => ({ variant: line.variant, quantity: line.quantity }))
-    : [{ variant: selected.value, quantity: qty.value }]
-  let days = 0
-  for (const { variant, quantity } of lines) {
-    if (variant.stock >= quantity) continue
-    if (!variant.backorderAllowed || variant.leadTimeDays === null) return null
-    days = Math.max(days, variant.leadTimeDays)
-  }
-  return days
+  const variant = selected.value
+  if (variant.stock >= qty.value) return 0
+  if (!variant.backorderAllowed) return null
+  return businessDaysForLead(variant.leadTimeDays ?? DEFAULT_RESTOCK_LEAD_DAYS)
 })
 
+/**
+ * Desplegable de cantidad, como el de Amazon: las primeras cantidades válidas del formato
+ * (mínimo e incremento) y «Más…», que cambia a un campo para teclear cualquier otra.
+ */
+/** Con muchos formatos se enseñan los primeros (y siempre el elegido); el resto, a un clic. */
+const VARIANT_PREVIEW = 8
+const showAllVariants = ref(false)
+const visibleVariants = computed(() => {
+  const all = product.value.variants
+  if (showAllVariants.value || all.length <= VARIANT_PREVIEW) return all
+  const preview = all.slice(0, VARIANT_PREVIEW)
+  return preview.some((variant) => variant.id === selectedId.value)
+    ? preview
+    : [...preview.slice(0, VARIANT_PREVIEW - 1), selected.value]
+})
+
+const QUANTITY_OPTIONS = 20
+const customQuantity = ref(false)
+const quantityOptions = computed(() => {
+  const { minimumQuantity: minimum, quantityIncrement: increment } = selected.value
+  const maximum = maximumQuantity.value
+  const options: number[] = []
+  for (let value = minimum; options.length < QUANTITY_OPTIONS && value <= maximum; value += increment)
+    options.push(value)
+  return options
+})
+const quantityHasMore = computed(() => {
+  const last = quantityOptions.value.at(-1)
+  return last !== undefined && last + selected.value.quantityIncrement <= maximumQuantity.value
+})
+function pickQuantity(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  if (value === 'more') {
+    customQuantity.value = true
+    return
+  }
+  qty.value = Number(value)
+}
+
 watch(selected, (variant) => {
-  // Con selector de color solo se pide el color elegido. En la tabla de formatos las
-  // cantidades son independientes: solo se mueve el punto de partida si nadie las ha tocado.
-  if (colorMode.value || !quantitiesTouched.value) startQuantities(variant)
+  // Un formato cada vez: al cambiar, la cantidad vuelve al mínimo del nuevo formato.
+  startQuantities(variant)
+  customQuantity.value = false
 })
 
 const router = useRouter()
@@ -751,7 +778,7 @@ const fbtMain = computed(() =>
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1440px] px-4 pb-28 pt-4 sm:px-6 lg:pb-12 lg:pt-6">
+  <div class="mx-auto max-w-[1600px] px-4 pb-28 pt-4 sm:px-6 lg:pb-12 lg:pt-6">
     <PromotionalBlocks
       :context="{
         placement: 'product',
@@ -773,9 +800,16 @@ const fbtMain = computed(() =>
       </template>
     </nav>
 
-    <div class="grid grid-cols-1 items-start gap-x-8 gap-y-5 lg:mt-4 lg:grid-cols-12">
+    <!--
+      Tres columnas, como en Amazon: fotos a la izquierda; en el centro nombre, valoración,
+      precio y formatos; a la derecha la caja de compra. Entre 1024 y 1280 px la caja baja
+      debajo del centro; en móvil, una sola columna en ese mismo orden.
+    -->
+    <div
+      class="grid grid-cols-1 items-start gap-x-8 gap-y-5 lg:mt-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_20rem]"
+    >
       <!-- Galería -->
-      <div class="relative min-w-0 lg:col-span-6 lg:row-span-2 xl:col-span-5">
+      <div class="relative min-w-0 lg:row-span-2 xl:row-span-1">
         <ProductGallery :images="galleryImages" :name="product.name" :context-key="selectedId">
           <template #empty>
             <!--
@@ -820,8 +854,8 @@ const fbtMain = computed(() =>
         </div>
       </div>
 
-      <!-- Nombre, precio, resumen y formatos -->
-      <div class="min-w-0 lg:col-span-6 xl:col-span-4">
+      <!-- Nombre, valoración, precio y formatos -->
+      <div class="min-w-0">
         <p
           v-if="product.brand && !product.name.toUpperCase().startsWith(product.brand.toUpperCase())"
           class="text-[13px] font-medium text-[var(--text-muted)]"
@@ -865,7 +899,6 @@ const fbtMain = computed(() =>
               </span>
             </p>
             <p class="tabular mt-1 text-[13px] text-[var(--text-muted)]">
-              <template v-if="product.variants.length > 1">{{ selected.format }} · </template>
               {{ formatPrice(showNetPrices ? selectedUnitGrossPrice : selectedUnitNetPrice) }}
               {{ showNetPrices ? 'con IVA' : 'sin IVA' }}
               <template v-if="perUnit(selected, unitPrice)"> · {{ perUnit(selected, unitPrice) }}</template>
@@ -939,48 +972,58 @@ const fbtMain = computed(() =>
           </div>
         </div>
 
-        <!-- formatos -->
-        <div v-else-if="product.variants.length > 1" class="mt-5">
-          <p class="mb-2 text-[15px] font-semibold text-[var(--text-strong)]">Elige formato y cantidad</p>
-          <VariantOrderTable
-            v-model="selectedId"
-            :variants="product.variants"
-            :quantities="quantities"
-            :maximum="(variant) => (Number.isFinite(variantMaximum(variant)) ? variantMaximum(variant) : null)"
-            :without-quantity="(variant) => !hasPublicPrice(variant.price)"
-            @quantity="setQuantity"
+        <!-- Formatos: baldosas seleccionables con su precio, como las opciones de Amazon -->
+        <div v-else-if="product.variants.length > 1" class="mt-5" data-variant-picker>
+          <p class="mb-2 text-[15px] text-[var(--text)]">
+            Formato: <strong class="font-semibold text-[var(--text-strong)]">{{ selected.format }}</strong>
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Formato"
+            class="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-2 2xl:grid-cols-3"
           >
-            <template #default="{ variant: v }">
-              <span class="min-w-0">
-                <span class="block font-medium text-[var(--text-strong)]">{{ v.format }}</span>
-                <span class="tabular block text-[13px] text-[var(--text-muted)]">Ref. {{ v.sku }}</span>
-                <span
-                  v-if="hasPublicPrice(v.price)"
-                  class="mt-0.5 flex items-center gap-1 text-[13px] font-medium"
-                  :class="variantAvailability(v).tone"
-                >
-                  <UIcon :name="variantAvailability(v).icon" class="size-3.5 shrink-0" />
-                  {{ variantAvailability(v).label }}
-                </span>
+            <button
+              v-for="v in visibleVariants"
+              :key="v.id"
+              type="button"
+              role="radio"
+              :aria-checked="selectedId === v.id"
+              :data-variant-option="v.sku"
+              class="min-h-[4.25rem] rounded-[var(--radius-control)] border-2 bg-white px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--action)] focus-visible:ring-offset-2"
+              :class="
+                selectedId === v.id
+                  ? 'border-[var(--action)] bg-neteco-50'
+                  : 'border-[var(--border)] hover:border-[var(--border-strong)]'
+              "
+              @click="selectedId = v.id"
+            >
+              <span class="block text-[15px] font-medium leading-snug text-[var(--text-strong)]">{{ v.format }}</span>
+              <span v-if="!hasPublicPrice(v.price)" data-price-on-request class="block text-[13px] text-[var(--text)]">
+                {{ PRICE_ON_REQUEST }}
               </span>
-              <span v-if="!hasPublicPrice(v.price)" data-price-on-request class="text-right">
-                <span class="block font-display text-[15px] font-bold text-[var(--text-strong)]">
-                  {{ PRICE_ON_REQUEST }}
-                </span>
-              </span>
-              <span v-else class="text-right">
-                <span class="tabular block font-display text-lg font-bold text-[var(--text-strong)]">
+              <template v-else>
+                <span class="tabular block text-[15px] font-bold text-[var(--text-strong)]">
                   {{ formatPrice(showNetPrices ? v.netPrice : v.price) }}
                 </span>
-                <span class="tabular block text-[13px] text-[var(--text-muted)]">
-                  {{ showNetPrices ? 'sin IVA' : 'IVA incluido'
-                  }}<template v-if="perUnit(v, showNetPrices ? v.netPrice : v.price)">
-                    · {{ perUnit(v, showNetPrices ? v.netPrice : v.price) }}</template
-                  >
+                <span
+                  v-if="v.units > 1 && perUnit(v, showNetPrices ? v.netPrice : v.price)"
+                  class="tabular block text-[13px] text-[var(--text-muted)]"
+                >
+                  {{ perUnit(v, showNetPrices ? v.netPrice : v.price) }}
                 </span>
-              </span>
-            </template>
-          </VariantOrderTable>
+              </template>
+            </button>
+          </div>
+          <button
+            v-if="product.variants.length > VARIANT_PREVIEW"
+            type="button"
+            data-variant-more
+            class="mt-2 min-h-9 text-[13px] font-semibold text-[var(--link)] underline underline-offset-2"
+            :aria-expanded="showAllVariants"
+            @click="showAllVariants = !showAllVariants"
+          >
+            {{ showAllVariants ? 'Ver menos formatos' : `Ver los ${product.variants.length} formatos` }}
+          </button>
         </div>
 
         <!-- otros colores/versiones de la gama -->
@@ -1003,14 +1046,11 @@ const fbtMain = computed(() =>
         </div>
       </div>
 
-      <!-- Caja de compra: precio, entrega, cantidad y acción juntos. Fija al bajar en escritorio. -->
-      <aside
-        class="min-w-0 lg:col-span-6 lg:col-start-7 xl:col-span-3 xl:col-start-auto xl:row-span-2 xl:row-start-1"
-        aria-label="Compra"
-      >
+      <!-- Caja de compra: precio, fecha de entrega, cantidad y acción juntos. Fija al bajar en escritorio. -->
+      <aside class="min-w-0 lg:col-start-2 xl:col-start-auto" aria-label="Compra">
         <div
           data-buy-box
-          class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5 xl:sticky xl:top-24"
+          class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 xl:sticky xl:top-24"
         >
           <div v-if="requestOnly" data-order-summary data-price-on-request>
             <p class="font-display text-[26px] font-bold leading-tight text-[var(--text-strong)]">
@@ -1020,76 +1060,38 @@ const fbtMain = computed(() =>
             <p v-if="sellingRule" class="mt-1 text-[13px] text-[var(--text-muted)]">{{ sellingRule }}</p>
           </div>
           <div v-else data-order-summary>
-            <p class="text-[13px] font-medium text-[var(--text-muted)]">
-              <template v-if="orderTotal.units">
-                Total · {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds'
-                }}<template v-if="orderLines.length > 1"> · {{ orderLines.length }} formatos</template>
-              </template>
-              <template v-else>Indica una cantidad</template>
-            </p>
-            <p
-              data-order-total
-              class="tabular font-display text-[26px] font-bold leading-tight text-[var(--text-strong)] lg:text-[30px]"
-            >
-              {{ formatPrice(showNetPrices ? orderTotal.net : orderTotal.gross) }}
+            <p class="tabular font-display text-[26px] font-bold leading-tight text-[var(--text-strong)]">
+              {{ formatPrice(unitPrice) }}
               <span class="font-sans text-[13px] font-medium text-[var(--text-muted)]">
                 {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
               </span>
             </p>
-            <p class="tabular text-[13px] text-[var(--text-muted)]">
-              {{ formatPrice(showNetPrices ? orderTotal.gross : orderTotal.net) }}
+            <p class="tabular mt-0.5 text-[13px] text-[var(--text-muted)]">
+              {{ formatPrice(showNetPrices ? selectedUnitGrossPrice : selectedUnitNetPrice) }}
               {{ showNetPrices ? 'con IVA' : 'sin IVA' }} ({{ selected.taxRateBasisPoints / 100 }} %)
             </p>
           </div>
 
-          <!-- Fecha de entrega concreta, en verde y negrita: la duda nº 1 de quien repone -->
-          <div v-if="!requestOnly && !outOfStock" class="mt-4">
+          <!-- Fecha de entrega: bloque propio, separado del precio y de la cantidad -->
+          <div v-if="!requestOnly && !outOfStock" class="mt-4 border-t border-[var(--border)] pt-4">
             <DeliveryPromiseLine :preparation-days="preparationDays" />
           </div>
 
           <p
-            v-if="!requestOnly && orderLines.length <= 1"
+            v-if="!requestOnly && availability"
             data-availability
-            class="mt-3 flex items-center gap-1.5 text-[15px] font-semibold"
+            class="mt-3 text-[17px] font-semibold"
             :class="
               availability.tone === 'unavailable'
                 ? 'text-[var(--stock-out)]'
-                : availability.tone === 'warning' || availability.tone === 'backorder'
+                : availability.tone === 'warning'
                   ? 'text-[var(--stock-low)]'
                   : 'text-[var(--stock-ok)]'
             "
           >
-            <UIcon
-              :name="
-                availability.tone === 'unavailable'
-                  ? 'i-lucide-circle-x'
-                  : availability.tone === 'warning'
-                    ? 'i-lucide-circle-alert'
-                    : availability.tone === 'backorder'
-                      ? 'i-lucide-clock'
-                      : 'i-lucide-circle-check'
-              "
-              class="size-4 shrink-0"
-            />
             {{ availability.label }}
           </p>
           <p v-if="sellingRule && !requestOnly" class="mt-1 text-[13px] text-[var(--text-muted)]">{{ sellingRule }}</p>
-
-          <!-- Cantidad: en la tabla de formatos cada fila lleva la suya; aquí, con un solo formato o con colores -->
-          <div
-            v-if="!requestOnly && (colorMode || product.variants.length === 1)"
-            class="mt-4 flex items-center justify-between gap-3"
-          >
-            <span class="text-[15px] font-semibold text-[var(--text-strong)]">Cantidad</span>
-            <QuantityStepper
-              v-model="qty"
-              :minimum="selected.minimumQuantity"
-              :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
-              :step="selected.quantityIncrement"
-              label="Cantidad"
-              :disabled="outOfStock || selectedOnRequest"
-            />
-          </div>
 
           <VolumePricingTable
             v-if="!selectedOnRequest && selected.priceTiers.length"
@@ -1101,38 +1103,84 @@ const fbtMain = computed(() =>
             :show-net-prices="showNetPrices"
           />
 
-          <!-- Una sola acción principal; «Guardar en lista» lleva su texto, no un corazón suelto. -->
-          <div class="mt-5 flex flex-col gap-2">
-            <NuxtLink
-              v-if="requestOnly"
-              :to="priceRequestTo"
-              data-price-request
-              class="inline-flex h-12 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)]"
-            >
-              <UIcon name="i-lucide-message-circle" class="size-5" />{{ PRICE_REQUEST_ACTION }}
-            </NuxtLink>
+          <!-- Cantidad (desplegable) junto a la acción principal, como en Amazon -->
+          <NuxtLink
+            v-if="requestOnly"
+            :to="priceRequestTo"
+            data-price-request
+            class="mt-4 flex h-12 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)]"
+          >
+            <UIcon name="i-lucide-message-circle" class="size-5" />{{ PRICE_REQUEST_ACTION }}
+          </NuxtLink>
+          <div v-else class="mt-4 flex items-end gap-2" data-buy-row>
+            <div v-if="customQuantity" class="shrink-0">
+              <QuantityStepper
+                v-model="qty"
+                :minimum="selected.minimumQuantity"
+                :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
+                :step="selected.quantityIncrement"
+                label="Cantidad"
+                :disabled="outOfStock || selectedOnRequest"
+              />
+            </div>
+            <label v-else class="relative block shrink-0">
+              <span class="sr-only">Cantidad</span>
+              <span
+                class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-[var(--text-muted)]"
+                aria-hidden="true"
+              >
+                Cant.
+              </span>
+              <select
+                data-quantity-select
+                :value="qty"
+                :disabled="outOfStock || selectedOnRequest || !quantityOptions.length"
+                class="tabular h-12 w-[6.25rem] cursor-pointer appearance-none rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] pl-[3rem] pr-6 text-[15px] font-semibold text-[var(--text-strong)] hover:border-[var(--action)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--action)] disabled:cursor-not-allowed disabled:opacity-50"
+                @change="pickQuantity"
+              >
+                <option v-if="!quantityOptions.includes(qty)" :value="qty">{{ qty }}</option>
+                <option v-for="option in quantityOptions" :key="option" :value="option">{{ option }}</option>
+                <option v-if="quantityHasMore" value="more">Más…</option>
+              </select>
+              <UIcon
+                name="i-lucide-chevron-down"
+                class="pointer-events-none absolute right-2 top-1/2 size-4 -translate-y-1/2 text-[var(--text-muted)]"
+                aria-hidden="true"
+              />
+            </label>
             <button
-              v-else
               type="button"
               data-add-to-cart
               :disabled="!orderLines.length || adding"
-              class="inline-flex h-12 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              class="inline-flex h-12 min-w-0 flex-1 items-center justify-center whitespace-nowrap rounded-[var(--radius-control)] bg-[var(--action)] px-3 text-[15px] font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"
               @click="addToCart()"
             >
-              <UIcon name="i-lucide-shopping-cart" class="size-5" />Añadir al carrito
+              Añadir al carrito
             </button>
-            <UButton
-              data-save-to-list
-              size="lg"
-              color="neutral"
-              variant="outline"
-              icon="i-lucide-list-plus"
-              class="justify-center"
-              @click="addFavorite"
-            >
-              Guardar en lista
-            </UButton>
           </div>
+          <p
+            v-if="!requestOnly && orderTotal.units > 1"
+            data-order-total
+            class="tabular mt-2 text-[13px] text-[var(--text)]"
+          >
+            Total {{ orderTotal.units }} uds:
+            <strong class="font-semibold text-[var(--text-strong)]">
+              {{ formatPrice(showNetPrices ? orderTotal.net : orderTotal.gross) }}
+            </strong>
+            {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+          </p>
+          <UButton
+            data-save-to-list
+            size="lg"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-list-plus"
+            block
+            class="mt-2 justify-center"
+            @click="addFavorite"
+          >
+            Guardar en lista
+          </UButton>
 
           <ul class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-[13px] text-[var(--text-muted)]">
             <li class="flex items-start gap-2">
