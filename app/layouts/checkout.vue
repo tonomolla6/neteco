@@ -4,7 +4,6 @@
  * familias, el boletín y la barra inferior. Quedan el camino de vuelta al carrito, la señal
  * de pago seguro y el teléfono, que es lo que alguien busca cuando duda antes de pagar.
  */
-const runtime = useRuntimeConfig()
 const { phone: contactPhone, email: contactEmail } = useCommercialTerms()
 </script>
 
@@ -48,11 +47,13 @@ const { phone: contactPhone, email: contactEmail } = useCommercialTerms()
     <footer class="border-t border-[var(--border)] bg-[var(--surface)]">
       <p class="mx-auto max-w-[1600px] px-4 py-4 text-[13px] text-[var(--text-muted)]">
         NETECO · Ontinyent ·
-        <a :href="runtime.public.legalTermsUrl" target="_blank" rel="noopener" class="underline"
-          >Condiciones de compra</a
-        >
+        <a href="/condiciones-generales" target="_blank" rel="noopener" class="underline">Condiciones de venta</a>
         ·
-        <a :href="runtime.public.privacyUrl" target="_blank" rel="noopener" class="underline">Privacidad</a>
+        <a href="/privacidad" target="_blank" rel="noopener" class="underline">Privacidad</a>
+        ·
+        <a href="/cookies" target="_blank" rel="noopener" class="underline">Cookies</a>
+        ·
+        <a href="/aviso-legal" target="_blank" rel="noopener" class="underline">Aviso legal</a>
       </p>
     </footer>
     <ConsentManager />

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 const { preferences, acceptAll, rejectOptional, save } = useConsent()
-const runtime = useRuntimeConfig()
 // Public SWR pages can contain another visitor's rendered banner. Preserve that
 // initial shape for hydration, while useConsent immediately applies this
 // visitor's cookie to analytics and marketing decisions.
@@ -82,7 +81,7 @@ function trapFocus(event: KeyboardEvent) {
     <p class="mt-2 text-sm leading-relaxed text-slate-600">
       Las cookies necesarias mantienen la sesión y el carrito. La medición y el marketing son opcionales, permanecen
       apagados hasta que los aceptes y puedes cambiar tu decisión cuando quieras.
-      <a :href="runtime.public.cookiesUrl" target="_blank" rel="noopener" class="font-medium text-neteco-700 underline"
+      <a href="/cookies" target="_blank" rel="noopener" class="font-medium text-neteco-700 underline"
         >Ver política de cookies</a
       >.
     </p>

@@ -1749,19 +1749,18 @@ async function finish(order: { id: string; token?: string }) {
             <input v-model="acceptTerms" type="checkbox" class="mt-0.5 accent-neteco-600" />
             <span>
               Acepto las
+              <a href="/condiciones-generales" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
+                >condiciones generales de venta</a
+              >, incluido el
               <a
-                :href="runtime.public.legalTermsUrl"
+                href="/condiciones-generales#desistimiento"
                 target="_blank"
                 rel="noopener"
                 class="underline hover:text-neteco-600"
-                >condiciones de compra</a
+                >derecho de desistimiento</a
               >. La
-              <a
-                :href="runtime.public.privacyUrl"
-                target="_blank"
-                rel="noopener"
-                class="underline hover:text-neteco-600"
-                >información de privacidad</a
+              <a href="/privacidad" target="_blank" rel="noopener" class="underline hover:text-neteco-600"
+                >política de privacidad</a
               >
               explica cómo tratamos los datos necesarios para tramitar el pedido.
             </span>

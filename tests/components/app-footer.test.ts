@@ -33,6 +33,15 @@ describe('shop footer', () => {
     expect(html.indexOf('footer-newsletter-email')).toBeGreaterThan(html.indexOf('href="/envios"'))
   })
 
+  it('links the four legal pages inside the shop and keeps the cookie settings button', async () => {
+    const footer = await mountSuspended(AppFooter)
+    const hrefs = footer.findAll('a').map((link) => link.attributes('href'))
+    for (const path of ['/aviso-legal', '/privacidad', '/cookies', '/condiciones-generales'])
+      expect(hrefs).toContain(path)
+    expect(hrefs.some((href) => href?.startsWith('https://neteco.es/legal'))).toBe(false)
+    expect(footer.text()).toContain('Configurar cookies')
+  })
+
   it('collapses the link groups on mobile behind buttons that say their state', async () => {
     const footer = await mountSuspended(AppFooter)
     const toggles = footer.findAll('[data-footer-toggle]')

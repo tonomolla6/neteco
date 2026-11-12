@@ -158,9 +158,7 @@ async function submit() {
           <input v-model="form.privacyAcknowledged" type="checkbox" required class="mt-1 accent-neteco-600" />
           <span>
             He leído la
-            <a href="https://neteco.es/legal" target="_blank" rel="noopener" class="underline"
-              >información de privacidad</a
-            >
+            <a href="/privacidad" target="_blank" rel="noopener" class="underline">política de privacidad</a>
             aplicable a esta consulta.
           </span>
         </label>

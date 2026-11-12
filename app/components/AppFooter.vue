@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { LEGAL_PAGES } from '~~/shared/legal-pages'
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 
 const year = new Date().getFullYear()
@@ -101,10 +102,8 @@ function configureCookies() {
           <li><NuxtLink to="/ayuda" class="hover:text-white">Centro de ayuda</NuxtLink></li>
           <li><NuxtLink to="/accesibilidad" class="hover:text-white">Accesibilidad</NuxtLink></li>
           <li><a href="https://neteco.es" target="_blank" rel="noopener" class="hover:text-white">Quiénes somos</a></li>
-          <li>
-            <a :href="runtime.public.legalTermsUrl" target="_blank" rel="noopener" class="hover:text-white"
-              >Aviso legal y condiciones</a
-            >
+          <li v-for="page in LEGAL_PAGES" :key="page.path">
+            <NuxtLink :to="page.path" class="hover:text-white">{{ page.label }}</NuxtLink>
           </li>
           <li>
             <button class="hover:text-white" @click="configureCookies">Configurar cookies</button>

@@ -2,7 +2,6 @@
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 
 useSeoMeta({ title: 'Crear cuenta', robots: 'noindex, nofollow' })
-const runtime = useRuntimeConfig()
 
 const route = useRoute()
 const { fetch: refreshSession } = useUserSession()
@@ -121,10 +120,8 @@ async function submit() {
         <UCheckbox v-model="form.termsAccepted" required label="Acepto las condiciones de la cuenta" />
         <p class="text-xs leading-relaxed text-slate-500">
           Consulta las
-          <a :href="runtime.public.legalTermsUrl" target="_blank" rel="noopener" class="underline">condiciones</a> y la
-          <a :href="runtime.public.privacyUrl" target="_blank" rel="noopener" class="underline"
-            >información de privacidad</a
-          >
+          <a href="/condiciones-generales" target="_blank" rel="noopener" class="underline">condiciones</a> y la
+          <a href="/privacidad" target="_blank" rel="noopener" class="underline">política de privacidad</a>
           sobre el tratamiento necesario para crear y mantener tu cuenta.
         </p>
         <UCheckbox v-model="form.newsletter" :label="NEWSLETTER_CONSENT_TEXT" />
