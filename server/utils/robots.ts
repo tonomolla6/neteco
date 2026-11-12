@@ -7,7 +7,6 @@ export const PRIVATE_ROBOTS_PREFIXES = [
   '/checkout',
   '/pedido',
   '/pedidos',
-  '/pedido-rapido',
   '/pago',
   '/auth',
   '/login',

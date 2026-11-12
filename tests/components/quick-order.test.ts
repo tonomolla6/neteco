@@ -1,25 +1,30 @@
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import QuickOrderPanel from '../../app/components/QuickOrderPanel.vue'
+import QuickOrderPage from '../../app/pages/pedido-rapido.vue'
 import '#app/nuxt-vitest-app-entry'
 
-// Matrix: explicit bounded CSV/lookup, exact variant + MOQ/prices, selection and
-// explicit confirmation; no writes on errors, singleflight and real cart recovery;
-// session/email/version boundaries, late read/write/unmount purge, honest Node gap.
+// Matrix: one screen, three entries (type, paste, file) in every runtime; exact variant with
+// its quantity rules; unknown references never block the rest; adds go through cart.add one by
+// one, stop at the first uncertain result and are never resent; session changes purge the list.
 const mocks = vi.hoisted(() => ({
   read: vi.fn(),
   add: vi.fn(),
   session: vi.fn(),
   blocked: false,
-  runtime: vi.fn(() => ({
-    app: { baseURL: '/', buildAssetsDir: '/_nuxt/', cdnURL: '' },
-    public: { serverRuntime: 'cloudflare' }
-  }))
+  runtime: 'node' as 'node' | 'cloudflare'
 }))
+const nuxtRuntime = vi.hoisted(() => ({ original: null as null | (() => { public: Record<string, unknown> }) }))
 mockNuxtImport('useRequestFetch', () => () => mocks.read)
-mockNuxtImport('useRuntimeConfig', () => mocks.runtime)
+mockNuxtImport('useRuntimeConfig', (original) => {
+  nuxtRuntime.original = original as never
+  return () => {
+    const config = nuxtRuntime.original!()
+    return { ...config, public: { ...config.public, serverRuntime: mocks.runtime, priceDisplayMode: 'gross' } }
+  }
+})
 mockNuxtImport('useUserSession', () => mocks.session)
 vi.mock('../../app/stores/cart', () => ({
   useCartStore: () => ({
@@ -32,28 +37,42 @@ vi.mock('../../app/stores/cart', () => ({
     }
   })
 }))
+
 const ID = '71000000-0000-4000-8000-000000000001',
   SESSION = '72000000-0000-4000-8000-000000000001'
-const variants = [1, 2, 3].map((id) => ({
-  uuid: `73000000-0000-4000-8000-00000000000${id}`,
+const variant = (id: number, overrides = {}) => ({
+  uuid: `73000000-0000-4000-8000-0000000000${String(id).padStart(2, '0')}`,
   id,
-  sku: `SKU-${id}`,
-  ean: `841234567890${id}`,
+  sku: `10${id}`,
+  ean: null,
   gtin: null,
   mpn: null,
-  format: 'Caja',
-  unitLabel: 'caja',
+  format: 'Garrafa 5 L',
+  unitLabel: 'L',
   price: 1210,
-  priceTiers: [],
+  priceTiers: [{ minimumQuantity: 6, unitGrossCents: 1089 }],
   pricingVersion: 'published-price-1',
   taxRateBasisPoints: 2100,
   minimumQuantity: 2,
-  maximumQuantity: 10,
+  maximumQuantity: null,
   quantityIncrement: 2,
-  stock: 10,
-  backorderAllowed: false
-}))
-const product = () => ({ slug: 'producto', name: 'Producto observado', variants })
+  stock: 40,
+  backorderAllowed: false,
+  ...overrides
+})
+/** Catalog: references 101…112 exist, one product each. Anything else is unknown. */
+function catalog(path: string, options?: { query?: { q: string } }) {
+  if (path === '/api/search') {
+    const q = options!.query!.q
+    const id = Number(q.slice(2))
+    if (/^10\d{1,2}$/.test(q) && id >= 1 && id <= 12) return { items: [{ slug: `producto-${id}` }] }
+    if (q === '10') return { items: [{ slug: 'producto-1' }] }
+    return { items: [] }
+  }
+  const id = Number(path.split('-').at(-1))
+  return { slug: `producto-${id}`, name: `Desengrasante ${id}`, variants: [variant(id)] }
+}
+
 let auth: {
   ready: ReturnType<typeof ref<boolean>>
   loggedIn: ReturnType<typeof ref<boolean>>
@@ -62,21 +81,26 @@ let auth: {
 }
 type Wrapper = Awaited<ReturnType<typeof mountSuspended>>
 const wrappers: Wrapper[] = []
-async function render() {
-  const wrapper = await mountSuspended(QuickOrderPanel)
+async function render(component: typeof QuickOrderPanel | typeof QuickOrderPage = QuickOrderPanel) {
+  const wrapper = await mountSuspended(component, { attachTo: document.body })
   wrappers.push(wrapper)
   await flushPromises()
   return wrapper
 }
-async function preview(wrapper: Wrapper, csv = 'referencia,cantidad\nSKU-1,2') {
-  await wrapper.get('[data-quick-csv]').setValue(csv)
-  await wrapper.get('[data-quick-input]').trigger('submit')
+const rows = (w: Wrapper) => w.findAll('[data-quick-row]')
+async function type(w: Wrapper, index: number, reference: string) {
+  const input = rows(w)[index]!.get('[data-quick-reference]')
+  await input.setValue(reference)
+  await input.trigger('keydown', { key: 'Enter' })
   await flushPromises()
+  await nextTick()
 }
-async function confirm(wrapper: Wrapper) {
-  await wrapper.get('[data-quick-confirm]').setValue(true)
-  await wrapper.get('[data-quick-add]').trigger('click')
+async function paste(w: Wrapper, text: string) {
+  await w.get('[data-quick-tab="paste"]').trigger('click')
+  await w.get('[data-quick-paste]').setValue(text)
+  await w.get('[data-quick-paste-apply]').trigger('click')
   await flushPromises()
+  await nextTick()
 }
 function deferred() {
   let resolve!: (value: unknown) => void
@@ -85,18 +109,12 @@ function deferred() {
   })
   return { resolve, promise }
 }
+
 beforeEach(() => {
-  mocks.read
-    .mockReset()
-    .mockImplementation(async (path: string) =>
-      path === '/api/search' ? { items: [{ slug: 'producto' }] } : product()
-    )
+  mocks.read.mockReset().mockImplementation(async (path: string, options?: never) => catalog(path, options))
   mocks.add.mockReset().mockResolvedValue(undefined)
   mocks.blocked = false
-  mocks.runtime.mockReturnValue({
-    app: { baseURL: '/', buildAssetsDir: '/_nuxt/', cdnURL: '' },
-    public: { serverRuntime: 'cloudflare' }
-  })
+  mocks.runtime = 'node'
   auth = {
     ready: ref(true),
     loggedIn: ref(true),
@@ -106,251 +124,216 @@ beforeEach(() => {
   mocks.session.mockReturnValue(auth)
 })
 afterEach(() => wrappers.splice(0).forEach((w) => w.unmount()))
-describe('public bounded quick order with existing cart recovery', () => {
-  it('does no lookup or mutation until an explicit preview, with labelled CSV and limits', async () => {
-    const w = await render()
-    expect(mocks.read).not.toHaveBeenCalled()
-    expect(mocks.add).not.toHaveBeenCalled()
-    expect(w.text()).toContain('10 filas')
-    expect(w.text()).toContain('8 KiB')
-    expect(w.get('label[for="quick-csv"]').text()).toContain('Referencias')
-    expect(w.find('[data-quick-add]').exists()).toBe(false)
-  })
-  it('previews exact identifier, format, unit/MOQ/increment/max, observed net/gross/IVA with no contractual quote claim', async () => {
-    const w = await render()
-    await preview(w)
-    expect(w.text()).toContain('SKU-1')
-    expect(w.text()).toContain('Caja')
-    expect(w.text()).toContain('caja')
-    expect(w.text()).toContain('Mínimo 2')
-    expect(w.text()).toContain('Incremento 2')
-    expect(w.text()).toContain('Máximo 10')
-    expect(w.text()).toContain('24,20')
-    expect(w.text()).toContain('20,00')
-    expect(w.text()).toContain('21')
-    expect(w.text()).toContain('no son una cotización')
-    expect(w.text()).toContain('portes')
-    expect(mocks.add).not.toHaveBeenCalled()
-    expect(w.get('[data-quick-add]').attributes('disabled')).toBeDefined()
-  })
-  it('adds only selected valid rows after explicit confirmation via cart.add, never direct POST', async () => {
-    const w = await render()
-    await preview(w, 'referencia,cantidad\nSKU-1,2\nSKU-2,4')
-    await w.get('[data-quick-select="1"]').setValue(false)
-    await confirm(w)
-    expect(mocks.add).toHaveBeenCalledExactlyOnceWith({ variantId: 1 }, 2)
-    expect(mocks.read.mock.calls.every((call) => call[1].method === 'GET')).toBe(true)
-    expect(w.text()).toContain('1 adición confirmada')
-  })
-  it('allows current ready guests without inventing MFA or account APIs', async () => {
-    auth.loggedIn.value = false
-    auth.user.value = null
-    auth.session.value = null
-    const w = await render()
-    await preview(w)
-    await confirm(w)
-    expect(mocks.add).toHaveBeenCalledOnce()
-  })
-  it.each(['node', 'unexpected'])('does not fake a %s contract or fallback', async (runtime) => {
-    mocks.runtime.mockReturnValue({
-      app: { baseURL: '/', buildAssetsDir: '/_nuxt/', cdnURL: '' },
-      public: { serverRuntime: runtime }
-    })
-    const w = await render()
-    expect(w.find('[data-quick-csv]').exists()).toBe(false)
-    expect(w.text()).toContain('Cloudflare')
-    expect(mocks.read).not.toHaveBeenCalled()
-    expect(mocks.add).not.toHaveBeenCalled()
-  })
-  it.each(['loading', 'email', 'session', 'version'])(
-    'withholds private draft/actions for invalid current authority %s',
-    async (boundary) => {
-      if (boundary === 'loading') auth.ready.value = false
-      if (boundary === 'email') auth.user.value!.emailVerified = false
-      if (boundary === 'session') auth.session.value = null
-      if (boundary === 'version') auth.session.value!.sessionVersion = 0
-      const w = await render()
-      expect(w.find('[data-quick-csv]').exists()).toBe(false)
+
+describe('quick order by reference', () => {
+  it.each(['node', 'cloudflare'] as const)(
+    'is one working screen in the %s runtime, in the customer language',
+    async (runtime) => {
+      mocks.runtime = runtime
+      const w = await render(QuickOrderPage)
+      expect(w.findAll('h1')).toHaveLength(1)
+      expect(w.get('h1').text()).toBe('Pedido rápido por referencia')
+      expect(w.text()).toContain('Escribe las referencias de tu albarán o pega la lista entera.')
+      expect(w.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(['Teclear', 'Pegar lista', 'Subir archivo'])
+      expect(w.text()).not.toMatch(/Cloudflare|SKU|EAN|CSV|KiB|idempot/i)
+      expect(rows(w)).toHaveLength(1)
       expect(mocks.read).not.toHaveBeenCalled()
     }
   )
-  it('does not read invalid CSV or silently truncate oversized batches', async () => {
+
+  it('typing a reference and Enter shows product, format and price, and moves to the quantity', async () => {
     const w = await render()
-    await preview(w, 'referencia,cantidad\nSKU-1,0')
-    expect(w.get('[data-quick-error]').attributes('role')).toBe('alert')
-    expect(mocks.read).not.toHaveBeenCalled()
+    await type(w, 0, '101')
+    const row = rows(w)[0]!
+    expect(row.text()).toContain('Desengrasante 1')
+    expect(row.text()).toContain('Garrafa 5 L')
+    expect(row.text().replace(/\s+/g, ' ')).toContain('12,10 €')
+    const quantity = row.get('input[inputmode="numeric"]')
+    // the minimum of the variant, not an invalid 1
+    expect((quantity.element as HTMLInputElement).value).toBe('2')
+    expect(document.activeElement).toBe(quantity.element)
+    // a fresh row is ready for the next reference; Enter on the quantity goes there
+    expect(rows(w)).toHaveLength(2)
+    await quantity.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+    expect(document.activeElement).toBe(rows(w)[1]!.get('[data-quick-reference]').element)
     expect(mocks.add).not.toHaveBeenCalled()
   })
-  it('distinguishes loading, network error, malformed response and no exact match without writes', async () => {
-    const waiting = deferred()
-    mocks.read.mockReturnValueOnce(waiting.promise)
+
+  it('reprices the line with the volume tier as the quantity changes and totals the order', async () => {
     const w = await render()
-    await preview(w)
-    expect(w.get('[data-quick-loading]').attributes('role')).toBe('status')
-    waiting.resolve({ items: [] })
-    await flushPromises()
-    expect(w.text()).toContain('ninguna variante')
-    expect(w.find('[data-quick-select]').exists()).toBe(false)
-    mocks.read.mockRejectedValueOnce(new Error('offline'))
-    await preview(w)
-    expect(w.text()).toContain('consultar')
-    mocks.read.mockResolvedValueOnce({ items: null })
-    await preview(w)
-    expect(w.text()).toContain('no válida')
-    expect(mocks.add).not.toHaveBeenCalled()
+    await type(w, 0, '101')
+    await type(w, 1, '102')
+    const text = () => w.get('[data-quick-total]').text().replace(/\s+/g, ' ')
+    expect(text()).toContain('2 referencias')
+    expect(text()).toContain('48,40 €')
+    const quantity = rows(w)[0]!.get('input[inputmode="numeric"]')
+    await quantity.setValue('6')
+    await quantity.trigger('change')
+    await nextTick()
+    expect(rows(w)[0]!.text().replace(/\s+/g, ' ')).toContain('10,89 €')
+    expect(rows(w)[0]!.text().replace(/\s+/g, ' ')).toContain('65,34 €')
+    expect(text()).toContain('89,54 €')
   })
-  it('blocks fuzzy matches and invalid quantities but permits selection of another valid row', async () => {
+
+  it('pasting ten lines creates ten rows, each with its quantity', async () => {
     const w = await render()
-    await preview(w, 'referencia,cantidad\nProducto,2\nSKU-2,3\nSKU-3,2')
-    expect(w.findAll('[data-quick-select]')).toHaveLength(1)
-    await confirm(w)
-    expect(mocks.add).toHaveBeenCalledExactlyOnceWith({ variantId: 3 }, 2)
+    await paste(w, Array.from({ length: 10 }, (_, i) => `10${i + 1}\t${(i + 1) * 2}`).join('\n'))
+    const filled = rows(w).filter((row) => row.find('[data-quick-line-total]').exists())
+    expect(filled).toHaveLength(10)
+    expect((filled[9]!.get('input[inputmode="numeric"]').element as HTMLInputElement).value).toBe('20')
+    expect(w.get('[data-quick-tab="type"]').attributes('aria-selected')).toBe('true')
+    expect(w.get('[data-quick-total]').text()).toContain('10 referencias')
   })
-  it('invalidates preview and confirmation immediately when the input changes', async () => {
+
+  it('an unknown reference is marked, suggests the closest one and never blocks the rest', async () => {
     const w = await render()
-    await preview(w)
-    await w.get('[data-quick-confirm]').setValue(true)
-    await w.get('[data-quick-csv]').setValue('referencia,cantidad\nSKU-2,2')
-    expect(w.find('[data-quick-add]').exists()).toBe(false)
-    expect(mocks.add).not.toHaveBeenCalled()
-  })
-  it('invalidates confirmation when selection changes', async () => {
-    const w = await render()
-    await preview(w)
-    await w.get('[data-quick-confirm]').setValue(true)
-    await w.get('[data-quick-select="0"]').setValue(false)
-    expect(w.get('[data-quick-confirm]').element).toHaveProperty('checked', false)
-    expect(w.get('[data-quick-add]').attributes('disabled')).toBeDefined()
-  })
-  it('deduplicates preview and double click add while their real requests are in flight', async () => {
-    const read = deferred()
-    mocks.read.mockReturnValueOnce(read.promise)
-    const w = await render()
-    await preview(w)
-    await w.get('[data-quick-input]').trigger('submit')
-    expect(mocks.read).toHaveBeenCalledOnce()
-    read.resolve({ items: [{ slug: 'producto' }] })
-    await flushPromises()
-    const add = deferred()
-    mocks.add.mockReturnValueOnce(add.promise)
-    await w.get('[data-quick-confirm]').setValue(true)
+    await paste(w, '101 2\n10 2\n999 2\n102 4')
+    const [first, near, unknown] = rows(w)
+    expect(first!.find('[data-quick-line-total]').exists()).toBe(true)
+    expect(near!.get('[role="alert"]').text()).toContain('No encontramos «10».')
+    expect(near!.text()).toContain('¿Es 101 · Desengrasante 1?')
+    expect(unknown!.get('[role="alert"]').text()).toBe('No encontramos «999».')
     await w.get('[data-quick-add]').trigger('click')
-    await w.get('[data-quick-add]').trigger('click')
-    expect(mocks.add).toHaveBeenCalledOnce()
-    add.resolve(undefined)
     await flushPromises()
+    expect(mocks.add.mock.calls.map(([item, quantity]) => [item.variantId, quantity])).toEqual([
+      [1, 2],
+      [2, 4]
+    ])
+    expect(w.get('[data-quick-notice]').text()).toContain('2 referencias añadidas al carrito')
   })
-  it('blocks all ADD if store already has a pending/recovery mutation', async () => {
+
+  it('applies a suggestion only when the customer asks for it', async () => {
     const w = await render()
-    await preview(w)
-    mocks.blocked = true
-    await confirm(w)
+    await type(w, 0, '10')
     expect(mocks.add).not.toHaveBeenCalled()
-    expect(w.text()).toContain('carrito')
+    await rows(w)[0]!.get('[data-quick-suggestion]').trigger('click')
+    await flushPromises()
+    expect((rows(w)[0]!.get('[data-quick-reference]').element as HTMLInputElement).value).toBe('101')
+    expect(rows(w)[0]!.text()).toContain('Desengrasante 1')
   })
-  it('stops at the first ambiguous ADD, preserves never attempted rows and never retries the uncertain line', async () => {
-    const w = await render()
-    await preview(w, 'referencia,cantidad\nSKU-1,2\nSKU-2,2\nSKU-3,2')
-    mocks.add.mockImplementationOnce(async () => {
-      mocks.blocked = true
-      throw new Error('lost response')
+
+  it('refuses the same product twice and a product without stock', async () => {
+    mocks.read.mockImplementation(async (path: string, options?: never) => {
+      const value = catalog(path, options) as { variants?: Array<Record<string, unknown>> }
+      if (path.endsWith('producto-3')) value.variants = [variant(3, { stock: 0 })]
+      return value
     })
-    await confirm(w)
-    expect(mocks.add).toHaveBeenCalledOnce()
-    expect(w.text()).toContain('resultado incierto')
-    expect(w.text()).toContain('2 filas sin intentar')
-    expect(w.text()).not.toContain('no añadida')
-    await w.get('[data-quick-resume]').trigger('click')
-    expect(mocks.read).toHaveBeenCalledTimes(4)
-    mocks.blocked = false
-    await w.get('[data-quick-resume]').trigger('click')
-    await flushPromises()
-    expect(mocks.add).toHaveBeenCalledOnce()
-    expect(w.text()).not.toContain('SKU-1')
-    await confirm(w)
-    expect(mocks.add.mock.calls.map((call) => call[0].variantId)).toEqual([1, 2, 3])
-    expect(w.text()).not.toContain('3 adiciones confirmadas')
-  })
-  it('does not classify an attempted uncertain row as never attempted when a later line fails', async () => {
     const w = await render()
-    await preview(w, 'referencia,cantidad\nSKU-1,2\nSKU-2,2\nSKU-3,2')
-    mocks.add.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('uncertain'))
-    await confirm(w)
-    expect(mocks.add).toHaveBeenCalledTimes(2)
-    expect(w.text()).toContain('1 adición confirmada')
-    expect(w.text()).toContain('1 filas sin intentar')
-    await w.get('[data-quick-resume]').trigger('click')
-    await flushPromises()
-    await confirm(w)
-    expect(mocks.add.mock.calls.map((call) => call[0].variantId)).toEqual([1, 2, 3])
-  })
-  it.each(['identity', 'email', 'session', 'version', 'logout', 'loading'])(
-    'purges drafts/results/confirmation on current scope boundary %s',
-    async (boundary) => {
-      const w = await render()
-      await preview(w)
-      if (boundary === 'identity') auth.user.value!.id = '71000000-0000-4000-8000-000000000002'
-      if (boundary === 'email') auth.user.value!.emailVerified = false
-      if (boundary === 'session') auth.session.value!.sessionId = '72000000-0000-4000-8000-000000000002'
-      if (boundary === 'version') auth.session.value!.sessionVersion = 2
-      if (boundary === 'logout') auth.loggedIn.value = false
-      if (boundary === 'loading') auth.ready.value = false
-      await flushPromises()
-      expect(w.text()).not.toContain('Producto observado')
-      expect(w.find('[data-quick-add]').exists()).toBe(false)
-      if (w.find('[data-quick-csv]').exists()) expect(w.get('[data-quick-csv]').element).toHaveProperty('value', '')
-      expect(mocks.read).toHaveBeenCalledTimes(2)
-    }
-  )
-  it('ignores late search results and stops further detail reads after revocation', async () => {
-    const wait = deferred()
-    mocks.read.mockReturnValueOnce(wait.promise)
-    const w = await render()
-    await preview(w)
-    auth.user.value!.emailVerified = false
-    await flushPromises()
-    wait.resolve({ items: [{ slug: 'producto' }] })
-    await flushPromises()
-    expect(mocks.read).toHaveBeenCalledOnce()
-    expect(w.text()).not.toContain('Producto observado')
-  })
-  it('stops remaining adds and late feedback after scope change while ADD awaits, without resetting store recovery', async () => {
-    const wait = deferred()
-    mocks.add.mockReturnValueOnce(wait.promise)
-    const w = await render()
-    await preview(w, 'referencia,cantidad\nSKU-1,2\nSKU-2,2')
-    await w.get('[data-quick-confirm]').setValue(true)
+    await type(w, 0, '101')
+    await type(w, 1, '101')
+    expect(rows(w)[1]!.get('[role="alert"]').text()).toBe('Esta referencia ya está en la lista.')
+    await type(w, 1, '103')
+    expect(rows(w)[1]!.get('[role="alert"]').text()).toBe('Ahora mismo no tenemos existencias de esta referencia.')
     await w.get('[data-quick-add]').trigger('click')
-    auth.session.value!.sessionVersion = 2
     await flushPromises()
+    expect(mocks.add).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads an uploaded text file like a pasted list and offers a template', async () => {
+    const w = await render()
+    await w.get('[data-quick-tab="file"]').trigger('click')
+    expect(w.get('[data-quick-template]').attributes('download')).toBe('pedido-rapido.csv')
+    const input = w.get('[data-quick-file]')
+    const file = new File(['referencia;cantidad\n101;2\n102;4\n'], 'pedido.csv', { type: 'text/csv' })
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+    await flushPromises()
+    await vi.waitFor(() => expect(w.get('[data-quick-total]').text()).toContain('2 referencias'))
+  })
+
+  it('reports unusable pasted lines next to the list', async () => {
+    const w = await render()
+    await paste(w, '101 2\n102 muchas')
+    expect(w.get('[data-quick-problems]').text()).toContain('Línea 2')
+    expect(w.get('[data-quick-problems]').text()).toContain('La cantidad debe ser un número entero entre 1 y 999.')
+    expect(w.get('[data-quick-total]').text()).toContain('1 referencia')
+  })
+
+  it('adds through the cart one by one, marks added rows and never sends them twice', async () => {
+    const w = await render()
+    await paste(w, '101 2\n102 4')
+    await w.get('[data-quick-add]').trigger('click')
+    await flushPromises()
+    expect(mocks.add).toHaveBeenCalledTimes(2)
+    expect(mocks.add.mock.calls[0]![0]).toMatchObject({ variantId: 1, sku: '101', slug: 'producto-1' })
+    expect(rows(w)[0]!.text()).toContain('En el carrito')
+    expect(w.find('a[href="/carrito"]').exists()).toBe(true)
+    expect(w.get('[data-quick-add]').attributes('disabled')).toBeDefined()
+    await w.get('[data-quick-add]').trigger('click')
+    await flushPromises()
+    expect(mocks.add).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops at the first uncertain addition, says so and does not resend that reference', async () => {
+    mocks.add.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('timeout'))
+    const w = await render()
+    await paste(w, '101 2\n102 4\n103 2')
+    await w.get('[data-quick-add]').trigger('click')
+    await flushPromises()
+    expect(mocks.add).toHaveBeenCalledTimes(2)
+    expect(w.get('[data-quick-notice]').text()).toContain('1 referencia añadida')
+    expect(w.get('[data-quick-notice]').text()).toContain('No sabemos si la referencia 102 se añadió')
+    expect(rows(w)[1]!.text()).toContain('Compruébala en el carrito')
+    await w.get('[data-quick-add]').trigger('click')
+    await flushPromises()
+    expect(mocks.add.mock.calls.map(([item]) => item.variantId)).toEqual([1, 2, 3])
+  })
+
+  it('does not add while the cart is resolving a previous addition', async () => {
     mocks.blocked = true
-    wait.resolve(undefined)
-    await flushPromises()
-    expect(mocks.add).toHaveBeenCalledOnce()
-    expect(mocks.blocked).toBe(true)
-    expect(w.text()).not.toContain('confirmada')
-    expect(w.text()).not.toContain('Producto observado')
-  })
-  it('purges component state on unmount and ignores late reads', async () => {
-    const wait = deferred()
-    mocks.read.mockReturnValueOnce(wait.promise)
     const w = await render()
-    await preview(w)
-    const state = w.vm.$.setupState
-    w.unmount()
-    wait.resolve({ items: [{ slug: 'producto' }] })
+    await type(w, 0, '101')
+    await w.get('[data-quick-add]').trigger('click')
     await flushPromises()
-    expect(mocks.read).toHaveBeenCalledOnce()
-    expect(state.csv).toBe('')
-    expect(state.rows).toEqual([])
+    expect(mocks.add).not.toHaveBeenCalled()
+    expect(w.get('[data-quick-notice]').text()).toContain('Revisa primero el carrito')
   })
-  it('has keyboard forms, live feedback and a bounded mobile list rather than a wide table', async () => {
+
+  it('uses a single in-flight batch: a second click cannot double the order', async () => {
+    const gate = deferred()
+    mocks.add.mockReturnValueOnce(gate.promise)
     const w = await render()
-    await preview(w)
-    expect(w.get('[data-quick-input]').element.tagName).toBe('FORM')
-    expect(w.get('[data-quick-results]').element.tagName).toBe('UL')
-    expect(w.find('table').exists()).toBe(false)
-    expect(w.find('[aria-live="polite"]').exists()).toBe(true)
-    expect(w.get('[data-quick-results]').attributes('class')).toContain('break-words')
+    await paste(w, '101 2\n102 4')
+    void w.get('[data-quick-add]').trigger('click')
+    await nextTick()
+    await w.get('[data-quick-add]').trigger('click')
+    gate.resolve(undefined)
+    await flushPromises()
+    expect(mocks.add).toHaveBeenCalledTimes(2)
+  })
+
+  it('drops a late catalog answer after the session changes and clears the list', async () => {
+    const gate = deferred()
+    mocks.read.mockReturnValueOnce(gate.promise)
+    const w = await render()
+    const input = rows(w)[0]!.get('[data-quick-reference]')
+    await input.setValue('101')
+    void input.trigger('keydown', { key: 'Enter' })
+    await nextTick()
+    auth.session.value = { sessionId: SESSION, sessionVersion: 2 }
+    await nextTick()
+    gate.resolve({ items: [{ slug: 'producto-1' }] })
+    await flushPromises()
+    expect(rows(w)).toHaveLength(1)
+    expect(w.text()).not.toContain('Desengrasante 1')
+    expect((rows(w)[0]!.get('[data-quick-reference]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('in the Cloudflare runtime asks an unverified account to verify before ordering', async () => {
+    mocks.runtime = 'cloudflare'
+    auth.user.value = { id: ID, email: 'synthetic@example.invalid', emailVerified: false }
+    const w = await render()
+    expect(w.find('[data-quick-row]').exists()).toBe(false)
+    expect(w.get('[role="status"]').text()).toContain('Verifica el correo de tu cuenta')
+  })
+
+  it('says how to continue when the catalog cannot be read', async () => {
+    mocks.read.mockRejectedValue(new Error('internal-stack'))
+    const w = await render()
+    await type(w, 0, '101')
+    const alert = rows(w)[0]!.get('[role="alert"]').text()
+    expect(alert).toBe('No hemos podido consultar el catálogo. Vuelve a intentarlo.')
+    expect(w.text()).not.toContain('internal-stack')
   })
 })

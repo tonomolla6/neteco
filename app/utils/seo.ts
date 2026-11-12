@@ -7,7 +7,6 @@ export const PRIVATE_SEO_PREFIXES = [
   '/checkout',
   '/pedido',
   '/pedidos',
-  '/pedido-rapido',
   '/pago',
   '/auth',
   '/login',
@@ -201,9 +200,9 @@ const ROUTE_SEO_DEFAULTS: Record<string, { title: string; description: string }>
       'Confirma tu dirección de correo electrónico para activar todas las funciones de compra y facturación de tu cuenta NETECO.'
   },
   '/pedido-rapido': {
-    title: 'Pedido rápido por referencia SKU o EAN',
+    title: 'Pedido rápido por referencia',
     description:
-      'Añade múltiples productos al carrito introduciendo directamente sus códigos SKU, EAN o importando tu plantilla de pedido B2B.'
+      'Pide con el albarán delante: escribe las referencias de NETECO, pega tu lista o sube un archivo y añádelo todo al carrito de una vez.'
   },
   '/comparar': {
     title: 'Comparador técnico de suministros',

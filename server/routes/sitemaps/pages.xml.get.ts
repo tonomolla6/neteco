@@ -8,6 +8,7 @@ export default defineEventHandler((event) => {
   const paths = [
     '/',
     '/catalogo',
+    '/pedido-rapido',
     '/envios',
     '/formas-de-pago',
     '/devoluciones',

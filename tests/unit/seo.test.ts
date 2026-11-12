@@ -44,7 +44,6 @@ describe('SEO policy', () => {
       '/carrito/compartido',
       '/checkout',
       '/pedido/ord-123',
-      '/pedido-rapido',
       '/pago/exito',
       '/pago/error',
       '/login',
@@ -69,7 +68,9 @@ describe('SEO policy', () => {
       '/producto/guante',
       '/ayuda',
       '/eventos',
-      '/kits'
+      '/kits',
+      // Ordering by reference is a public entry point of the shop, linked from the header.
+      '/pedido-rapido'
     ]) {
       expect(robotsHeader('production', publicPath)).toBeNull()
       expect(isPrivateSeoPath(publicPath)).toBe(false)

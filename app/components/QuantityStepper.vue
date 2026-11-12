@@ -21,7 +21,7 @@ const props = withDefaults(
   }>(),
   { minimum: 1, maximum: null, step: 1, label: 'Cantidad', compact: false, allowZero: false, disabled: false }
 )
-const emit = defineEmits<{ 'update:modelValue': [value: number] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: number]; enter: [] }>()
 
 const lowest = computed(() => (props.allowZero ? 0 : props.minimum))
 const highest = computed(() => {
@@ -66,6 +66,12 @@ function commit(event: Event) {
   input.value = String(value)
   if (value !== props.modelValue) emit('update:modelValue', value)
 }
+/** Intro confirma lo tecleado y avisa: en una tabla de pedido lleva a la fila siguiente. */
+function commitAndLeave(event: Event) {
+  commit(event)
+  emit('enter')
+}
+defineExpose({ focus: () => field.value?.focus() })
 watch(
   () => props.modelValue,
   (value) => {
@@ -106,7 +112,7 @@ const fieldLabel = computed(() =>
       class="tabular min-w-0 border-x border-[var(--border)] bg-transparent text-center font-semibold text-[var(--text-strong)]"
       :class="compact ? 'h-9 w-10 text-sm' : 'h-11 w-14'"
       @change="commit"
-      @keydown.enter.prevent="commit"
+      @keydown.enter.prevent="commitAndLeave"
       @keydown.up.prevent="change(1)"
       @keydown.down.prevent="change(-1)"
       @focus="($event.target as HTMLInputElement).select()"

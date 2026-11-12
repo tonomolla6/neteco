@@ -34,6 +34,7 @@ export function ownsD1SeoNamespace(path: string, cmsEnabled = false) {
 const STATIC_PAGES = [
   '/',
   '/catalogo',
+  '/pedido-rapido',
   '/envios',
   '/formas-de-pago',
   '/devoluciones',
@@ -55,7 +56,6 @@ const PRIVATE_PATHS = [
   '/checkout',
   '/pedido',
   '/pedidos',
-  '/pedido-rapido',
   '/pago',
   '/auth',
   '/login',

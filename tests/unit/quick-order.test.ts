@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { parseQuickOrderCsv, previewQuickOrder } from '../../shared/quick-order'
+import {
+  parseQuickOrderCsv,
+  parseQuickOrderList,
+  previewQuickOrder,
+  priceQuickOrderLine,
+  resolveQuickOrderReference
+} from '../../shared/quick-order'
 
 const variant = (overrides = {}) => ({
   uuid: '71000000-0000-4000-8000-000000000001',
@@ -127,10 +133,41 @@ describe('bounded quick order CSV and observed published offers', () => {
     expect(duplicate.every((row) => (row as { status: string }).status === 'error')).toBe(true)
     expect(read.mock.calls.filter(([path]) => path.startsWith('/api/products/'))).toHaveLength(1)
   })
-  it('blocks capped search and never fetches details for a possibly truncated result', async () => {
-    const read = vi.fn(async () => search(...Array.from({ length: 8 }, (_, i) => `product-${i}`)))
+  it('accepts an exact reference in a capped search only while the ranking proves the match set is complete', async () => {
+    // Exact identifiers rank first. A capped page whose first candidate matches and whose
+    // second does not is complete: nothing after a non-match can be an exact match.
+    const slugs = Array.from({ length: 8 }, (_, i) => `product-${i}`)
+    const read = vi.fn(async (path: string) =>
+      path === '/api/search'
+        ? search(...slugs)
+        : path.endsWith('product-0')
+          ? { ...product(), slug: 'product-0' }
+          : { ...product([variant({ id: 99, sku: 'OTHER', ean: null })]), slug: path.split('/').at(-1) }
+    )
+    const rows = await previewQuickOrder([{ reference: 'SKU-A', quantity: 2 }], read)
+    expect(rows[0]).toMatchObject({ status: 'ready', variant: { id: 11 } })
+    // one search, the match and the first non-match: never the whole capped page
+    expect(read).toHaveBeenCalledTimes(3)
+  })
+  it('blocks a capped search whose every candidate matches: the page may be truncated', async () => {
+    const slugs = Array.from({ length: 8 }, (_, i) => `product-${i}`)
+    const read = vi.fn(async (path: string) =>
+      path === '/api/search'
+        ? search(...slugs)
+        : {
+            ...product([variant({ id: Number(path.at(-1)) + 1, sku: `S-${path.at(-1)}`, ean: null, mpn: 'SKU-A' })]),
+            slug: path.split('/').at(-1)
+          }
+    )
     expect((await previewQuickOrder([{ reference: 'SKU-A', quantity: 2 }], read))[0]).toMatchObject({ status: 'error' })
-    expect(read).toHaveBeenCalledTimes(1)
+  })
+  it('suggests the closest observed reference when there is no exact match', async () => {
+    const rows = await previewQuickOrder([{ reference: 'SKU', quantity: 2 }], reader())
+    expect(rows[0]).toMatchObject({
+      status: 'error',
+      message: 'No encontramos «SKU».',
+      suggestion: { reference: 'SKU-A', name: 'Producto A', format: 'Caja' }
+    })
   })
   it('enforces a 20 unique-detail budget, and reports unavailable/malformed reads as errors rather than no matches', async () => {
     const read = vi.fn(async (path: string, options: object) =>
@@ -188,5 +225,65 @@ describe('bounded quick order CSV and observed published offers', () => {
       )
     ).rejects.toThrow()
     expect(read).not.toHaveBeenCalled()
+  })
+})
+
+describe('pasted lists and per-reference resolution', () => {
+  it('reads one product per line with space, tab, comma or semicolon and an optional quantity', () => {
+    expect(parseQuickOrderList('1042 2\n1133\t4\n990;3\nSKU-A,6\n\n  0077  \n')).toEqual({
+      rows: [
+        { reference: '1042', quantity: 2 },
+        { reference: '1133', quantity: 4 },
+        { reference: '990', quantity: 3 },
+        { reference: 'SKU-A', quantity: 6 },
+        { reference: '0077', quantity: 1 }
+      ],
+      problems: []
+    })
+  })
+  it('skips a header row and a spreadsheet quote, and tolerates CRLF and a BOM', () => {
+    expect(parseQuickOrderList('\uFEFFReferencia;Cantidad\r\n"1042";2\r\n').rows).toEqual([
+      { reference: '1042', quantity: 2 }
+    ])
+  })
+  it('reports unusable lines without dropping the valid ones', () => {
+    const parsed = parseQuickOrderList('1042 2\n1133 mucho\n1042 5\n990 0\nA 1')
+    expect(parsed.rows).toEqual([{ reference: '1042', quantity: 2 }])
+    expect(parsed.problems.map((problem) => [problem.line, problem.message])).toEqual([
+      [2, 'La cantidad debe ser un número entero entre 1 y 999.'],
+      [3, 'La referencia 1042 está repetida; deja una sola línea con la cantidad total.'],
+      [4, 'La cantidad debe ser un número entero entre 1 y 999.'],
+      [5, 'La referencia debe tener al menos 2 caracteres.']
+    ])
+  })
+  it('caps the list instead of silently truncating it', () => {
+    const parsed = parseQuickOrderList(Array.from({ length: 35 }, (_, i) => `REF-${i} 1`).join('\n'))
+    expect(parsed.rows).toHaveLength(30)
+    expect(parsed.problems).toEqual([
+      {
+        line: 31,
+        text: 'REF-30 1',
+        message: 'Máximo 30 referencias por pedido rápido. Añade estas y repite con el resto.'
+      }
+    ])
+  })
+  it('resolves one reference to its variant without requiring a quantity', async () => {
+    const found = await resolveQuickOrderReference('SKU-A', reader())
+    expect(found).toMatchObject({ status: 'found', name: 'Producto A', slug: 'producto-a', variant: { id: 11 } })
+    const missing = await resolveQuickOrderReference(
+      'NOPE',
+      vi.fn(async () => search())
+    )
+    expect(missing).toEqual({ status: 'error', message: 'No encontramos «NOPE».' })
+  })
+  it('prices a line with the volume tier that the quantity reaches', () => {
+    expect(priceQuickOrderLine(variant(), 2)).toEqual({
+      unitGrossCents: 1210,
+      grossCents: 2420,
+      netCents: 2000,
+      taxCents: 420
+    })
+    expect(priceQuickOrderLine(variant(), 6)).toMatchObject({ unitGrossCents: 1089, grossCents: 6534 })
+    expect(() => priceQuickOrderLine(variant(), 3)).toThrow()
   })
 })
