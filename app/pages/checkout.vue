@@ -117,6 +117,17 @@ const billingAddress = reactive({
   instructions: ''
 })
 const billingSameAsShipping = ref(true)
+/**
+ * «¿Ticket o factura de empresa?». Antes el NIF era «opcional» y aun así se prometía la
+ * factura con datos fiscales. Con factura, razón social y NIF son obligatorios; con ticket,
+ * no se pide ninguno y no se envía lo que se hubiera escrito.
+ */
+const invoice = ref<'ticket' | 'company'>('ticket')
+watch(invoice, (value) => {
+  if (value !== 'ticket') return
+  form.company = ''
+  form.nif = ''
+})
 
 /**
  * Quien tiene cuenta no vuelve a teclear lo que ya sabemos: la entrega se rellena con su
@@ -175,6 +186,7 @@ watch(
     form.email ||= u.email ?? ''
     form.phone ||= u.phone ?? ''
     form.company ||= u.company ?? ''
+    if (form.company) invoice.value = 'company'
     shippingAddress.recipientName ||= u.name ?? ''
     shippingAddress.companyName ||= u.company ?? ''
     shippingAddress.phone ||= u.phone ?? ''
@@ -909,6 +921,7 @@ function validate() {
     billingCity: '',
     billingTaxId: '',
     nif: '',
+    company: '',
     terms: '',
     purchaseOrderReference: ''
   })
@@ -924,6 +937,10 @@ function validate() {
   if (!form.email.trim()) errors.email = 'Indica el email'
   else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email.trim())) errors.email = 'El email no parece válido'
   if (!form.phone.trim()) errors.phone = 'Indica un teléfono de contacto'
+  if (invoice.value === 'company') {
+    if (!form.company.trim()) errors.company = 'Indica la razón social'
+    if (!form.nif.trim()) errors.nif = 'Indica el NIF o CIF para la factura'
+  }
   if (form.nif.trim() && shippingAddress.countryCode === 'ES' && !isValidTaxId(form.nif))
     errors.nif = 'Revisa el NIF, NIE o CIF'
   if (!shippingAddress.recipientName.trim()) errors.shippingRecipientName = 'Indica el destinatario'
@@ -1445,17 +1462,34 @@ async function finish(order: { id: string; token?: string }) {
               <UFormField label="Nombre y apellidos" required :error="errors.name">
                 <UInput v-model="form.name" class="w-full" autocomplete="name" />
               </UFormField>
-              <UFormField label="Empresa" hint="opcional">
-                <UInput v-model="form.company" class="w-full" autocomplete="organization" />
-              </UFormField>
-              <UFormField label="NIF / NIE / CIF" hint="para factura de empresa" :error="errors.nif">
-                <UInput v-model="form.nif" class="w-full" />
-              </UFormField>
               <UFormField label="Teléfono" required :error="errors.phone">
                 <UInput v-model="form.phone" type="tel" inputmode="tel" class="w-full" autocomplete="tel" />
               </UFormField>
               <UFormField label="Email" required class="sm:col-span-2" :error="errors.email">
-                <UInput v-model="form.email" type="email" class="w-full" autocomplete="email" />
+                <UInput v-model="form.email" type="email" inputmode="email" class="w-full" autocomplete="email" />
+              </UFormField>
+            </div>
+
+            <!-- Primero la pregunta; los datos fiscales solo si hacen falta, y entonces son obligatorios. -->
+            <fieldset data-invoice-choice class="mt-5">
+              <legend class="text-[15px] font-semibold text-[var(--text-strong)]">¿Qué documento necesitas?</legend>
+              <div class="mt-2 flex flex-wrap gap-x-6 gap-y-2 text-[15px] text-[var(--text)]">
+                <label class="flex min-h-11 items-center gap-2">
+                  <input v-model="invoice" type="radio" name="invoice" value="ticket" class="accent-neteco-600" />
+                  Ticket a mi nombre
+                </label>
+                <label class="flex min-h-11 items-center gap-2">
+                  <input v-model="invoice" type="radio" name="invoice" value="company" class="accent-neteco-600" />
+                  Factura de empresa
+                </label>
+              </div>
+            </fieldset>
+            <div v-if="invoice === 'company'" data-invoice-fields class="mt-3 grid gap-4 grid-cols-1 sm:grid-cols-2">
+              <UFormField label="Razón social" required :error="errors.company">
+                <UInput v-model="form.company" class="w-full" autocomplete="organization" />
+              </UFormField>
+              <UFormField label="NIF o CIF" required :error="errors.nif">
+                <UInput v-model="form.nif" class="w-full" autocapitalize="characters" />
               </UFormField>
             </div>
 

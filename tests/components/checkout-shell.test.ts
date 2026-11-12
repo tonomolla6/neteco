@@ -307,4 +307,41 @@ describe('checkout shell', () => {
     await nextTick()
     expect(state.shippingAddress!.phone).toBe('611111111')
   })
+
+  it('asks "ticket or company invoice" first; a company invoice requires company name and a valid NIF', async () => {
+    await render()
+    const state = proxyRefs(wrapper!.setupState) as Record<string, unknown>
+    expect(wrapper!.get('[data-invoice-choice]').text()).toContain('Ticket a mi nombre')
+    expect(wrapper!.get('[data-invoice-choice]').text()).toContain('Factura de empresa')
+    expect(wrapper!.find('[data-invoice-fields]').exists()).toBe(false)
+    await wrapper!.get('[data-invoice-choice] input[value="company"]').setValue(true)
+    expect(wrapper!.find('[data-invoice-fields]').exists()).toBe(true)
+    const form = state.form as Record<string, string>
+    Object.assign(form, { name: 'Ana', email: 'ana@example.invalid', phone: '600000000', company: '', nif: '' })
+    ;(state.validate as () => boolean)()
+    const errors = state.errors as Record<string, string>
+    expect(errors.company).toBe('Indica la razón social')
+    expect(errors.nif).toBe('Indica el NIF o CIF para la factura')
+    form.company = 'Bar Central S.L.'
+    form.nif = 'B12345678X'
+    ;(state.validate as () => boolean)()
+    expect(errors.company).toBe('')
+    expect(errors.nif).toBe('Revisa el NIF, NIE o CIF')
+  })
+
+  it('a ticket clears any company or NIF typed before, and a signed-in company starts with the invoice', async () => {
+    await render()
+    const state = proxyRefs(wrapper!.setupState) as Record<string, unknown>
+    const form = state.form as Record<string, string>
+    await wrapper!.get('[data-invoice-choice] input[value="company"]').setValue(true)
+    form.company = 'Bar Central S.L.'
+    form.nif = 'B12345674'
+    await wrapper!.get('[data-invoice-choice] input[value="ticket"]').setValue(true)
+    expect(form.company).toBe('')
+    expect(form.nif).toBe('')
+    wrapper!.unmount()
+    auth.loggedIn = true
+    await render()
+    expect(proxyRefs(wrapper!.setupState).invoice).toBe('company')
+  })
 })
