@@ -7,13 +7,18 @@ const cart = useCartStore()
 const { terms: commercialTerms } = useCommercialTerms()
 const { loggedIn, user, clear } = useUserSession()
 const adminNavigation = useAdminNavigation()
-const quickOrderEnabled = adminNavigation.cloudflare
 const panelEntry = computed(() =>
   adminNavigation.cloudflare.value ? adminNavigation.staffEntry.value : user.value?.role === 'admin'
 )
 
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
-const roots = computed(() => catData.value?.roots ?? [])
+// Una familia sin productos no se enseña: lleva a una página vacía.
+const roots = computed(() => (catData.value?.roots ?? []).filter((root) => root.count > 0))
+
+// «Repetir último pedido»: solo con sesión y con al menos un pedido.
+const { lastOrder } = await useLastOrder()
+const reorderDialog = useTemplateRef<{ start: (orderId: string) => void }>('reorderDialog')
+const LISTS_PATH = '/cuenta/favoritos'
 
 const mobileOpen = ref(false)
 const accountOpen = ref(false)
@@ -38,7 +43,7 @@ watch(
 const accountLinks = [
   { to: '/cuenta', label: 'Resumen', icon: 'i-lucide-layout-dashboard' },
   { to: '/cuenta/pedidos', label: 'Mis pedidos', icon: 'i-lucide-package' },
-  { to: '/cuenta/favoritos', label: 'Listas de compra', icon: 'i-lucide-list-checks' },
+  { to: LISTS_PATH, label: 'Listas', icon: 'i-lucide-list-checks' },
   { to: '/cuenta/direcciones', label: 'Direcciones', icon: 'i-lucide-map-pin' },
   { to: '/cuenta/seguridad', label: 'Acceso y seguridad', icon: 'i-lucide-shield-check' }
 ]
@@ -103,6 +108,22 @@ async function logout() {
       </div>
 
       <div class="ml-auto flex items-center gap-1 sm:gap-2">
+        <!-- Los dos accesos de quien repone, siempre visibles en escritorio. En móvil viven en
+             la barra inferior. -->
+        <NuxtLink
+          to="/pedido-rapido"
+          data-header-quick-order
+          class="hidden items-center gap-2 rounded-lg p-2 text-sm font-medium text-slate-600 hover:bg-slate-100 lg:flex"
+        >
+          <UIcon name="i-lucide-list-plus" class="block size-6" /> Pedido rápido
+        </NuxtLink>
+        <NuxtLink
+          :to="LISTS_PATH"
+          data-header-lists
+          class="hidden items-center gap-2 rounded-lg p-2 text-sm font-medium text-slate-600 hover:bg-slate-100 lg:flex"
+        >
+          <UIcon name="i-lucide-list-checks" class="block size-6" /> Listas
+        </NuxtLink>
         <!-- cuenta -->
         <div class="relative" @keydown.escape="accountOpen = false">
           <button
@@ -204,13 +225,6 @@ async function logout() {
         >
           <UIcon name="i-lucide-layout-grid" class="size-4" /> Todo el catálogo
         </NuxtLink>
-        <NuxtLink
-          v-if="quickOrderEnabled"
-          to="/pedido-rapido"
-          class="flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold text-neteco-700 hover:text-neteco-500"
-        >
-          <UIcon name="i-lucide-list-plus" class="size-4" /> Pedido rápido
-        </NuxtLink>
 
         <div v-for="root in roots" :key="root.id" class="group relative">
           <NuxtLink
@@ -230,7 +244,7 @@ async function logout() {
               class="grid grid-cols-3 gap-x-8 gap-y-5"
             >
               <div v-for="g in groupFamilies(root.children.filter((category) => category.count > 0))" :key="g.title">
-                <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <p class="mb-1.5 text-[13px] font-semibold text-slate-600">
                   {{ g.title }}
                 </p>
                 <NuxtLink
@@ -263,6 +277,17 @@ async function logout() {
             </NuxtLink>
           </div>
         </div>
+        <ClientOnly>
+          <button
+            v-if="lastOrder"
+            type="button"
+            data-header-reorder
+            class="ml-auto flex items-center gap-1.5 px-3 py-2.5 text-sm font-semibold text-neteco-700 hover:text-neteco-500"
+            @click="reorderDialog?.start(lastOrder.id)"
+          >
+            <UIcon name="i-lucide-rotate-cw" class="size-4" /> Repetir último pedido
+          </button>
+        </ClientOnly>
       </div>
     </nav>
 
@@ -295,11 +320,16 @@ async function logout() {
               <UIcon name="i-lucide-layout-grid" class="size-4" /> Todo el catálogo
             </NuxtLink>
             <NuxtLink
-              v-if="quickOrderEnabled"
               to="/pedido-rapido"
               class="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-neteco-700 hover:bg-neteco-50"
             >
               <UIcon name="i-lucide-list-plus" class="size-4" /> Pedido rápido
+            </NuxtLink>
+            <NuxtLink
+              :to="LISTS_PATH"
+              class="flex items-center gap-2 rounded-lg px-3 py-2.5 font-semibold text-neteco-700 hover:bg-neteco-50"
+            >
+              <UIcon name="i-lucide-list-checks" class="size-4" /> Listas
             </NuxtLink>
             <div v-for="root in roots" :key="root.id" class="mt-1">
               <button
@@ -342,5 +372,6 @@ async function logout() {
         </div>
       </div>
     </Teleport>
+    <ClientOnly><ReorderDialog v-if="lastOrder" ref="reorderDialog" /></ClientOnly>
   </header>
 </template>

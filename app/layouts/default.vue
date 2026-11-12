@@ -1,3 +1,9 @@
+<script setup lang="ts">
+const route = useRoute()
+// El contenido reserva el alto de la barra inferior móvil para que nunca quede tapado.
+const bottomBar = computed(() => appBottomBarVisible(route.path))
+</script>
+
 <template>
   <div class="flex min-h-screen flex-col">
     <a
@@ -7,10 +13,11 @@
       Saltar al contenido
     </a>
     <AppHeader />
-    <main id="contenido-principal" class="flex-1" tabindex="-1">
+    <main id="contenido-principal" class="flex-1" :class="bottomBar ? 'pb-14 lg:pb-0' : ''" tabindex="-1">
       <slot />
     </main>
-    <AppFooter />
+    <AppFooter :class="bottomBar ? 'mb-14 lg:mb-0' : ''" />
+    <AppBottomBar />
     <ConsentManager />
     <MarketingModalHost />
   </div>

@@ -241,13 +241,14 @@ describe('permission-based staff navigation', () => {
       actor.loggedIn.value = loggedIn
       if (!loggedIn) actor.user.value = {}
       const wrapper = await mount(true)
-      expect(wrapper.findAll('a[href="/pedido-rapido"]')).toHaveLength(runtime === 'cloudflare' ? 1 : 0)
+      // Ordering by reference works in every runtime and is always one click away.
+      expect(wrapper.findAll('a[href="/pedido-rapido"]')).toHaveLength(1)
       await wrapper.get('[aria-label="Abrir menú"]').trigger('click')
       await flushPromises()
       // The actual mobile navigation is teleported outside the mounted header.
       const menu = document.querySelector('[role="dialog"][aria-label="Menú de navegación"]')
       expect(menu).not.toBeNull()
-      expect(menu!.querySelectorAll('a[href="/pedido-rapido"]')).toHaveLength(runtime === 'cloudflare' ? 1 : 0)
+      expect(menu!.querySelectorAll('a[href="/pedido-rapido"]')).toHaveLength(1)
       expect(menu!.querySelector('a[href="/catalogo"]')).not.toBeNull()
       expect(wrapper.find('a[href="/catalogo"]').exists()).toBe(true)
     }
