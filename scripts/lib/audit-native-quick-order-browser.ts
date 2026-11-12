@@ -410,50 +410,42 @@ export async function auditNativeQuickOrderBrowser(input: NativeQuickOrderBrowse
             : page.locator('header')
         await navigation.getByRole('link', { name: 'Pedido rápido', exact: true }).click()
         await expect(page).toHaveURL(input.origin + '/pedido-rapido')
-        const csv = page.locator('[data-quick-csv]'),
-          submit = page.locator('[data-quick-preview]')
-        await expect(csv).toBeEnabled({ timeout: 15000 })
-        const cell = (value: string) => '"' + value.replaceAll('"', '""') + '"'
+        // One screen, three entries. The pasted list is the bulk path: one reference per line.
+        const pasteTab = page.locator('[data-quick-tab="paste"]'),
+          list = page.locator('[data-quick-paste]'),
+          apply = page.locator('[data-quick-paste-apply]'),
+          rows = page.locator('[data-quick-row]')
+        await expect(pasteTab).toBeEnabled({ timeout: 15000 })
+        await pasteTab.click()
         const beforeTyping = searchGets
-        await csv.fill(`referencia,cantidad\n${cell(fixture.unknownReference)},1`)
+        await list.fill(`${fixture.unknownReference} 1`)
         assert.equal(bridge.proof.posts, 0)
         assert.equal(searchGets, beforeTyping, 'No GET per keystroke')
-        await submit.focus()
+        await apply.focus()
         await page.keyboard.press('Enter')
-        await expect(page.locator('[data-quick-results]')).toContainText('ninguna variante', { timeout: 15000 })
-        await expect(page.locator('[data-quick-select]')).toHaveCount(0)
+        await expect(rows.first()).toContainText('No encontramos', { timeout: 15000 })
+        await expect(page.locator('[data-quick-line-total]')).toHaveCount(0)
         await expect(page.locator('[data-quick-add]')).toBeDisabled()
         assert.deepEqual(await cartSnapshot(), emptySnapshot, 'Unknown reference must not mutate cart')
         assert.equal(await digest(), baseline)
-        await csv.fill(
-          `referencia,cantidad\n${cell(fixture.skuReference)},${quantities[0]}\n${cell(fixture.eanReference)},${quantities[1]}`
-        )
-        await submit.click()
-        await expect(page.locator('[data-quick-select]')).toHaveCount(2, { timeout: 15000 })
+        await rows.first().locator('[data-quick-remove]').click()
+        await pasteTab.click()
+        await list.fill(`${fixture.skuReference} ${quantities[0]}\n${fixture.eanReference} ${quantities[1]}`)
+        await apply.click()
+        await expect(page.locator('[data-quick-line-total]')).toHaveCount(2, { timeout: 15000 })
         const money = (cents: number) =>
           new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(cents / 100)
         for (const [row, index] of [first, second].map((row, index) => [row, index] as const)) {
-          const item = page.locator('[data-quick-results] > li').nth(index)
-          for (const text of [
-            row.reference,
-            row.variant.format,
-            `Mínimo ${row.variant.minimumQuantity}`,
-            `Incremento ${row.variant.quantityIncrement}`,
-            money(row.unitGrossCents),
-            money(row.netCents),
-            money(row.taxCents),
-            money(row.grossCents)
-          ])
+          const item = rows.nth(index)
+          await expect(item.locator('[data-quick-reference]')).toHaveValue(row.reference)
+          for (const text of [row.variant.format, money(row.unitGrossCents), money(row.grossCents)])
             await expect(item).toContainText(text)
         }
-        await expect(page.getByText(/no son una cotización contractual/)).toBeVisible()
-        await expect(page.locator('[data-quick-add]')).toBeDisabled()
-        assert.equal(bridge.proof.posts, 0, 'Selected defaults are not consent')
-        await page.locator('[data-quick-confirm]').check()
+        await expect(page.getByText(/el carrito los confirma/)).toBeVisible()
+        assert.equal(bridge.proof.posts, 0, 'Resolving references is not an order')
         await page.locator('[data-quick-add]').dblclick()
         await expect.poll(() => bridge.proof.lostResponses, { timeout: 15000 }).toBe(1)
-        await expect(page.getByText(/Una adición tiene resultado incierto/)).toBeVisible()
-        await expect(page.getByText(/1 filas sin intentar/)).toBeVisible()
+        await expect(page.locator('[data-quick-notice]')).toContainText('No sabemos si la referencia')
         assert.equal(bridge.proof.posts, 1)
         assert.equal(bridge.proof.receiptGets, 0)
         const saved = await page.evaluate(() => localStorage.getItem('neteco-cart-add-v1'))
@@ -463,8 +455,9 @@ export async function auditNativeQuickOrderBrowser(input: NativeQuickOrderBrowse
         assert.deepEqual(journal.body, original)
         assert.equal(journal.confirmed, false)
         const beforeResume = searchGets
-        await page.locator('[data-quick-resume]').click()
-        await expect(page.locator('[data-quick-error]')).toContainText('carrito')
+        // The uncertain reference is never resent; the rest waits for the cart to resolve it.
+        await page.locator('[data-quick-add]').click()
+        await expect(page.locator('[data-quick-notice]')).toContainText('Revisa primero el carrito')
         assert.equal(searchGets, beforeResume)
         assert.equal(bridge.proof.posts, 1)
         assert.equal(await page.evaluate(() => localStorage.getItem('neteco-cart-add-v1')), saved)
@@ -472,7 +465,7 @@ export async function auditNativeQuickOrderBrowser(input: NativeQuickOrderBrowse
           await page.locator('html').evaluate((element) => element.scrollWidth > window.innerWidth + 1),
           false
         )
-        await page.getByRole('link', { name: 'Ir al carrito y comprobar adición', exact: true }).click()
+        await page.locator('[data-quick-notice]').getByRole('link', { name: 'Ir al carrito', exact: true }).click()
         await expect(page.getByRole('button', { name: 'Comprobar adición', exact: true })).toBeEnabled({
           timeout: 15000
         })

@@ -117,6 +117,8 @@ const fieldLabel = computed(() =>
       @keydown.down.prevent="change(-1)"
       @focus="($event.target as HTMLInputElement).select()"
     />
+    <!-- La cantidad vigente, anunciada con el nombre de la línea al cambiar. -->
+    <span role="status" :aria-label="label" class="sr-only">{{ modelValue }}</span>
     <button
       type="button"
       :disabled="!canIncrease"

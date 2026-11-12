@@ -20,6 +20,16 @@ describe('QuantityStepper', () => {
     expect(last(wrapper)).toBe(7)
   })
 
+  it('announces the current quantity under the line name for assistive technology and browser audits', async () => {
+    const wrapper = await mountStepper({ modelValue: 3, label: 'Guante' })
+    const status = wrapper.get('[role="status"]')
+    expect(status.attributes('aria-label')).toBe('Guante')
+    expect(status.text()).toBe('3')
+    expect(status.classes()).toContain('sr-only')
+    await wrapper.setProps({ modelValue: 4 })
+    expect(status.text()).toBe('4')
+  })
+
   it('never goes below the minimum and jumps by the increment', async () => {
     const wrapper = await mountStepper({ modelValue: 10, minimum: 10, step: 10 })
     const [minus, plus] = wrapper.findAll('button')
