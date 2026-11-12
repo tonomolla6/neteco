@@ -43,11 +43,11 @@ export function prepareDemoSecrets(names: ReadonlySet<string>) {
 
 // Explicit operators only; credentials stay in process memory and Cloudflare's store.
 const operation = process.argv[2]
-if (!['migrate', 'seed', 'catalog', 'secrets', 'deploy', 'attach'].includes(operation ?? ''))
+if (!['migrate', 'seed', 'catalog', 'catalog-prices', 'secrets', 'deploy', 'attach'].includes(operation ?? ''))
   throw new Error('explicit_demo_operation_required')
 // Validate the selected ignored configuration before acquiring credentials.
 const configurationPath =
-  operation === 'migrate' || operation === 'seed' || operation === 'catalog'
+  operation === 'migrate' || operation === 'seed' || operation === 'catalog' || operation === 'catalog-prices'
     ? '.wrangler/demo/bootstrap.json'
     : '.wrangler/demo/wrangler.json'
 const selected = JSON.parse(await readFile(configurationPath, 'utf8'))
@@ -71,6 +71,7 @@ if (
   operation !== 'migrate' &&
   operation !== 'seed' &&
   operation !== 'catalog' &&
+  operation !== 'catalog-prices' &&
   (selected.name !== DEMO_WORKER ||
     selected.vars?.APP_ENV !== 'preview' ||
     selected.vars?.AUTH_ORIGIN !== DEMO_ORIGIN ||
@@ -190,6 +191,29 @@ if (operation === 'migrate') {
       now
     })
     console.log(JSON.stringify({ catalogPdf: summary }))
+  } finally {
+    await proxy.dispose()
+  }
+} else if (operation === 'catalog-prices') {
+  // Invented DEMO prices (VAT included) and stock through the governed price/inventory commands; re-runs skip done variants.
+  const sourcePath = process.argv[3] ?? '/root/workspace/scripts/catalog-pdf/out/products.json'
+  const proxy = await getPlatformProxy<{ DB: D1Database }>({
+    configPath: '.wrangler/demo/bootstrap.json',
+    persist: false,
+    envFiles: [],
+    remoteBindings: true
+  })
+  try {
+    const { applyCatalogPrices } = await import('./lib/demo-catalog-prices')
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    console.log(
+      JSON.stringify({
+        catalogPrices: await applyCatalogPrices(proxy.env.DB, {
+          source: JSON.parse(await readFile(sourcePath, 'utf8')),
+          now
+        })
+      })
+    )
   } finally {
     await proxy.dispose()
   }
