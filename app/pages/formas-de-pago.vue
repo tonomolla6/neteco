@@ -1,6 +1,8 @@
 <script setup lang="ts">
 const runtime = useRuntimeConfig()
 const isProduction = runtime.public.appEnv === 'production'
+// Pago aplazado de empresa: solo con un plazo configurado (shared/commercial-terms.ts).
+const { terms: commercialTerms, deferredPayment } = useCommercialTerms()
 useSeoMeta({
   title: 'Formas de pago',
   description: runtime.public.bankTransferEnabled
@@ -52,6 +54,25 @@ const methods = computed(() => [
         <p class="mt-2 text-sm text-slate-500">{{ m.desc }}</p>
       </div>
     </div>
+
+    <section
+      v-if="deferredPayment"
+      data-deferred-payment
+      class="mt-6 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6"
+    >
+      <h2 class="flex items-center gap-2 font-bold text-[var(--text-strong)]">
+        <UIcon name="i-lucide-calendar-clock" class="size-5 text-neteco-600" /> Pago aplazado para empresas
+      </h2>
+      <p class="mt-2 text-[15px] text-[var(--text)]">
+        {{ deferredPayment }}
+        <template v-if="commercialTerms.deferredPaymentConditions">
+          {{ commercialTerms.deferredPaymentConditions }}</template
+        >
+      </p>
+      <NuxtLink to="/registro" class="mt-3 inline-block font-semibold text-[var(--link)] underline"
+        >Abrir cuenta de empresa</NuxtLink
+      >
+    </section>
 
     <p v-if="!isProduction" class="mt-6 rounded-xl bg-slate-100 p-4 text-sm text-slate-600">
       <UIcon name="i-lucide-info" class="inline size-4 text-neteco-600" />
