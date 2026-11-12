@@ -167,5 +167,7 @@ async function submitReturn() {
       <UButton to="/catalogo" variant="soft" icon="i-lucide-layout-grid">Ver el catálogo</UButton>
     </div>
   </div>
-  <p v-else role="status">No se ha confirmado el adaptador operativo. No se habilita ningún flujo de devolución.</p>
+  <p v-else role="status">
+    Ahora mismo no puedes solicitar devoluciones desde la web. Escríbenos desde Contacto y te ayudamos.
+  </p>
 </template>

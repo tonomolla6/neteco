@@ -39,6 +39,6 @@ const privateScope = computed(() =>
       :actor-id="actor"
       :authorize="authorize"
     />
-    <p v-else>Esta gestión requiere una sesión confirmada y el servicio D1 habilitado.</p>
+    <p v-else>Para elegir temas y frecuencia, inicia sesión con tu cuenta y confirma tu correo.</p>
   </div>
 </template>

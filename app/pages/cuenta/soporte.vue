@@ -11,7 +11,7 @@ const runtime = useRuntimeConfig()
   />
   <section v-else>
     <h1>Soporte de mi cuenta</h1>
-    <p>El portal privado nativo está disponible en el adaptador Cloudflare.</p>
-    <NuxtLink to="/contacto">Registrar consulta</NuxtLink>
+    <p>Desde aquí todavía no puedes seguir tus consultas. Escríbenos y te respondemos por correo.</p>
+    <NuxtLink to="/contacto">Escribir una consulta</NuxtLink>
   </section>
 </template>

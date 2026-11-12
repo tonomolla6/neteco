@@ -138,7 +138,8 @@ function pendingChanged(value: boolean) {
 <template>
   <section aria-label="Contexto privado de devolución del pedido" class="space-y-4">
     <p v-if="runtime !== 'cloudflare'" role="status">
-      Las devoluciones nativas están disponibles en el adaptador Cloudflare.
+      Desde aquí todavía no puedes pedir la devolución de este pedido. Escríbenos desde Contacto con el número de pedido
+      y te ayudamos.
     </p>
     <p v-else-if="!authorize()" role="status">
       Entra con la cuenta verificada propietaria del pedido. Los pedidos de invitado necesitan un contrato de

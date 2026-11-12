@@ -128,7 +128,7 @@ const date = (value: string) =>
 </script>
 <template>
   <section aria-label="Centro de recursos" class="mx-auto max-w-5xl min-w-0 space-y-6 px-4 py-8">
-    <p v-if="!enabled" role="status">Centro de recursos no disponible en este entorno.</p>
+    <p v-if="!enabled" role="status">El centro de recursos no está disponible ahora mismo.</p>
     <template v-else>
       <form v-if="!slug" data-resource-search class="flex flex-wrap items-end gap-3" @submit.prevent="search">
         <label class="min-w-0 flex-1"

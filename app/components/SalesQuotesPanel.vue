@@ -735,7 +735,7 @@ const money = (value: number) =>
       La aprobación comercial no cobra ni reserva stock. La conversión crea un pedido pendiente de pago con
       comprobaciones actuales.
     </p>
-    <p v-if="runtime.public.serverRuntime !== 'cloudflare'">Esta función privada sólo está disponible en Cloudflare.</p>
+    <p v-if="runtime.public.serverRuntime !== 'cloudflare'">Los presupuestos no se pueden consultar ahora mismo.</p>
     <p v-else-if="!authority">
       Necesitas una sesión propia verificada{{ audience === 'admin' ? ', MFA y permiso de administración' : '' }}.
     </p>

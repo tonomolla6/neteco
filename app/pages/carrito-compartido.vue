@@ -195,7 +195,8 @@ onBeforeUnmount(() => {
       la cuenta o al carrito original.
     </p>
     <p v-if="runtime.public.serverRuntime !== 'cloudflare'" role="status">
-      Los enlaces compartidos no están disponibles en este entorno.
+      Este enlace no se puede abrir ahora mismo. Pide a quien te lo envió las referencias o vuelve a intentarlo más
+      tarde.
     </p>
     <p v-else-if="invalid" role="alert">Enlace inválido o incompleto. Solicita un nuevo enlace a quien lo compartió.</p>
     <p v-else-if="!allowed" role="status">Espera a confirmar el estado inicial de tu sesión para continuar.</p>

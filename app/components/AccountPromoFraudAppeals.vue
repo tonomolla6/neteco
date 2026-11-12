@@ -150,7 +150,9 @@ onBeforeUnmount(() => {
       Revisamos manualmente las ventajas cuando varias señales coinciden. Nunca bloqueamos por una única señal, y puedes
       apelar la decisión.
     </p>
-    <p v-if="runtime !== 'cloudflare'" role="status">Esta función requiere el catálogo Cloudflare.</p>
+    <p v-if="runtime !== 'cloudflare'" role="status">
+      Esta gestión no está disponible ahora mismo. Si necesitas revisar una promoción, escríbenos desde Contacto.
+    </p>
     <p v-else-if="!allowed" role="status">Inicia sesión con una cuenta verificada.</p>
     <template v-else>
       <p v-if="loading" role="status">Cargando…</p>
