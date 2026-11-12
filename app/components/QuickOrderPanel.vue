@@ -12,7 +12,6 @@ import {
   type QuickOrderSuggestion,
   type QuickOrderVariant
 } from '~~/shared/quick-order'
-import { SHOP_PHONE, SHOP_PHONE_HREF } from '~~/shared/commercial-terms'
 
 /**
  * Pedido rápido por referencia: una pantalla, una tarea, tres maneras de entrar.
@@ -297,9 +296,8 @@ async function addAll() {
     >
       <template v-if="!ready">Estamos comprobando tu sesión…</template>
       <template v-else>
-        Verifica el correo de tu cuenta para usar el pedido rápido. Mientras tanto puedes buscar la referencia en el
-        buscador o llamarnos al <a :href="SHOP_PHONE_HREF" class="font-semibold underline">{{ SHOP_PHONE }}</a
-        >.
+        Verifica el correo de tu cuenta para usar el pedido rápido. Mientras tanto, busca la referencia en el buscador o
+        <ContactAction />.
       </template>
     </p>
 
@@ -560,9 +558,7 @@ async function addAll() {
 
     <p class="mt-4 text-[13px] text-[var(--text-muted)]">
       Los precios son los de hoy en el catálogo; el carrito los confirma junto con el envío. ¿No encuentras una
-      referencia? Llámanos al
-      <a :href="SHOP_PHONE_HREF" class="font-medium underline">{{ SHOP_PHONE }}</a
-      >.
+      referencia? <ContactAction capitalize link-class="font-medium underline" />.
     </p>
   </section>
 </template>

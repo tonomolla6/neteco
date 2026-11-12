@@ -9,6 +9,7 @@ useSeoMeta({
 })
 
 const route = useRoute()
+const { terms: commercialTerms, email: contactEmail, phones: contactPhones, contact } = useCommercialTerms()
 const { user } = useUserSession()
 /** «Pedir precio» llega con asunto y mensaje escritos: solo se aceptan textos, con el límite del formulario. */
 const queryText = (value: unknown, max: number) => (typeof value === 'string' ? value.slice(0, max) : '')
@@ -38,7 +39,7 @@ async function submit() {
   } catch (error) {
     errorMessage.value = apiErrorMessage(
       error,
-      'No hemos podido registrar la consulta. Puedes llamarnos al 600 861 334.'
+      `No hemos podido registrar la consulta. Puedes ${contact.value.replace(/^llámanos/, 'llamarnos').replace(/^escríbenos/, 'escribirnos')}.`
     )
   } finally {
     submitting.value = false
@@ -65,23 +66,28 @@ async function submit() {
          formulario no la elimina, solo la hace más lenta. -->
       <div class="mt-6 grid gap-3 grid-cols-1 sm:grid-cols-3">
         <a
-          href="tel:600861334"
+          v-for="phone in contactPhones"
+          :key="phone.href"
+          :href="phone.href"
           class="flex items-center gap-3 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-neteco-300"
         >
           <UIcon name="i-lucide-phone" class="size-5 shrink-0 text-neteco-700" />
           <span class="min-w-0">
-            <span class="block text-sm font-semibold text-[var(--text-strong)]">600 861 334</span>
-            <span class="block text-xs text-[var(--text-muted)]">Lunes a viernes, 9:00-18:00</span>
+            <span class="block text-sm font-semibold text-[var(--text-strong)]">{{ phone.display }}</span>
+            <span class="block text-xs text-[var(--text-muted)]">
+              {{ phone.kind === 'ai' ? 'Atención telefónica' : 'Teléfono'
+              }}<template v-if="commercialTerms.supportHours"> · {{ commercialTerms.supportHours }}</template>
+            </span>
           </span>
         </a>
         <a
-          href="mailto:administracion@neteco.es"
+          :href="`mailto:${contactEmail}`"
           class="flex items-center gap-3 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-neteco-300"
         >
           <UIcon name="i-lucide-mail" class="size-5 shrink-0 text-neteco-700" />
           <span class="min-w-0">
-            <span class="block truncate text-sm font-semibold text-[var(--text-strong)]">administracion@neteco.es</span>
-            <span class="block text-xs text-[var(--text-muted)]">Respondemos en 24 h laborables</span>
+            <span class="block truncate text-sm font-semibold text-[var(--text-strong)]">{{ contactEmail }}</span>
+            <span class="block text-xs text-[var(--text-muted)]">Correo de la tienda</span>
           </span>
         </a>
         <div

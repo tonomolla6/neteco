@@ -1148,7 +1148,8 @@ const regulated = computed(() => {
               <UIcon name="i-lucide-package-check" class="mt-0.5 size-4 shrink-0" /> {{ commercial.parcel.value.text }}
             </p>
             <p class="flex items-start gap-2">
-              <UIcon name="i-lucide-phone" class="mt-0.5 size-4 shrink-0" /> Asesoramiento: 600 861 334
+              <UIcon name="i-lucide-phone" class="mt-0.5 size-4 shrink-0" />
+              <span>Asesoramiento: <ContactAction link-class="underline" /></span>
             </p>
           </div>
         </div>
@@ -1191,7 +1192,7 @@ const regulated = computed(() => {
           v-if="regulated && !technicalDocuments.some((document) => document.role === 'sds')"
           class="mt-3 text-[15px] text-[var(--text)]"
         >
-          Pídenos la ficha de seguridad: <a href="tel:600861334" class="font-semibold underline">600 861 334</a>.
+          Pídenos la ficha de seguridad: <ContactAction />.
         </p>
 
         <div v-if="regulated" data-product-safety class="mt-4 border-t border-[var(--border)] pt-4 text-[15px]">

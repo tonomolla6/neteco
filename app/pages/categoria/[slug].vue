@@ -482,7 +482,7 @@ watch(
           <template v-else>
             <p class="mt-3 font-medium text-slate-600">Aún no hay productos en esta familia</p>
             <p class="mt-1 text-sm text-slate-500">
-              Estamos cargando el catálogo poco a poco. Llámanos si necesitas algo de aquí.
+              Aún no vendemos esta familia en la web. Si necesitas algo de aquí, <ContactAction />.
             </p>
             <UButton to="/catalogo" variant="soft" class="mt-4" icon="i-lucide-layout-grid">Ver el catálogo</UButton>
           </template>

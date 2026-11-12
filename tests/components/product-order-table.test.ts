@@ -240,7 +240,9 @@ describe('safety documents next to the purchase', () => {
   it('a regulated product without a data sheet says how to get it, in every environment', async () => {
     product = { ...base(), regulatory: { signalWord: 'Atención' } }
     const page = await pdp()
-    expect(page.get('[data-product-documents]').text()).toContain('Pídenos la ficha de seguridad: 600 861 334')
+    expect(page.get('[data-product-documents]').text()).toContain(
+      'Pídenos la ficha de seguridad: escríbenos a tienda@neteco.es'
+    )
     expect(page.text()).not.toContain('demostración')
   })
 

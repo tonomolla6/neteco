@@ -130,8 +130,8 @@ async function submitReturn() {
         </h2>
         <p class="mt-2 text-sm text-slate-600">
           Escríbenos en cuanto veas el problema. El plazo depende del producto y de las condiciones que aceptaste al
-          comprar; si tienes dudas, llámanos y lo miramos contigo. Al enviar la solicitud te damos una referencia con la
-          fecha, para que quede constancia desde el primer momento.
+          comprar; si tienes dudas, pregúntanos y lo miramos contigo. Al enviar la solicitud te damos una referencia con
+          la fecha, para que quede constancia desde el primer momento.
         </p>
       </div>
 
@@ -151,13 +151,9 @@ async function submitReturn() {
           <UIcon name="i-lucide-rotate-ccw" class="size-5 text-neteco-600" /> Cómo se hace
         </h2>
         <p class="mt-2 text-sm text-slate-600">
-          Llámanos al <a href="tel:600861334" class="font-semibold text-neteco-600 underline">600 861 334</a> o escribe
-          a
-          <a href="mailto:administracion@neteco.es" class="font-semibold text-neteco-600 underline"
-            >administracion@neteco.es</a
-          >
-          con el número de pedido. Cuando la autoricemos te diremos cómo devolverlo: si pasamos a recogerlo, si te
-          mandamos una etiqueta, o cómo tratarlo si es un producto químico.
+          <ContactAction capitalize link-class="font-semibold text-neteco-600 underline" /> con el número de pedido.
+          Cuando la autoricemos te diremos cómo devolverlo: si pasamos a recogerlo, si te mandamos una etiqueta, o cómo
+          tratarlo si es un producto químico.
         </p>
         <p class="mt-2 text-sm text-slate-600">
           El abono se hace por el mismo medio con el que pagaste, y recibirás la factura rectificativa. Mientras tanto

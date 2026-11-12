@@ -1,5 +1,4 @@
 import type { OrderReorderOffer } from '~~/shared/order-reorder'
-import { SHOP_PHONE } from '~~/shared/commercial-terms'
 
 /**
  * Tipos y utilidades compartidas del área de cliente.
@@ -146,7 +145,7 @@ export const COMPANY_STATUS: Record<string, { label: string; color: 'neutral' | 
  */
 export function companyStatusExplanation(
   status: string | null | undefined,
-  options: { bankTransfer: boolean; deferredDays: number | null }
+  options: { bankTransfer: boolean; deferredDays: number | null; contact: string }
 ): string {
   const methods = options.bankTransfer ? 'tarjeta, Bizum o transferencia' : 'tarjeta o Bizum'
   if (status === 'pending')
@@ -156,9 +155,9 @@ export function companyStatusExplanation(
         : 'las condiciones de empresa se activan'
     } al aprobarla.`
   if (status === 'rejected')
-    return `No hemos podido aprobar la cuenta de empresa con los datos enviados. Revísalos o llámanos al ${SHOP_PHONE}.`
+    return `No hemos podido aprobar la cuenta de empresa con los datos enviados. Revísalos o ${options.contact}.`
   if (status === 'suspended')
-    return `La cuenta de empresa está suspendida. Puedes seguir comprando con ${methods}; llámanos al ${SHOP_PHONE} para reactivarla.`
+    return `La cuenta de empresa está suspendida. Puedes seguir comprando con ${methods}; ${options.contact} para reactivarla.`
   return ''
 }
 

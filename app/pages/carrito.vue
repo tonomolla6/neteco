@@ -392,7 +392,7 @@ async function retryOriginalAdd() {
             </li>
             <li class="flex items-start gap-2">
               <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0" />
-              ¿Dudas antes de pedir? 600 861 334, hablas con una persona.
+              <span>¿Dudas antes de pedir? <ContactAction link-class="underline" />.</span>
             </li>
           </ul>
         </div>

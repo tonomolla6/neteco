@@ -295,7 +295,7 @@ describe('searchable published help centre', () => {
       mounted.push(wrapper)
       for (const path of ['/envios', '/formas-de-pago', '/devoluciones', '/cuenta', '/cuenta/pedidos', '/contacto'])
         expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(true)
-      expect(wrapper.find('a[href="tel:600861334"]').exists()).toBe(true)
+      expect(wrapper.find('a[href="mailto:tienda@neteco.es"]').exists()).toBe(true)
       expect(wrapper.find('support-knowledge-panel-stub').exists()).toBe(runtime === 'cloudflare')
     }
   )

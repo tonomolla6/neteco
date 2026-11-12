@@ -47,6 +47,12 @@ export interface CommercialTerms {
   companyAddress: string
   /** Hay certificados reales, con número y documento, cargados y publicables. */
   certificationsPublished: boolean
+  /** Único correo de contacto de la tienda. Sin configurar: `tienda@neteco.es`. */
+  contactEmail: string
+  /** Teléfono de contacto atendido por personas, tal como se lee. Vacío: no se muestra. */
+  contactPhone: string
+  /** Teléfono de atención con asistente automático, tal como se lee. Vacío: no se muestra. */
+  supportPhoneAi: string
 }
 
 export const COMMERCIAL_TERM_KEYS = [
@@ -66,12 +72,22 @@ export const COMMERCIAL_TERM_KEYS = [
   'ecoRangeBrand',
   'companyTaxId',
   'companyAddress',
-  'certificationsPublished'
+  'certificationsPublished',
+  'contactEmail',
+  'contactPhone',
+  'supportPhoneAi'
 ] as const satisfies ReadonlyArray<keyof CommercialTerms>
 
-export const SHOP_PHONE = '600 861 334'
-export const SHOP_PHONE_HREF = 'tel:600861334'
+export const DEFAULT_CONTACT_EMAIL = 'tienda@neteco.es'
 export const OWN_DELIVERY_ZONE = "Ontinyent y la Vall d'Albaida"
+
+const PHONE = /^\+?\d[\d ]{7,17}\d$/
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+function phone(value: unknown): string {
+  const clean = text(value, 20)
+  return PHONE.test(clean) ? clean : ''
+}
 
 function text(value: unknown, max = 160): string {
   if (typeof value !== 'string') return ''
@@ -115,7 +131,10 @@ export function parseCommercialTerms(raw: unknown): CommercialTerms {
     ecoRangeBrand: text(input.ecoRangeBrand, 40),
     companyTaxId: text(input.companyTaxId, 20),
     companyAddress: text(input.companyAddress, 160),
-    certificationsPublished: input.certificationsPublished === true || input.certificationsPublished === 'true'
+    certificationsPublished: input.certificationsPublished === true || input.certificationsPublished === 'true',
+    contactEmail: EMAIL.test(text(input.contactEmail, 120)) ? text(input.contactEmail, 120) : DEFAULT_CONTACT_EMAIL,
+    contactPhone: phone(input.contactPhone),
+    supportPhoneAi: phone(input.supportPhoneAi)
   }
 }
 
@@ -197,8 +216,39 @@ export function deferredPaymentPromise(terms: CommercialTerms): string | null {
     : `Empresas con cuenta aprobada: pago a ${terms.deferredPaymentDays} días.`
 }
 
+export interface ContactPhone {
+  kind: 'contact' | 'ai'
+  display: string
+  href: string
+}
+
+/** Teléfonos configurados, el de personas primero. Ninguno configurado: lista vacía. */
+export function contactPhones(terms: CommercialTerms): ContactPhone[] {
+  const entries: Array<[ContactPhone['kind'], string]> = [
+    ['contact', terms.contactPhone],
+    ['ai', terms.supportPhoneAi]
+  ]
+  return entries
+    .filter(([, display]) => display)
+    .map(([kind, display]) => ({ kind, display, href: `tel:${display.replace(/[^\d+]/g, '')}` }))
+}
+
+export function primaryContactPhone(terms: CommercialTerms): ContactPhone | null {
+  return contactPhones(terms)[0] ?? null
+}
+
+/** «llámanos al …» si hay teléfono; si no, «escríbenos a …». Para completar una frase. */
+export function contactAction(terms: CommercialTerms): string {
+  const phone = primaryContactPhone(terms)
+  return phone ? `llámanos al ${phone.display}` : `escríbenos a ${terms.contactEmail}`
+}
+
+/** «Te atiende una persona» solo con el teléfono atendido por personas. */
 export function supportPromise(terms: CommercialTerms): string {
-  return `Te atiende una persona: ${SHOP_PHONE}${terms.supportHours ? `, ${terms.supportHours}` : ''}.`
+  const hours = terms.supportHours ? `, ${terms.supportHours}` : ''
+  if (terms.contactPhone) return `Te atiende una persona: ${terms.contactPhone}${hours}.`
+  if (terms.supportPhoneAi) return `Llámanos al ${terms.supportPhoneAi}${hours} o escríbenos a ${terms.contactEmail}.`
+  return `Escríbenos a ${terms.contactEmail}.`
 }
 
 /**

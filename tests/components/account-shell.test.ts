@@ -73,13 +73,37 @@ describe('lists naming and route', () => {
 
 describe('company account under review', () => {
   it('says what is being checked and what the customer can do meanwhile, without inventing terms', () => {
-    expect(companyStatusExplanation('pending', { bankTransfer: false, deferredDays: null })).toBe(
+    expect(
+      companyStatusExplanation('pending', {
+        bankTransfer: false,
+        deferredDays: null,
+        contact: 'escríbenos a tienda@neteco.es'
+      })
+    ).toBe(
       'Estamos comprobando los datos de tu empresa. Mientras tanto puedes comprar con tarjeta o Bizum; las condiciones de empresa se activan al aprobarla.'
     )
-    expect(companyStatusExplanation('pending', { bankTransfer: true, deferredDays: 30 })).toBe(
+    expect(
+      companyStatusExplanation('pending', {
+        bankTransfer: true,
+        deferredDays: 30,
+        contact: 'escríbenos a tienda@neteco.es'
+      })
+    ).toBe(
       'Estamos comprobando los datos de tu empresa. Mientras tanto puedes comprar con tarjeta, Bizum o transferencia; la tarifa de empresa y el pago a 30 días se activan al aprobarla.'
     )
-    expect(companyStatusExplanation('rejected', { bankTransfer: false, deferredDays: null })).toContain('600 861 334')
-    expect(companyStatusExplanation('approved', { bankTransfer: false, deferredDays: null })).toBe('')
+    expect(
+      companyStatusExplanation('rejected', {
+        bankTransfer: false,
+        deferredDays: null,
+        contact: 'escríbenos a tienda@neteco.es'
+      })
+    ).toContain('Revísalos o escríbenos a tienda@neteco.es.')
+    expect(
+      companyStatusExplanation('approved', {
+        bankTransfer: false,
+        deferredDays: null,
+        contact: 'escríbenos a tienda@neteco.es'
+      })
+    ).toBe('')
   })
 })

@@ -27,6 +27,7 @@ export interface CartShippingRate {
 export function useCartShippingEstimate() {
   const cart = useCartStore()
   const runtime = useRuntimeConfig()
+  const { contact } = useCommercialTerms()
   const memory = useDeliveryDestination()
   const available = computed(() => runtime.public.serverRuntime === 'cloudflare')
   const destination = memory.destination
@@ -58,7 +59,7 @@ export function useCartShippingEstimate() {
       if (current !== request) return
       if (!quote.rates.length) {
         rates.value = []
-        error.value = 'No tenemos un envío disponible para ese código postal. Llámanos al 600 861 334.'
+        error.value = `No tenemos un envío disponible para ese código postal. Para pedirlo, ${contact.value}.`
         return
       }
       rates.value = quote.rates

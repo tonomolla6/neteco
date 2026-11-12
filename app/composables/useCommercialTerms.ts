@@ -1,5 +1,8 @@
 import {
   commercialPromises,
+  contactAction,
+  contactPhones,
+  primaryContactPhone,
   deferredPaymentPromise,
   ownDeliveryPromise,
   parcelPromise,
@@ -27,6 +30,14 @@ export function useCommercialTerms() {
     ownDelivery: computed(() => ownDeliveryPromise(terms.value)),
     parcel: computed(() => parcelPromise(terms.value)),
     deferredPayment: computed(() => deferredPaymentPromise(terms.value)),
-    support: computed(() => supportPromise(terms.value))
+    support: computed(() => supportPromise(terms.value)),
+    /** Único correo de contacto. */
+    email: computed(() => terms.value.contactEmail),
+    /** Teléfonos configurados (puede estar vacío: entonces no se pinta ninguno). */
+    phones: computed(() => contactPhones(terms.value)),
+    /** El teléfono que se ofrece en una frase («llámanos al …»), o `null`. */
+    phone: computed(() => primaryContactPhone(terms.value)),
+    /** «llámanos al …» o «escríbenos a …», para cerrar un mensaje de error o de ayuda. */
+    contact: computed(() => contactAction(terms.value))
   }
 }

@@ -13,6 +13,7 @@ useSeoMeta({ title: 'Tramitar pedido', robots: 'noindex, nofollow' })
 
 const cart = useCartStore()
 const runtime = useRuntimeConfig()
+const { contact, phone: contactPhone, email: contactEmail, terms: commercialTerms } = useCommercialTerms()
 const { net: showNetPrices } = usePriceDisplay()
 const { ready, loggedIn, user, session } = useUserSession()
 const toast = useToast()
@@ -723,15 +724,13 @@ async function recoverSubmittedOrder() {
   try {
     const recovery = await $fetch<{ orderId: string | null }>('/api/checkout/recover')
     if (!recovery.orderId) {
-      errorMsg.value =
-        'No se ha confirmado si se creó el pedido. No enviaremos otro. Vuelve a comprobarlo o llámanos al 600 861 334.'
+      errorMsg.value = `No se ha confirmado si se creó el pedido. No enviaremos otro. Vuelve a comprobarlo o ${contact.value}.`
       return
     }
     cart.resetLocal()
     await navigateTo(`/pedido/${recovery.orderId}`, { replace: true })
   } catch {
-    errorMsg.value =
-      'No hemos podido comprobar si se creó el pedido. No enviaremos otro. Vuelve a comprobarlo o llámanos al 600 861 334.'
+    errorMsg.value = `No hemos podido comprobar si se creó el pedido. No enviaremos otro. Vuelve a comprobarlo o ${contact.value}.`
   } finally {
     checkingOrder.value = false
   }
@@ -1282,10 +1281,7 @@ async function submit() {
                 ? 'El total a pagar debe ser mayor que cero. Quita o ajusta el cupón antes de continuar.'
                 : uncertainOrder.value
                   ? 'No hemos podido confirmar si se creó el pedido. Comprueba el pedido antes de volver a pagar; conservamos el intento original.'
-                  : apiErrorMessage(
-                      error,
-                      'No se ha podido crear el pedido. Vuelve a intentarlo o llámanos al 600 861 334.'
-                    )
+                  : apiErrorMessage(error, `No se ha podido crear el pedido. Vuelve a intentarlo o ${contact.value}.`)
     scrollTo('checkout-alert', 'center')
   } finally {
     submitting.value = false
@@ -2058,8 +2054,14 @@ async function finish(order: { id: string; token?: string }) {
               Recibirás la factura por email. Para factura de empresa, indica razón social y NIF.
             </li>
             <li class="flex items-start gap-2">
-              <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0 text-neteco-600" />
-              600 861 334 · atención directa de lunes a viernes.
+              <UIcon
+                :name="contactPhone ? 'i-lucide-phone' : 'i-lucide-mail'"
+                class="mt-px size-4 shrink-0 text-neteco-600"
+              />
+              {{ contactPhone ? contactPhone.display : contactEmail
+              }}<template v-if="contactPhone && commercialTerms.supportHours">
+                · {{ commercialTerms.supportHours }}</template
+              >
             </li>
           </ul>
         </aside>

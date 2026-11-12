@@ -325,7 +325,8 @@ const commercial = useCommercialTerms()
 const companyExplanation = computed(() =>
   companyStatusExplanation(accountData.value?.profile.companyStatus, {
     bankTransfer: useRuntimeConfig().public.bankTransferEnabled === true,
-    deferredDays: commercial.terms.value.deferredPaymentDays
+    deferredDays: commercial.terms.value.deferredPaymentDays,
+    contact: commercial.contact.value
   })
 )
 

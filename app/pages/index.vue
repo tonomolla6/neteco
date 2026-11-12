@@ -122,7 +122,7 @@ const visibleFamilyRows = computed(() => {
  * Garantías bajo el hero. Salen de las condiciones comerciales configuradas: cada una
  * afirma un hecho y, si el negocio no ha fijado el dato, no se publica.
  */
-const { promises, terms: commercialTerms } = useCommercialTerms()
+const { promises, terms: commercialTerms, phone: contactPhone, email: contactEmail } = useCommercialTerms()
 
 /**
  * Quien vuelve con sesión y pedidos ve primero su recompra; el titular de venta es para
@@ -436,11 +436,19 @@ const ecoRangeAvailable = computed(() => families.value.some((family) => family.
           </div>
           <div>
             <UIcon name="i-lucide-phone" class="size-6 text-neteco-700" />
-            <h3 class="mt-3 font-semibold text-[var(--text-strong)]">Llámanos y te lo preparamos</h3>
+            <h3 class="mt-3 font-semibold text-[var(--text-strong)]">
+              {{ contactPhone ? 'Llámanos y te lo preparamos' : 'Escríbenos y te lo preparamos' }}
+            </h3>
             <p class="mt-1 text-sm text-[var(--text-muted)]">
-              De lunes a viernes. Te asesoramos con el producto y la dosificación si hace falta.
+              <template v-if="commercialTerms.supportHours">{{ commercialTerms.supportHours }}. </template>Te asesoramos
+              con el producto y la dosificación si hace falta.
             </p>
-            <UButton class="mt-3" size="sm" to="tel:600861334" icon="i-lucide-phone">600 861 334</UButton>
+            <UButton v-if="contactPhone" class="mt-3" size="sm" :to="contactPhone.href" icon="i-lucide-phone">{{
+              contactPhone.display
+            }}</UButton>
+            <UButton v-else class="mt-3" size="sm" :to="`mailto:${contactEmail}`" icon="i-lucide-mail">{{
+              contactEmail
+            }}</UButton>
           </div>
         </div>
       </div>

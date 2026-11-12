@@ -13,6 +13,7 @@ import { ogImageForPath } from '~/utils/og-image'
 // se evitan en cada componente con estados `disabled`/`loading`, no ocultando la página.
 const route = useRoute()
 const runtime = useRuntimeConfig()
+const { email: contactEmail, phone: contactPhone } = useCommercialTerms()
 const demo = computed(() => runtime.public.demoEnabled === true && runtime.public.serverRuntime === 'cloudflare')
 const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
 const canonicalUrl = computed(() => `${origin}${canonicalPath(route.path, route.query)}`)
@@ -86,7 +87,8 @@ useHead(() => ({
         logo: `${origin}/logo-figura.svg`,
         contactPoint: {
           '@type': 'ContactPoint',
-          telephone: '+34 600 861 334',
+          ...(contactPhone.value ? { telephone: contactPhone.value.display } : {}),
+          email: contactEmail.value,
           contactType: 'customer service',
           availableLanguage: ['es']
         }

@@ -13,7 +13,7 @@ useSeoMeta({
  * saber cuándo le llega el pedido no habla así. Los hechos son los mismos; cambia quién es
  * el sujeto de la frase.
  */
-const { terms } = useCommercialTerms()
+const { terms, email: contactEmail } = useCommercialTerms()
 /**
  * Zona, plazo y coste con el dato del negocio cuando existe. Sin dato, la celda dice dónde
  * lo verá el cliente (al indicar el código postal, antes de pagar) o a quién preguntar.
@@ -46,7 +46,7 @@ const methods = computed(() => {
       zone: 'Ontinyent y la Vall d’Albaida',
       time: t.ownDeliveryDays
         ? `${capitalize(t.ownDeliveryDays)}${t.orderCutoffTime ? `. Pide antes de las ${t.orderCutoffTime}` : ''}`
-        : 'Llámanos y te decimos el próximo día de ruta',
+        : `${t.contactPhone || t.supportPhoneAi ? 'Llámanos' : 'Escríbenos'} y te decimos el próximo día de ruta`,
       cost: ownCost ? capitalize(ownCost) : 'Lo ves antes de pagar, al indicar tu código postal',
       note: `${
         t.ownDeliveryMinimumOrderCents !== null
@@ -121,10 +121,16 @@ function capitalize(value: string) {
         <UIcon name="i-lucide-phone" class="size-5 text-neteco-600" /> ¿Dudas con tu entrega?
       </h2>
       <p class="mt-2 text-sm text-neteco-800">
-        Llámanos al <a href="tel:600861334" class="font-semibold underline">600 861 334</a
-        ><template v-if="terms.supportHours"> ({{ terms.supportHours }})</template> o escribe a
-        <a href="mailto:administracion@neteco.es" class="font-semibold underline">administracion@neteco.es</a>. Hablas
-        con personas que conocen tu pedido.
+        <template v-if="terms.contactPhone">
+          Llámanos al
+          <a :href="`tel:${terms.contactPhone.replace(/[^\d+]/g, '')}`" class="font-semibold underline">{{
+            terms.contactPhone
+          }}</a
+          ><template v-if="terms.supportHours"> ({{ terms.supportHours }})</template> o escribe a
+        </template>
+        <template v-else>Escríbenos a</template>
+        <a :href="`mailto:${contactEmail}`" class="font-semibold underline">{{ contactEmail }}</a
+        >. Te responde quien conoce tu pedido.
       </p>
     </div>
 

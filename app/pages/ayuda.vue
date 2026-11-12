@@ -68,9 +68,8 @@ useHead(() => ({
   <div class="mx-auto max-w-5xl px-4 py-10">
     <h1 class="text-3xl font-bold text-slate-950">Centro de ayuda</h1>
     <p class="mt-2 max-w-2xl text-slate-600">
-      Lo que más nos preguntáis. Si no encuentras tu caso, llámanos al
-      <a href="tel:600861334" class="font-medium text-neteco-700 hover:underline">600 861 334</a>: hablas con una
-      persona que conoce tu pedido.
+      Lo que más nos preguntáis. Si no encuentras tu caso,
+      <ContactAction link-class="font-medium text-neteco-700 hover:underline" />.
     </p>
     <SupportKnowledgePanel v-if="runtime === 'cloudflare'" :runtime="runtime" class="mt-8" />
     <SupportFaqAssistant v-if="runtime === 'cloudflare'" class="mt-8" />

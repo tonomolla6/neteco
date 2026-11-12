@@ -29,7 +29,7 @@ async function subscribeNewsletter() {
   }
 }
 
-const { terms } = useCommercialTerms()
+const { terms, email: contactEmail, phones: contactPhones } = useCommercialTerms()
 /**
  * En móvil el pie medía más que muchas páginas. Los tres grupos de enlaces se pliegan tras
  * su título; desde `sm` están siempre abiertos y el botón deja de serlo a efectos visuales.
@@ -138,19 +138,14 @@ function configureCookies() {
           <li class="flex items-center gap-2">
             <UIcon name="i-lucide-map-pin" class="size-4 text-slate-400" /> Ontinyent, Valencia
           </li>
-          <li>
-            <a href="tel:600861334" class="flex items-center gap-2 hover:text-white"
-              ><UIcon name="i-lucide-phone" class="size-4 text-slate-400" /> 600 861 334</a
+          <li v-for="phone in contactPhones" :key="phone.href">
+            <a :href="phone.href" class="flex items-center gap-2 hover:text-white"
+              ><UIcon name="i-lucide-phone" class="size-4 text-slate-400" /> {{ phone.display }}</a
             >
           </li>
           <li>
-            <a href="tel:637442546" class="flex items-center gap-2 hover:text-white"
-              ><UIcon name="i-lucide-phone" class="size-4 text-slate-400" /> 637 442 546</a
-            >
-          </li>
-          <li>
-            <a href="mailto:administracion@neteco.es" class="flex items-center gap-2 hover:text-white"
-              ><UIcon name="i-lucide-mail" class="size-4 text-slate-400" /> administracion@neteco.es</a
+            <a :href="`mailto:${contactEmail}`" class="flex items-center gap-2 hover:text-white"
+              ><UIcon name="i-lucide-mail" class="size-4 text-slate-400" /> {{ contactEmail }}</a
             >
           </li>
           <li v-if="terms.supportHours" class="flex items-start gap-2">

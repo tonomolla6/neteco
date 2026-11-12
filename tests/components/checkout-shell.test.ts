@@ -102,11 +102,34 @@ afterEach(() => {
 })
 
 describe('checkout shell', () => {
+  it('shows the configured contact phone instead of the email', async () => {
+    const original = runtimeMock.getMockImplementation()!
+    runtimeMock.mockImplementation(() => ({
+      app: { baseURL: '/', buildAssetsDir: '/_nuxt/', cdnURL: '' },
+      public: {
+        freeShippingThresholdCents: 0,
+        priceDisplayMode: 'gross',
+        serverRuntime: 'node',
+        commercial: { contactPhone: '960 111 222' },
+        legalTermsUrl: 'https://neteco.es/legal'
+      }
+    }))
+    try {
+      const layout = await mountSuspended(CheckoutLayout, { slots: { default: '<p>contenido</p>' } })
+      expect(layout.get('a[href="tel:960111222"]').text()).toContain('960 111 222')
+      layout.unmount()
+    } finally {
+      runtimeMock.mockImplementation(original)
+    }
+  })
+
   it('uses a reduced layout: way back to the cart, secure payment and the phone, nothing else to leave by', async () => {
     const layout = await mountSuspended(CheckoutLayout, { slots: { default: '<p>contenido</p>' } })
     expect(layout.get('a[href="/carrito"]').attributes('aria-label')).toContain('Volver al carrito')
     expect(layout.text()).toContain('Pago seguro')
-    expect(layout.get('a[href="tel:600861334"]').text()).toContain('600 861 334')
+    // Sin teléfono configurado no se pinta ninguno: queda el correo único de la tienda.
+    expect(layout.find('a[href^="tel:"]').exists()).toBe(false)
+    expect(layout.get('a[href="mailto:tienda@neteco.es"]').text()).toContain('tienda@neteco.es')
     expect(layout.find('a[href="/catalogo"]').exists()).toBe(false)
     expect(layout.find('a[href^="/categoria"]').exists()).toBe(false)
     expect(layout.find('input[type="email"]').exists()).toBe(false)

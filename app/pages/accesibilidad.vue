@@ -19,9 +19,9 @@ useSeoMeta({ title: 'Accesibilidad', description: 'Estado de accesibilidad y can
     <h2 class="mt-8 text-xl font-bold text-slate-900">Comunicar una barrera</h2>
     <p class="mt-2 text-slate-700">
       Indica la URL, tarea, navegador y tecnología de asistencia mediante el
-      <NuxtLink to="/contacto" class="font-semibold text-neteco-700 underline">formulario de soporte</NuxtLink> o llama
-      al <a href="tel:600861334" class="font-semibold text-neteco-700 underline">600 861 334</a>. La incidencia recibe
-      referencia y SLA igual que el resto de soporte.
+      <NuxtLink to="/contacto" class="font-semibold text-neteco-700 underline">formulario de soporte</NuxtLink> o
+      <ContactAction link-class="font-semibold text-neteco-700 underline" />. La incidencia recibe referencia y SLA
+      igual que el resto de soporte.
     </p>
     <p class="mt-8 text-sm text-slate-500">Última revisión interna de esta declaración: 13 de agosto de 2026.</p>
   </div>

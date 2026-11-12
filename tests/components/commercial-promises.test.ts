@@ -51,7 +51,7 @@ describe('commercial promises on the shop', () => {
     const strip = wrapper.get('[data-commercial-promises]')
     expect(strip.findAll('a')).toHaveLength(3)
     expect(strip.text()).toContain("En Ontinyent y la Vall d'Albaida te lo llevamos nosotros.")
-    expect(strip.text()).toContain('Te atiende una persona: 600 861 334.')
+    expect(strip.text()).toContain('Escríbenos a tienda@neteco.es.')
     expect(strip.text()).not.toMatch(/Pide antes|Gratis desde|días/)
     expect(wrapper.text()).not.toContain('NETTION')
   })
@@ -69,7 +69,7 @@ describe('commercial promises on the shop', () => {
 
   it('shipping page: no invented figures by default, real ones when configured', async () => {
     let wrapper = await mountSuspended(ShippingPage)
-    expect(wrapper.text()).toContain('Llámanos y te decimos el próximo día de ruta')
+    expect(wrapper.text()).toContain('Escríbenos y te decimos el próximo día de ruta')
     expect(wrapper.text()).toContain('Lo ves antes de pagar, al indicar tu código postal')
     expect(wrapper.text()).not.toMatch(/09:00|24-48|150 €/)
 
@@ -78,7 +78,8 @@ describe('commercial promises on the shop', () => {
       orderCutoffTime: '13:00',
       ownDeliveryCostCents: '0',
       parcelLeadTime: '24-48 h',
-      supportHours: 'de lunes a viernes de 9:00 a 18:00'
+      supportHours: 'de lunes a viernes de 9:00 a 18:00',
+      contactPhone: '960 111 222'
     }
     commercial.threshold = 15000
     wrapper = await mountSuspended(ShippingPage)
@@ -86,5 +87,6 @@ describe('commercial promises on the shop', () => {
     expect(wrapper.text()).toContain('24-48 h')
     expect(wrapper.text()).toContain('Gratis desde 150 € en paquetería estándar')
     expect(wrapper.text()).toContain('(de lunes a viernes de 9:00 a 18:00)')
+    expect(wrapper.find('a[href="tel:960111222"]').exists()).toBe(true)
   })
 })

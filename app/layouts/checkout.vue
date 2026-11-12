@@ -5,6 +5,7 @@
  * de pago seguro y el teléfono, que es lo que alguien busca cuando duda antes de pagar.
  */
 const runtime = useRuntimeConfig()
+const { phone: contactPhone, email: contactEmail } = useCommercialTerms()
 </script>
 
 <template>
@@ -25,10 +26,19 @@ const runtime = useRuntimeConfig()
           <UIcon name="i-lucide-lock" class="size-4 text-[var(--text-muted)]" /> Pago seguro
         </p>
         <a
-          href="tel:600861334"
+          v-if="contactPhone"
+          :href="contactPhone.href"
           class="flex min-h-11 items-center gap-1.5 text-[15px] font-medium text-[var(--text-strong)] hover:underline"
         >
-          <UIcon name="i-lucide-phone" class="size-4 text-[var(--text-muted)]" /> 600 861 334
+          <UIcon name="i-lucide-phone" class="size-4 text-[var(--text-muted)]" /> {{ contactPhone.display }}
+        </a>
+        <a
+          v-else
+          :href="`mailto:${contactEmail}`"
+          class="flex min-h-11 min-w-0 items-center gap-1.5 text-[15px] font-medium text-[var(--text-strong)] hover:underline"
+        >
+          <UIcon name="i-lucide-mail" class="size-4 shrink-0 text-[var(--text-muted)]" />
+          <span class="truncate">{{ contactEmail }}</span>
         </a>
       </div>
     </header>

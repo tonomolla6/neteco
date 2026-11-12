@@ -4,7 +4,7 @@ import type { CategoryResponse } from '~~/shared/types/catalog'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 
 const cart = useCartStore()
-const { terms: commercialTerms } = useCommercialTerms()
+const { terms: commercialTerms, email: contactEmail, phone: contactPhone } = useCommercialTerms()
 const { loggedIn, user, clear } = useUserSession()
 const adminNavigation = useAdminNavigation()
 const panelEntry = computed(() =>
@@ -64,11 +64,15 @@ async function logout() {
     <div class="bg-neteco-800 text-white">
       <div class="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-1.5 text-xs">
         <div class="flex shrink-0 items-center gap-4">
-          <a href="tel:600861334" class="flex items-center gap-1.5 hover:text-neteco-200">
-            <UIcon name="i-lucide-phone" class="size-3.5" /> 600 861 334
+          <a v-if="contactPhone" :href="contactPhone.href" class="flex items-center gap-1.5 hover:text-neteco-200">
+            <UIcon name="i-lucide-phone" class="size-3.5" /> {{ contactPhone.display }}
           </a>
-          <a href="mailto:administracion@neteco.es" class="hidden items-center gap-1.5 hover:text-neteco-200 sm:flex">
-            <UIcon name="i-lucide-mail" class="size-3.5" /> administracion@neteco.es
+          <a
+            :href="`mailto:${contactEmail}`"
+            class="items-center gap-1.5 hover:text-neteco-200"
+            :class="contactPhone ? 'hidden sm:flex' : 'flex'"
+          >
+            <UIcon name="i-lucide-mail" class="size-3.5" /> {{ contactEmail }}
           </a>
         </div>
         <NuxtLink
@@ -362,11 +366,11 @@ async function logout() {
             </div>
           </nav>
           <div class="border-t border-slate-100 p-4 text-sm text-slate-500">
-            <a href="tel:600861334" class="flex items-center gap-2 py-1"
-              ><UIcon name="i-lucide-phone" class="size-4" /> 600 861 334</a
+            <a v-if="contactPhone" :href="contactPhone.href" class="flex items-center gap-2 py-1"
+              ><UIcon name="i-lucide-phone" class="size-4" /> {{ contactPhone.display }}</a
             >
-            <a href="mailto:administracion@neteco.es" class="flex items-center gap-2 py-1"
-              ><UIcon name="i-lucide-mail" class="size-4" /> administracion@neteco.es</a
+            <a :href="`mailto:${contactEmail}`" class="flex items-center gap-2 py-1"
+              ><UIcon name="i-lucide-mail" class="size-4" /> {{ contactEmail }}</a
             >
           </div>
         </div>

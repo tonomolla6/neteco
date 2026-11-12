@@ -171,7 +171,12 @@ export default defineNuxtConfig({
         ecoRangeBrand: process.env.COMMERCIAL_ECO_RANGE_BRAND || '',
         companyTaxId: process.env.COMMERCIAL_COMPANY_TAX_ID || '',
         companyAddress: process.env.COMMERCIAL_COMPANY_ADDRESS || '',
-        certificationsPublished: process.env.COMMERCIAL_CERTIFICATIONS_PUBLISHED || ''
+        certificationsPublished: process.env.COMMERCIAL_CERTIFICATIONS_PUBLISHED || '',
+        // Contacto único de la tienda. El correo por defecto es tienda@neteco.es; los teléfonos
+        // empiezan vacíos y, vacíos, no se muestran en ninguna pantalla.
+        contactEmail: process.env.COMMERCIAL_CONTACT_EMAIL || '',
+        contactPhone: process.env.COMMERCIAL_CONTACT_PHONE || '',
+        supportPhoneAi: process.env.COMMERCIAL_SUPPORT_PHONE_AI || ''
       }
     }
   },

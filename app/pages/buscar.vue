@@ -265,8 +265,8 @@ watch(
          con los que la gente pide de verdad por teléfono. -->
     <div v-if="!q" class="mt-8 max-w-2xl">
       <p class="text-[var(--text-muted)]">
-        Escribe el nombre del producto o la referencia del albarán. Si no lo encuentras, llámanos al
-        <a href="tel:600861334" class="font-medium text-neteco-700 hover:underline">600 861 334</a> y te lo buscamos.
+        Escribe el nombre del producto o la referencia del albarán. Si no lo encuentras,
+        <ContactAction link-class="font-medium text-neteco-700 hover:underline" /> y te lo buscamos.
       </p>
       <p class="mt-6 text-sm font-semibold text-[var(--text-strong)]">Búsquedas frecuentes</p>
       <div class="mt-3 flex flex-wrap gap-2">

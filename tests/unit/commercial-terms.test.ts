@@ -7,7 +7,10 @@ import {
   deferredPaymentPromise,
   ownDeliveryPromise,
   parcelPromise,
-  parseCommercialTerms
+  contactAction,
+  contactPhones,
+  parseCommercialTerms,
+  primaryContactPhone
 } from '../../shared/commercial-terms'
 
 function sources(dir: string): string[] {
@@ -38,7 +41,10 @@ describe('commercial terms: a single configurable source', () => {
       ecoRangeBrand: '',
       companyTaxId: '',
       companyAddress: '',
-      certificationsPublished: false
+      certificationsPublished: false,
+      contactEmail: 'tienda@neteco.es',
+      contactPhone: '',
+      supportPhoneAi: ''
     })
     expect(Object.keys(terms).sort()).toEqual([...COMMERCIAL_TERM_KEYS].sort())
   })
@@ -131,14 +137,15 @@ describe('commercial promises: concrete only when configured', () => {
   it('the home strip shows three or four items, never an orphan fifth', () => {
     const empty = commercialPromises(parseCommercialTerms({}), { bankTransfer: false })
     expect(empty.map((item) => item.key)).toEqual(['own-delivery', 'support', 'payment'])
-    expect(empty.find((item) => item.key === 'support')?.text).toBe('Te atiende una persona: 600 861 334.')
+    expect(empty.find((item) => item.key === 'support')?.text).toBe('Escríbenos a tienda@neteco.es.')
     expect(empty.find((item) => item.key === 'payment')?.text).toBe('Tarjeta o Bizum.')
 
     const full = commercialPromises(
       parseCommercialTerms({
         parcelFreeFromCents: 15000,
         supportHours: 'de lunes a viernes de 9:00 a 18:00',
-        deferredPaymentDays: 30
+        deferredPaymentDays: 30,
+        contactPhone: '600 861 334'
       }),
       { bankTransfer: true }
     )
@@ -149,6 +156,47 @@ describe('commercial promises: concrete only when configured', () => {
     expect(full.find((item) => item.key === 'payment')?.text).toBe(
       'Tarjeta, Bizum o transferencia. Empresas con cuenta aprobada: pago a 30 días.'
     )
+  })
+})
+
+describe('contact channels: one configurable email and phones', () => {
+  it('uses tienda@neteco.es unless a valid address is configured', () => {
+    expect(parseCommercialTerms({}).contactEmail).toBe('tienda@neteco.es')
+    expect(parseCommercialTerms({ contactEmail: 'no es un correo' }).contactEmail).toBe('tienda@neteco.es')
+    expect(parseCommercialTerms({ contactEmail: ' pedidos@neteco.es ' }).contactEmail).toBe('pedidos@neteco.es')
+  })
+
+  it('shows no phone when none is configured, and a tel: link for each configured one', () => {
+    expect(contactPhones(parseCommercialTerms({}))).toEqual([])
+    expect(primaryContactPhone(parseCommercialTerms({}))).toBeNull()
+    expect(parseCommercialTerms({ contactPhone: 'llámanos' }).contactPhone).toBe('')
+    const terms = parseCommercialTerms({ contactPhone: '600 861 334', supportPhoneAi: '+34 960 000 000' })
+    expect(contactPhones(terms)).toEqual([
+      { kind: 'contact', display: '600 861 334', href: 'tel:600861334' },
+      { kind: 'ai', display: '+34 960 000 000', href: 'tel:+34960000000' }
+    ])
+    expect(primaryContactPhone(parseCommercialTerms({ supportPhoneAi: '960 000 000' }))?.href).toBe('tel:960000000')
+  })
+
+  it('says how to reach the shop with whatever channel exists', () => {
+    expect(contactAction(parseCommercialTerms({}))).toBe('escríbenos a tienda@neteco.es')
+    expect(contactAction(parseCommercialTerms({ contactPhone: '600 861 334' }))).toBe('llámanos al 600 861 334')
+  })
+
+  it('only promises a person on the phone for the contact number, not for the AI line', () => {
+    const ai = commercialPromises(parseCommercialTerms({ supportPhoneAi: '960 000 000' }), { bankTransfer: false })
+    expect(ai.find((item) => item.key === 'support')?.text).toBe(
+      'Llámanos al 960 000 000 o escríbenos a tienda@neteco.es.'
+    )
+  })
+
+  it('no contact literal is scattered through app/: everything comes from the configuration', () => {
+    const offenders = sources('app').filter((file) =>
+      /administracion@neteco\.es|tienda@neteco\.es|600 ?861 ?334|600861334|637 ?442 ?546|637442546/.test(
+        readFileSync(file, 'utf8')
+      )
+    )
+    expect(offenders).toEqual([])
   })
 })
 

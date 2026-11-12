@@ -12,7 +12,7 @@ it('explains operational estimates without hardcoded delivery-hour promises and 
   wrapper = await mountSuspended(Page, { global: { stubs: { UIcon: true, UButton: true } } })
   expect(wrapper.text()).not.toMatch(/24\s*[-–]\s*48\s*h|48\s+y\s+72\s*h/)
   expect(wrapper.text()).toContain('Lo ves al elegir el envío en el pedido')
-  expect(wrapper.text()).toContain('Llámanos y te decimos el próximo día de ruta')
+  expect(wrapper.text()).toContain('Escríbenos y te decimos el próximo día de ruta')
   expect(wrapper.text()).toContain('Lo recoges tú')
   expect(wrapper.text()).toContain('número de pedido')
 })
