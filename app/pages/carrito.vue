@@ -14,6 +14,41 @@ const runtime = useRuntimeConfig()
 const { net: showNetPrices } = usePriceDisplay()
 
 const tax = computed(() => cart.tax)
+const shipping = useCartShippingEstimate()
+const destinationForm = reactive({ postalCode: '', city: '' })
+const editingDestination = ref(false)
+const destinationError = ref('')
+function editDestination() {
+  destinationForm.postalCode = shipping.destination.value?.postalCode ?? ''
+  destinationForm.city = shipping.destination.value?.city ?? ''
+  editingDestination.value = true
+}
+async function submitDestination() {
+  destinationError.value = ''
+  const target = { postalCode: destinationForm.postalCode.trim(), city: destinationForm.city.trim() }
+  if (!/^\d{5}$/.test(target.postalCode) || target.city.length < 2) {
+    destinationError.value = 'Indica un código postal de cinco cifras y la población.'
+    return
+  }
+  await shipping.calculate(target)
+  if (shipping.rate.value) editingDestination.value = false
+}
+/** Total a pagar con lo que se sabe: con envío si hay estimación vigente, sin él si no. */
+const totalWithShipping = computed(() =>
+  shipping.rate.value && !shipping.stale.value ? shipping.rate.value.totalGrossCents : cart.subtotal
+)
+
+/** El siguiente tramo de volumen que la línea puede alcanzar, dicho como ganancia concreta. */
+function nextTier(item: (typeof cart.items)[number]) {
+  const tier = [...(item.priceTiers ?? [])]
+    .sort((left, right) => left.minimumQuantity - right.minimumQuantity)
+    .find((candidate) => candidate.minimumQuantity > item.qty && candidate.unitGrossCents < item.price)
+  if (!tier) return null
+  const unit = showNetPrices.value
+    ? Math.round((tier.unitGrossCents * 10000) / (10000 + (item.taxRateBasisPoints ?? 2100)))
+    : tier.unitGrossCents
+  return { more: tier.minimumQuantity - item.qty, unit }
+}
 const lineErrors = reactive<Record<number, string>>({})
 
 // The shared threshold is informational; only a shipping quote confirms eligibility.
@@ -101,24 +136,14 @@ async function retryOriginalAdd() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-[1600px] px-4 py-8">
+  <div class="mx-auto max-w-[1600px] px-4 py-8 pb-28 lg:pb-8">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Tu carrito</h1>
-    <ClientOnly>
-      <CartRecoverySection stage="cart" />
-      <CartSnapshotsPanel v-if="runtime.public.serverRuntime === 'cloudflare'" />
-    </ClientOnly>
-
-    <PublishedProductRelations
-      v-if="runtime.public.serverRuntime === 'cloudflare' && cartReadable"
-      :product-slugs="cart.items.map((item) => item.slug)"
-      class="mt-6"
-    />
 
     <ClientOnly>
       <section
         v-if="cart.addRecoveryMessage || cart.checkingAddJournal"
         role="alert"
-        class="mt-6 rounded-xl border border-amber-300 bg-amber-50 p-4"
+        class="mt-6 rounded-[var(--radius-surface)] border border-amber-300 bg-amber-50 p-4"
       >
         <p>
           {{
@@ -144,12 +169,14 @@ async function retryOriginalAdd() {
       </section>
       <CartReadFeedback v-if="!cartReadable" :loading="cartReadLoading" @retry="retryCartRead" />
       <div v-else-if="cart.items.length" class="mt-6 grid gap-8 grid-cols-1 lg:grid-cols-3">
-        <!-- líneas -->
+        <!-- líneas: lo primero tras el título es añadir por referencia y las propias líneas -->
         <div class="space-y-3 lg:col-span-2">
+          <CartAddByReference />
           <div
             v-for="item in cart.items"
             :key="item.variantId"
-            class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-slate-200 bg-white p-4"
+            data-cart-line
+            class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] p-4"
           >
             <NuxtLink
               :to="`/producto/${item.slug}?sku=${item.sku}`"
@@ -162,12 +189,17 @@ async function retryOriginalAdd() {
             <div class="min-w-0 flex-1 basis-40">
               <NuxtLink
                 :to="`/producto/${item.slug}?sku=${item.sku}`"
-                class="line-clamp-2 text-sm font-medium text-slate-800 hover:text-neteco-700"
+                class="line-clamp-2 text-[15px] font-semibold text-[var(--text-strong)] hover:underline"
               >
                 {{ item.name }}
               </NuxtLink>
-              <p class="mt-0.5 text-xs text-slate-500">
-                {{ item.format }} · <span class="font-mono">{{ item.sku }}</span>
+              <p class="tabular mt-0.5 text-[13px] text-[var(--text-muted)]">Ref. {{ item.sku }} · {{ item.format }}</p>
+              <p class="tabular mt-0.5 text-[13px] text-[var(--text)]">
+                {{ formatPrice(showNetPrices ? item.netPrice : item.price) }}/ud
+                <span class="text-[var(--text-muted)]">{{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}</span>
+              </p>
+              <p v-if="nextTier(item)" class="tabular mt-0.5 text-[13px] font-medium text-[var(--stock-ok)]">
+                Con {{ nextTier(item)!.more }} más: {{ formatPrice(nextTier(item)!.unit) }}/ud
               </p>
             </div>
             <div class="flex w-full items-center justify-between gap-3 sm:w-auto">
@@ -183,9 +215,9 @@ async function retryOriginalAdd() {
                   @remove="removeItem(item)"
                 />
               </fieldset>
-              <p class="w-28 text-right font-semibold text-slate-800">
+              <p class="tabular w-28 text-right font-semibold text-[var(--text-strong)]">
                 {{ formatPrice(showNetPrices ? (item.lineNet ?? item.netPrice * item.qty) : item.price * item.qty) }}
-                <span v-if="showNetPrices" class="block text-xs font-normal text-slate-500">
+                <span v-if="showNetPrices" class="block text-[13px] font-normal text-[var(--text-muted)]">
                   {{ formatPrice(item.price * item.qty) }} con IVA
                 </span>
               </p>
@@ -204,41 +236,145 @@ async function retryOriginalAdd() {
               Vaciar carrito
             </UButton>
           </div>
+
+          <!-- Venta cruzada y carritos guardados van debajo de las líneas, nunca antes. -->
+          <PublishedProductRelations
+            v-if="runtime.public.serverRuntime === 'cloudflare'"
+            :product-slugs="cart.items.map((item) => item.slug)"
+            class="pt-4"
+          />
+          <CartSnapshotsPanel v-if="runtime.public.serverRuntime === 'cloudflare'" />
         </div>
 
-        <!-- resumen -->
-        <div class="h-fit rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 class="text-lg font-bold text-slate-900">Resumen</h2>
-          <dl class="mt-4 space-y-2 text-sm">
-            <div class="flex justify-between">
-              <dt class="text-slate-500">{{ showNetPrices ? 'Subtotal neto' : 'Subtotal' }} ({{ cart.count }} uds.)</dt>
-              <dd class="font-medium">{{ formatPrice(showNetPrices ? cart.subtotalNet : cart.subtotal) }}</dd>
+        <!-- resumen: base imponible, IVA, envío y total, en ese orden -->
+        <div
+          data-cart-summary
+          class="h-fit rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 lg:sticky lg:top-24"
+        >
+          <h2 class="text-lg font-bold text-[var(--text-strong)]">Resumen</h2>
+          <dl class="tabular mt-4 space-y-2 text-[15px]">
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">Base imponible ({{ cart.count }} uds.)</dt>
+              <dd class="font-medium text-[var(--text-strong)]">{{ formatPrice(cart.subtotalNet) }}</dd>
             </div>
-            <div class="flex justify-between">
-              <dt class="text-slate-500">Envío</dt>
-              <dd class="text-slate-500">Lo ves en el siguiente paso, antes de pagar</dd>
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">IVA</dt>
+              <dd class="font-medium text-[var(--text-strong)]">{{ formatPrice(tax) }}</dd>
             </div>
-            <div class="flex justify-between border-t border-slate-100 pt-3 text-base">
-              <dt class="font-semibold text-slate-900">Total</dt>
-              <dd class="text-xl font-bold text-slate-900">{{ formatPrice(cart.subtotal) }}</dd>
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">
+                Envío<template v-if="shipping.rate.value && shipping.destination.value">
+                  a {{ shipping.destination.value.postalCode }}</template
+                >
+              </dt>
+              <dd v-if="shipping.rate.value && !shipping.stale.value" class="font-medium text-[var(--text-strong)]">
+                {{ shipping.shippingGross.value ? formatPrice(shipping.shippingGross.value) : 'gratis' }}
+              </dd>
+              <dd v-else-if="!shipping.available.value" class="max-w-[12rem] text-right text-[var(--text-muted)]">
+                Lo ves en el siguiente paso, antes de pagar
+              </dd>
+              <dd v-else class="text-[var(--text-muted)]">Indica tu código postal</dd>
             </div>
-            <div class="flex justify-between text-xs">
-              <dt class="text-slate-500">IVA incluido</dt>
-              <dd class="text-slate-500">{{ formatPrice(tax) }}</dd>
+            <div class="flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-3">
+              <dt class="font-semibold text-[var(--text-strong)]">Total</dt>
+              <dd class="font-display text-[1.625rem] font-bold text-[var(--text-strong)]">
+                {{ formatPrice(totalWithShipping) }}
+              </dd>
             </div>
           </dl>
+          <p
+            v-if="!shipping.rate.value || shipping.stale.value"
+            class="mt-1 text-right text-[13px] text-[var(--text-muted)]"
+          >
+            IVA incluido, sin envío
+          </p>
+
+          <div
+            v-if="shipping.available.value"
+            data-shipping-estimate
+            class="mt-4 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3 text-[15px]"
+          >
+            <template v-if="shipping.rate.value && !editingDestination">
+              <p class="font-medium text-[var(--text-strong)]">
+                {{ shipping.rate.value.label
+                }}<template v-if="shipping.deliveryDay.value"> · {{ shipping.deliveryDay.value }}</template>
+              </p>
+              <p class="text-[13px] text-[var(--text-muted)]">
+                Entrega en {{ shipping.destination.value?.postalCode }} {{ shipping.destination.value?.city }}
+                <button
+                  type="button"
+                  data-shipping-change
+                  class="ml-1 font-semibold text-[var(--link)] underline"
+                  @click="editDestination"
+                >
+                  Cambiar
+                </button>
+              </p>
+              <p v-if="shipping.pickup.value" class="mt-1 text-[13px] text-[var(--text-muted)]">
+                También puedes recogerlo en nuestro almacén de Ontinyent.
+              </p>
+              <p v-if="shipping.stale.value" class="mt-2 text-[13px] text-[var(--text)]">
+                El carrito ha cambiado.
+                <button
+                  type="button"
+                  class="font-semibold text-[var(--link)] underline"
+                  :disabled="shipping.loading.value"
+                  @click="shipping.calculate()"
+                >
+                  Recalcular el envío
+                </button>
+              </p>
+            </template>
+            <form v-else class="space-y-2" @submit.prevent="submitDestination">
+              <p class="font-medium text-[var(--text-strong)]">¿Dónde te lo llevamos?</p>
+              <div class="grid grid-cols-[7rem_minmax(0,1fr)] gap-2">
+                <div>
+                  <label for="cart-postal-code" class="block text-[13px] text-[var(--text-muted)]">Código postal</label>
+                  <input
+                    id="cart-postal-code"
+                    v-model="destinationForm.postalCode"
+                    inputmode="numeric"
+                    autocomplete="postal-code"
+                    maxlength="5"
+                    class="tabular mt-1 h-11 w-full rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3"
+                  />
+                </div>
+                <div>
+                  <label for="cart-city" class="block text-[13px] text-[var(--text-muted)]">Población</label>
+                  <input
+                    id="cart-city"
+                    v-model="destinationForm.city"
+                    autocomplete="address-level2"
+                    maxlength="80"
+                    class="mt-1 h-11 w-full min-w-0 rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3"
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                :disabled="shipping.loading.value"
+                class="inline-flex h-11 w-full items-center justify-center rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 font-semibold text-[var(--text-strong)] hover:border-[var(--action)] disabled:opacity-50"
+              >
+                {{ shipping.loading.value ? 'Calculando…' : 'Ver coste y día de entrega' }}
+              </button>
+              <p v-if="destinationError" role="alert" class="text-[13px] text-[var(--ui-error)]">
+                {{ destinationError }}
+              </p>
+            </form>
+            <p v-if="shipping.error.value" role="status" class="mt-2 text-[13px] text-[var(--text)]">
+              {{ shipping.error.value }}
+            </p>
+          </div>
           <FreeShippingProgressBar v-if="freeShippingThreshold" class="mt-4" :evaluation="freeShippingEvaluation" />
 
-          <UButton
+          <!-- En móvil la acción vive en la barra fija; aquí solo desde `lg`. Una acción por vista. -->
+          <NuxtLink
             v-if="!cart.blockedMutations"
             to="/checkout"
-            size="xl"
-            block
-            class="mt-5"
-            trailing-icon="i-lucide-arrow-right"
+            class="mt-5 hidden h-12 w-full items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] lg:flex"
           >
-            Tramitar pedido
-          </UButton>
+            Tramitar pedido <UIcon name="i-lucide-arrow-right" class="size-4" />
+          </NuxtLink>
           <p v-else role="status" class="mt-5 text-sm text-amber-900">
             Comprueba la adición pendiente antes de tramitar el pedido.
           </p>
@@ -247,15 +383,15 @@ async function retryOriginalAdd() {
                repartidas por la página. -->
           <ul class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-xs text-[var(--text-muted)]">
             <li class="flex items-start gap-2">
-              <UIcon name="i-lucide-shield-check" class="mt-px size-4 shrink-0 text-neteco-600" />
+              <UIcon name="i-lucide-shield-check" class="mt-px size-4 shrink-0" />
               Pago seguro con Redsys. No guardamos los datos de tu tarjeta.
             </li>
             <li class="flex items-start gap-2">
-              <UIcon name="i-lucide-file-text" class="mt-px size-4 shrink-0 text-neteco-600" />
+              <UIcon name="i-lucide-file-text" class="mt-px size-4 shrink-0" />
               Factura con tus datos fiscales en cada pedido.
             </li>
             <li class="flex items-start gap-2">
-              <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0 text-neteco-600" />
+              <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0" />
               ¿Dudas antes de pedir? 600 861 334, hablas con una persona.
             </li>
           </ul>
@@ -276,6 +412,9 @@ async function retryOriginalAdd() {
             <UButton size="lg" icon="i-lucide-rotate-cw" @click="dialog?.start(lastOrder.id)">
               Repetir ese pedido
             </UButton>
+            <UButton to="/pedido-rapido" size="lg" color="neutral" variant="outline" icon="i-lucide-list-plus">
+              Pedir por referencia
+            </UButton>
             <UButton to="/catalogo" size="lg" color="neutral" variant="outline" icon="i-lucide-layout-grid">
               Ver catálogo
             </UButton>
@@ -283,8 +422,15 @@ async function retryOriginalAdd() {
         </template>
 
         <template v-else>
-          <p class="mt-1.5 text-sm text-[var(--text-muted)]">Explora el catálogo y añade lo que necesite tu negocio.</p>
-          <UButton to="/catalogo" size="lg" class="mt-6" icon="i-lucide-layout-grid">Ver catálogo</UButton>
+          <p class="mt-1.5 text-sm text-[var(--text-muted)]">
+            Pide con el albarán delante o explora el catálogo y añade lo que necesite tu negocio.
+          </p>
+          <div class="mt-6 flex flex-wrap justify-center gap-2">
+            <UButton to="/pedido-rapido" size="lg" icon="i-lucide-list-plus">Pedir por referencia</UButton>
+            <UButton to="/catalogo" size="lg" color="neutral" variant="outline" icon="i-lucide-layout-grid">
+              Ver catálogo
+            </UButton>
+          </div>
         </template>
       </div>
 
@@ -300,6 +446,31 @@ async function retryOriginalAdd() {
           <div class="h-64 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)]" />
         </div>
       </template>
+    </ClientOnly>
+
+    <ClientOnly>
+      <!-- La recuperación de un pedido anterior solo ocupa sitio si hay algo que recuperar. -->
+      <CartRecoverySection stage="cart" />
+      <div
+        v-if="cartReadable && cart.items.length && !cart.blockedMutations"
+        data-cart-mobile-bar
+        class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] lg:hidden"
+      >
+        <div class="min-w-0">
+          <p class="text-[13px] text-[var(--text-muted)]">
+            Total{{ shipping.rate.value && !shipping.stale.value ? ' con envío' : ' sin envío' }}
+          </p>
+          <p class="tabular font-display text-lg font-bold text-[var(--text-strong)]">
+            {{ formatPrice(totalWithShipping) }}
+          </p>
+        </div>
+        <NuxtLink
+          to="/checkout"
+          class="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-4 font-semibold text-white transition-colors hover:bg-[var(--action-hover)]"
+        >
+          Tramitar pedido <UIcon name="i-lucide-arrow-right" class="size-4" />
+        </NuxtLink>
+      </div>
     </ClientOnly>
 
     <ReorderDialog ref="dialog" />

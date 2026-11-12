@@ -24,11 +24,12 @@ const emit = defineEmits<{ quantity: [value: number]; remove: [] }>()
       />
       <button
         type="button"
-        class="rounded-lg p-2.5 text-slate-400 transition hover:bg-red-50 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+        data-cart-remove
+        class="inline-flex min-h-11 items-center rounded-[var(--radius-control)] px-2 text-[13px] font-medium text-[var(--text-muted)] underline hover:text-[var(--ui-error)]"
         :aria-label="`Quitar ${label} del carrito`"
         @click="emit('remove')"
       >
-        <UIcon name="i-lucide-trash-2" class="block size-5" />
+        Quitar
       </button>
     </div>
     <p v-if="error" role="alert" class="mt-1 text-sm text-red-700">{{ error }}</p>
