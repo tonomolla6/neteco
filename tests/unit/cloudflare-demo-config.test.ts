@@ -118,7 +118,11 @@ describe('isolated Cloudflare demo configuration', () => {
       contactPhone: '600 861 334',
       foundedYear: 1998,
       companyTaxId: 'B00000000',
-      companyAddress: 'Polígono Industrial El Pla, 46870 Ontinyent (Valencia)'
+      companyAddress: 'Polígono Industrial El Pla, 46870 Ontinyent (Valencia)',
+      companyLegalName: 'Neteco Suministros Profesionales, S.L. (provisional)',
+      companyRegistry: 'Registro Mercantil de Valencia (datos provisionales)',
+      dpoEmail: 'tienda@neteco.es',
+      disputeResolutionEntity: 'Junta Arbitral de Consumo de la Comunitat Valenciana'
     })
     expect(vars.FREE_SHIPPING_THRESHOLD_CENTS).toBe('15000')
     expect(vars.NUXT_PUBLIC_FREE_SHIPPING_THRESHOLD_CENTS).toBe('15000')
