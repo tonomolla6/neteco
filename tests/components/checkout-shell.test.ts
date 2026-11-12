@@ -252,4 +252,59 @@ describe('checkout shell', () => {
     expect(shipping.postalCode).toBe('')
     expect(wrapper!.find('[data-checkout-prefilled]').exists()).toBe(false)
   })
+
+  it('opens a one-screen review for a signed-in customer with saved data, with "Cambiar" instead of fields', async () => {
+    auth.loggedIn = true
+    addresses = [
+      {
+        id: 'a-1',
+        kind: 'shipping',
+        label: 'Bar',
+        recipientName: 'Ana Pérez',
+        companyName: 'Bar Central',
+        taxId: null,
+        line1: 'C/ Mayor 12',
+        line2: 'Bajo',
+        postalCode: '46870',
+        city: 'Ontinyent',
+        region: 'Valencia',
+        countryCode: 'ES',
+        phone: '611111111',
+        instructions: null,
+        isDefault: true
+      }
+    ]
+    await render()
+    await flushPromises()
+    const hidden = (selector: string) => (wrapper!.get(selector).attributes('style') ?? '').includes('display: none')
+    const review = wrapper!.get('[data-checkout-review]')
+    expect(review.text()).toContain('Ana Pérez · ana@example.invalid · 600000000')
+    expect(review.text()).toContain('C/ Mayor 12, Bajo, 46870 Ontinyent')
+    expect(hidden('[data-checkout-contact-fields]')).toBe(true)
+    expect(hidden('[data-checkout-address-fields]')).toBe(true)
+    await review.get('[data-review-change]').trigger('click')
+    expect(wrapper!.find('[data-checkout-review]').exists()).toBe(false)
+    expect(hidden('[data-checkout-contact-fields]')).toBe(false)
+    expect(hidden('[data-checkout-address-fields]')).toBe(false)
+  })
+
+  it('a guest fills the fields: there is nothing to review', async () => {
+    await render()
+    expect(wrapper!.find('[data-checkout-review]').exists()).toBe(false)
+    expect(wrapper!.get('[data-checkout-contact-fields]').attributes('style') ?? '').not.toContain('display: none')
+  })
+
+  it('a guest types the phone once: delivery reuses the contact phone and name until changed', async () => {
+    await render()
+    const state = proxyRefs(wrapper!.setupState) as Record<string, Record<string, string>>
+    state.form!.name = 'Ana Pérez'
+    state.form!.phone = '600000000'
+    await nextTick()
+    expect(state.shippingAddress!.recipientName).toBe('Ana Pérez')
+    expect(state.shippingAddress!.phone).toBe('600000000')
+    state.shippingAddress!.phone = '611111111'
+    state.form!.phone = '622222222'
+    await nextTick()
+    expect(state.shippingAddress!.phone).toBe('611111111')
+  })
 })

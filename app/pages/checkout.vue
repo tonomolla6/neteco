@@ -147,7 +147,25 @@ async function prefillSavedAddress() {
     instructions: shippingAddress.instructions || (address.instructions ?? '')
   })
   prefilledAddress.value = `${address.line1}, ${address.postalCode} ${address.city}`
+  // Con contacto y entrega completos no hay nada que teclear: se revisa en una pantalla.
+  reviewing.value = [form.name, form.email, form.phone, shippingAddress.recipientName, shippingAddress.phone].every(
+    (value) => value.trim()
+  )
 }
+
+/**
+ * Pantalla de revisión: el cliente con cuenta y dirección guardada ve contacto y entrega
+ * resumidos, con «Cambiar», y va directo al pago. Los campos siguen montados (se validan y
+ * se envían igual); solo se ocultan. Cualquier error los vuelve a enseñar.
+ */
+const reviewing = ref(false)
+const reviewContact = computed(() => [form.name, form.email, form.phone].map((value) => value.trim()).join(' · '))
+const reviewDelivery = computed(() =>
+  [shippingAddress.line1, shippingAddress.line2, `${shippingAddress.postalCode} ${shippingAddress.city}`.trim()]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(', ')
+)
 
 watch(
   user,
@@ -950,8 +968,10 @@ function scrollTo(id: string, block: ScrollLogicalPosition = 'start') {
 }
 
 function scrollToFirstError() {
-  if (Object.entries(errors).some(([key, value]) => key !== 'terms' && value)) scrollTo('sec-datos')
-  else scrollTo('checkout-alert', 'center')
+  if (Object.entries(errors).some(([key, value]) => key !== 'terms' && value)) {
+    reviewing.value = false
+    scrollTo('sec-datos')
+  } else scrollTo('checkout-alert', 'center')
 }
 
 async function submitWithWallet(method: 'apple_pay' | 'google_pay') {
@@ -1377,10 +1397,51 @@ async function finish(order: { id: string; token?: string }) {
               >
               Contacto, entrega y facturación
             </h2>
-            <h3 class="mt-5 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
+            <div v-if="reviewing" data-checkout-review class="mt-5 space-y-3">
+              <div
+                class="flex items-start justify-between gap-3 rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
+              >
+                <div class="min-w-0">
+                  <p class="text-[13px] font-semibold text-[var(--text-muted)]">Contacto</p>
+                  <p class="mt-0.5 break-words text-[15px] text-[var(--text-strong)]">{{ reviewContact }}</p>
+                </div>
+                <button
+                  type="button"
+                  data-review-change
+                  class="min-h-11 shrink-0 font-semibold text-[var(--link)] underline"
+                  @click="reviewing = false"
+                >
+                  Cambiar
+                </button>
+              </div>
+              <div
+                class="flex items-start justify-between gap-3 rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
+              >
+                <div class="min-w-0">
+                  <p class="text-[13px] font-semibold text-[var(--text-muted)]">Entrega</p>
+                  <p class="mt-0.5 break-words text-[15px] text-[var(--text-strong)]">
+                    {{ shippingAddress.recipientName }} · {{ reviewDelivery }}
+                  </p>
+                  <p v-if="shippingAddress.instructions" class="mt-0.5 text-[13px] text-[var(--text-muted)]">
+                    {{ shippingAddress.instructions }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="min-h-11 shrink-0 font-semibold text-[var(--link)] underline"
+                  @click="reviewing = false"
+                >
+                  Cambiar
+                </button>
+              </div>
+            </div>
+            <h3
+              v-show="!reviewing"
+              class="mt-5 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
+            >
               Datos de contacto
             </h3>
-            <div class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2">
+            <div v-show="!reviewing" data-checkout-contact-fields class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2">
               <UFormField label="Nombre y apellidos" required :error="errors.name">
                 <UInput v-model="form.name" class="w-full" autocomplete="name" />
               </UFormField>
@@ -1419,17 +1480,21 @@ async function finish(order: { id: string; token?: string }) {
               </p>
             </div>
 
-            <h3 class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
+            <h3
+              v-show="!reviewing"
+              class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
+            >
               Dirección de entrega
             </h3>
             <p
               v-if="prefilledAddress"
+              v-show="!reviewing"
               data-checkout-prefilled
               class="mt-2 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-[13px] text-[var(--text)]"
             >
               Hemos rellenado tu dirección guardada: {{ prefilledAddress }}. Puedes cambiarla aquí mismo.
             </p>
-            <div class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
+            <div v-show="!reviewing" data-checkout-address-fields class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
               <UFormField label="Destinatario" required :error="errors.shippingRecipientName">
                 <UInput v-model="shippingAddress.recipientName" class="w-full" autocomplete="shipping name" />
               </UFormField>
