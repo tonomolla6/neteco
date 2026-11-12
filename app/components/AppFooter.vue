@@ -29,6 +29,14 @@ async function subscribeNewsletter() {
   }
 }
 
+const { terms } = useCommercialTerms()
+/**
+ * En móvil el pie medía más que muchas páginas. Los tres grupos de enlaces se pliegan tras
+ * su título; desde `sm` están siempre abiertos y el botón deja de serlo a efectos visuales.
+ */
+type Group = 'shop' | 'help' | 'contact'
+const open = reactive<Record<Group, boolean>>({ shop: false, help: false, contact: false })
+
 function configureCookies() {
   window.dispatchEvent(new Event('neteco-open-consent'))
 }
@@ -36,86 +44,56 @@ function configureCookies() {
 
 <template>
   <footer class="mt-16 bg-neteco-950 text-slate-300">
-    <div class="mx-auto grid max-w-[1600px] gap-10 px-4 py-12 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-      <div>
-        <div class="flex items-center gap-2">
-          <img src="/logo-figura.svg" alt="" width="34" height="36" loading="lazy" class="h-9 w-auto" />
-          <span class="text-lg font-bold text-white">NETECO</span>
-        </div>
-        <p class="mt-3 text-sm leading-relaxed text-slate-400">
-          Más de 25 años suministrando higiene, limpieza y equipamiento a empresas, hostelería y colectividades de la
-          Vall d'Albaida.
-        </p>
-        <form class="mt-5 space-y-3" @submit.prevent="subscribeNewsletter">
-          <label for="footer-newsletter-email" class="block text-sm font-semibold text-white">Newsletter</label>
-          <UInput
-            id="footer-newsletter-email"
-            v-model="newsletterEmail"
-            type="email"
-            autocomplete="email"
-            required
-            placeholder="tu@email.es"
-            class="w-full"
-          />
-          <label class="flex items-start gap-2 text-xs leading-relaxed text-slate-400">
-            <input v-model="newsletterConsent" required type="checkbox" class="mt-0.5 accent-neteco-500" />
-            <span>{{ NEWSLETTER_CONSENT_TEXT }}</span>
-          </label>
-          <label class="sr-only" aria-hidden="true">
-            Sitio web
-            <input v-model="newsletterWebsite" tabindex="-1" autocomplete="off" />
-          </label>
-          <UButton type="submit" size="sm" :loading="newsletterState === 'loading'">Solicitar suscripción</UButton>
-          <p v-if="newsletterState === 'sent'" role="status" class="text-xs text-emerald-300">
-            {{ NEWSLETTER_CONFIRMATION_NOTICE }}
-          </p>
-          <p v-else-if="newsletterState === 'error'" role="alert" class="text-xs text-red-300">
-            No se ha podido tramitar la solicitud. Revisa los datos e inténtalo de nuevo.
-          </p>
-        </form>
-      </div>
-
-      <div>
-        <h3 class="mb-3 text-sm font-semibold uppercase tracking-wider text-white">Tienda</h3>
-        <ul class="space-y-2 text-sm">
+    <div
+      class="mx-auto grid max-w-[1600px] grid-cols-1 gap-x-10 px-4 py-6 sm:grid-cols-3 sm:gap-y-10 sm:py-12 lg:grid-cols-4"
+    >
+      <div class="border-b border-white/10 sm:border-0">
+        <h3 class="font-sans text-[15px] font-semibold tracking-normal text-white">
+          <button
+            type="button"
+            data-footer-toggle
+            aria-controls="footer-shop"
+            :aria-expanded="open.shop"
+            class="flex min-h-11 w-full items-center justify-between text-left sm:pointer-events-none sm:min-h-0"
+            @click="open.shop = !open.shop"
+          >
+            Tienda
+            <UIcon
+              name="i-lucide-chevron-down"
+              class="size-4 transition-transform sm:hidden"
+              :class="open.shop ? 'rotate-180' : ''"
+            />
+          </button>
+        </h3>
+        <ul id="footer-shop" class="space-y-2 pb-4 text-sm sm:mt-3 sm:block sm:pb-0" :class="open.shop ? '' : 'hidden'">
           <li><NuxtLink to="/catalogo" class="hover:text-white">Todo el catálogo</NuxtLink></li>
-          <li><NuxtLink to="/categoria/productos-quimicos" class="hover:text-white">Productos químicos</NuxtLink></li>
-          <li><NuxtLink to="/categoria/menaje-y-hosteleria" class="hover:text-white">Menaje y hostelería</NuxtLink></li>
-          <li><NuxtLink to="/carrito" class="hover:text-white">Mi carrito</NuxtLink></li>
-          <li><NuxtLink to="/cuenta" class="hover:text-white">Mi cuenta</NuxtLink></li>
+          <li><NuxtLink to="/pedido-rapido" class="hover:text-white">Pedido rápido por referencia</NuxtLink></li>
+          <li><NuxtLink to="/cuenta/favoritos" class="hover:text-white">Listas de compra</NuxtLink></li>
           <li v-if="runtime.public.serverRuntime === 'cloudflare'">
             <NuxtLink to="/recursos" class="hover:text-white">Guías y recursos profesionales</NuxtLink>
           </li>
         </ul>
       </div>
 
-      <div>
-        <h3 class="mb-3 text-sm font-semibold uppercase tracking-wider text-white">Contacto</h3>
-        <ul class="space-y-2 text-sm">
-          <li class="flex items-center gap-2">
-            <UIcon name="i-lucide-map-pin" class="size-4 text-neteco-400" /> Ontinyent, Valencia
-          </li>
-          <li>
-            <a href="tel:600861334" class="flex items-center gap-2 hover:text-white"
-              ><UIcon name="i-lucide-phone" class="size-4 text-neteco-400" /> 600 861 334</a
-            >
-          </li>
-          <li>
-            <a href="tel:637442546" class="flex items-center gap-2 hover:text-white"
-              ><UIcon name="i-lucide-phone" class="size-4 text-neteco-400" /> 637 442 546</a
-            >
-          </li>
-          <li>
-            <a href="mailto:administracion@neteco.es" class="flex items-center gap-2 hover:text-white"
-              ><UIcon name="i-lucide-mail" class="size-4 text-neteco-400" /> administracion@neteco.es</a
-            >
-          </li>
-        </ul>
-      </div>
-
-      <div>
-        <h3 class="mb-3 text-sm font-semibold uppercase tracking-wider text-white">Ayuda a la compra</h3>
-        <ul class="space-y-2 text-sm">
+      <div class="border-b border-white/10 sm:border-0">
+        <h3 class="font-sans text-[15px] font-semibold tracking-normal text-white">
+          <button
+            type="button"
+            data-footer-toggle
+            aria-controls="footer-help"
+            :aria-expanded="open.help"
+            class="flex min-h-11 w-full items-center justify-between text-left sm:pointer-events-none sm:min-h-0"
+            @click="open.help = !open.help"
+          >
+            Ayuda
+            <UIcon
+              name="i-lucide-chevron-down"
+              class="size-4 transition-transform sm:hidden"
+              :class="open.help ? 'rotate-180' : ''"
+            />
+          </button>
+        </h3>
+        <ul id="footer-help" class="space-y-2 pb-4 text-sm sm:mt-3 sm:block sm:pb-0" :class="open.help ? '' : 'hidden'">
           <li><NuxtLink to="/envios" class="hover:text-white">Envíos y reparto</NuxtLink></li>
           <li><NuxtLink to="/formas-de-pago" class="hover:text-white">Formas de pago</NuxtLink></li>
           <li><NuxtLink to="/devoluciones" class="hover:text-white">Devoluciones</NuxtLink></li>
@@ -132,9 +110,99 @@ function configureCookies() {
             <button class="hover:text-white" @click="configureCookies">Configurar cookies</button>
           </li>
         </ul>
-        <p class="mt-4 flex items-center gap-2 text-xs text-slate-400">
-          <UIcon name="i-lucide-truck" class="size-4" /> Reparto propio en Ontinyent y la Vall d'Albaida
+      </div>
+
+      <div class="border-b border-white/10 sm:border-0">
+        <h3 class="font-sans text-[15px] font-semibold tracking-normal text-white">
+          <button
+            type="button"
+            data-footer-toggle
+            aria-controls="footer-contact"
+            :aria-expanded="open.contact"
+            class="flex min-h-11 w-full items-center justify-between text-left sm:pointer-events-none sm:min-h-0"
+            @click="open.contact = !open.contact"
+          >
+            Contacto
+            <UIcon
+              name="i-lucide-chevron-down"
+              class="size-4 transition-transform sm:hidden"
+              :class="open.contact ? 'rotate-180' : ''"
+            />
+          </button>
+        </h3>
+        <ul
+          id="footer-contact"
+          class="space-y-2 pb-4 text-sm sm:mt-3 sm:block sm:pb-0"
+          :class="open.contact ? '' : 'hidden'"
+        >
+          <li class="flex items-center gap-2">
+            <UIcon name="i-lucide-map-pin" class="size-4 text-slate-400" /> Ontinyent, Valencia
+          </li>
+          <li>
+            <a href="tel:600861334" class="flex items-center gap-2 hover:text-white"
+              ><UIcon name="i-lucide-phone" class="size-4 text-slate-400" /> 600 861 334</a
+            >
+          </li>
+          <li>
+            <a href="tel:637442546" class="flex items-center gap-2 hover:text-white"
+              ><UIcon name="i-lucide-phone" class="size-4 text-slate-400" /> 637 442 546</a
+            >
+          </li>
+          <li>
+            <a href="mailto:administracion@neteco.es" class="flex items-center gap-2 hover:text-white"
+              ><UIcon name="i-lucide-mail" class="size-4 text-slate-400" /> administracion@neteco.es</a
+            >
+          </li>
+          <li v-if="terms.supportHours" class="flex items-start gap-2">
+            <UIcon name="i-lucide-clock" class="mt-0.5 size-4 shrink-0 text-slate-400" />
+            <span>Atención {{ terms.supportHours }}</span>
+          </li>
+          <li class="flex items-start gap-2 text-slate-400">
+            <UIcon name="i-lucide-truck" class="mt-0.5 size-4 shrink-0" /> Reparto propio en Ontinyent y la Vall
+            d'Albaida
+          </li>
+        </ul>
+      </div>
+
+      <!-- El boletín va el último y en una línea: es lo menos urgente de lo que ofrece el pie. -->
+      <div class="pt-5 sm:col-span-3 sm:pt-0 lg:col-span-1">
+        <div class="flex items-center gap-2">
+          <img src="/logo-figura.svg" alt="" width="34" height="36" loading="lazy" class="h-9 w-auto" />
+          <span class="text-lg font-bold text-white">NETECO</span>
+        </div>
+        <p class="mt-3 hidden text-sm leading-relaxed text-slate-400 sm:block">
+          Más de 25 años suministrando higiene, limpieza y equipamiento a empresas, hostelería y colectividades de la
+          Vall d'Albaida.
         </p>
+        <form class="mt-4 space-y-2" @submit.prevent="subscribeNewsletter">
+          <label for="footer-newsletter-email" class="block text-sm font-semibold text-white">Boletín</label>
+          <div class="flex gap-2">
+            <UInput
+              id="footer-newsletter-email"
+              v-model="newsletterEmail"
+              type="email"
+              autocomplete="email"
+              required
+              placeholder="tu@email.es"
+              class="min-w-0 flex-1"
+            />
+            <UButton type="submit" :loading="newsletterState === 'loading'">Suscribirme</UButton>
+          </div>
+          <label class="flex items-start gap-2 text-xs leading-relaxed text-slate-400">
+            <input v-model="newsletterConsent" required type="checkbox" class="mt-0.5 accent-neteco-500" />
+            <span>{{ NEWSLETTER_CONSENT_TEXT }}</span>
+          </label>
+          <label class="sr-only" aria-hidden="true">
+            Sitio web
+            <input v-model="newsletterWebsite" tabindex="-1" autocomplete="off" />
+          </label>
+          <p v-if="newsletterState === 'sent'" role="status" class="text-xs text-green-300">
+            {{ NEWSLETTER_CONFIRMATION_NOTICE }}
+          </p>
+          <p v-else-if="newsletterState === 'error'" role="alert" class="text-xs text-red-300">
+            No se ha podido tramitar la solicitud. Revisa los datos e inténtalo de nuevo.
+          </p>
+        </form>
       </div>
     </div>
 
@@ -142,8 +210,13 @@ function configureCookies() {
       <div
         class="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-2 px-4 py-4 text-xs text-slate-400 sm:flex-row"
       >
-        <p>© {{ year }} Maria Carmen González Nacher · Todos los derechos reservados.</p>
-        <p v-if="!isProduction" class="rounded-full bg-white/5 px-3 py-1">
+        <p data-footer-legal class="text-center sm:text-left">
+          © {{ year }} Maria Carmen González Nacher<template v-if="terms.companyTaxId">
+            · NIF {{ terms.companyTaxId }}</template
+          ><template v-if="terms.companyAddress"> · {{ terms.companyAddress }}</template> · Todos los derechos
+          reservados.
+        </p>
+        <p v-if="!isProduction" class="rounded-[var(--radius-control)] bg-white/5 px-3 py-1">
           Demo interna · los productos y precios no son reales
         </p>
       </div>

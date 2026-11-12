@@ -1034,7 +1034,9 @@ const canaryWorker = {
         database: env.DB,
         origin: env.PUBLIC_SITE_ORIGIN,
         environment: environment === 'preview' ? 'preprod' : environment,
-        cmsPublication: cmsDependencies
+        cmsPublication: cmsDependencies,
+        // Optional plain variable; absent means no gated content section is advertised.
+        publishedSections: (env as unknown as { PUBLISHED_SECTIONS?: string }).PUBLISHED_SECTIONS
       })
       if (seo) return seo
     }

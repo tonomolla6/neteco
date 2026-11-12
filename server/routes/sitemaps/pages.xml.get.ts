@@ -1,3 +1,5 @@
+import { parsePublishedSections } from '../../../shared/published-sections'
+
 function xml(value: string) {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
@@ -15,13 +17,7 @@ export default defineEventHandler((event) => {
     '/ayuda',
     '/accesibilidad',
     '/contacto',
-    '/casos-exito',
-    '/certificaciones',
-    '/datos-y-herramientas',
-    '/eventos',
-    '/kits',
-    '/marca',
-    '/plantillas'
+    ...parsePublishedSections(runtime.public.publishedSections).map((section) => `/${section}`)
   ]
   const urls = paths.map((path) => `<url><loc>${xml(`${origin}${path}`)}</loc></url>`).join('')
   setHeader(event, 'content-type', 'application/xml; charset=utf-8')

@@ -150,6 +150,8 @@ export default defineNuxtConfig({
       freeShippingThresholdCents: Number(
         process.env.FREE_SHIPPING_THRESHOLD_CENTS?.trim() || (process.env.APP_ENV === 'production' ? 0 : 15_000)
       ),
+      // Secciones de contenido publicadas (`shared/published-sections.ts`). Vacío: ninguna.
+      publishedSections: process.env.PUBLISHED_SECTIONS || '',
       // Condiciones comerciales que decide el negocio (`shared/commercial-terms.ts`). Todas
       // vacías por defecto: la tienda solo escribe una promesa con cifra si el dato está aquí.
       // El umbral de envío gratis no se duplica: sale de `freeShippingThresholdCents`.

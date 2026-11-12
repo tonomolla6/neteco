@@ -4,9 +4,9 @@ import BrandCenterPanel from '~/components/BrandCenterPanel.vue'
 const runtime = useRuntimeConfig()
 
 useSeoMeta({
-  title: 'Certificaciones Oficiales y Acreditaciones',
+  title: 'Certificados y registros',
   description:
-    'Auditoría y consulta pública de certificaciones ISO 9001, ISO 14001, EU Ecolabel y registros oficiales. Cero sellos vagos.',
+    'Certificados y registros de NETECO y de sus productos, cada uno con su número, su entidad emisora y su documento.',
   robots: 'index, follow'
 })
 

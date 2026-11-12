@@ -4,9 +4,9 @@ import BrandCenterPanel from '~/components/BrandCenterPanel.vue'
 const runtime = useRuntimeConfig()
 
 useSeoMeta({
-  title: 'Centro de marca y certificaciones oficiales',
+  title: 'Marca y certificados',
   description:
-    'Logotipos autorizados, normativas de uso y registro oficial de certificaciones ISO, EU Ecolabel y registros sanitarios sin sellos vagos.',
+    'Logotipos autorizados de NETECO, normas de uso y certificados con su número, su entidad emisora y su documento.',
   robots: 'index, follow'
 })
 

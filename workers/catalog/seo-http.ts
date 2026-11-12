@@ -3,6 +3,7 @@ import { publicationValidityExpression, assertCurrentPublicationValidity } from 
 import { z } from 'zod'
 import { catalogPolicyInstantSchema, catalogPolicyUuidSchema } from '../../shared/catalog-publication-policy'
 import { readThinLandingSlugs } from '../content/resource-hub'
+import { parsePublishedSections } from '../../shared/published-sections'
 import { cmsPublishedValiditySql, cmsSource, type CmsPublicationDependencies } from '../cms/publication-gate'
 
 export interface D1SeoDependencies {
@@ -13,6 +14,8 @@ export interface D1SeoDependencies {
   /** Opt-in only: absent/disabled preserves the existing five-route contract. */
   /** `database` is the CMS read connection; when omitted the SEO connection is used. */
   cmsPublication?: Omit<CmsPublicationDependencies, 'database'> & { database?: D1Database }
+  /** `PUBLISHED_SECTIONS`: gated content sections that have content and may be advertised. */
+  publishedSections?: string
 }
 
 const PAGE_SIZE = 1000
@@ -40,14 +43,7 @@ const STATIC_PAGES = [
   '/devoluciones',
   '/ayuda',
   '/accesibilidad',
-  '/contacto',
-  '/casos-exito',
-  '/certificaciones',
-  '/datos-y-herramientas',
-  '/eventos',
-  '/kits',
-  '/marca',
-  '/plantillas'
+  '/contacto'
 ]
 const PRIVATE_PATHS = [
   '/admin',
@@ -278,7 +274,9 @@ export async function handleD1SeoRequest(request: Request, deps: D1SeoDependenci
         : 'User-agent: *\nDisallow: /\n'
     } else if (url.pathname === '/sitemaps/pages.xml') {
       body = sitemap(
-        STATIC_PAGES.map((path) => `<url><loc>${location(config.origin, path)}</loc></url>`).join(''),
+        [...STATIC_PAGES, ...parsePublishedSections(deps.publishedSections).map((section) => `/${section}`)]
+          .map((path) => `<url><loc>${location(config.origin, path)}</loc></url>`)
+          .join(''),
         'urlset'
       )
     } else if (url.pathname === '/sitemap.xml') {

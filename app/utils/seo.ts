@@ -105,9 +105,9 @@ const ROUTE_SEO_DEFAULTS: Record<string, { title: string; description: string }>
       'Identidad visual, logotipos oficiales, guía de estilo y activos verificados de marca NETECO para distribuidores y prensa.'
   },
   '/certificaciones': {
-    title: 'Certificaciones y fichas de seguridad',
+    title: 'Certificados y registros',
     description:
-      'Consulta certificaciones ISO, Ecolabel, registros sanitarios y fichas de datos de seguridad del catálogo profesional de NETECO.'
+      'Certificados y registros de NETECO y de sus productos, cada uno con su número, su entidad emisora y su documento.'
   },
   '/casos-exito': {
     title: 'Casos de éxito en higiene profesional',
