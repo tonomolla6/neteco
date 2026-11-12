@@ -1,4 +1,4 @@
-import { LEGAL_PAGES } from '../../shared/legal-pages'
+import { LEGAL_PAGES } from '~~/shared/legal-pages'
 
 type RouteQuery = Record<string, unknown>
 
