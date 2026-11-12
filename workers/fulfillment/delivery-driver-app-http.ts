@@ -6,6 +6,7 @@ import {
   syncDeliveryEvents
 } from './delivery-driver-app'
 import {
+  checkOpsAdmin,
   methodNotAllowed,
   opsError,
   opsJson,
@@ -31,6 +32,10 @@ export async function handleDeliveryDriverAppHttp(
   if (!ownsDeliveryDriverAppNamespace(path)) return null
   const actor = await resolveActor(request, deps)
   if (!actor) return opsJson({ error: { code: 'unauthorized' } }, 401)
+  if (path === ADMIN || path.startsWith(`${ADMIN}/`)) {
+    const denied = await checkOpsAdmin(actor, deps)
+    if (denied) return denied
+  }
   const db = deps.database
   const now = deps.now?.()
   const identityId = actor.identityId

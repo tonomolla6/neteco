@@ -14,12 +14,14 @@ import {
   detectCampaignConflictsInPeriod,
   CommercialCampaignError
 } from './commercial-campaigns'
-import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import type { SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1AdminCookie } from '../auth/admin-session'
 
 export interface CommercialCampaignsHttpDeps {
   database: D1Database
   origin: string
   sessionCookieConfiguration: SessionCookieConfiguration
+  now?: () => string
 }
 
 export function ownsCommercialCampaignsNamespace(pathname: string): boolean {
@@ -54,10 +56,14 @@ export async function handleCommercialCampaignsHttp(
   }
 
   // Session verification
-  const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
-  if (!claims) {
-    return jsonResponse({ error: { code: 'unauthenticated' } }, 401)
-  }
+  const authorization = await authorizeD1AdminCookie(request, {
+    database: deps.database,
+    configuration: deps.sessionCookieConfiguration,
+    permissions: ['campaigns.manage', 'administration.manage'],
+    now: deps.now?.()
+  })
+  if (!authorization.allowed) return jsonResponse({ error: { code: authorization.code } }, authorization.status)
+  const { claims } = authorization
 
   try {
     // 1. GET calendar

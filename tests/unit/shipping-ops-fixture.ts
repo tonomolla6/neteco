@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { openMigratedDatabase, d1OverSqlite } from '../support/d1-sqlite'
+import { testUuid } from '../support/deterministic'
 
 export const NOW = '2026-10-29T10:00:00Z'
 export const ADMIN = 'admin-1'
@@ -58,7 +59,7 @@ export function seedDispatchedOrder(sqlite: DatabaseSync, orderId: string, shipm
     contents: [{ lineIndex: 0, quantity: 1 }]
   }))
   const dispatch = {
-    commandId: crypto.randomUUID(),
+    commandId: testUuid(),
     packingVersion: 1,
     shipments: shipments.map((s, i) => ({
       parcelIndex: i,
@@ -76,22 +77,13 @@ export function seedDispatchedOrder(sqlite: DatabaseSync, orderId: string, shipm
     recordedAt: NOW,
     labelVerification: 'unverified_reference_only'
   }
-  const commandId = crypto.randomUUID()
+  const commandId = testUuid()
   sqlite
     .prepare(
       `INSERT INTO order_packing_commands(command_id,claim_nonce,actor_id,order_id,action,payload_hash,input,expected_version,result_version,fulfillment_version,source_snapshot,parcels,dispatch,response,created_at)
        VALUES(?,?,?,?,'manual_dispatch',?,'{}',0,1,1,'{}',?,?,'{}',?)`
     )
-    .run(
-      commandId,
-      crypto.randomUUID(),
-      ADMIN,
-      orderId,
-      'a'.repeat(64),
-      JSON.stringify(parcels),
-      JSON.stringify(dispatch),
-      NOW
-    )
+    .run(commandId, testUuid(), ADMIN, orderId, 'a'.repeat(64), JSON.stringify(parcels), JSON.stringify(dispatch), NOW)
   sqlite
     .prepare(
       `INSERT INTO order_packings(order_id,version,state,parcels,dispatch,last_command_id,updated_at) VALUES(?,1,'manual_dispatch_recorded',?,?,?,?)`

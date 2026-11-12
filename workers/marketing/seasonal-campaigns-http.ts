@@ -18,11 +18,14 @@ import {
   updateSeasonalSectorCampaignSchema,
   saveSeasonalCampaignPostmortemSchema
 } from '../../shared/seasonal-campaigns'
+import { authorizeD1AdminCookie } from '../auth/admin-session'
+import type { SessionCookieConfiguration } from '../auth/session-cookie'
 
 export interface SeasonalCampaignsHttpDeps {
   database: D1Database
   now?: () => string
   actorIdFromRequest?: (request: Request) => Promise<string | null>
+  sessionCookieConfiguration?: SessionCookieConfiguration | null
 }
 
 function jsonResponse(data: unknown, status = 200): Response {
@@ -56,7 +59,20 @@ export async function handleSeasonalCampaignsHttp(
 
   const now = deps.now ? deps.now() : new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   // Identity comes only from the verified-session resolver; request headers are never trusted.
-  const actorId = deps.actorIdFromRequest ? await deps.actorIdFromRequest(request) : null
+  let actorId: string | null
+  if (deps.sessionCookieConfiguration !== undefined) {
+    const authorization = await authorizeD1AdminCookie(request, {
+      database: deps.database,
+      configuration: deps.sessionCookieConfiguration,
+      permissions: ['campaigns.manage', 'administration.manage'],
+      now
+    })
+    if (!authorization.allowed) return errorResponse(authorization.code, authorization.status)
+    actorId = authorization.claims.identityId
+  } else {
+    // Injected trusted resolver for isolated domain tests; canary supplies cookie configuration.
+    actorId = deps.actorIdFromRequest ? await deps.actorIdFromRequest(request) : null
+  }
 
   if (!actorId) {
     return errorResponse('unauthenticated', 401)

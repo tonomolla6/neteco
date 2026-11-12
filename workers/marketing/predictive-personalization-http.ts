@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
-import type { VerifiedSessionClaims } from '../catalog/authorization'
+import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
 import {
   applyCampaignOptimizationDecision,
   createCampaignOptimizationRule,
@@ -108,6 +108,17 @@ export async function handlePredictivePersonalizationHttp(
   const now = serverNow(deps)
 
   try {
+    let administrativeClaims: VerifiedSessionClaims | null = null
+    if (path.startsWith('/api/admin/marketing/predictive-campaigns')) {
+      administrativeClaims = await resolveClaims(request, deps)
+      if (!administrativeClaims) return errorResponse('unauthorized', 401)
+      const auth = await authorizeD1Session(deps.database, administrativeClaims, 'administration.manage', {
+        now,
+        requireMfa: true
+      })
+      if (!auth.allowed) return errorResponse(auth.code, auth.code === 'unauthenticated' ? 401 : 403)
+    }
+
     // 1. Customer Personalization Preferences
     if (path === '/api/customer/personalization/preferences') {
       const claims = await resolveClaims(request, deps)
@@ -184,7 +195,7 @@ export async function handlePredictivePersonalizationHttp(
 
     // 5. Admin Predictive Campaign Rules
     if (path === '/api/admin/marketing/predictive-campaigns/rules') {
-      const claims = await resolveClaims(request, deps)
+      const claims = administrativeClaims
       if (!claims) return errorResponse('unauthorized', 401)
 
       if (method === 'POST') {
@@ -202,7 +213,7 @@ export async function handlePredictivePersonalizationHttp(
 
     // 6. Admin Decision Application
     if (path === '/api/admin/marketing/predictive-campaigns/decisions' && method === 'POST') {
-      const claims = await resolveClaims(request, deps)
+      const claims = administrativeClaims
       if (!claims) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as {
@@ -226,7 +237,7 @@ export async function handlePredictivePersonalizationHttp(
 
     // 7. Admin Review Decision
     if (path === '/api/admin/marketing/predictive-campaigns/review' && method === 'POST') {
-      const claims = await resolveClaims(request, deps)
+      const claims = administrativeClaims
       if (!claims) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as {
@@ -251,7 +262,7 @@ export async function handlePredictivePersonalizationHttp(
 
     // 8. Admin Kill Switch Toggle
     if (path === '/api/admin/marketing/predictive-campaigns/kill-switch' && method === 'POST') {
-      const claims = await resolveClaims(request, deps)
+      const claims = administrativeClaims
       if (!claims) return errorResponse('unauthorized', 401)
 
       const body = (await request.json().catch(() => null)) as {
@@ -276,7 +287,7 @@ export async function handlePredictivePersonalizationHttp(
 
     // 9. Admin Campaign Optimization Metrics
     if (path === '/api/admin/marketing/predictive-campaigns/metrics' && method === 'GET') {
-      const claims = await resolveClaims(request, deps)
+      const claims = administrativeClaims
       if (!claims) return errorResponse('unauthorized', 401)
 
       const metrics = await getCampaignOptimizationReporting(deps.database, {

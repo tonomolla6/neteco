@@ -16,23 +16,30 @@ import {
   createLearningCampaignsWorld,
   type LearningCampaignsWorld
 } from './learning-campaigns-fixture'
-import type { SessionCookieConfiguration } from '../../workers/auth/session-cookie'
+import { issueD1SessionCookie, type SessionCookieConfiguration } from '../../workers/auth/session-cookie'
 
 const dummySessionConfig: SessionCookieConfiguration = {
-  cookieName: 'neteco_session',
   password: 'test-session-password-at-least-32-chars-long!!',
-  ttlSeconds: 3600
+  maxAgeSeconds: 3600
 }
 
 let world: LearningCampaignsWorld
+const adminSession = '41000000-0000-4000-8000-000000000001'
+const customerSession = '41000000-0000-4000-8000-000000000002'
 beforeEach(async () => {
   world = await createLearningCampaignsWorld()
+  const session = world.sqlite.prepare(
+    'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,?)'
+  )
+  session.run(adminSession, ADMIN_IDENTITY, NOW, '2099-01-01T00:00:00Z')
+  session.run(customerSession, CUSTOMER_IDENTITY_1, NOW, '2099-01-01T00:00:00Z')
 })
 afterEach(() => world.close())
 
 const adminClaims = {
   identityId: ADMIN_IDENTITY,
   customerId: null,
+  sessionId: adminSession,
   sessionVersion: 1,
   roles: ['admin'],
   permissions: ['administration.manage']
@@ -41,12 +48,98 @@ const adminClaims = {
 const customerClaims = {
   identityId: CUSTOMER_IDENTITY_1,
   customerId: CUSTOMER_IDENTITY_1,
+  sessionId: customerSession,
   sessionVersion: 1,
   roles: ['customer'],
   permissions: []
 }
 
 describe('MKT-033, MKT-035, MKT-036: HTTP API Endpoints', () => {
+  it.each([
+    ['/api/customer/targeted-campaigns', handleTargetedCampaignsHttp, 200],
+    ['/api/b2b/recurring-incentives/my-overview', handleRecurringIncentivesHttp, 404]
+  ] as const)('rejects a revoked customer session at %s', async (path, handle, liveStatus) => {
+    const cookie = (await issueD1SessionCookie(world.db, customerClaims, dummySessionConfig))!
+    expect(cookie).toMatch(/^neteco-session=/)
+    const request = () => new Request('https://neteco.test' + path, { headers: { cookie } })
+    const deps = {
+      database: world.db,
+      sessionCookieConfiguration: dummySessionConfig,
+      origin: 'https://neteco.test',
+      now: () => NOW
+    }
+    expect((await handle(request(), deps))?.status).toBe(liveStatus)
+    world.sqlite.prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?').run(NOW, customerSession)
+    expect((await handle(request(), deps))?.status).toBe(401)
+  })
+
+  it.each([
+    ['/api/admin/marketing/targeted-campaigns', 'GET'],
+    ['/api/admin/marketing/targeted-campaigns/missing/eligibility', 'GET'],
+    ['/api/admin/marketing/targeted-campaigns/missing/reporting', 'GET'],
+    ['/api/admin/marketing/targeted-campaigns/missing/dispatch', 'POST']
+  ])('denies customer claims before targeted campaign admin route %s', async (path, method) => {
+    const req = new Request('https://neteco.test' + path, {
+      method,
+      ...(method === 'POST' ? { body: JSON.stringify({ customerId: CUSTOMER_IDENTITY_1 }) } : {})
+    })
+    const res = await handleTargetedCampaignsHttp(req, {
+      database: world.db,
+      origin: 'https://neteco.test',
+      claimsResolver: async () => customerClaims,
+      now: () => NOW
+    })
+    expect(res?.status).toBe(403)
+  })
+
+  it('requires an active admin session and MFA for targeted campaigns', async () => {
+    const req = () => new Request('https://neteco.test/api/admin/marketing/targeted-campaigns')
+    const deps = {
+      database: world.db,
+      origin: 'https://neteco.test',
+      claimsResolver: async () => adminClaims,
+      now: () => NOW
+    }
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(adminSession)
+    expect((await handleTargetedCampaignsHttp(req(), deps))?.status).toBe(403)
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, adminSession)
+    expect((await handleTargetedCampaignsHttp(req(), deps))?.status).toBe(401)
+  })
+
+  it.each([
+    ['/api/admin/b2b/recurring-incentives/agreements/' + COMPANY_ID_1, 'GET'],
+    ['/api/admin/b2b/recurring-incentives/agreements', 'POST'],
+    ['/api/admin/b2b/recurring-incentives/settlements/evaluate', 'POST'],
+    ['/api/admin/b2b/recurring-incentives/settlements/missing/approve', 'POST']
+  ])('denies a customer before recurring incentives admin route %s', async (path, method) => {
+    const request = new Request('https://neteco.test' + path, {
+      method,
+      ...(method === 'POST' ? { body: JSON.stringify({}) } : {})
+    })
+    const res = await handleRecurringIncentivesHttp(request, {
+      database: world.db,
+      origin: 'https://neteco.test',
+      claimsResolver: async () => customerClaims,
+      now: () => NOW
+    })
+    expect(res?.status).toBe(403)
+  })
+
+  it('requires an active admin session and MFA for recurring agreements', async () => {
+    const request = () =>
+      new Request('https://neteco.test/api/admin/b2b/recurring-incentives/agreements/' + COMPANY_ID_1)
+    const deps = {
+      database: world.db,
+      origin: 'https://neteco.test',
+      claimsResolver: async () => adminClaims,
+      now: () => NOW
+    }
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(adminSession)
+    expect((await handleRecurringIncentivesHttp(request(), deps))?.status).toBe(403)
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, adminSession)
+    expect((await handleRecurringIncentivesHttp(request(), deps))?.status).toBe(401)
+  })
+
   it('owns expected URL namespaces correctly', () => {
     expect(ownsLearningCentreNamespace('/api/learning/courses')).toBe(true)
     expect(ownsLearningCentreNamespace('/api/admin/learning/courses')).toBe(true)

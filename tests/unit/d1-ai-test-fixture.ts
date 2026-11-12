@@ -66,6 +66,7 @@ export async function aiTestFixture() {
     INSERT OR IGNORE INTO permissions VALUES('administration.manage', 'administration', 'manage', 'Full Admin');
     INSERT OR IGNORE INTO permissions VALUES('admin.ai_assistant', 'admin', 'ai_assistant', 'AI Assistant');
     INSERT OR IGNORE INTO permissions VALUES('catalog.write', 'catalog', 'write', 'Catalog Write');
+    INSERT OR IGNORE INTO permissions VALUES('catalog.publish', 'catalog', 'publish', 'Catalog Publish');
     INSERT OR IGNORE INTO permissions VALUES('catalog.ai_generate', 'catalog', 'ai_generate', 'Catalog AI Generate');
     INSERT OR IGNORE INTO permissions VALUES('media.write', 'media', 'write', 'Media Write');
     INSERT OR IGNORE INTO permissions VALUES('media.ai_enrich', 'media', 'ai_enrich', 'Media AI Enrich');
@@ -76,6 +77,7 @@ export async function aiTestFixture() {
     INSERT OR IGNORE INTO role_permissions VALUES('admin', 'administration.manage');
     INSERT OR IGNORE INTO role_permissions VALUES('admin', 'admin.ai_assistant');
     INSERT OR IGNORE INTO role_permissions VALUES('admin', 'catalog.write');
+    INSERT OR IGNORE INTO role_permissions VALUES('admin', 'catalog.publish');
     INSERT OR IGNORE INTO role_permissions VALUES('admin', 'catalog.ai_generate');
     INSERT OR IGNORE INTO role_permissions VALUES('admin', 'media.write');
     INSERT OR IGNORE INTO role_permissions VALUES('admin', 'media.ai_enrich');

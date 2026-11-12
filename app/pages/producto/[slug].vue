@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useCartStore } from '~/stores/cart'
+import { catalogPageFailureStatus } from '~~/shared/catalog-page-status'
 import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
 import ProductDetailExtras from '~/components/ProductDetailExtras.vue'
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
@@ -89,7 +90,16 @@ interface ProductDetail {
 const route = useRoute()
 const { ready, loggedIn, user, session } = useUserSession()
 const { data: productData, error } = await useFetch<ProductDetail>(`/api/products/${route.params.slug}`)
-if (error.value || !productData.value || !productData.value.variants.length) {
+const productFailure = catalogPageFailureStatus(error.value, productData.value)
+if (productFailure) {
+  if (productFailure === 503) useResponseHeader('Retry-After').value = '30'
+  throw createError({
+    statusCode: productFailure,
+    statusMessage: productFailure === 404 ? 'Producto no encontrado' : 'Producto temporalmente no disponible',
+    fatal: true
+  })
+}
+if (!productData.value!.variants.length) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
 const product = computed(() => productData.value!)

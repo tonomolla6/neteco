@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1AdminCookie } from '../auth/admin-session'
 import {
   createCaseStudy,
   getCaseStudyById,
@@ -53,7 +54,7 @@ async function resolveActor(
   if (!claims) return null
 
   const live = await deps.database
-    .prepare('SELECT 1 AS ok FROM identities WHERE id = ?1 AND status = "active"')
+    .prepare("SELECT 1 AS ok FROM identities WHERE id = ?1 AND status = 'active'")
     .bind(claims.identityId)
     .first<{ ok: number }>()
 
@@ -81,6 +82,14 @@ export async function handleCustomerCaseStudiesHttp(
   }
 
   try {
+    if (path.startsWith('/api/admin/') && !deps.sessionProvider) {
+      const authorization = await authorizeD1AdminCookie(request, {
+        database: deps.database,
+        configuration: deps.sessionCookieConfiguration,
+        now: now.replace(/\.\d{3}Z$/, 'Z')
+      })
+      if (!authorization.allowed) return errorResponse(authorization.code, authorization.status)
+    }
     // 1. GET /api/case-studies (Public list)
     if (path === '/api/case-studies' && request.method === 'GET') {
       const sector = url.searchParams.get('sector') ?? undefined

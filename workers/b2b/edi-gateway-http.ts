@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1Session } from '../catalog/authorization'
 import {
   registerEdiClient,
   createEdiApiKey,
@@ -52,28 +53,33 @@ export async function handleB2bEdiHttp(request: Request, deps: B2bEdiHttpDepende
     }
 
     const checkAdminAuth = async () => {
-      return deps.database
-        .prepare(
-          `SELECT 1 FROM identity_roles
-           WHERE identity_id = ? AND (
-             role_code IN ('admin', 'super-admin')
-             OR EXISTS (SELECT 1 FROM role_permissions WHERE role_code = identity_roles.role_code AND permission_code = 'administration.manage')
-           )`
-        )
-        .bind(adminClaims.identityId)
-        .first()
+      try {
+        const auth = await authorizeD1Session(deps.database, adminClaims, 'administration.manage', { requireMfa: true })
+        return auth.allowed ? null : errorResponse(auth.code, auth.code === 'unauthenticated' ? 401 : 403)
+      } catch {
+        return errorResponse('service_unavailable', 503)
+      }
     }
 
-    if (!(await checkAdminAuth())) {
-      return errorResponse('forbidden', 403)
-    }
+    const denied = await checkAdminAuth()
+    if (denied) return denied
 
     // POST /api/admin/edi/clients
     if (pathname === '/api/admin/edi/clients' && method === 'POST') {
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body) return errorResponse('invalid_body', 400)
-      const client = await registerEdiClient(deps.database, body as unknown as Parameters<typeof registerEdiClient>[1])
-      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
+      let client
+      try {
+        client = await registerEdiClient(
+          deps.database,
+          body as unknown as Parameters<typeof registerEdiClient>[1],
+          adminClaims
+        )
+      } catch {
+        return (await checkAdminAuth()) ?? errorResponse('service_unavailable', 503)
+      }
+      const denied = await checkAdminAuth()
+      if (denied) return denied
       return jsonResponse({ ok: true, client }, 201)
     }
 
@@ -83,12 +89,22 @@ export async function handleB2bEdiHttp(request: Request, deps: B2bEdiHttpDepende
       const clientId = keyMatch[1]!
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
       if (!body) return errorResponse('invalid_body', 400)
-      const key = await createEdiApiKey(deps.database, {
-        clientId,
-        name: String(body.name ?? 'API Key'),
-        expiresAt: body.expiresAt ? String(body.expiresAt) : null
-      })
-      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
+      let key
+      try {
+        key = await createEdiApiKey(
+          deps.database,
+          {
+            clientId,
+            name: String(body.name ?? 'API Key'),
+            expiresAt: body.expiresAt ? String(body.expiresAt) : null
+          },
+          adminClaims
+        )
+      } catch {
+        return (await checkAdminAuth()) ?? errorResponse('service_unavailable', 503)
+      }
+      const denied = await checkAdminAuth()
+      if (denied) return denied
       return jsonResponse({ ok: true, key }, 201)
     }
 
@@ -97,7 +113,8 @@ export async function handleB2bEdiHttp(request: Request, deps: B2bEdiHttpDepende
     if (monMatch && method === 'GET') {
       const clientId = monMatch[1]!
       const monitoring = await getEdiMonitoringSummary(deps.database, clientId)
-      if (!(await checkAdminAuth())) return errorResponse('forbidden', 403)
+      const denied = await checkAdminAuth()
+      if (denied) return denied
       return jsonResponse({ ok: true, monitoring })
     }
 

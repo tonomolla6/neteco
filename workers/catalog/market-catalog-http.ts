@@ -1,5 +1,6 @@
 import type { SessionCookieConfiguration } from '../auth/session-cookie'
 import { verifySessionCookie } from '../auth/session-cookie'
+import { authorizeD1Session } from './authorization'
 import {
   executeMarketCatalogCommand,
   listActiveMarkets,
@@ -45,6 +46,7 @@ function jsonResponse(data: unknown, status = 200, headers: Record<string, strin
     status,
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'private, no-store',
       ...headers
     }
   })
@@ -116,9 +118,14 @@ export async function handleMarketCatalogHttp(
     return errorResponse('unauthenticated', 401)
   }
 
-  const commandId = request.headers.get('idempotency-key') ?? crypto.randomUUID()
-
   try {
+    const auth = await authorizeD1Session(deps.database, claims, 'administration.manage', {
+      now: deps.now?.(),
+      requireMfa: true
+    })
+    if (!auth.allowed) return errorResponse(auth.code, auth.code === 'unauthenticated' ? 401 : 403)
+    const commandId = request.headers.get('idempotency-key') ?? crypto.randomUUID()
+
     // Admin Market Catalog
     if (pathname.startsWith('/api/admin/market-catalog/products/')) {
       const productId = pathname.slice('/api/admin/market-catalog/products/'.length)

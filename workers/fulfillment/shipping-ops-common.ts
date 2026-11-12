@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1Session } from '../catalog/authorization'
 
 /** Shared plumbing for SHP-027/028/030 modules: stable errors, hashing, live authorisation, HTTP helpers. */
 export type ShippingOpsErrorCode =
@@ -123,6 +124,7 @@ export async function requireAdmin(db: D1Database, identityId: string): Promise<
 
 export interface OpsActor {
   identityId: string
+  sessionId?: string
   sessionVersion?: number
 }
 
@@ -138,13 +140,44 @@ export async function resolveActor(request: Request, deps: OpsHttpDependencies):
   if (!deps.sessionCookieConfiguration) return null
   const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
   if (!claims) return null
+  const now = deps.now?.() ?? new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
   const live = await firstRow<{ ok: number }>(
     deps.database,
-    `SELECT 1 AS ok FROM identities WHERE id = ?1 AND status = 'active' AND session_version = ?2`,
+    `SELECT 1 AS ok FROM identities i JOIN auth_sessions s ON s.identity_id = i.id
+     WHERE i.id = ?1 AND i.status = 'active' AND i.session_version = ?2
+       AND s.id = ?3 AND s.session_version = i.session_version AND s.revoked_at IS NULL
+       AND s.created_at <= ?4 AND s.expires_at > ?4`,
     claims.identityId,
-    claims.sessionVersion
+    claims.sessionVersion,
+    claims.sessionId,
+    now
   )
-  return live ? { identityId: claims.identityId, sessionVersion: claims.sessionVersion } : null
+  return live
+    ? { identityId: claims.identityId, sessionId: claims.sessionId, sessionVersion: claims.sessionVersion }
+    : null
+}
+
+/** The injected provider is a test seam; production supplies a verified cookie. */
+export async function checkOpsAdmin(actor: OpsActor, deps: OpsHttpDependencies): Promise<Response | null> {
+  if (deps.sessionProvider) return null
+  if (!actor.sessionId || typeof actor.sessionVersion !== 'number')
+    return opsJson({ error: { code: 'unauthorized' } }, 401)
+  try {
+    const auth = await authorizeD1Session(
+      deps.database,
+      { identityId: actor.identityId, sessionId: actor.sessionId, sessionVersion: actor.sessionVersion },
+      'administration.manage',
+      { now: deps.now?.(), requireMfa: true }
+    )
+    if (!auth.allowed)
+      return opsJson(
+        { error: { code: auth.code === 'unauthenticated' ? 'unauthorized' : 'forbidden' } },
+        auth.code === 'unauthenticated' ? 401 : 403
+      )
+    return null
+  } catch {
+    return opsJson({ error: { code: 'service_unavailable' } }, 503)
+  }
 }
 
 export function opsJson(body: unknown, status = 200): Response {

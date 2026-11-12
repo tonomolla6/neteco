@@ -2564,10 +2564,7 @@ const canaryWorker = {
       if (blocked) return blocked
       const seasonalCamp = await handleSeasonalCampaignsHttp(request, {
         database: env.DB,
-        actorIdFromRequest: async (req) => {
-          const session = await customerSession(req, env)
-          return session?.identityId ?? null
-        }
+        sessionCookieConfiguration: mountSession(env)
       })
       if (seasonalCamp) return seasonalCamp
     }

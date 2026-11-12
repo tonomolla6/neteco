@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleMarketCatalogHttp } from '../../workers/catalog/market-catalog-http'
 import { seedDefaultMarkets } from '../../workers/catalog/market-catalog'
+import { testNow } from '../support/deterministic'
 
 const MIGRATION_PATH_106 = 'db/d1/migrations/0106_inventory_lots_costing_forecast.sql'
 const MIGRATION_PATH_118 = 'db/d1/migrations/0118_recall_market_messaging.sql'
@@ -19,10 +20,16 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
   const productId = 'p-1'
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow())
     f = await returnsFixture()
     f.sqlite.exec(await readFile(MIGRATION_PATH_106, 'utf8'))
     f.sqlite.exec(await readFile(MIGRATION_PATH_118, 'utf8'))
     f.sqlite.exec(await readFile(MIGRATION_PATH_120, 'utf8'))
+    // SQLite's transaction guards use its own clock rather than the faked JS clock.
+    f.sqlite
+      .prepare("UPDATE auth_sessions SET expires_at='2099-01-01T00:00:00Z' WHERE id IN (?, ?)")
+      .run(CLAIMS.sessionId, BUYER_CLAIMS.sessionId)
     await seedDefaultMarkets(f.database, { now: () => utc() })
 
     adminCookie = (await issueD1SessionCookie(f.database, CLAIMS, config))!.split(';')[0]!
@@ -31,6 +38,8 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
 
   afterEach(() => {
     f?.sqlite.close()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   const deps = () => ({
@@ -171,6 +180,61 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
     expect(res?.status).toBe(403)
   })
 
+  it.each([
+    ['/api/admin/market-catalog/products/p-1', 'GET'],
+    ['/api/admin/international-shipping/ES', 'GET'],
+    ['/api/admin/catalog-lots/expedition/locate-stock/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'GET'],
+    ['/api/admin/catalog-lots/expedition/locate-customers/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'GET'],
+    ['/api/admin/catalog-lots/expedition/check-order/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'GET'],
+    ['/api/admin/catalog-lots/expedition/block', 'POST'],
+    ['/api/admin/catalog-lots/expedition/unblock', 'POST']
+  ])('denies a customer with MFA before accessing admin route %s', async (path, method) => {
+    f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1 WHERE id=?').run(BUYER_CLAIMS.sessionId)
+    const res = await handleMarketCatalogHttp(
+      req(path, { method, cookie: buyerCookie, ...(method === 'POST' ? { body: {} } : {}) }),
+      deps()
+    )
+    expect(res?.status).toBe(403)
+    expect(await res!.json()).toEqual({ error: { code: 'forbidden' } })
+  })
+
+  it('rejects a revoked admin session and an admin without MFA on lot reports', async () => {
+    const path = '/api/admin/catalog-lots/expedition/locate-customers/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(CLAIMS.sessionId)
+    const noMfa = await handleMarketCatalogHttp(req(path), deps())
+    expect(noMfa?.status).toBe(403)
+    expect(await noMfa!.json()).toEqual({ error: { code: 'mfa_required' } })
+
+    f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(utc(), CLAIMS.sessionId)
+    const revoked = await handleMarketCatalogHttp(req(path), deps())
+    expect(revoked?.status).toBe(401)
+    expect(await revoked!.json()).toEqual({ error: { code: 'unauthenticated' } })
+  })
+
+  it('rejects an expired admin session on lot reports', async () => {
+    f.sqlite.prepare('UPDATE auth_sessions SET expires_at=? WHERE id=?').run(utc(-1000), CLAIMS.sessionId)
+    const res = await handleMarketCatalogHttp(
+      req('/api/admin/catalog-lots/expedition/locate-customers/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+      deps()
+    )
+    expect(res?.status).toBe(401)
+    expect(await res!.json()).toEqual({ error: { code: 'unauthenticated' } })
+  })
+
+  it('fails closed without a session or when D1 authorization is unavailable', async () => {
+    const path = '/api/admin/catalog-lots/expedition/locate-customers/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const noCookie = await handleMarketCatalogHttp(req(path, { cookie: '' }), deps())
+    expect(noCookie?.status).toBe(401)
+    expect(noCookie?.headers.get('cache-control')).toBe('private, no-store')
+    vi.spyOn(f.database, 'prepare').mockImplementation(() => {
+      throw new Error('synthetic_d1_unavailable')
+    })
+    const unavailable = await handleMarketCatalogHttp(req(path), deps())
+    expect(unavailable?.status).toBe(500)
+    expect(await unavailable!.json()).toEqual({ error: { code: 'internal_server_error' } })
+    expect(unavailable?.headers.get('cache-control')).toBe('private, no-store')
+  })
+
   it('rejects cross-site origins on state-changing requests', async () => {
     const crossSiteReq = new Request(`${origin}/api/admin/international-shipping/FR`, {
       method: 'POST',
@@ -256,6 +320,7 @@ describe('Market Catalog and International Shipping HTTP Endpoints', () => {
       deps()
     )
     expect(customersRes?.status).toBe(200)
+    expect(customersRes?.headers.get('cache-control')).toBe('private, no-store')
     const customerData = (await customersRes!.json()) as Record<string, unknown>
     expect(customerData.affectedCustomers).toEqual([])
   })

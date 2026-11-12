@@ -5,6 +5,7 @@ import {
   ownsPackingOptimizerNamespace
 } from '../../workers/fulfillment/packing-optimizer-http'
 import { ADMIN, NOW, OTHER, opsWorld, type OpsWorld } from './shipping-ops-fixture'
+import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 
 let w: OpsWorld
 beforeEach(async () => {
@@ -33,6 +34,37 @@ const profileBody = {
 }
 
 describe('SHP-030 packing optimiser HTTP', () => {
+  it('checks the live admin cookie and MFA before exposing packing configuration', async () => {
+    const identity = '11000000-0000-4000-8000-000000000003'
+    const session = '22000000-0000-4000-8000-000000000003'
+    const config = { password: 'synthetic-shipping-ops-password-32-characters', maxAgeSeconds: 3600 }
+    w.sqlite
+      .prepare(
+        "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES(?,?,'synthetic',?,'active',?,?)"
+      )
+      .run(identity, 'packing-admin@example.invalid', NOW, NOW, NOW)
+    w.sqlite
+      .prepare("INSERT INTO identity_roles(identity_id,role_code,granted_at) VALUES(?,'admin-role',?)")
+      .run(identity, NOW)
+    w.sqlite
+      .prepare(
+        "INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,'2099-01-01T00:00:00Z')"
+      )
+      .run(session, identity, NOW)
+    const cookie = (await issueD1SessionCookie(
+      w.db,
+      { identityId: identity, sessionId: session, sessionVersion: 1 },
+      config
+    ))!
+    const request = () => new Request('https://neteco.invalid/api/admin/packing-optimizer', { headers: { cookie } })
+    const deps = { database: w.db, sessionCookieConfiguration: config, now: () => NOW }
+    expect((await handlePackingOptimizerHttp(request(), deps))?.status).toBe(200)
+    w.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(session)
+    expect((await handlePackingOptimizerHttp(request(), deps))?.status).toBe(403)
+    w.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, session)
+    expect((await handlePackingOptimizerHttp(request(), deps))?.status).toBe(401)
+  })
+
   it('owns only its namespace', async () => {
     expect(ownsPackingOptimizerNamespace('/api/admin/packing-optimizer')).toBe(true)
     expect(ownsPackingOptimizerNamespace('/api/admin/packing-optimizer/boxes/S')).toBe(true)

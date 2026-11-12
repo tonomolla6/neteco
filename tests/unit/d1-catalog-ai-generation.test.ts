@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { aiTestFixture, ADMIN_CLAIMS, OPERATOR_CLAIMS, UNAUTHORIZED_CLAIMS } from './d1-ai-test-fixture'
 import type {
   GenerateCatalogContentInput,
@@ -24,7 +24,288 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     f.sqlite.close()
+  })
+
+  it('requires MFA, an independent reviewer and publication authority to apply generated text', async () => {
+    const input: GenerateCatalogContentInput = {
+      productName: 'Limpiador seguro para suelos',
+      targetScope: 'description',
+      prompt: 'Describir el producto usando su ficha técnica',
+      sources: [
+        {
+          id: 'source-independent-review',
+          title: 'Ficha técnica del limpiador',
+          type: 'tech_sheet',
+          verifiedClaims: ['Producto apto para limpieza de suelos'],
+          textSnippet: 'Limpiador técnico para superficies de suelo.'
+        }
+      ]
+    }
+    f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(OPERATOR_CLAIMS.sessionId)
+    await expect(
+      generateD1CatalogContent(f.database, OPERATOR_CLAIMS, input, { idempotencyKey: 'mfa', now: () => NOW })
+    ).rejects.toMatchObject({ code: 'unauthorized' })
+    f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1 WHERE id=?').run(OPERATOR_CLAIMS.sessionId)
+
+    const generated = await generateD1CatalogContent(f.database, OPERATOR_CLAIMS, input, {
+      idempotencyKey: 'independent-create',
+      now: () => NOW
+    })
+    await expect(
+      reviewD1CatalogAiGeneration(
+        f.database,
+        OPERATOR_CLAIMS,
+        generated.id,
+        { expectedVersion: generated.version, decision: 'approve' },
+        { idempotencyKey: 'self-review', now: () => NOW }
+      )
+    ).rejects.toMatchObject({ code: 'unauthorized' })
+    const reviewed = await reviewD1CatalogAiGeneration(
+      f.database,
+      ADMIN_CLAIMS,
+      generated.id,
+      { expectedVersion: generated.version, decision: 'approve' },
+      { idempotencyKey: 'independent-review', now: () => NOW }
+    )
+    await expect(
+      applyD1CatalogAiGeneration(
+        f.database,
+        OPERATOR_CLAIMS,
+        generated.id,
+        { expectedVersion: reviewed.version, targetProductId: 'prod-desengrasante-1' },
+        { idempotencyKey: 'no-publish-permission', now: () => NOW }
+      )
+    ).rejects.toMatchObject({ code: 'unauthorized' })
+  })
+
+  it('does not apply generated text if the publishing session is revoked before the D1 batch', async () => {
+    const generated = await generateD1CatalogContent(
+      f.database,
+      OPERATOR_CLAIMS,
+      {
+        productName: 'Limpiador para suelos',
+        targetScope: 'description',
+        prompt: 'Describir el limpiador usando la ficha técnica',
+        sources: [
+          {
+            id: 'source-race',
+            title: 'Ficha técnica de limpieza',
+            type: 'tech_sheet',
+            verifiedClaims: ['Apto para limpieza de suelos'],
+            textSnippet: 'Limpiador técnico para superficies de suelo.'
+          }
+        ]
+      },
+      { idempotencyKey: 'race-create', now: () => NOW }
+    )
+    const reviewed = await reviewD1CatalogAiGeneration(
+      f.database,
+      ADMIN_CLAIMS,
+      generated.id,
+      { expectedVersion: generated.version, decision: 'approve' },
+      { idempotencyKey: 'race-review', now: () => NOW }
+    )
+    const productBefore = f.sqlite.prepare('SELECT description FROM products WHERE id=?').get('prod-desengrasante-1')
+    const originalBatch = f.database.batch.bind(f.database)
+    vi.spyOn(f.database, 'batch').mockImplementationOnce(async (statements) => {
+      f.sqlite.prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?').run(NOW, ADMIN_CLAIMS.sessionId)
+      return originalBatch(statements)
+    })
+    await expect(
+      applyD1CatalogAiGeneration(
+        f.database,
+        ADMIN_CLAIMS,
+        generated.id,
+        { expectedVersion: reviewed.version, targetProductId: 'prod-desengrasante-1' },
+        { idempotencyKey: 'race-apply', now: () => NOW }
+      )
+    ).rejects.toMatchObject({ code: 'unauthorized' })
+    expect(f.sqlite.prepare('SELECT description FROM products WHERE id=?').get('prod-desengrasante-1')).toEqual(
+      productBefore
+    )
+    expect(
+      f.sqlite.prepare("SELECT count(*) AS n FROM catalog_ai_generation_commands WHERE action='apply_to_product'").get()
+    ).toEqual({ n: 0 })
+  })
+
+  it('does not record a review if its session is revoked before the write', async () => {
+    const generated = await generateD1CatalogContent(
+      f.database,
+      OPERATOR_CLAIMS,
+      {
+        productName: 'Limpiador industrial',
+        targetScope: 'description',
+        prompt: 'Describir con la ficha técnica',
+        sources: [
+          {
+            id: 'source-review-race',
+            title: 'Ficha técnica industrial',
+            type: 'tech_sheet',
+            verifiedClaims: ['Apto para uso industrial'],
+            textSnippet: 'Limpiador apto para superficies industriales.'
+          }
+        ]
+      },
+      { idempotencyKey: 'review-race-create', now: () => NOW }
+    )
+    const originalPrepare = f.database.prepare.bind(f.database)
+    vi.spyOn(f.database, 'prepare').mockImplementation((sql) => {
+      if (sql.includes('UPDATE catalog_ai_generations') && sql.includes('human_reviewer_id')) {
+        f.sqlite.prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?').run(NOW, ADMIN_CLAIMS.sessionId)
+      }
+      return originalPrepare(sql)
+    })
+    await expect(
+      reviewD1CatalogAiGeneration(
+        f.database,
+        ADMIN_CLAIMS,
+        generated.id,
+        { expectedVersion: generated.version, decision: 'approve' },
+        { idempotencyKey: 'review-race', now: () => NOW }
+      )
+    ).rejects.toMatchObject({ code: 'unauthorized' })
+    expect(
+      f.sqlite.prepare('SELECT approval_status, version FROM catalog_ai_generations WHERE id=?').get(generated.id)
+    ).toEqual({ approval_status: 'pending_review', version: generated.version })
+    expect(
+      f.sqlite
+        .prepare("SELECT count(*) AS n FROM catalog_ai_generation_commands WHERE action='human_review_decision'")
+        .get()
+    ).toEqual({ n: 0 })
+  })
+
+  it('replays matching concurrent reviews once and rejects another command for the stale version', async () => {
+    const generated = await generateD1CatalogContent(
+      f.database,
+      OPERATOR_CLAIMS,
+      {
+        productName: 'Limpiador para talleres',
+        targetScope: 'description',
+        prompt: 'Describir según ficha técnica',
+        sources: [
+          {
+            id: 'source-review-concurrency',
+            title: 'Ficha técnica para talleres',
+            type: 'tech_sheet',
+            verifiedClaims: ['Apto para uso profesional'],
+            textSnippet: 'Limpiador para superficies de talleres profesionales.'
+          }
+        ]
+      },
+      { idempotencyKey: 'review-concurrency-create', now: () => NOW }
+    )
+    const decision = { expectedVersion: generated.version, decision: 'approve' as const }
+    const review = (idempotencyKey: string) =>
+      reviewD1CatalogAiGeneration(f.database, ADMIN_CLAIMS, generated.id, decision, {
+        idempotencyKey,
+        now: () => NOW
+      })
+    const originalBatch = f.database.batch.bind(f.database)
+    let arrivals = 0
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(f.database, 'batch').mockImplementation(async (statements) => {
+      arrivals++
+      if (arrivals === 2) release()
+      await barrier
+      return originalBatch(statements)
+    })
+    const [first, replay] = await Promise.all([review('review-concurrency-key'), review('review-concurrency-key')])
+    expect(replay).toEqual(first)
+    await expect(review('review-concurrency-other-key')).rejects.toMatchObject({ code: 'concurrency_conflict' })
+    expect(
+      f.sqlite
+        .prepare("SELECT count(*) AS n FROM catalog_ai_generation_commands WHERE action='human_review_decision'")
+        .get()
+    ).toEqual({ n: 1 })
+  })
+
+  it.each([
+    ['review', 'same'],
+    ['review', 'different'],
+    ['review', 'conflicting'],
+    ['apply', 'same'],
+    ['apply', 'different'],
+    ['apply', 'conflicting']
+  ] as const)('commits concurrent %s commands with %s keys exactly once', async (operation, keys) => {
+    let generation = await generateD1CatalogContent(
+      f.database,
+      OPERATOR_CLAIMS,
+      {
+        productName: 'Limpiador técnico',
+        targetScope: 'description',
+        prompt: 'Describir conforme a la ficha técnica',
+        sources: [
+          {
+            id: 'concurrent-source',
+            title: 'Ficha técnica',
+            type: 'tech_sheet',
+            verifiedClaims: ['Limpieza de superficies'],
+            textSnippet: 'Limpiador de superficies profesionales.'
+          }
+        ]
+      },
+      { idempotencyKey: 'concurrent-create', now: () => NOW }
+    )
+    if (operation === 'apply')
+      generation = await reviewD1CatalogAiGeneration(
+        f.database,
+        ADMIN_CLAIMS,
+        generation.id,
+        { expectedVersion: generation.version, decision: 'approve' },
+        { idempotencyKey: 'concurrent-approval', now: () => NOW }
+      )
+    const originalBatch = f.database.batch.bind(f.database)
+    let arrivals = 0
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.spyOn(f.database, 'batch').mockImplementation(async (statements) => {
+      if (++arrivals === 2) release()
+      await barrier
+      return originalBatch(statements)
+    })
+    const run = (idempotencyKey: string, conflicting = false) =>
+      operation === 'review'
+        ? reviewD1CatalogAiGeneration(
+            f.database,
+            ADMIN_CLAIMS,
+            generation.id,
+            { expectedVersion: generation.version, decision: conflicting ? 'reject' : 'approve' },
+            { idempotencyKey, now: () => NOW }
+          )
+        : applyD1CatalogAiGeneration(
+            f.database,
+            ADMIN_CLAIMS,
+            generation.id,
+            { expectedVersion: generation.version, targetProductId: conflicting ? 'p-1' : 'prod-desengrasante-1' },
+            { idempotencyKey, now: () => NOW }
+          )
+    const outcomes = await Promise.allSettled([
+      run('concurrent-a'),
+      run(keys === 'different' ? 'concurrent-b' : 'concurrent-a', keys === 'conflicting')
+    ])
+    const successes = outcomes.filter((result) => result.status === 'fulfilled')
+    const failures = outcomes.filter((result) => result.status === 'rejected')
+    expect(successes).toHaveLength(keys === 'same' ? 2 : 1)
+    if (keys === 'same') expect(successes[1]!.value).toEqual(successes[0]!.value)
+    else
+      expect(failures[0]!.reason).toMatchObject({
+        code: keys === 'conflicting' ? 'idempotency_conflict' : 'concurrency_conflict'
+      })
+    expect(f.sqlite.prepare('SELECT version FROM catalog_ai_generations WHERE id=?').get(generation.id)).toEqual({
+      version: generation.version + 1
+    })
+    expect(
+      f.sqlite
+        .prepare('SELECT count(*) AS n FROM catalog_ai_generation_commands WHERE action=?')
+        .get(operation === 'review' ? 'human_review_decision' : 'apply_to_product')
+    ).toEqual({ n: 1 })
   })
 
   it('generates product content anchored in verifiable technical sources and marks as AI-generated', async () => {
@@ -164,7 +445,7 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
       ]
     }
 
-    const gen = await generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+    const gen = await generateD1CatalogContent(f.database, OPERATOR_CLAIMS, input, {
       idempotencyKey: 'idemp-human-review-ok',
       now: () => NOW
     })
@@ -206,7 +487,7 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
   it('INT-7: applying to a missing product fails cleanly and leaves the generation untouched', async () => {
     const gen = await generateD1CatalogContent(
       f.database,
-      ADMIN_CLAIMS,
+      OPERATOR_CLAIMS,
       {
         productName: 'Detergente Neutro Suelos',
         targetScope: 'description',
@@ -343,7 +624,7 @@ describe('ADM-033: Assisted catalog description & attribute generation', () => {
       ]
     }
 
-    const gen = await generateD1CatalogContent(f.database, ADMIN_CLAIMS, input, {
+    const gen = await generateD1CatalogContent(f.database, OPERATOR_CLAIMS, input, {
       idempotencyKey: 'idemp-reject-review-test',
       now: () => NOW
     })

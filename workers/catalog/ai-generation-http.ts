@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1Session } from './authorization'
 import {
   generateD1CatalogContent,
   reviewD1CatalogAiGeneration,
@@ -76,6 +77,11 @@ export async function handleCatalogAiGenerationHttp(
   try {
     // POST /check-duplicates
     if (request.method === 'POST' && path === '/check-duplicates') {
+      const auth = await authorizeD1Session(deps.database, claims, 'administration.manage', {
+        now: deps.now?.(),
+        requireMfa: true
+      })
+      if (!auth.allowed) return errorResponse(auth.code, auth.code === 'unauthenticated' ? 401 : 403)
       const body = (await request.json().catch(() => null)) as { text?: string; title?: string } | null
       if (!body?.text) return errorResponse('invalid_input', 400, 'Texto requerido para comprobación de duplicados')
       const duplicateCheck = await checkD1CatalogDuplicates(deps.database, body.text, body.title)

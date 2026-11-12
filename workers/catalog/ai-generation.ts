@@ -52,19 +52,55 @@ function getIsoNow(options?: CatalogAiOperationOptions): string {
 }
 
 async function verifyCatalogAiAuth(database: D1Database, claims: VerifiedSessionClaims, now: string): Promise<void> {
-  const authDirect = await authorizeD1Session(database, claims, 'catalog.ai_generate', { now, requireMfa: false })
+  const authDirect = await authorizeD1Session(database, claims, 'catalog.ai_generate', { now, requireMfa: true })
   if (authDirect.allowed) return
 
-  const authCatalog = await authorizeD1Session(database, claims, 'catalog.write', { now, requireMfa: false })
+  const authCatalog = await authorizeD1Session(database, claims, 'catalog.write', { now, requireMfa: true })
   if (authCatalog.allowed) return
 
-  const authAdmin = await authorizeD1Session(database, claims, 'administration.manage', { now, requireMfa: false })
+  const authAdmin = await authorizeD1Session(database, claims, 'administration.manage', { now, requireMfa: true })
   if (authAdmin.allowed) return
 
   throw new CatalogAiGenerationError(
     'unauthorized',
     'Permisos insuficientes: se requiere catalog.ai_generate, catalog.write o administration.manage'
   )
+}
+
+async function recoverConcurrentAiReceipt<T>(
+  error: unknown,
+  database: D1Database,
+  claims: VerifiedSessionClaims,
+  options: CatalogAiOperationOptions,
+  payloadHash: string,
+  permission?: 'catalog.publish'
+): Promise<T> {
+  if (
+    !(error instanceof Error) ||
+    !/UNIQUE constraint failed: catalog_ai_generation_commands\.(?:generation_id|actor_id)/.test(error.message)
+  )
+    throw error
+  const now = getIsoNow(options)
+  await verifyCatalogAiAuth(database, claims, now)
+  if (permission) {
+    const authorization = await authorizeD1Session(database, claims, permission, { now, requireMfa: true })
+    if (!authorization.allowed) throw new CatalogAiGenerationError('unauthorized', 'Se requiere permiso de publicación')
+  }
+  const command = await database
+    .prepare(
+      `SELECT payload_hash, receipt_json FROM catalog_ai_generation_commands
+     WHERE actor_id = ?1 AND idempotency_key = ?2`
+    )
+    .bind(claims.identityId, options.idempotencyKey)
+    .first<{ payload_hash: string; receipt_json: string }>()
+  if (!command) throw new CatalogAiGenerationError('concurrency_conflict', 'Otra operación confirmó esta versión')
+  if (command.payload_hash !== payloadHash) {
+    throw new CatalogAiGenerationError(
+      'idempotency_conflict',
+      'La clave de idempotencia ya fue utilizada con una carga distinta'
+    )
+  }
+  return JSON.parse(command.receipt_json) as T
 }
 
 export async function checkD1CatalogDuplicates(
@@ -348,6 +384,10 @@ export async function reviewD1CatalogAiGeneration(
     )
   }
 
+  if (row.actor_id === claims.identityId) {
+    throw new CatalogAiGenerationError('unauthorized', 'La revisión requiere una persona distinta del autor')
+  }
+
   const newStatus =
     input.decision === 'approve' ? 'approved' : input.decision === 'reject' ? 'rejected' : 'modified_and_approved'
 
@@ -360,7 +400,7 @@ export async function reviewD1CatalogAiGeneration(
   const finalNotes = input.reviewNotes ?? row.review_notes
   const newVersion = row.version + 1
 
-  await database
+  const reviewUpdate = database
     .prepare(
       `UPDATE catalog_ai_generations
        SET approval_status = ?1,
@@ -389,7 +429,6 @@ export async function reviewD1CatalogAiGeneration(
       generationId,
       row.version
     )
-    .run()
 
   const updatedRecord: CatalogAiGenerationRecord = {
     id: row.id,
@@ -417,14 +456,35 @@ export async function reviewD1CatalogAiGeneration(
     updatedAt: now
   }
 
-  // Record command
+  // Commit the review and its receipt together, rechecking the live authority in the batch.
   const commandId = crypto.randomUUID()
-  await database
+  const reviewCommand = database
     .prepare(
       `INSERT INTO catalog_ai_generation_commands (
         command_id, generation_id, actor_id, action, idempotency_key,
         expected_version, result_version, payload_hash, input_json, receipt_json, created_at
-      ) VALUES (?1, ?2, ?3, 'human_review_decision', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
+      ) VALUES (
+        ?1, ?2, ?3, 'human_review_decision',
+        CASE WHEN EXISTS (
+          SELECT 1 FROM auth_sessions s JOIN identities i ON i.id = s.identity_id
+          WHERE s.id = ?11 AND s.identity_id = ?3 AND s.session_version = ?12
+            AND i.session_version = s.session_version AND s.revoked_at IS NULL
+            AND s.mfa_verified = 1 AND i.status IN ('pending', 'active')
+            AND i.email_verified_at IS NOT NULL AND i.email_verified_at <= ?10
+            AND s.created_at <= ?10 AND s.expires_at > max(?10, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            AND EXISTS (
+              SELECT 1 FROM identity_roles r JOIN role_permissions p ON p.role_code = r.role_code
+              WHERE r.identity_id = i.id
+                AND p.permission_code IN ('catalog.ai_generate', 'catalog.write', 'administration.manage')
+                AND r.granted_at <= ?10
+                AND (r.expires_at IS NULL OR r.expires_at > max(?10, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+            )
+        ) AND EXISTS (
+          SELECT 1 FROM catalog_ai_generations g WHERE g.id = ?2 AND g.version = ?6
+            AND g.human_reviewer_id = ?3 AND g.actor_id <> ?3
+        ) THEN ?4 ELSE NULL END,
+        ?5, ?6, ?7, ?8, ?9, ?10
+      )`
     )
     .bind(
       commandId,
@@ -436,9 +496,20 @@ export async function reviewD1CatalogAiGeneration(
       payloadHash,
       JSON.stringify(input),
       JSON.stringify(updatedRecord),
-      now
+      now,
+      claims.sessionId,
+      claims.sessionVersion
     )
-    .run()
+  try {
+    await database.batch([reviewUpdate, reviewCommand])
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('NOT NULL constraint failed: catalog_ai_generation_commands.idempotency_key')
+    )
+      throw new CatalogAiGenerationError('unauthorized', 'La autorización o revisión ya no es válida')
+    return recoverConcurrentAiReceipt<CatalogAiGenerationRecord>(error, database, claims, options, payloadHash)
+  }
 
   return updatedRecord
 }
@@ -458,6 +529,8 @@ export async function applyD1CatalogAiGeneration(
   const now = getIsoNow(options)
 
   await verifyCatalogAiAuth(database, claims, now)
+  const publisher = await authorizeD1Session(database, claims, 'catalog.publish', { now, requireMfa: true })
+  if (!publisher.allowed) throw new CatalogAiGenerationError('unauthorized', 'Se requiere permiso de publicación')
 
   const payloadHash = await catalogAiPayloadHash('apply_to_product', { generationId, ...input })
 
@@ -504,6 +577,9 @@ export async function applyD1CatalogAiGeneration(
       `No se puede aplicar contenido que no haya sido aprobado previamente por revisión humana (estado actual: ${row.approval_status})`
     )
   }
+  if (!row.human_reviewer_id || row.human_reviewer_id === row.actor_id) {
+    throw new CatalogAiGenerationError('not_approved', 'Se requiere una revisión independiente')
+  }
 
   const appliedContent = {
     appliedAt: now,
@@ -546,55 +622,91 @@ export async function applyD1CatalogAiGeneration(
   // One atomic batch: the product is only touched while the generation is still at the version
   // that was reviewed, and the immutable command row (UNIQUE generation/result_version) rolls
   // everything back if a concurrent apply won the race.
-  await database.batch([
-    database
-      .prepare(
-        `UPDATE products
+  try {
+    await database.batch([
+      database
+        .prepare(
+          `UPDATE products
          SET short_description = COALESCE(?1, short_description),
              description = COALESCE(?2, description),
              usage = COALESCE(?3, usage),
              updated_at = ?4
          WHERE id = ?5
            AND EXISTS (SELECT 1 FROM catalog_ai_generations WHERE id = ?6 AND version = ?7)`
-      )
-      .bind(
-        row.generated_short_description,
-        row.generated_description,
-        row.generated_usage,
-        now,
-        input.targetProductId,
-        generationId,
-        row.version
-      ),
-    database
-      .prepare(
-        `UPDATE catalog_ai_generations
+        )
+        .bind(
+          row.generated_short_description,
+          row.generated_description,
+          row.generated_usage,
+          now,
+          input.targetProductId,
+          generationId,
+          row.version
+        ),
+      database
+        .prepare(
+          `UPDATE catalog_ai_generations
          SET applied_content_json = ?1,
              version = ?2,
              updated_at = ?3
          WHERE id = ?4 AND version = ?5`
-      )
-      .bind(JSON.stringify(appliedContent), newVersion, now, generationId, row.version),
-    database
-      .prepare(
-        `INSERT INTO catalog_ai_generation_commands (
+        )
+        .bind(JSON.stringify(appliedContent), newVersion, now, generationId, row.version),
+      database
+        .prepare(
+          `INSERT INTO catalog_ai_generation_commands (
           command_id, generation_id, actor_id, action, idempotency_key,
           expected_version, result_version, payload_hash, input_json, receipt_json, created_at
-        ) VALUES (?1, ?2, ?3, 'apply_to_product', ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
-      )
-      .bind(
-        crypto.randomUUID(),
-        generationId,
-        claims.identityId,
-        options.idempotencyKey,
-        input.expectedVersion,
-        newVersion,
-        payloadHash,
-        JSON.stringify(input),
-        JSON.stringify(receipt),
-        now
-      )
-  ])
+        ) VALUES (
+          ?1, ?2, ?3, 'apply_to_product',
+          CASE WHEN EXISTS (
+            SELECT 1 FROM auth_sessions s
+            JOIN identities i ON i.id = s.identity_id
+            WHERE s.id = ?11 AND s.identity_id = ?3 AND s.session_version = ?12
+              AND i.session_version = s.session_version AND s.revoked_at IS NULL
+              AND s.mfa_verified = 1 AND i.status IN ('pending', 'active')
+              AND i.email_verified_at IS NOT NULL AND i.email_verified_at <= ?10
+              AND s.created_at <= ?10 AND s.expires_at > max(?10, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+              AND EXISTS (
+                SELECT 1 FROM identity_roles r JOIN role_permissions p ON p.role_code = r.role_code
+                WHERE r.identity_id = i.id AND p.permission_code = 'catalog.publish'
+                  AND r.granted_at <= ?10
+                  AND (r.expires_at IS NULL OR r.expires_at > max(?10, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
+              )
+          ) AND EXISTS (
+            SELECT 1 FROM catalog_ai_generations g JOIN products p ON p.id = ?13
+            WHERE g.id = ?2 AND g.version = ?6
+              AND g.approval_status IN ('approved', 'modified_and_approved')
+              AND g.human_reviewer_id IS NOT NULL AND g.human_reviewer_id <> g.actor_id
+              AND (g.product_id IS NULL OR g.product_id = p.id)
+          ) THEN ?4 ELSE NULL END,
+          ?5, ?6, ?7, ?8, ?9, ?10
+        )`
+        )
+        .bind(
+          crypto.randomUUID(),
+          generationId,
+          claims.identityId,
+          options.idempotencyKey,
+          input.expectedVersion,
+          newVersion,
+          payloadHash,
+          JSON.stringify(input),
+          JSON.stringify(receipt),
+          now,
+          claims.sessionId,
+          claims.sessionVersion,
+          input.targetProductId
+        )
+    ])
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('NOT NULL constraint failed: catalog_ai_generation_commands.idempotency_key')
+    )
+      throw new CatalogAiGenerationError('unauthorized', 'La autorización o revisión ya no es válida')
+    return recoverConcurrentAiReceipt<typeof receipt>(error, database, claims, options, payloadHash, 'catalog.publish')
+  }
   return receipt
 }
 

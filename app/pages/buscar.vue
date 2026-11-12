@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useDialogFocus } from '~/composables/useDialogFocus'
 import {
   readCatalogTypedRouteValue,
   catalogTypedQuery,
@@ -193,6 +194,8 @@ watch(
 )
 
 const drawerOpen = ref(false)
+const filterDialog = ref<HTMLElement | null>(null)
+useDialogFocus(filterDialog, drawerOpen)
 watch(
   () => route.fullPath,
   () => (drawerOpen.value = false)
@@ -418,7 +421,9 @@ watch(
       <div v-if="drawerOpen" class="fixed inset-0 z-50 lg:hidden" @keydown.escape="drawerOpen = false">
         <div class="absolute inset-0 bg-slate-900/50" @click="drawerOpen = false" />
         <div
+          ref="filterDialog"
           role="dialog"
+          tabindex="-1"
           aria-modal="true"
           aria-label="Filtros"
           class="absolute inset-y-0 right-0 flex w-80 max-w-[85vw] flex-col bg-white shadow-[var(--shadow-overlay)]"

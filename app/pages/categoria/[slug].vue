@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { dynamicOgMeta } from '~/utils/og-image'
 import { ogVersion } from '~~/shared/og-image'
+import { catalogPageFailureStatus } from '~~/shared/catalog-page-status'
+import { useDialogFocus } from '~/composables/useDialogFocus'
 import type { CategoryNode, CategoryResponse } from '~~/shared/types/catalog'
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
 import {
@@ -17,7 +19,18 @@ const runtime = useRuntimeConfig()
 const governedMedia = runtime.public.mediaGoverned
 const slug = computed(() => route.params.slug as string)
 
-const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
+const { data: catData, error: categoryError } = await useFetch<CategoryResponse>('/api/categories', {
+  key: 'categories'
+})
+const categoryFailure = catalogPageFailureStatus(categoryError.value, catData.value)
+if (categoryFailure) {
+  if (categoryFailure === 503) useResponseHeader('Retry-After').value = '30'
+  throw createError({
+    statusCode: categoryFailure,
+    statusMessage: categoryFailure === 404 ? 'Categoría no encontrada' : 'Catálogo temporalmente no disponible',
+    fatal: true
+  })
+}
 
 function findNode(nodes: CategoryNode[], target: string): CategoryNode | null {
   for (const node of nodes) {
@@ -332,6 +345,8 @@ const pills = computed<Pill[]>(() => [
 ])
 
 const drawerOpen = ref(false)
+const filterDialog = ref<HTMLElement | null>(null)
+useDialogFocus(filterDialog, drawerOpen)
 watch(
   () => route.fullPath,
   () => (drawerOpen.value = false)
@@ -543,7 +558,9 @@ watch(
       <div v-if="drawerOpen" class="fixed inset-0 z-50 lg:hidden" @keydown.escape="drawerOpen = false">
         <div class="absolute inset-0 bg-slate-900/50" @click="drawerOpen = false" />
         <div
+          ref="filterDialog"
           role="dialog"
+          tabindex="-1"
           aria-modal="true"
           aria-label="Filtros"
           class="absolute inset-y-0 right-0 flex w-80 max-w-[85vw] flex-col bg-white shadow-[var(--shadow-overlay)]"

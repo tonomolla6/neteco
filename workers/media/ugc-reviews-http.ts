@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1AdminCookie } from '../auth/admin-session'
 import { submitUgcReviewSchema, withdrawUgcReviewSchema, moderateUgcReviewSchema } from '../../shared/ugc-reviews'
 import {
   listAdminUgcReviews,
@@ -78,6 +79,14 @@ export async function handleUgcReviewsHttp(
   const now = deps.now ? deps.now() : new Date().toISOString()
 
   try {
+    if (path.startsWith('/api/admin/') && !deps.sessionProvider) {
+      const authorization = await authorizeD1AdminCookie(request, {
+        database: deps.database,
+        configuration: deps.sessionCookieConfiguration,
+        now: now.replace(/\.\d{3}Z$/, 'Z')
+      })
+      if (!authorization.allowed) return errorResponse(authorization.code, authorization.status)
+    }
     let mutationActor: UgcActor | null = null
     if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
       mutationActor = await resolveActor(request, deps)

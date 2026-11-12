@@ -1,5 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
-import type { VerifiedSessionClaims } from '../catalog/authorization'
+import { authorizeD1Session, type VerifiedSessionClaims } from '../catalog/authorization'
 import {
   evaluateModelGate,
   getExplainabilityReport,
@@ -84,6 +84,8 @@ export async function handleModelEvaluationHttp(
   try {
     const claims = await resolveClaims(request, deps)
     if (!claims) return errorResponse('unauthorized', 401)
+    const auth = await authorizeD1Session(deps.database, claims, 'administration.manage', { now, requireMfa: true })
+    if (!auth.allowed) return errorResponse(auth.code, auth.code === 'unauthenticated' ? 401 : 403)
 
     // 1. Model Registry
     if (path === '/api/admin/ai/models') {

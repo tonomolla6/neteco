@@ -2,6 +2,7 @@
 import { useCartStore } from '~/stores/cart'
 import type { CategoryResponse } from '~~/shared/types/catalog'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
+import { useDialogFocus } from '~/composables/useDialogFocus'
 
 const cart = useCartStore()
 const { terms: commercialTerms, email: contactEmail, phone: contactPhone } = useCommercialTerms()
@@ -26,10 +27,8 @@ const openRoot = ref<number | null>(null)
 
 const menuBtn = ref<HTMLButtonElement | null>(null)
 const closeBtn = ref<HTMLButtonElement | null>(null)
-watch(mobileOpen, (v) => {
-  if (v) nextTick(() => closeBtn.value?.focus())
-  else menuBtn.value?.focus()
-})
+const mobileDialog = ref<HTMLElement | null>(null)
+useDialogFocus(mobileDialog, mobileOpen)
 
 const route = useRoute()
 watch(
@@ -300,7 +299,9 @@ async function logout() {
       <div v-if="mobileOpen" class="fixed inset-0 z-50 lg:hidden" @keydown.escape="mobileOpen = false">
         <div class="absolute inset-0 bg-slate-900/50" @click="mobileOpen = false" />
         <div
+          ref="mobileDialog"
           role="dialog"
+          tabindex="-1"
           aria-modal="true"
           aria-label="Menú de navegación"
           class="absolute inset-y-0 left-0 flex w-80 max-w-[85vw] flex-col overflow-y-auto bg-white shadow-[var(--shadow-overlay)]"

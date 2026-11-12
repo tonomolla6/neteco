@@ -14,9 +14,16 @@ import {
 } from './predictive-personalization-fixture'
 
 let world: PredictivePersonalizationWorld
+const adminSession = '41000000-0000-4000-8000-000000000011'
+const customerSession = '41000000-0000-4000-8000-000000000012'
 
 beforeEach(async () => {
   world = await createPredictivePersonalizationWorld()
+  const session = world.sqlite.prepare(
+    'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,?)'
+  )
+  session.run(adminSession, ADMIN_IDENTITY, NOW, '2099-01-01T00:00:00Z')
+  session.run(customerSession, CUSTOMER_ID_1, NOW, '2099-01-01T00:00:00Z')
 })
 
 afterEach(() => {
@@ -36,7 +43,7 @@ function createDeps(claimsIdentityId: string | null = ADMIN_IDENTITY): Predictiv
       claimsIdentityId
         ? {
             identityId: claimsIdentityId,
-            sessionId: 'sess-test',
+            sessionId: claimsIdentityId === ADMIN_IDENTITY ? adminSession : customerSession,
             sessionVersion: 1,
             roles: claimsIdentityId === ADMIN_IDENTITY ? ['admin'] : ['customer'],
             permissions: claimsIdentityId === ADMIN_IDENTITY ? ['administration.manage'] : [],
@@ -47,6 +54,33 @@ function createDeps(claimsIdentityId: string | null = ADMIN_IDENTITY): Predictiv
 }
 
 describe('Predictive Personalization HTTP Router & Endpoints', () => {
+  it.each([
+    ['/api/admin/marketing/predictive-campaigns/rules', 'POST'],
+    ['/api/admin/marketing/predictive-campaigns/decisions', 'POST'],
+    ['/api/admin/marketing/predictive-campaigns/review', 'POST'],
+    ['/api/admin/marketing/predictive-campaigns/kill-switch', 'POST'],
+    ['/api/admin/marketing/predictive-campaigns/metrics', 'GET']
+  ])('denies a customer before predictive admin route %s', async (path, method) => {
+    const req = new Request('https://neteco.test' + path, {
+      method,
+      ...(method === 'POST' ? { body: JSON.stringify({ ruleId: 'missing', decisionType: 'emergency_kill' }) } : {})
+    })
+    const res = await handlePredictivePersonalizationHttp(req, createDeps(CUSTOMER_ID_1))
+    expect(res?.status).toBe(403)
+  })
+
+  it('requires an active admin session and MFA for predictive decisions', async () => {
+    const req = () =>
+      new Request('https://neteco.test/api/admin/marketing/predictive-campaigns/decisions', {
+        method: 'POST',
+        body: JSON.stringify({ ruleId: 'missing', decisionType: 'emergency_kill' })
+      })
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(adminSession)
+    expect((await handlePredictivePersonalizationHttp(req(), createDeps()))?.status).toBe(403)
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, adminSession)
+    expect((await handlePredictivePersonalizationHttp(req(), createDeps()))?.status).toBe(401)
+  })
+
   it('owns only personalization and predictive campaigns namespaces', () => {
     expect(ownsPredictivePersonalizationNamespace('/api/customer/personalization/preferences')).toBe(true)
     expect(ownsPredictivePersonalizationNamespace('/api/customer/personalization/purge')).toBe(true)

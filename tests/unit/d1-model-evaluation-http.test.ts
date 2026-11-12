@@ -14,9 +14,16 @@ import {
 } from './predictive-personalization-fixture'
 
 let world: PredictivePersonalizationWorld
+const adminSession = '41000000-0000-4000-8000-000000000021'
+const otherSession = '41000000-0000-4000-8000-000000000022'
 
 beforeEach(async () => {
   world = await createPredictivePersonalizationWorld()
+  const session = world.sqlite.prepare(
+    'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,?)'
+  )
+  session.run(adminSession, ADMIN_IDENTITY, NOW, '2099-01-01T00:00:00Z')
+  session.run(otherSession, OTHER_IDENTITY, NOW, '2099-01-01T00:00:00Z')
 })
 
 afterEach(() => {
@@ -36,7 +43,7 @@ function createDeps(claimsIdentityId: string | null = ADMIN_IDENTITY): ModelEval
       claimsIdentityId
         ? {
             identityId: claimsIdentityId,
-            sessionId: 'sess-test',
+            sessionId: claimsIdentityId === ADMIN_IDENTITY ? adminSession : otherSession,
             sessionVersion: 1,
             roles: claimsIdentityId === ADMIN_IDENTITY ? ['admin'] : ['customer'],
             permissions: claimsIdentityId === ADMIN_IDENTITY ? ['administration.manage'] : [],
@@ -47,6 +54,30 @@ function createDeps(claimsIdentityId: string | null = ADMIN_IDENTITY): ModelEval
 }
 
 describe('Model Evaluation & AI Quality Gate HTTP Router', () => {
+  it.each([
+    ['/api/admin/ai/models', 'GET'],
+    ['/api/admin/ai/evaluations/summary?modelId=missing', 'GET'],
+    ['/api/admin/ai/evaluations/gate', 'POST'],
+    ['/api/admin/ai/evaluations/explainability', 'POST'],
+    ['/api/admin/ai/evaluations/offline', 'POST'],
+    ['/api/admin/ai/evaluations/online', 'POST'],
+    ['/api/admin/ai/evaluations/golden-set/run', 'POST']
+  ])('denies a non-admin before model route %s', async (path, method) => {
+    const request = new Request('https://neteco.test' + path, {
+      method,
+      ...(method === 'POST' ? { body: JSON.stringify({}) } : {})
+    })
+    expect((await handleModelEvaluationHttp(request, createDeps(OTHER_IDENTITY)))?.status).toBe(403)
+  })
+
+  it('requires an active admin session and MFA for model data', async () => {
+    const request = () => new Request('https://neteco.test/api/admin/ai/models')
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(adminSession)
+    expect((await handleModelEvaluationHttp(request(), createDeps()))?.status).toBe(403)
+    world.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, adminSession)
+    expect((await handleModelEvaluationHttp(request(), createDeps()))?.status).toBe(401)
+  })
+
   it('owns only /api/admin/ai/ models, evaluations and gate namespaces', () => {
     expect(ownsModelEvaluationNamespace('/api/admin/ai/models')).toBe(true)
     expect(ownsModelEvaluationNamespace('/api/admin/ai/evaluations/offline')).toBe(true)

@@ -1,4 +1,5 @@
 import { createHmac, createHash, randomBytes, randomUUID } from 'node:crypto'
+import type { VerifiedSessionClaims } from '../catalog/authorization'
 import {
   ediClientRegisterInputSchema,
   ediApiKeyCreateInputSchema,
@@ -39,6 +40,22 @@ export interface EdiClientRecord {
   updatedAt: string
 }
 
+/** Recheck authority in the insert itself: a revoked session must leave no client or credential behind. */
+function adminInsertPredicate(first: number): string {
+  const session = `?${first}`,
+    identity = `?${first + 1}`,
+    version = `?${first + 2}`,
+    now = `?${first + 3}`
+  return `EXISTS(SELECT 1 FROM auth_sessions s JOIN identities i ON i.id=s.identity_id
+    WHERE s.id=${session} AND i.id=${identity} AND s.session_version=${version}
+      AND i.session_version=s.session_version AND s.revoked_at IS NULL AND s.mfa_verified=1
+      AND i.status='active' AND i.email_verified_at IS NOT NULL AND i.email_verified_at<=${now}
+      AND s.created_at<=${now} AND s.expires_at>${now}
+      AND EXISTS(SELECT 1 FROM identity_roles r JOIN role_permissions p ON p.role_code=r.role_code
+        WHERE r.identity_id=i.id AND p.permission_code='administration.manage'
+          AND r.granted_at<=${now} AND (r.expires_at IS NULL OR r.expires_at>${now})))`
+}
+
 export async function registerEdiClient(
   database: D1Database,
   input: {
@@ -49,7 +66,8 @@ export async function registerEdiClient(
     rateLimitPerMinute?: number
     dailyRequestQuota?: number
     supportedVersions?: EdiContractVersion[]
-  }
+  },
+  claims?: VerifiedSessionClaims
 ): Promise<EdiClientRecord> {
   const validated = ediClientRegisterInputSchema.parse({
     companyId: input.companyId,
@@ -73,13 +91,14 @@ export async function registerEdiClient(
   const id = randomUUID()
   const now = canonicalNow()
 
-  await database
+  const inserted = await database
     .prepare(
       `INSERT INTO b2b_edi_clients(
         id, company_id, customer_id, name, environment, status,
         supported_versions_json, rate_limit_per_minute, daily_request_quota,
         version, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, 1, ?, ?)`
+      ) SELECT ?, ?, ?, ?, ?, 'active', ?, ?, ?, 1, ?, ?
+        WHERE ${claims ? adminInsertPredicate(11) : '1'} RETURNING id`
     )
     .bind(
       id,
@@ -91,9 +110,11 @@ export async function registerEdiClient(
       validated.rateLimitPerMinute,
       validated.dailyRequestQuota,
       now,
-      now
+      now,
+      ...(claims ? [claims.sessionId, claims.identityId, claims.sessionVersion, now] : [])
     )
-    .run()
+    .first<{ id: string }>()
+  if (inserted?.id !== id) throw new Error('edi_authority_revoked')
 
   return {
     id,
@@ -113,7 +134,8 @@ export async function registerEdiClient(
 
 export async function createEdiApiKey(
   database: D1Database,
-  params: { clientId: string; name: string; expiresAt?: string | null }
+  params: { clientId: string; name: string; expiresAt?: string | null },
+  claims?: VerifiedSessionClaims
 ) {
   const validated = ediApiKeyCreateInputSchema.parse({
     name: params.name,
@@ -137,11 +159,11 @@ export async function createEdiApiKey(
   const id = randomUUID()
   const now = canonicalNow()
 
-  await database
+  const inserted = await database
     .prepare(
       `INSERT INTO b2b_edi_api_keys(
         id, client_id, key_prefix, key_hash, hmac_secret_hash, name, expires_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ) SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE ${claims ? adminInsertPredicate(9) : '1'} RETURNING id`
     )
     .bind(
       id,
@@ -151,9 +173,11 @@ export async function createEdiApiKey(
       hmacSecretHash, // Or we store HMAC secret encrypted / reversible. For fake/adapter deterministic tests, we cache or store.
       validated.name,
       validated.expiresAt ?? null,
-      now
+      now,
+      ...(claims ? [claims.sessionId, claims.identityId, claims.sessionVersion, now] : [])
     )
-    .run()
+    .first<{ id: string }>()
+  if (inserted?.id !== id) throw new Error('edi_authority_revoked')
 
   // Store in memory cache map for active secrets in current worker instance
   activeHmacSecrets.set(keyHash, hmacSecret)

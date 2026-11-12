@@ -5,6 +5,7 @@ import {
   ownsDeliveryDriverAppNamespace
 } from '../../workers/fulfillment/delivery-driver-app-http'
 import { ADMIN, DRIVER_IDENTITY, NOW, OTHER, opsWorld, type OpsWorld } from './shipping-ops-fixture'
+import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 
 let w: OpsWorld
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
@@ -52,6 +53,65 @@ const ev = (extra: Record<string, unknown>) => ({
 })
 
 describe('SHP-027 delivery app HTTP', () => {
+  it('rechecks the cookie session and MFA for admin reports', async () => {
+    const identity = '11000000-0000-4000-8000-000000000001'
+    const session = '22000000-0000-4000-8000-000000000001'
+    const config = { password: 'synthetic-shipping-ops-password-32-characters', maxAgeSeconds: 3600 }
+    w.sqlite
+      .prepare(
+        "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES(?,?,'synthetic',?,'active',?,?)"
+      )
+      .run(identity, 'admin-shipping@example.invalid', NOW, NOW, NOW)
+    w.sqlite
+      .prepare("INSERT INTO identity_roles(identity_id,role_code,granted_at) VALUES(?,'admin-role',?)")
+      .run(identity, NOW)
+    w.sqlite
+      .prepare(
+        "INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,'2099-01-01T00:00:00Z')"
+      )
+      .run(session, identity, NOW)
+    const cookie = (await issueD1SessionCookie(
+      w.db,
+      { identityId: identity, sessionId: session, sessionVersion: 1 },
+      config
+    ))!
+    const request = () =>
+      new Request('https://neteco.invalid/api/admin/delivery-app/routes/r-1/report', { headers: { cookie } })
+    const deps = { database: w.db, sessionCookieConfiguration: config, now: () => NOW }
+    expect((await handleDeliveryDriverAppHttp(request(), deps))?.status).toBe(200)
+    w.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(session)
+    expect((await handleDeliveryDriverAppHttp(request(), deps))?.status).toBe(403)
+    w.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, session)
+    expect((await handleDeliveryDriverAppHttp(request(), deps))?.status).toBe(401)
+  })
+
+  it('rejects a revoked driver cookie before exposing the manifest', async () => {
+    const identity = '11000000-0000-4000-8000-000000000002'
+    const session = '22000000-0000-4000-8000-000000000002'
+    const config = { password: 'synthetic-shipping-ops-password-32-characters', maxAgeSeconds: 3600 }
+    w.sqlite
+      .prepare(
+        "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES(?,?,'synthetic',?,'active',?,?)"
+      )
+      .run(identity, 'driver-shipping@example.invalid', NOW, NOW, NOW)
+    w.sqlite.prepare("UPDATE delivery_drivers SET identity_id=? WHERE id='d-1'").run(identity)
+    w.sqlite
+      .prepare(
+        "INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,'2099-01-01T00:00:00Z')"
+      )
+      .run(session, identity, NOW)
+    const cookie = (await issueD1SessionCookie(
+      w.db,
+      { identityId: identity, sessionId: session, sessionVersion: 1 },
+      config
+    ))!
+    const request = () => new Request('https://neteco.invalid/api/delivery/manifest', { headers: { cookie } })
+    const deps = { database: w.db, sessionCookieConfiguration: config, now: () => NOW }
+    expect((await handleDeliveryDriverAppHttp(request(), deps))?.status).toBe(200)
+    w.sqlite.prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?').run(NOW, session)
+    expect((await handleDeliveryDriverAppHttp(request(), deps))?.status).toBe(401)
+  })
+
   it('owns the driver and admin app namespaces only', async () => {
     expect(ownsDeliveryDriverAppNamespace('/api/delivery/manifest')).toBe(true)
     expect(ownsDeliveryDriverAppNamespace('/api/admin/delivery-app/routes/r-1/report')).toBe(true)

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { aiTestFixture, SESSION_CONFIG, TEST_ORIGIN, TEST_ASSET_ID } from './d1-ai-test-fixture'
+import { aiTestFixture, ADMIN_SESSION, SESSION_CONFIG, TEST_ORIGIN, TEST_ASSET_ID } from './d1-ai-test-fixture'
 import { handleAdminAiAssistantHttp, ownsAdminAiAssistantNamespace } from '../../workers/admin/ai-assistant-http'
 import {
   handleCatalogAiGenerationHttp,
@@ -108,6 +108,23 @@ describe('Admin AI HTTP Handlers (ADM-032, ADM-033, MED-023)', () => {
     expect(result.duplicateCheck).toBeDefined()
   })
 
+  it('requires live administrative authority and MFA to check catalog duplicates', async () => {
+    const request = (cookie: string) =>
+      new Request('https://admin.neteco.test/api/admin/catalog/ai-generate/check-duplicates', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie },
+        body: JSON.stringify({ text: 'Desengrasante industrial' })
+      })
+    const deps = { database: f.database, sessionCookieConfiguration: SESSION_CONFIG, origin: TEST_ORIGIN }
+    expect((await handleCatalogAiGenerationHttp(request(f.unauthorizedCookie), deps))?.status).toBe(403)
+    f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(ADMIN_SESSION)
+    expect((await handleCatalogAiGenerationHttp(request(f.adminCookie), deps))?.status).toBe(403)
+    f.sqlite
+      .prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?')
+      .run('2026-10-29T00:00:00Z', ADMIN_SESSION)
+    expect((await handleCatalogAiGenerationHttp(request(f.adminCookie), deps))?.status).toBe(401)
+  })
+
   it('POST /api/admin/media/ai-enrich/propose blocks prohibited inventions', async () => {
     const req = new Request('https://admin.neteco.test/api/admin/media/ai-enrich/propose', {
       method: 'POST',
@@ -203,7 +220,7 @@ describe('Admin AI HTTP Handlers (ADM-032, ADM-033, MED-023)', () => {
     // 1. Propose
     const proposeReq = new Request('https://admin.neteco.test/api/admin/catalog/ai-generate/propose', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', cookie: f.adminCookie },
+      headers: { 'content-type': 'application/json', cookie: f.operatorCookie },
       body: JSON.stringify({
         productName: 'Jabón Enzimático',
         targetScope: 'full_editorial',

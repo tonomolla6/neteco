@@ -51,13 +51,17 @@ describe('CUS-030: Key B2B Client EDI HTTP Gateway', () => {
       .run(ADMIN_IDENTITY, NOW, NOW, NOW)
     sqlite
       .prepare(
-        `INSERT INTO auth_sessions(id, identity_id, session_version, created_at, expires_at)
-         VALUES (?, ?, 1, '2026-10-29T08:00:00Z', '2026-10-29T12:00:00Z')`
+        `INSERT INTO auth_sessions(id, identity_id, session_version, mfa_verified, created_at, expires_at)
+         VALUES (?, ?, 1, 1, '2026-10-29T08:00:00Z', '2026-10-29T12:00:00Z')`
       )
       .run(ADMIN_SESSION, ADMIN_IDENTITY)
     sqlite
       .prepare(`INSERT OR IGNORE INTO roles(code, name, description) VALUES ('super-admin', 'Super Admin', 'Test')`)
       .run()
+    sqlite
+      .prepare(`INSERT OR IGNORE INTO permissions VALUES ('administration.manage', 'administration', 'manage', 'Test')`)
+      .run()
+    sqlite.prepare(`INSERT OR IGNORE INTO role_permissions VALUES ('super-admin', 'administration.manage')`).run()
     sqlite
       .prepare(`INSERT INTO identity_roles(identity_id, role_code, granted_at) VALUES (?, 'super-admin', ?)`)
       .run(ADMIN_IDENTITY, NOW)
@@ -70,6 +74,7 @@ describe('CUS-030: Key B2B Client EDI HTTP Gateway', () => {
   })
 
   afterEach(() => {
+    sqlite?.close()
     vi.useRealTimers()
   })
 
@@ -79,6 +84,77 @@ describe('CUS-030: Key B2B Client EDI HTTP Gateway', () => {
     expect(ownsB2bEdiNamespace('/api/admin/edi/clients')).toBe(true)
     expect(ownsB2bEdiNamespace('/api/catalog/products')).toBe(false)
   })
+
+  it('denies an admin without MFA or with a revoked session before processing EDI administration', async () => {
+    const request = () =>
+      new Request('https://neteco.invalid/api/admin/edi/clients', { method: 'POST', headers: { cookie: adminCookie } })
+    const deps = { database, sessionCookieConfiguration: config }
+    sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(ADMIN_SESSION)
+    expect((await handleB2bEdiHttp(request(), deps))?.status).toBe(403)
+    sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1, revoked_at=? WHERE id=?').run(NOW, ADMIN_SESSION)
+    expect((await handleB2bEdiHttp(request(), deps))?.status).toBe(401)
+  })
+
+  it('does not grant EDI administration from a role name without the permission', async () => {
+    sqlite
+      .prepare("DELETE FROM role_permissions WHERE role_code='super-admin' AND permission_code='administration.manage'")
+      .run()
+    const request = new Request('https://neteco.invalid/api/admin/edi/clients', {
+      method: 'POST',
+      headers: { cookie: adminCookie }
+    })
+    expect((await handleB2bEdiHttp(request, { database, sessionCookieConfiguration: config }))?.status).toBe(403)
+  })
+
+  it.each(['clients', 'keys'] as const)(
+    'does not persist EDI %s if the session is revoked just before the insert',
+    async (kind) => {
+      const client =
+        kind === 'keys'
+          ? await registerEdiClient(database, {
+              companyId: COMPANY_ID,
+              customerId: CUSTOMER_ID,
+              name: 'Existing synthetic client'
+            })
+          : null
+      const table = kind === 'keys' ? 'b2b_edi_api_keys' : 'b2b_edi_clients'
+      const concurrent = {
+        ...database,
+        prepare(sql: string) {
+          const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
+            new Proxy(statement, {
+              get(target, property) {
+                if (property === 'bind') return (...values: unknown[]) => wrap(target.bind(...values))
+                if (property === 'run' || property === 'first')
+                  return (...args: unknown[]) => {
+                    if (sql.includes(`INSERT INTO ${table}(`))
+                      sqlite.prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?').run(NOW, ADMIN_SESSION)
+                    return Reflect.apply(Reflect.get(target, property), target, args)
+                  }
+                return Reflect.get(target, property)
+              }
+            })
+          return wrap(database.prepare(sql))
+        }
+      } as D1Database
+      const request = new Request(
+        'https://neteco.invalid/api/admin/edi/clients' + (client ? `/${client.id}/keys` : ''),
+        {
+          method: 'POST',
+          headers: { cookie: adminCookie, 'content-type': 'application/json' },
+          body: JSON.stringify(
+            client
+              ? { name: 'Synthetic key' }
+              : { companyId: COMPANY_ID, customerId: CUSTOMER_ID, name: 'Synthetic client' }
+          )
+        }
+      )
+      expect(
+        (await handleB2bEdiHttp(request, { database: concurrent, sessionCookieConfiguration: config }))?.status
+      ).toBe(401)
+      expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()?.n).toBe(0)
+    }
+  )
 
   it('rechaza con 403 forbidden a un usuario autenticado sin rol de administración en endpoints admin', async () => {
     const USER_ID = '10000000-0000-4000-8000-000000000002'

@@ -1,4 +1,5 @@
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
+import { authorizeD1Session } from '../catalog/authorization'
 import {
   createTargetedCampaignAdmin,
   dispatchCampaignToRecipient,
@@ -83,8 +84,14 @@ async function resolveClaims(
   const claims = await verifySessionCookie(request, deps.sessionCookieConfiguration)
   if (!claims) return null
   const identity = await deps.database
-    .prepare('SELECT id, customer_id, status FROM identities WHERE id = ?1 AND status = "active"')
-    .bind(claims.identityId)
+    .prepare(
+      `SELECT i.id, i.customer_id, i.status FROM identities i
+      JOIN auth_sessions s ON s.identity_id = i.id
+      WHERE i.id = ?1 AND i.status = 'active' AND i.session_version = ?2
+        AND s.id = ?3 AND s.session_version = i.session_version AND s.revoked_at IS NULL
+        AND s.created_at <= ?4 AND s.expires_at > ?4`
+    )
+    .bind(claims.identityId, claims.sessionVersion, claims.sessionId, serverNow(deps))
     .first<{ id: string; customer_id: string | null; status: string }>()
   if (!identity) return null
   return {
@@ -145,7 +152,14 @@ export async function handleTargetedCampaignsHttp(
     // 3. Admin endpoints: /api/admin/marketing/targeted-campaigns
     if (path.startsWith('/api/admin/marketing/targeted-campaigns')) {
       const claims = await resolveClaims(request, deps)
-      if (!claims) return errorResponse('unauthorized', 401)
+      if (!claims?.sessionId || typeof claims.sessionVersion !== 'number') return errorResponse('unauthorized', 401)
+      const auth = await authorizeD1Session(
+        deps.database,
+        { identityId: claims.identityId, sessionId: claims.sessionId, sessionVersion: claims.sessionVersion },
+        'administration.manage',
+        { now, requireMfa: true }
+      )
+      if (!auth.allowed) return errorResponse(auth.code, auth.code === 'unauthenticated' ? 401 : 403)
 
       // POST /api/admin/marketing/targeted-campaigns
       if (method === 'POST' && path === '/api/admin/marketing/targeted-campaigns') {

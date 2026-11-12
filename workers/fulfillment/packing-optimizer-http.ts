@@ -9,6 +9,7 @@ import {
   upsertProductProfile
 } from './packing-optimizer'
 import {
+  checkOpsAdmin,
   methodNotAllowed,
   opsError,
   opsJson,
@@ -43,6 +44,8 @@ export async function handlePackingOptimizerHttp(
   if (!ownsPackingOptimizerNamespace(path)) return null
   const actor = await resolveActor(request, deps)
   if (!actor) return opsJson({ error: { code: 'unauthorized' } }, 401)
+  const denied = await checkOpsAdmin(actor, deps)
+  if (denied) return denied
   const parts = segments(path)
   if (!parts) return opsJson({ error: { code: 'invalid_input' } }, 400)
   const db = deps.database
