@@ -177,6 +177,13 @@ export default defineNuxtConfig({
         contactEmail: process.env.COMMERCIAL_CONTACT_EMAIL || '',
         contactPhone: process.env.COMMERCIAL_CONTACT_PHONE || '',
         supportPhoneAi: process.env.COMMERCIAL_SUPPORT_PHONE_AI || '',
+        // Identidad legal del titular para /aviso-legal, /privacidad, /cookies y
+        // /condiciones-generales. Vacías: fuera de producción se ve «[pendiente: …]» y en
+        // producción la frase se omite; nunca se escribe un dato a mano.
+        companyLegalName: process.env.COMMERCIAL_COMPANY_LEGAL_NAME || '',
+        companyRegistry: process.env.COMMERCIAL_COMPANY_REGISTRY || '',
+        dpoEmail: process.env.COMMERCIAL_DPO_EMAIL || '',
+        disputeResolutionEntity: process.env.COMMERCIAL_DISPUTE_RESOLUTION_ENTITY || '',
         // Chat flotante de un proveedor externo (shared/chat-widget.ts). Vacío: no se carga nada.
         // Su origen debe declararse aparte en CSP_CHAT_WIDGET_ORIGINS.
         chatWidgetSrc: process.env.COMMERCIAL_CHAT_WIDGET_SRC || '',

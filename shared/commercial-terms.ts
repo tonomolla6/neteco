@@ -53,6 +53,14 @@ export interface CommercialTerms {
   contactPhone: string
   /** Teléfono de atención con asistente automático, tal como se lee. Vacío: no se muestra. */
   supportPhoneAi: string
+  /** Nombre o razón social del titular, para las páginas legales. */
+  companyLegalName: string
+  /** Datos de inscripción registral (Registro Mercantil u otro registro público), tal como se leen. */
+  companyRegistry: string
+  /** Correo del delegado de protección de datos o de la dirección de privacidad. Vacío: se usa el de contacto. */
+  dpoEmail: string
+  /** Entidad de resolución alternativa de litigios a la que está adherida la tienda, si lo está. */
+  disputeResolutionEntity: string
 }
 
 export const COMMERCIAL_TERM_KEYS = [
@@ -75,7 +83,11 @@ export const COMMERCIAL_TERM_KEYS = [
   'certificationsPublished',
   'contactEmail',
   'contactPhone',
-  'supportPhoneAi'
+  'supportPhoneAi',
+  'companyLegalName',
+  'companyRegistry',
+  'dpoEmail',
+  'disputeResolutionEntity'
 ] as const satisfies ReadonlyArray<keyof CommercialTerms>
 
 export const DEFAULT_CONTACT_EMAIL = 'tienda@neteco.es'
@@ -134,7 +146,11 @@ export function parseCommercialTerms(raw: unknown): CommercialTerms {
     certificationsPublished: input.certificationsPublished === true || input.certificationsPublished === 'true',
     contactEmail: EMAIL.test(text(input.contactEmail, 120)) ? text(input.contactEmail, 120) : DEFAULT_CONTACT_EMAIL,
     contactPhone: phone(input.contactPhone),
-    supportPhoneAi: phone(input.supportPhoneAi)
+    supportPhoneAi: phone(input.supportPhoneAi),
+    companyLegalName: text(input.companyLegalName, 160),
+    companyRegistry: text(input.companyRegistry, 240),
+    dpoEmail: EMAIL.test(text(input.dpoEmail, 120)) ? text(input.dpoEmail, 120) : '',
+    disputeResolutionEntity: text(input.disputeResolutionEntity, 240)
   }
 }
 

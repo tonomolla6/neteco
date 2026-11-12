@@ -44,7 +44,11 @@ describe('commercial terms: a single configurable source', () => {
       certificationsPublished: false,
       contactEmail: 'tienda@neteco.es',
       contactPhone: '',
-      supportPhoneAi: ''
+      supportPhoneAi: '',
+      companyLegalName: '',
+      companyRegistry: '',
+      dpoEmail: '',
+      disputeResolutionEntity: ''
     })
     expect(Object.keys(terms).sort()).toEqual([...COMMERCIAL_TERM_KEYS].sort())
   })
@@ -80,6 +84,33 @@ describe('commercial terms: a single configurable source', () => {
     expect(terms.parcelCostCents).toBeNull()
     // A zero threshold means "not configured", as FREE_SHIPPING_THRESHOLD_CENTS does.
     expect(terms.parcelFreeFromCents).toBeNull()
+  })
+})
+
+describe('commercial terms: legal identity', () => {
+  it('keeps the legal identity as configured and drops malformed values', () => {
+    const terms = parseCommercialTerms({
+      companyLegalName: '  Titular  de pruebas ',
+      companyRegistry: 'Registro de pruebas',
+      dpoEmail: 'no-es-un-correo',
+      disputeResolutionEntity: 'Entidad de pruebas'
+    })
+    expect(terms.companyLegalName).toBe('Titular de pruebas')
+    expect(terms.companyRegistry).toBe('Registro de pruebas')
+    expect(terms.dpoEmail).toBe('')
+    expect(terms.disputeResolutionEntity).toBe('Entidad de pruebas')
+    expect(parseCommercialTerms({ dpoEmail: 'dpd@example.com' }).dpoEmail).toBe('dpd@example.com')
+  })
+
+  it('exposes every legal key through COMMERCIAL_* variables in nuxt.config', () => {
+    const source = readFileSync('nuxt.config.ts', 'utf8')
+    for (const name of [
+      'COMMERCIAL_COMPANY_LEGAL_NAME',
+      'COMMERCIAL_COMPANY_REGISTRY',
+      'COMMERCIAL_DPO_EMAIL',
+      'COMMERCIAL_DISPUTE_RESOLUTION_ENTITY'
+    ])
+      expect(source).toContain(`process.env.${name} || ''`)
   })
 })
 
