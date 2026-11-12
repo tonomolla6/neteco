@@ -915,7 +915,7 @@ function discardBatch() {
             :disabled="!canAct() || runtime !== 'cloudflare' || !list.items.some((item) => item.available)"
             @click="addListToCart(list)"
           >
-            Añadir todo al carrito
+            Añadir toda la lista
           </UButton>
         </div>
 

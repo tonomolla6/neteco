@@ -322,6 +322,17 @@ describe('Cloudflare account overview confirmed read contract', () => {
     expect(wrapper!.text()).toContain('200 más recientes')
     expect(wrapper!.text()).not.toContain('Tienes 200 pedidos en curso')
   })
+  it('summarises lists and delivery instead of repeating the account menu as cards', async () => {
+    await render()
+    const lists = wrapper!.get('[data-account-lists]')
+    expect(lists.text()).toContain('Tus listas')
+    expect(lists.text()).toContain('Private list')
+    expect(lists.text()).toContain('1 referencia')
+    expect(lists.get('a[href="/cuenta/listas"]').text()).toContain('Abrir mis listas')
+    expect(wrapper!.find('a[href="/cuenta/seguridad"]').exists()).toBe(false)
+    expect(wrapper!.text()).not.toContain('Contraseña, MFA y sesiones')
+    expect(wrapper!.get('[data-account-delivery]').text()).toContain('Private city')
+  })
   it('shows one default address without adding a phantom extra address', async () => {
     await render()
     expect(wrapper!.text()).not.toContain('Private city y 1 más')

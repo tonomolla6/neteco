@@ -304,6 +304,9 @@ describe('account favorite lists: confirmed reads and explicit GET retry', () =>
     expect(page.text()).toContain(LIST.name)
     expect(page.text()).toContain(ITEM.name)
     expect(page.get('header').attributes('data-count')).toBe('1')
+    // Una lista se pide entera con una acción con nombre propio; nada dice «favorito».
+    expect(button(page, 'Añadir toda la lista')).toBeDefined()
+    expect(page.text()).not.toMatch(/favorit/i)
     expect(JSON.stringify(input)).toBe(before)
     noWrites()
   })
@@ -311,7 +314,7 @@ describe('account favorite lists: confirmed reads and explicit GET retry', () =>
     const page = await render({ runtime: 'node', data: { lists: [{ ...LIST, items: [NODE_ITEM] }] } })
     expect(page.text()).toContain(ITEM.name)
     expect(page.get('header').attributes('data-count')).toBe('1')
-    expect(button(page, 'Añadir todo al carrito')?.attributes('disabled')).toBeDefined()
+    expect(button(page, 'Añadir toda la lista')?.attributes('disabled')).toBeDefined()
     await actions(page).addListToCart(LIST)
     noWrites()
   })

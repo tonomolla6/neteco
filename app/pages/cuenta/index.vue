@@ -330,48 +330,44 @@ const companyExplanation = computed(() =>
   })
 )
 
-const shortcuts = computed(() => [
-  {
-    to: '/cuenta/pedidos',
-    icon: 'i-lucide-package',
-    label: 'Pedidos',
-    hint: cloudflare
-      ? readState.orders === 'success' && authorized()
-        ? `${orders.value.length} consultados`
-        : 'Pedidos no confirmados'
-      : `${orders.value.length} en total`
-  },
-  {
-    to: '/cuenta/listas',
-    icon: 'i-lucide-list-checks',
-    label: 'Listas',
-    hint:
-      cloudflare && (readState.favorites !== 'success' || !authorized())
-        ? 'Listas no confirmadas'
-        : favoriteCount.value
-          ? `${favoriteCount.value} referencias`
-          : 'Sin referencias guardadas'
-  },
-  {
-    to: '/cuenta/direcciones',
-    icon: 'i-lucide-map-pin',
-    label: 'Direcciones',
-    hint:
-      cloudflare && (readState.addresses !== 'success' || !authorized())
-        ? 'Direcciones no confirmadas'
-        : defaultAddress.value
-          ? cloudflare
-            ? `${defaultAddress.value.city}${(addressData.value?.addresses.length ?? 0) > 1 ? ` y ${addressData.value!.addresses.length - 1} más` : ''}`
-            : `${defaultAddress.value.city} y ${addressData?.value?.addresses.length ?? 0} más`
-          : 'Sin direcciones'
-  },
-  {
-    to: '/cuenta/seguridad',
-    icon: 'i-lucide-shield-check',
-    label: 'Acceso y seguridad',
-    hint: 'Contraseña, MFA y sesiones'
-  }
-])
+/**
+ * Lo que antes eran cuatro tarjetas que repetían el menú lateral (Pedidos, Listas, Direcciones,
+ * Acceso) ahora son datos: cuántos pedidos, qué listas hay y dónde se entrega. Los mismos
+ * textos honestos cuando la lectura no está confirmada.
+ */
+const ordersHint = computed(() =>
+  cloudflare
+    ? readState.orders === 'success' && authorized()
+      ? `${orders.value.length} consultados`
+      : 'Pedidos no confirmados'
+    : `${orders.value.length} en total`
+)
+const listsConfirmed = computed(() => !cloudflare || (readState.favorites === 'success' && authorized()))
+const listSummaries = computed(() =>
+  listsConfirmed.value
+    ? (favoriteData.value?.lists ?? []).map((list) => ({
+        id: list.id,
+        name: list.name,
+        count: `${list.items.length} ${list.items.length === 1 ? 'referencia' : 'referencias'}`
+      }))
+    : []
+)
+const listsHint = computed(() =>
+  !listsConfirmed.value
+    ? 'Listas no confirmadas'
+    : favoriteCount.value
+      ? `${favoriteCount.value} referencias`
+      : 'Sin referencias guardadas'
+)
+const deliveryHint = computed(() =>
+  cloudflare && (readState.addresses !== 'success' || !authorized())
+    ? 'Direcciones no confirmadas'
+    : defaultAddress.value
+      ? cloudflare
+        ? `${defaultAddress.value.city}${(addressData.value?.addresses.length ?? 0) > 1 ? ` y ${addressData.value!.addresses.length - 1} más` : ''}`
+        : `${defaultAddress.value.city} y ${addressData?.value?.addresses.length ?? 0} más`
+      : 'Sin direcciones'
+)
 
 function onAdded(count: number) {
   if (cloudflare && (!authorized() || readState.orders !== 'success' || !Number.isSafeInteger(count) || count < 1))
@@ -544,22 +540,39 @@ onBeforeUnmount(() => {
       </p>
     </UiSurface>
 
-    <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-      <NuxtLink
-        v-for="shortcut in shortcuts"
-        :key="shortcut.to"
-        :to="shortcut.to"
-        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 transition-colors hover:border-neteco-300"
-      >
-        <UIcon :name="shortcut.icon" class="size-5 text-neteco-700" />
-        <p class="mt-2.5 font-semibold text-[var(--text-strong)]">{{ shortcut.label }}</p>
-        <p class="mt-0.5 text-sm text-[var(--text-muted)]">{{ shortcut.hint }}</p>
-      </NuxtLink>
+    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <UiSurface data-account-lists>
+        <div class="flex items-start justify-between gap-3">
+          <h2 class="text-lg font-bold text-[var(--text-strong)]">Tus listas</h2>
+          <NuxtLink to="/cuenta/listas" class="shrink-0 text-sm font-semibold text-[var(--link)] underline"
+            >Abrir mis listas</NuxtLink
+          >
+        </div>
+        <ul v-if="listSummaries.length" class="mt-3 space-y-1.5 text-[15px]">
+          <li v-for="list in listSummaries" :key="list.id" class="flex justify-between gap-3">
+            <span class="min-w-0 truncate font-medium text-[var(--text-strong)]">{{ list.name }}</span>
+            <span class="tabular shrink-0 text-[var(--text-muted)]">{{ list.count }}</span>
+          </li>
+        </ul>
+        <p v-else class="mt-3 text-sm text-[var(--text-muted)]">{{ listsHint }}</p>
+      </UiSurface>
+      <UiSurface data-account-delivery>
+        <div class="flex items-start justify-between gap-3">
+          <h2 class="text-lg font-bold text-[var(--text-strong)]">Entrega habitual</h2>
+          <NuxtLink to="/cuenta/direcciones" class="shrink-0 text-sm font-semibold text-[var(--link)] underline"
+            >Cambiar</NuxtLink
+          >
+        </div>
+        <p class="mt-3 text-[15px] text-[var(--text)]">{{ deliveryHint }}</p>
+      </UiSurface>
     </div>
 
     <section v-if="recentOrders.length">
       <div class="flex items-center justify-between pb-3">
-        <h2 class="text-lg font-bold text-[var(--text-strong)]">Pedidos anteriores</h2>
+        <h2 class="text-lg font-bold text-[var(--text-strong)]">
+          Pedidos anteriores
+          <span class="ml-1 text-sm font-normal text-[var(--text-muted)]">{{ ordersHint }}</span>
+        </h2>
         <UButton size="sm" color="neutral" variant="ghost" to="/cuenta/pedidos" trailing icon="i-lucide-chevron-right">
           Ver todos
         </UButton>
