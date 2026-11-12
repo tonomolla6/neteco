@@ -159,3 +159,12 @@ export async function cancelScheduledVariantPrice(
   `
   return { id: scheduled.id }
 }
+
+/** A variant without a public price ("Consultar precio") cannot be bought online. */
+export function priceOnRequestError() {
+  return createError({
+    statusCode: 409,
+    statusMessage: 'Este artículo es de precio a consultar; pídenos presupuesto',
+    data: { code: 'PRICE_ON_REQUEST' }
+  })
+}

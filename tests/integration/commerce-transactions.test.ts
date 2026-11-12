@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import type { Sql } from 'postgres'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeDatabase } from '../../server/db/client'
+import { assertPurchasableVariant } from '../../server/services/cart'
 import {
   cancelOrderByAdmin,
   confirmMockPayment,
@@ -245,6 +246,35 @@ afterEach(async () => {
 })
 
 describe('commerce transaction spine', () => {
+  it('never adds a "Consultar precio" variant (public price 0) to a cart', async () => {
+    const [variant] = await sql<{ legacyId: number }[]>`
+      UPDATE variants SET price_gross_cents = 0 WHERE id = ${stock.variantId} RETURNING legacy_id AS "legacyId"
+    `
+    await expect(
+      sql.begin((transaction) => assertPurchasableVariant(transaction, variant!.legacyId, 1))
+    ).rejects.toMatchObject({ statusCode: 409, data: { code: 'PRICE_ON_REQUEST' } })
+
+    await sql`UPDATE variants SET price_gross_cents = ${stock.priceGrossCents} WHERE id = ${stock.variantId}`
+    await expect(
+      sql.begin((transaction) => assertPurchasableVariant(transaction, variant!.legacyId, 1))
+    ).resolves.toMatchObject({ id: stock.variantId })
+  })
+
+  it('refuses to create an order with a line whose public price dropped to 0', async () => {
+    const input = await cartInput()
+    await sql`UPDATE variants SET price_gross_cents = 0 WHERE id = ${stock.variantId}`
+    input.expectedTotalGrossCents = 0
+
+    await expect(createOrder(input)).rejects.toMatchObject({
+      statusCode: 409,
+      data: { code: 'PRICE_ON_REQUEST' }
+    })
+    const [count] = await sql<{ count: number }[]>`
+      SELECT count(*)::int AS count FROM orders WHERE idempotency_key = ${input.idempotencyKey}
+    `
+    expect(count?.count).toBe(0)
+  })
+
   it('requires explicit acceptance when the authoritative checkout quote changes', async () => {
     const input = await cartInput()
     input.expectedTotalGrossCents += 1

@@ -4,6 +4,7 @@ import { selectVolumeUnitPrice, splitGross, validateQuantity, type VolumePriceTi
 import { useDatabase } from '../db/client'
 import { hashOpaqueToken, randomOpaqueToken } from '../utils/secrets'
 import { privateCookieOptions } from '../utils/private-cookie'
+import { priceOnRequestError } from './pricing'
 
 const CART_COOKIE = 'neteco-cart'
 const CART_TTL_SECONDS = 60 * 60 * 24 * 90
@@ -224,15 +225,25 @@ async function lockedCart(transaction: TransactionSql, cartId: string) {
   return cart
 }
 
-async function validateVariant(transaction: TransactionSql, legacyId: number, quantity: number) {
+/** Published variant with a public price; "Consultar precio" variants are never sold online. */
+export async function assertPurchasableVariant(transaction: TransactionSql, legacyId: number, quantity: number) {
   const [variant] = await transaction<
-    { id: string; minimum_quantity: number; maximum_quantity: number | null; quantity_increment: number }[]
+    {
+      id: string
+      minimum_quantity: number
+      maximum_quantity: number | null
+      quantity_increment: number
+      gross_cents: number | null
+    }[]
   >`
-    SELECT v.id, v.minimum_quantity, v.maximum_quantity, v.quantity_increment
-    FROM variants v JOIN products p ON p.id = v.product_id
+    SELECT v.id, v.minimum_quantity, v.maximum_quantity, v.quantity_increment, price.gross_cents
+    FROM variants v
+    JOIN products p ON p.id = v.product_id
+    LEFT JOIN effective_variant_prices price ON price.variant_id = v.id
     WHERE v.legacy_id = ${legacyId} AND v.status = 'published' AND p.status = 'published'
   `
   if (!variant) throw createError({ statusCode: 404, statusMessage: 'Variante no disponible' })
+  if (!(Number(variant.gross_cents) > 0)) throw priceOnRequestError()
   validateQuantity(quantity, {
     minimumQuantity: variant.minimum_quantity,
     maximumQuantity: variant.maximum_quantity,
@@ -274,7 +285,7 @@ export async function mutateServerCart(event: H3Event, input: CartMutation) {
           WHERE ci.cart_id = ${cart.id} AND v.legacy_id = ${input.variantId}
         `
         const quantity = input.operation === 'add' ? (current?.quantity ?? 0) + input.quantity : input.quantity
-        const variant = await validateVariant(transaction, input.variantId, quantity)
+        const variant = await assertPurchasableVariant(transaction, input.variantId, quantity)
         await transaction`
           INSERT INTO cart_items (cart_id, variant_id, quantity)
           VALUES (${cart.id}, ${variant.id}, ${quantity})

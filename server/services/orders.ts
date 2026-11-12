@@ -11,6 +11,7 @@ import { useDatabase } from '../db/client'
 import { hashAccessToken } from '../utils/access-token'
 import { shippingCommercialPolicy } from '../utils/shipping-policy'
 import { requestNewsletterSubscription, type NewsletterSecrets } from './newsletter'
+import { priceOnRequestError } from './pricing'
 
 export const TERMS_VERSION = process.env.LEGAL_TERMS_VERSION || 'purchase-2026-08-12'
 export const PRIVACY_VERSION = process.env.LEGAL_PRIVACY_VERSION || 'privacy-2026-08-12'
@@ -188,6 +189,7 @@ export async function createOrder(input: CreateOrderInput) {
     if (variants.length !== requested.length) {
       throw createError({ statusCode: 409, statusMessage: 'Uno o más artículos ya no están disponibles' })
     }
+    if (variants.some((variant) => !(variant.price_gross_cents > 0))) throw priceOnRequestError()
     const quantityByVariant = new Map(requested.map((item) => [item.variantId, item.qty]))
     const lines = variants.map((variant) => {
       const quantity = quantityByVariant.get(variant.legacy_id)!

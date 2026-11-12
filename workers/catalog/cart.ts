@@ -33,6 +33,7 @@ import {
   effectiveB2BSourceExpression,
   effectiveB2BVersionIdExpression,
   effectiveGovernedVersionIdExpression,
+  effectiveGrossCentsExpression,
   inlineEffectivePricingSql
 } from './pricing'
 import { parseVolumeTiers } from './volume-pricing'
@@ -434,7 +435,8 @@ export async function setCartLine(database: D1Database, input: SetLineInput): Pr
                 v.maximum_quantity AS maximumQuantity,
                 v.quantity_increment AS quantityIncrement,
                 v.status, p.status AS productStatus, c.status AS categoryStatus,
-                ${publicationValidityExpression('p')} AS publicationValid
+                ${publicationValidityExpression('p')} AS publicationValid,
+                ${inlineEffectivePricingSql(effectiveGrossCentsExpression('v'), input.now)} AS publicGrossCents
          FROM variants v
          JOIN products p ON p.id = v.product_id
          JOIN categories c ON c.id = p.category_id
@@ -449,13 +451,17 @@ export async function setCartLine(database: D1Database, input: SetLineInput): Pr
         productStatus: string
         categoryStatus: string
         publicationValid: number
+        publicGrossCents: number | null
       }>()
+    // A published variant without a public price is sold as "Consultar precio":
+    // it can only be removed from a cart, never added or changed.
     if (
       !variant ||
       variant.status !== 'published' ||
       variant.productStatus !== 'published' ||
       variant.categoryStatus !== 'published' ||
-      variant.publicationValid !== 1
+      variant.publicationValid !== 1 ||
+      !(Number(variant.publicGrossCents) > 0)
     )
       throw new CartError('variant_not_available', 'Variant cannot be added to the cart')
     try {

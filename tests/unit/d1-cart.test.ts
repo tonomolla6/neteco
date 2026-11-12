@@ -13,6 +13,7 @@ import { splitGross } from '../../server/domain/money'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { stableUuid as stableUuidLike } from '../../scripts/lib/d1-category-seed'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-08-25T09:00:00Z'
 
@@ -23,7 +24,7 @@ function withdrawSyntheticPolicy(sqlite: Awaited<ReturnType<typeof openMigratedD
     SELECT ?,id,actor_id,'Synthetic policy withdrawal for temporal regression',?
     FROM catalog_publication_policies WHERE code='local_fixture' ORDER BY version DESC LIMIT 1`
     )
-    .run(crypto.randomUUID(), NOW)
+    .run(testUuid(), NOW)
 }
 
 function beforeBatch(database: D1Database, action: () => void): D1Database {
@@ -661,6 +662,67 @@ describe('cart mutations: idempotency, versions and atomicity', () => {
     void fixture
   })
 
+  it('refuses a "Consultar precio" variant (public price 0) with the stable unavailable code', async () => {
+    const { created, database, fixture, sqlite } = await cartWithLine()
+    sqlite.prepare('UPDATE variants SET price_gross_cents = 0 WHERE id = ?').run(fixture.variantId(3, 1))
+    sqlite.prepare('UPDATE variants SET price_gross_cents = 0 WHERE id = ?').run(fixture.variantId(1, 1))
+    await expect(
+      setCartLine(database, {
+        cartId: created.cartId,
+        correlationId: 't',
+        expectedVersion: 2,
+        idempotencyKey: 'k-price-0-add',
+        mode: 'add',
+        now: NOW,
+        quantity: 1,
+        token: created.token,
+        variantId: fixture.variantId(3, 1)
+      })
+    ).rejects.toMatchObject({ code: 'variant_not_available' })
+    // Raising the quantity of a line that lost its public price is refused too…
+    await expect(
+      setCartLine(database, {
+        cartId: created.cartId,
+        correlationId: 't',
+        expectedVersion: 2,
+        idempotencyKey: 'k-price-0-set',
+        now: NOW,
+        quantity: 5,
+        token: created.token,
+        variantId: fixture.variantId(1, 1)
+      })
+    ).rejects.toMatchObject({ code: 'variant_not_available' })
+    // …but removing it stays possible.
+    const removal = await setCartLine(database, {
+      cartId: created.cartId,
+      correlationId: 't',
+      expectedVersion: 2,
+      idempotencyKey: 'k-price-0-remove',
+      now: NOW,
+      quantity: 0,
+      token: created.token,
+      variantId: fixture.variantId(1, 1)
+    })
+    expect(removal.outcome === 'applied' && removal.body.removed).toBe(true)
+  })
+
+  it('accepts a variant whose base price is 0 but whose governed price is positive', async () => {
+    const { created, database, fixture, sqlite } = await cartWithLine()
+    sqlite.prepare('UPDATE variants SET price_gross_cents = 0 WHERE id = ?').run(fixture.variantId(2, 1))
+    const applied = await setCartLine(database, {
+      cartId: created.cartId,
+      correlationId: 't',
+      expectedVersion: 2,
+      idempotencyKey: 'k-governed-price',
+      mode: 'add',
+      now: NOW,
+      quantity: 1,
+      token: created.token,
+      variantId: fixture.variantId(2, 1)
+    })
+    expect(applied.outcome).toBe('applied')
+  })
+
   it('rolls the whole batch back when a mid-flight failure aborts the transaction', async () => {
     const { created, database, fixture, sqlite } = await cartWithLine()
     sqlite.exec(`
@@ -1074,6 +1136,24 @@ describe('pre-checkout quotes', () => {
       })
     ).rejects.toMatchObject({ code: 'variant_not_available' })
     expect(sqlite.prepare("SELECT count(*) AS c FROM checkout_quotes WHERE correlation_id = 't'").get()).toEqual({
+      c: 0
+    })
+  })
+
+  it('refuses to quote (and so to check out) a line whose public price dropped to 0', async () => {
+    const { created, database, fixture, sqlite } = await quotedCart()
+    sqlite.prepare('UPDATE variants SET price_gross_cents = 0 WHERE id = ?').run(fixture.variantId(1, 1))
+    await expect(
+      quoteCart(database, {
+        cartId: created.cartId,
+        correlationId: 'price-0',
+        expectedVersion: 3,
+        idempotencyKey: 'q-price-0',
+        now: NOW,
+        token: created.token
+      })
+    ).rejects.toMatchObject({ code: 'invalid_input' })
+    expect(sqlite.prepare("SELECT count(*) AS c FROM checkout_quotes WHERE correlation_id = 'price-0'").get()).toEqual({
       c: 0
     })
   })
