@@ -176,7 +176,12 @@ export default defineNuxtConfig({
         // empiezan vacíos y, vacíos, no se muestran en ninguna pantalla.
         contactEmail: process.env.COMMERCIAL_CONTACT_EMAIL || '',
         contactPhone: process.env.COMMERCIAL_CONTACT_PHONE || '',
-        supportPhoneAi: process.env.COMMERCIAL_SUPPORT_PHONE_AI || ''
+        supportPhoneAi: process.env.COMMERCIAL_SUPPORT_PHONE_AI || '',
+        // Chat flotante de un proveedor externo (shared/chat-widget.ts). Vacío: no se carga nada.
+        // Su origen debe declararse aparte en CSP_CHAT_WIDGET_ORIGINS.
+        chatWidgetSrc: process.env.COMMERCIAL_CHAT_WIDGET_SRC || '',
+        chatWidgetId: process.env.COMMERCIAL_CHAT_WIDGET_ID || '',
+        chatWidgetCookies: process.env.COMMERCIAL_CHAT_WIDGET_COOKIES || ''
       }
     }
   },

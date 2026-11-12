@@ -1,6 +1,7 @@
 import { applicationSecurityHeaders } from '../utils/security-headers'
 import { robotsHeader } from '../utils/robots'
 import { generateCspNonce, resolveCspMode } from '../../shared/csp'
+import { parseCspOrigins } from '../../shared/chat-widget'
 
 export default defineEventHandler((event) => {
   const config = useRuntimeConfig(event)
@@ -16,7 +17,9 @@ export default defineEventHandler((event) => {
       cspMode,
       nonce,
       // Over plain http (local/E2E) an enforced upgrade would push every request to https.
-      upgradeInsecureRequests: config.appEnv === 'production' || url.protocol === 'https:'
+      upgradeInsecureRequests: config.appEnv === 'production' || url.protocol === 'https:',
+      // Orígenes del chat externo, solo si se han configurado (ver shared/chat-widget.ts).
+      extraOrigins: parseCspOrigins(process.env.CSP_CHAT_WIDGET_ORIGINS)
     })
   )) {
     setHeader(event, name, value)

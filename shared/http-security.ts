@@ -9,6 +9,8 @@ export interface ApplicationSecurityHeadersOptions {
   reportUri?: string
   /** Defaults to true; only a plain-http non-production origin may disable it. */
   upgradeInsecureRequests?: boolean
+  /** Orígenes de terceros autorizados por configuración (chat externo). Solo en modo estricto. */
+  extraOrigins?: string[]
 }
 
 /** Pure header policy shared by Nitro and the outer Worker. Third-party
@@ -40,7 +42,8 @@ export function applicationSecurityHeaders(
         hashes: options.hashes,
         turnstile: options.turnstile,
         reportUri: options.reportUri,
-        upgradeInsecureRequests: options.upgradeInsecureRequests
+        upgradeInsecureRequests: options.upgradeInsecureRequests,
+        extraOrigins: options.extraOrigins
       })
       const headerName = getCspHeaderName(mode)
       if (headerName) {

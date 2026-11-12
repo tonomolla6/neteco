@@ -7,11 +7,14 @@ import { cmsRuntimeDependencies } from './runtime/operations-config'
 import { handleGuestOrderAccessHttp } from './catalog/guest-order-access-http'
 import { handleCspReportHttp, ownsCspReportNamespace } from './security/csp-report-http'
 import { buildStrictCsp, generateCspNonce, injectNonceIntoHtml, resolveCspMode } from '../shared/csp'
+import { parseCspOrigins } from '../shared/chat-widget'
 
 export { CanaryCoordinator, CanaryWorkflow, InventoryCoordinator, CartCoordinator } from './canary'
 
 type ShopEnvironment = CloudflareEnv & {
   CSP_MODE?: string
+  /** Orígenes https del chat externo, separados por comas (ver shared/chat-widget.ts). */
+  CSP_CHAT_WIDGET_ORIGINS?: string
 }
 
 const baseIngress = createShopIngress(api, renderer, async (request, env) => {
@@ -104,7 +107,7 @@ export default {
       enabled(env.SUPPORT_ENABLED) &&
       enabled(env.SUPPORT_TURNSTILE_ENABLED)
 
-    const strictCsp = buildStrictCsp({ nonce, turnstile })
+    const strictCsp = buildStrictCsp({ nonce, turnstile, extraOrigins: parseCspOrigins(env.CSP_CHAT_WIDGET_ORIGINS) })
     headers.set('reporting-endpoints', 'csp-endpoint="/api/security/csp-reports"')
 
     if (mode === 'enforce') {

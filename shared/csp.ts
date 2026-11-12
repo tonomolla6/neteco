@@ -26,6 +26,11 @@ export interface CspDirectivesOptions {
   reportUri?: string
   reportToGroup?: string
   upgradeInsecureRequests?: boolean
+  /**
+   * Orígenes https de terceros autorizados por configuración (`CSP_CHAT_WIDGET_ORIGINS`),
+   * p. ej. el chat externo. Se añaden a script, connect, frame e img. Nunca se escriben aquí.
+   */
+  extraOrigins?: string[]
 }
 
 export interface StrictCspApplyOptions extends CspDirectivesOptions {
@@ -97,6 +102,8 @@ export function buildStrictCsp(options: CspDirectivesOptions = {}): string {
   const reportUri = options.reportUri ?? DEFAULT_REPORT_URI
   const reportToGroup = options.reportToGroup ?? DEFAULT_REPORT_TO_GROUP
   const upgrade = options.upgradeInsecureRequests !== false
+  const extra = (options.extraOrigins ?? []).filter((origin) => /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i.test(origin))
+  const withExtra = (base: string) => [base, ...extra].join(' ')
 
   const scriptParts: string[] = [`'nonce-${nonce}'`]
   for (const hash of hashes) {
@@ -112,11 +119,13 @@ export function buildStrictCsp(options: CspDirectivesOptions = {}): string {
   if (turnstile) {
     scriptParts.push(TURNSTILE_ORIGIN)
   }
+  scriptParts.push(...extra)
 
   const frameParts: string[] = ["'self'"]
   if (turnstile) {
     frameParts.push(TURNSTILE_ORIGIN)
   }
+  frameParts.push(...extra)
 
   const directives: string[] = [
     "default-src 'self'",
@@ -125,9 +134,9 @@ export function buildStrictCsp(options: CspDirectivesOptions = {}): string {
     "frame-ancestors 'none'",
     `form-action 'self' ${REDSYS_FORM_ACTIONS}`,
     ...(upgrade ? ['upgrade-insecure-requests'] : []),
-    "img-src 'self' data: blob:",
+    withExtra("img-src 'self' data: blob:"),
     "font-src 'self' data:",
-    "connect-src 'self'",
+    withExtra("connect-src 'self'"),
     // TEMPORARY EXCEPTION: Nuxt UI runtime styles and CSS variable injections
     // require style-src 'unsafe-inline' until ahead-of-time CSS extraction is complete.
     "style-src 'self' 'unsafe-inline'",
