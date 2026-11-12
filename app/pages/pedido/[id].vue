@@ -619,23 +619,7 @@ async function copyReference(value: string) {
       <NuxtLink to="/carrito" class="ml-1 font-semibold underline">Ir al carrito</NuxtLink>
     </p>
 
-    <div v-if="!loggedIn && !isCloudflare" class="mt-4">
-      <UiSurface class="flex flex-col justify-between gap-3 sm:flex-row sm:items-center" padding="sm">
-        <p class="text-sm text-[var(--text)]">
-          <UIcon name="i-lucide-bookmark" class="inline size-4 text-neteco-700" />
-          Este navegador guarda el acceso a este pedido durante un tiempo. Con una cuenta lo tienes siempre, desde
-          cualquier dispositivo, con sus facturas.
-        </p>
-        <UButton
-          :to="`/registro?email=${encodeURIComponent(order.email)}`"
-          variant="soft"
-          icon="i-lucide-user-plus"
-          class="shrink-0"
-        >
-          Crear cuenta
-        </UButton>
-      </UiSurface>
-    </div>
+    <OrderGuestAccount v-if="!loggedIn && !isCloudflare" class="mt-4" :order="order" />
 
     <div class="mt-4 grid min-w-0 items-start gap-4 grid-cols-1 lg:grid-cols-3">
       <UiSurface class="min-w-0 overflow-hidden lg:col-span-2" padding="none">
@@ -802,6 +786,12 @@ async function copyReference(value: string) {
             <UButton v-if="loggedIn" block variant="soft" icon="i-lucide-repeat-2" @click="dialog?.start(order.id)">
               Volver a pedir esto
             </UButton>
+            <OrderSaveAsList
+              v-if="loggedIn && detail?.lines?.length"
+              :order-id="order.id"
+              :lines="detail.lines"
+              :cloudflare="isCloudflare"
+            />
             <UButton
               v-if="order.fulfillmentStatus === 'delivered'"
               :to="`/devoluciones?pedido=${encodeURIComponent(order.id)}`"

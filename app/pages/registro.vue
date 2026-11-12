@@ -7,10 +7,13 @@ const runtime = useRuntimeConfig()
 const route = useRoute()
 const { fetch: refreshSession } = useUserSession()
 
+// Tras un pedido como invitado se llega con sus datos: solo falta la contraseña.
+const fromQuery = (key: string) => (typeof route.query[key] === 'string' ? route.query[key].trim().slice(0, 160) : '')
+const fromOrder = fromQuery('pedido')
 const form = reactive({
-  name: '',
-  company: '',
-  phone: '',
+  name: fromQuery('nombre'),
+  company: fromQuery('empresa'),
+  phone: fromQuery('telefono'),
   email: String(route.query.email ?? ''),
   password: '',
   password2: '',
@@ -91,6 +94,13 @@ async function submit() {
         </NuxtLink>
       </div>
       <form v-else class="mt-6 space-y-4" @submit.prevent="submit">
+        <p
+          v-if="fromOrder"
+          data-register-from-order
+          class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-[13px] text-[var(--text)]"
+        >
+          Hemos rellenado tus datos con los del pedido {{ fromOrder }}. Solo falta elegir una contraseña.
+        </p>
         <UFormField label="Nombre y apellidos" required>
           <UInput v-model="form.name" autocomplete="name" class="w-full" icon="i-lucide-user" />
         </UFormField>
