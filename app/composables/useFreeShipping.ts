@@ -43,9 +43,9 @@ export function useFreeShipping() {
     }).format(thresholdCents.value / 100)
   })
 
-  /** Referencia condicionada, nunca confirmación de gratuidad del pedido. */
+  /** El umbral que aplica el servidor a la paquetería estándar; el pedido concreto se confirma al pagar. */
   const label = computed(() =>
-    thresholdCents.value ? `Paquetería estándar elegible gratis desde ${threshold.value}; sujeto a cotización` : ''
+    thresholdCents.value ? `Envío por agencia gratis desde ${threshold.value} en paquetería estándar` : ''
   )
 
   function missingFor(subtotalCents: number) {

@@ -212,7 +212,7 @@ describe('shipping threshold is not a contractual free-shipping promise', () => 
       cart().serverTotals!.subtotal = subtotal
       await nextTick()
       expect(wrapper!.text()).toContain('paquetería estándar elegible')
-      expect(wrapper!.text()).toContain('Sujeto a cotización')
+      expect(wrapper!.text()).toContain('Solo para paquetería estándar elegible a península')
       expect(wrapper!.text()).toContain('Palés y mercancías peligrosas no están incluidos')
       expect(wrapper!.text()).not.toContain('Envío por agencia gratis en este pedido')
       expect(Number(wrapper!.get('[role="progressbar"]').attributes('aria-valuenow'))).toBeLessThanOrEqual(100)
@@ -229,11 +229,11 @@ describe('shipping threshold is not a contractual free-shipping promise', () => 
       expect(wrapper!.text()).not.toContain('umbral de paquetería')
     }
   )
-  it('qualifies the shared shipping-page label as eligible standard parcels subject to a quote', async () => {
+  it('limits the shared shipping-page threshold to standard parcels', async () => {
     threshold = '15000'
     await render(ShippingPage)
-    expect(wrapper!.text()).toContain('Paquetería estándar elegible gratis desde 150')
-    expect(wrapper!.text()).toContain('sujeto a cotización')
+    expect(wrapper!.text()).toContain('Gratis desde 150 € en paquetería estándar')
+    expect(wrapper!.text()).toContain('mercancía peligrosa tienen condiciones propias')
   })
   it('does not bypass a checkout recovery failure with a cart retry', async () => {
     fetchMock.mockRejectedValue({ statusCode: 503 })

@@ -149,7 +149,28 @@ export default defineNuxtConfig({
       // mano en la copia. Sin umbral (producción sin configurar) vale 0 y no se enseña.
       freeShippingThresholdCents: Number(
         process.env.FREE_SHIPPING_THRESHOLD_CENTS?.trim() || (process.env.APP_ENV === 'production' ? 0 : 15_000)
-      )
+      ),
+      // Condiciones comerciales que decide el negocio (`shared/commercial-terms.ts`). Todas
+      // vacías por defecto: la tienda solo escribe una promesa con cifra si el dato está aquí.
+      // El umbral de envío gratis no se duplica: sale de `freeShippingThresholdCents`.
+      commercial: {
+        ownDeliveryDays: process.env.COMMERCIAL_OWN_DELIVERY_DAYS || '',
+        orderCutoffTime: process.env.COMMERCIAL_ORDER_CUTOFF_TIME || '',
+        ownDeliveryCostCents: process.env.COMMERCIAL_OWN_DELIVERY_COST_CENTS || '',
+        ownDeliveryFreeFromCents: process.env.COMMERCIAL_OWN_DELIVERY_FREE_FROM_CENTS || '',
+        ownDeliveryMinimumOrderCents: process.env.COMMERCIAL_OWN_DELIVERY_MINIMUM_ORDER_CENTS || '',
+        parcelLeadTime: process.env.COMMERCIAL_PARCEL_LEAD_TIME || '',
+        parcelCostCents: process.env.COMMERCIAL_PARCEL_COST_CENTS || '',
+        deferredPaymentDays: process.env.COMMERCIAL_DEFERRED_PAYMENT_DAYS || '',
+        deferredPaymentConditions: process.env.COMMERCIAL_DEFERRED_PAYMENT_CONDITIONS || '',
+        supportHours: process.env.COMMERCIAL_SUPPORT_HOURS || '',
+        whatsappNumber: process.env.COMMERCIAL_WHATSAPP_NUMBER || '',
+        foundedYear: process.env.COMMERCIAL_FOUNDED_YEAR || '',
+        ecoRangeBrand: process.env.COMMERCIAL_ECO_RANGE_BRAND || '',
+        companyTaxId: process.env.COMMERCIAL_COMPANY_TAX_ID || '',
+        companyAddress: process.env.COMMERCIAL_COMPANY_ADDRESS || '',
+        certificationsPublished: process.env.COMMERCIAL_CERTIFICATIONS_PUBLISHED || ''
+      }
     }
   },
   routeRules: {

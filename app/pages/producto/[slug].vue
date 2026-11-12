@@ -96,6 +96,7 @@ const { data: reviewSeo } = await useFetch<ProductReviewSeoSummary>(
 )
 const aggregateRating = computed(() => (reviewSeo.value ? buildAggregateRatingJsonLd(reviewSeo.value) : null))
 const runtime = useRuntimeConfig()
+const commercial = useCommercialTerms()
 const governedMedia = Boolean(runtime.public.mediaGoverned)
 const technicalDocuments = computed(() =>
   product.value.documents.filter((document) => !governedMedia || publishedDocumentUrl(document.url))
@@ -967,20 +968,14 @@ async function addToCart(goToCart = false) {
           </section>
 
           <div class="mt-5 space-y-2 border-t border-[var(--border)] pt-4 text-sm text-[var(--text-muted)]">
-            <p class="flex items-center gap-2">
-              <UIcon name="i-lucide-truck" class="size-4 text-neteco-600" /> Reparto propio cuando el destino y la ruta
-              estén habilitados
+            <p class="flex items-start gap-2">
+              <UIcon name="i-lucide-truck" class="mt-0.5 size-4 shrink-0" /> {{ commercial.ownDelivery.value.text }}
             </p>
-            <p class="flex items-center gap-2">
-              <UIcon name="i-lucide-package-check" class="size-4 text-neteco-600" /> Fecha y método calculados con tu
-              código postal en checkout
+            <p v-if="commercial.parcel.value" class="flex items-start gap-2">
+              <UIcon name="i-lucide-package-check" class="mt-0.5 size-4 shrink-0" /> {{ commercial.parcel.value.text }}
             </p>
-            <p class="flex items-center gap-2">
-              <UIcon name="i-lucide-phone" class="size-4 text-neteco-600" /> Asesoramiento: 600 861 334
-            </p>
-            <p class="flex items-center gap-2">
-              <UIcon name="i-lucide-badge-euro" class="size-4 text-neteco-600" /> Tarifa y posibles bonificaciones
-              calculadas con el destino y la mercancía
+            <p class="flex items-start gap-2">
+              <UIcon name="i-lucide-phone" class="mt-0.5 size-4 shrink-0" /> Asesoramiento: 600 861 334
             </p>
           </div>
         </div>
@@ -1095,8 +1090,8 @@ async function addToCart(goToCart = false) {
               </UButton>
             </li>
           </ul>
-          <p v-else-if="!datasheet && runtime.public.appEnv !== 'production'" class="mt-1">
-            Sin documentos asociados en el catálogo de demostración.
+          <p v-else-if="!datasheet" class="mt-1">
+            Pídenos la ficha de seguridad: <a href="tel:600861334" class="font-medium underline">600 861 334</a>.
           </p>
         </div>
         <div

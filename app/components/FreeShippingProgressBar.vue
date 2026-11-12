@@ -12,12 +12,12 @@ const isReached = computed(() => props.evaluation.status === 'reached')
 
 <template>
   <div
-    class="rounded-xl border p-4 transition-all"
+    class="rounded-[var(--radius-surface)] border p-4 transition-all"
     :class="[
       isExcluded
         ? 'border-amber-300 bg-amber-50 text-amber-900'
         : isReached
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+          ? 'border-green-200 bg-green-50 text-green-950'
           : 'border-slate-200 bg-slate-50 text-slate-800'
     ]"
   >
@@ -41,9 +41,6 @@ const isReached = computed(() => props.evaluation.status === 'reached')
         <span class="font-medium">
           {{ evaluation.message }}
         </span>
-        <span v-if="isInProgress" class="text-xs font-semibold text-neteco-700">
-          {{ evaluation.progressPercent }}%
-        </span>
       </div>
 
       <p v-if="evaluation.detailedExplanation" class="text-xs text-slate-500">
@@ -61,15 +58,14 @@ const isReached = computed(() => props.evaluation.status === 'reached')
       >
         <div
           class="h-full rounded-full transition-all duration-300"
-          :class="isReached ? 'bg-emerald-600' : 'bg-neteco-600'"
+          :class="isReached ? 'bg-green-700' : 'bg-neteco-600'"
           :style="{ width: `${evaluation.progressPercent}%` }"
         />
       </div>
 
       <!-- La página no conoce el perfil logístico real: el umbral es una referencia, no una promesa. -->
       <p data-free-shipping-qualifier class="text-xs text-slate-500">
-        Referencia para paquetería estándar elegible. Sujeto a cotización. Palés y mercancías peligrosas no están
-        incluidos.
+        Solo para paquetería estándar elegible a península. Palés y mercancías peligrosas no están incluidos.
       </p>
     </div>
   </div>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatCommercialAmount } from '~~/shared/commercial-terms'
+
 useSeoMeta({
   title: 'Envíos y reparto',
   description:
@@ -11,33 +13,68 @@ useSeoMeta({
  * saber cuándo le llega el pedido no habla así. Los hechos son los mismos; cambia quién es
  * el sujeto de la frase.
  */
-const freeShipping = useFreeShipping()
-const methods = [
-  {
-    icon: 'i-lucide-truck',
-    title: 'Te lo llevamos nosotros',
-    zone: 'Ontinyent y la Vall d’Albaida',
-    time: 'Plazo según disponibilidad, destino y método',
-    cost: 'Según destino y pedido',
-    note: 'Al seleccionar el envío se confirma la cobertura y se muestra el plazo estimado cuando hay un calendario operativo disponible. Si todavía no hay fecha estimada, consúltanos antes de contar con un día concreto. Indica cualquier dificultad de acceso en las instrucciones del pedido.'
-  },
-  {
-    icon: 'i-lucide-package',
-    title: 'Envío por agencia',
-    zone: 'Península',
-    time: 'Plazo estimado al seleccionar el envío',
-    cost: freeShipping.label.value || 'Según destino y peso',
-    note: 'Verás el coste antes de pagar y, cuando esté disponible, el plazo estimado al seleccionar el envío. No es una fecha garantizada. Los productos voluminosos o los que viajan como mercancía peligrosa conservan sus condiciones, que se comprueban al calcular el envío.'
-  },
-  {
-    icon: 'i-lucide-store',
-    title: 'Lo recoges tú',
-    zone: 'Nuestro almacén en Ontinyent',
-    time: 'Consulta cuándo está preparado',
-    cost: 'Gratis',
-    note: 'Consulta el estado del pedido y las instrucciones de recogida antes de desplazarte. Trae el número de pedido.'
-  }
-]
+const { terms } = useCommercialTerms()
+/**
+ * Zona, plazo y coste con el dato del negocio cuando existe. Sin dato, la celda dice dónde
+ * lo verá el cliente (al indicar el código postal, antes de pagar) o a quién preguntar.
+ */
+const methods = computed(() => {
+  const t = terms.value
+  const ownCost =
+    t.ownDeliveryCostCents === 0
+      ? 'Gratis'
+      : [
+          t.ownDeliveryCostCents !== null ? formatCommercialAmount(t.ownDeliveryCostCents) : '',
+          t.ownDeliveryFreeFromCents !== null
+            ? `gratis desde ${formatCommercialAmount(t.ownDeliveryFreeFromCents)}`
+            : ''
+        ]
+          .filter(Boolean)
+          .join(', ')
+  const parcelCost = [
+    t.parcelCostCents ? formatCommercialAmount(t.parcelCostCents) : '',
+    t.parcelFreeFromCents !== null
+      ? `gratis desde ${formatCommercialAmount(t.parcelFreeFromCents)} en paquetería estándar`
+      : ''
+  ]
+    .filter(Boolean)
+    .join(', ')
+  return [
+    {
+      icon: 'i-lucide-truck',
+      title: 'Te lo llevamos nosotros',
+      zone: 'Ontinyent y la Vall d’Albaida',
+      time: t.ownDeliveryDays
+        ? `${capitalize(t.ownDeliveryDays)}${t.orderCutoffTime ? `. Pide antes de las ${t.orderCutoffTime}` : ''}`
+        : 'Llámanos y te decimos el próximo día de ruta',
+      cost: ownCost ? capitalize(ownCost) : 'Lo ves antes de pagar, al indicar tu código postal',
+      note: `${
+        t.ownDeliveryMinimumOrderCents !== null
+          ? `Pedido mínimo para el reparto: ${formatCommercialAmount(t.ownDeliveryMinimumOrderCents)}. `
+          : ''
+      }Indica cualquier dificultad de acceso en las instrucciones del pedido.`
+    },
+    {
+      icon: 'i-lucide-package',
+      title: 'Envío por agencia',
+      zone: 'Península',
+      time: t.parcelLeadTime || 'Lo ves al elegir el envío en el pedido',
+      cost: parcelCost ? capitalize(parcelCost) : 'Lo ves antes de pagar, según destino y peso',
+      note: 'Los productos voluminosos y los que viajan como mercancía peligrosa tienen condiciones propias, que se comprueban al calcular el envío.'
+    },
+    {
+      icon: 'i-lucide-store',
+      title: 'Lo recoges tú',
+      zone: 'Nuestro almacén en Ontinyent',
+      time: 'Te avisamos cuando esté preparado',
+      cost: 'Gratis',
+      note: 'Trae el número de pedido.'
+    }
+  ]
+})
+function capitalize(value: string) {
+  return value.charAt(0).toLocaleUpperCase('es') + value.slice(1)
+}
 </script>
 
 <template>
@@ -48,9 +85,13 @@ const methods = [
     </p>
 
     <div class="mt-8 space-y-4">
-      <div v-for="m in methods" :key="m.title" class="rounded-2xl border border-slate-200 bg-white p-6">
+      <div
+        v-for="m in methods"
+        :key="m.title"
+        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6"
+      >
         <div class="flex items-start gap-4">
-          <span class="rounded-xl bg-neteco-50 p-3 text-neteco-600">
+          <span class="rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3 text-[var(--text-muted)]">
             <UIcon :name="m.icon" class="block size-6" />
           </span>
           <div class="flex-1">
@@ -75,13 +116,13 @@ const methods = [
       </div>
     </div>
 
-    <div class="mt-8 rounded-2xl bg-neteco-50 p-6">
+    <div class="mt-8 rounded-[var(--radius-panel)] bg-neteco-50 p-6">
       <h2 class="flex items-center gap-2 font-bold text-neteco-900">
         <UIcon name="i-lucide-phone" class="size-5 text-neteco-600" /> ¿Dudas con tu entrega?
       </h2>
       <p class="mt-2 text-sm text-neteco-800">
-        Llámanos al <a href="tel:600861334" class="font-semibold underline">600 861 334</a> (lunes a viernes,
-        09:00-18:00) o escribe a
+        Llámanos al <a href="tel:600861334" class="font-semibold underline">600 861 334</a
+        ><template v-if="terms.supportHours"> ({{ terms.supportHours }})</template> o escribe a
         <a href="mailto:administracion@neteco.es" class="font-semibold underline">administracion@neteco.es</a>. Hablas
         con personas que conocen tu pedido.
       </p>

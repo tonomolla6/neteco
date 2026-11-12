@@ -216,7 +216,7 @@ async function retryOriginalAdd() {
             </div>
             <div class="flex justify-between">
               <dt class="text-slate-500">Envío</dt>
-              <dd class="text-slate-500">Se calcula al tramitar</dd>
+              <dd class="text-slate-500">Lo ves en el siguiente paso, antes de pagar</dd>
             </div>
             <div class="flex justify-between border-t border-slate-100 pt-3 text-base">
               <dt class="font-semibold text-slate-900">Total</dt>
@@ -241,10 +241,6 @@ async function retryOriginalAdd() {
           </UButton>
           <p v-else role="status" class="mt-5 text-sm text-amber-900">
             Comprueba la adición pendiente antes de tramitar el pedido.
-          </p>
-          <p class="mt-3 text-center text-xs text-slate-500">
-            Los métodos elegibles, el coste y la fecha se calculan con el código postal y el perfil real de la
-            mercancía.
           </p>
 
           <!-- Las señales de confianza van donde aparece la duda: justo antes del clic, no

@@ -124,40 +124,11 @@ const visibleFamilyRows = computed(() => {
     .filter((row) => row.items.length)
 })
 
-/** Promesas concretas. Es la barra que todos los competidores ponen bajo el hero. */
-const freeShipping = useFreeShipping()
-const PROMISES = computed(() => [
-  {
-    icon: 'i-lucide-truck',
-    title: 'Entrega y disponibilidad',
-    text: 'Consulta la cobertura; las fechas dependen de la cotización vigente.',
-    to: '/envios'
-  },
-  {
-    icon: 'i-lucide-package-check',
-    title: 'Envío a península',
-    text: freeShipping.label.value || 'Coste calculado antes de pagar; fecha cuando esté confirmada.',
-    to: '/envios'
-  },
-  {
-    icon: 'i-lucide-phone-call',
-    title: 'Soporte',
-    text: 'Consulta los canales de atención disponibles.',
-    to: '/contacto'
-  },
-  {
-    icon: 'i-lucide-receipt-text',
-    title: 'Formas de pago',
-    text: 'Condiciones y métodos disponibles antes de confirmar.',
-    to: '/formas-de-pago'
-  },
-  {
-    icon: 'i-lucide-undo-2',
-    title: 'Devoluciones',
-    text: 'Consulta las condiciones y cómo solicitar una devolución.',
-    to: '/devoluciones'
-  }
-])
+/**
+ * Garantías bajo el hero. Salen de las condiciones comerciales configuradas: cada una
+ * afirma un hecho y, si el negocio no ha fijado el dato, no se publica.
+ */
+const { promises, terms: commercialTerms } = useCommercialTerms()
 
 // enlazan solo a familias con producto; se remapearán según crezca el catálogo
 const sectors = [
@@ -249,14 +220,18 @@ const sectors = [
     <!-- promesas: la barra que todos los mayoristas del sector ponen bajo el hero, porque
          es lo que decide un hostelero antes de mirar un solo producto -->
     <section class="border-b border-[var(--border)] bg-[var(--surface)]">
-      <div class="mx-auto grid max-w-[1600px] gap-4 px-4 py-5 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        data-commercial-promises
+        class="mx-auto grid max-w-[1600px] gap-4 px-4 py-5 grid-cols-1 sm:grid-cols-2"
+        :class="promises.length === 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'"
+      >
         <NuxtLink
-          v-for="promise in PROMISES"
-          :key="promise.title"
+          v-for="promise in promises"
+          :key="promise.key"
           :to="promise.to"
           class="flex items-start gap-3 rounded focus-visible:outline-2 focus-visible:outline-offset-2"
         >
-          <UIcon :name="promise.icon" class="mt-0.5 size-5 shrink-0 text-neteco-600" />
+          <UIcon :name="promise.icon" class="mt-0.5 size-5 shrink-0 text-[var(--text-muted)]" />
           <div class="min-w-0">
             <p class="text-sm font-semibold text-[var(--text-strong)]">{{ promise.title }}</p>
             <p class="text-sm text-[var(--text-muted)]">{{ promise.text }}</p>
@@ -400,19 +375,23 @@ const sectors = [
     <section class="mx-auto max-w-[1600px] px-4 pb-12">
       <NuxtLink
         to="/categoria/linea-eco-profesional"
-        class="group flex flex-col justify-between gap-4 rounded-[var(--radius-panel)] border border-emerald-200 bg-emerald-50 p-6 transition-colors hover:border-emerald-400 sm:flex-row sm:items-center sm:p-8"
+        class="group flex flex-col justify-between gap-4 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 transition-colors hover:border-neteco-300 sm:flex-row sm:items-center sm:p-8"
       >
         <div>
-          <p class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-emerald-800">
-            <UIcon name="i-lucide-leaf" class="size-4" /> Línea eco-profesional
+          <p class="flex items-center gap-2 text-sm font-semibold text-[var(--text-muted)]">
+            <UIcon name="i-lucide-leaf" class="size-4 text-green-800" /> Línea eco-profesional
           </p>
           <h2 class="mt-1.5 text-2xl font-bold text-[var(--text-strong)]">
             Limpieza profesional, respeto por el entorno
           </h2>
-          <p class="mt-1 text-[var(--text)]">La gama ecológica de NETTION: misma eficacia, menos impacto.</p>
+          <p class="mt-1 text-[var(--text)]">
+            <template v-if="commercialTerms.ecoRangeBrand"
+              >La gama ecológica {{ commercialTerms.ecoRangeBrand }}. </template
+            >Productos de limpieza profesional con menor impacto ambiental.
+          </p>
         </div>
         <span
-          class="inline-flex shrink-0 items-center gap-2 self-start rounded-[var(--radius-control)] bg-emerald-800 px-5 py-2.5 font-semibold text-white transition group-hover:gap-3 sm:self-auto"
+          class="inline-flex shrink-0 items-center gap-2 self-start rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-5 py-2.5 font-semibold text-[var(--text-strong)] transition group-hover:gap-3 sm:self-auto"
         >
           Ver la línea eco <UIcon name="i-lucide-arrow-right" class="size-4" />
         </span>

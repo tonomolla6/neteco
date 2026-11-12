@@ -4,6 +4,7 @@ import type { CategoryResponse } from '~~/shared/types/catalog'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 
 const cart = useCartStore()
+const { terms: commercialTerms } = useCommercialTerms()
 const { loggedIn, user, clear } = useUserSession()
 const adminNavigation = useAdminNavigation()
 const quickOrderEnabled = adminNavigation.cloudflare
@@ -57,7 +58,7 @@ async function logout() {
     <!-- franja superior -->
     <div class="bg-neteco-800 text-white">
       <div class="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-1.5 text-xs">
-        <div class="flex items-center gap-4">
+        <div class="flex shrink-0 items-center gap-4">
           <a href="tel:600861334" class="flex items-center gap-1.5 hover:text-neteco-200">
             <UIcon name="i-lucide-phone" class="size-3.5" /> 600 861 334
           </a>
@@ -65,16 +66,14 @@ async function logout() {
             <UIcon name="i-lucide-mail" class="size-3.5" /> administracion@neteco.es
           </a>
         </div>
-        <div class="hidden items-center gap-4 md:flex">
-          <NuxtLink to="/envios" class="flex items-center gap-1.5 hover:text-neteco-200">
-            <UIcon name="i-lucide-truck" class="size-3.5" />
-            Reparto propio en Ontinyent y la Vall d'Albaida
-          </NuxtLink>
-          <NuxtLink to="/envios" class="flex items-center gap-1.5 hover:text-neteco-200">
-            <UIcon name="i-lucide-badge-euro" class="size-3.5" />
-            Coste y fecha calculados por destino
-          </NuxtLink>
-        </div>
+        <NuxtLink to="/envios" data-header-delivery class="flex min-w-0 items-center gap-1.5 hover:text-neteco-200">
+          <UIcon name="i-lucide-truck" class="size-3.5 shrink-0" />
+          <span class="truncate">
+            <span class="sm:hidden">Reparto propio en la Vall d'Albaida</span>
+            <span class="hidden sm:inline">Reparto propio en Ontinyent y la Vall d'Albaida</span
+            ><template v-if="commercialTerms.ownDeliveryDays">: {{ commercialTerms.ownDeliveryDays }}</template>
+          </span>
+        </NuxtLink>
       </div>
     </div>
 
