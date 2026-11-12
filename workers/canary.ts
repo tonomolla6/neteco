@@ -3342,6 +3342,7 @@ const canaryWorker = {
             acabado: url.searchParams.get('acabado') ?? undefined,
             priceMin: url.searchParams.get('price_min') ?? undefined,
             priceMax: url.searchParams.get('price_max') ?? undefined,
+            inStock: url.searchParams.get('stock') === '1',
             featured: url.searchParams.has('featured'),
             facets: url.searchParams.has('facets'),
             page,

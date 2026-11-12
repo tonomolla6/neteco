@@ -70,7 +70,8 @@ describe('D1 product read model', () => {
       { instant: PINNED_INSTANT }
     )
     const queries = fixture.statements.filter((statement) => statement.sql.includes('variant_summary'))
-    expect(queries).toHaveLength(13)
+    // count + page + 11 facets (including «Solo en stock») + typed facets
+    expect(queries).toHaveLength(14)
     for (const { sql } of queries) {
       expect(sql).toContain('search_terms AS MATERIALIZED')
       expect(sql).toContain('search_products AS MATERIALIZED')

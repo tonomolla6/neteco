@@ -230,6 +230,21 @@ describe.each([
     expect(infiniteMock.mock.calls[0]![0].value.typed).toBeUndefined()
     expect(routerMock.replace.mock.calls.at(-1)![0].query.typed).toBeUndefined()
   })
+  it('carries «Solo en stock» from the URL to the API, the URL and a removable pill', async () => {
+    route.query.stock = '1'
+    const wrapper = await mount(page)
+    expect(infiniteMock.mock.calls[0]![0].value.stock).toBe('1')
+    const pill = wrapper.findAll('button').find((button) => button.text().startsWith('Solo en stock'))
+    expect(pill).toBeDefined()
+    await pill!.trigger('click')
+    await flushPromises()
+    expect(infiniteMock.mock.calls[0]![0].value.stock).toBeUndefined()
+    expect(routerMock.replace.mock.calls.at(-1)![0].query.stock).toBeUndefined()
+    route.query.stock = '1'
+    route.fullPath = '/stock-again'
+    await flushPromises()
+    expect(infiniteMock.mock.calls[0]![0].value.stock).toBe('1')
+  })
   it.each(['{', [encoded, encoded], null])(
     'rejects malformed/repeated query %j with 400 before broad product API reads',
     async (raw) => {

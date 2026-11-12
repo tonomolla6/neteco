@@ -26,7 +26,8 @@ const filters = reactive({
   medidas: [] as string[],
   acabados: [] as string[],
   priceMin: null as number | null,
-  priceMax: null as number | null
+  priceMax: null as number | null,
+  inStock: false
 })
 
 function multiFromQuery(value: unknown, separator = ',') {
@@ -65,6 +66,7 @@ function applyRouteFilters() {
   replaceValues(filters.acabados, multiFromQuery(route.query.acabado))
   filters.priceMin = numberFromQuery(route.query.min)
   filters.priceMax = numberFromQuery(route.query.max)
+  filters.inStock = route.query.stock === '1'
   nextTick(() => (applyingRoute = false))
 }
 applyRouteFilters()
@@ -81,6 +83,7 @@ function resetFilters() {
   filters.acabados = []
   filters.priceMin = null
   filters.priceMax = null
+  filters.inStock = false
   selectedCategory.value = ''
 }
 
@@ -103,6 +106,7 @@ watch(
     if (filters.acabados.length) query.acabado = filters.acabados.join(',')
     if (filters.priceMin != null) query.min = String(filters.priceMin)
     if (filters.priceMax != null) query.max = String(filters.priceMax)
+    if (filters.inStock) query.stock = '1'
     if (sort.value !== 'featured') query.sort = sort.value
     router.replace({ query })
   },
@@ -127,7 +131,8 @@ const { items, total, page, pages, facets, status, retrying, retry, loadingMore,
       medida: filters.medidas.join('|') || undefined,
       acabado: filters.acabados.join(',') || undefined,
       price_min: filters.priceMin ?? undefined,
-      price_max: filters.priceMax ?? undefined
+      price_max: filters.priceMax ?? undefined,
+      stock: filters.inStock ? '1' : undefined
     }))
   )
 
@@ -157,6 +162,7 @@ const activeCount = computed(
     filters.colors.length +
     filters.medidas.length +
     filters.acabados.length +
+    (filters.inStock ? 1 : 0) +
     (filters.priceMin != null || filters.priceMax != null ? 1 : 0) +
     (selectedCategory.value ? 1 : 0)
 )
@@ -237,6 +243,15 @@ watch(
 
     <!-- filtros activos -->
     <div v-if="activeCount" class="mt-4 flex flex-wrap items-center gap-2">
+      <button
+        v-if="filters.inStock"
+        type="button"
+        aria-label="Quitar Solo en stock"
+        class="flex items-center gap-1.5 rounded-full bg-neteco-600 px-3 py-1.5 text-sm text-white transition hover:bg-neteco-700"
+        @click="filters.inStock = false"
+      >
+        Solo en stock <UIcon name="i-lucide-x" class="size-3.5" />
+      </button>
       <button
         v-for="pill in typedPills"
         :key="`typed:${pill.definitionId}:${JSON.stringify(pill.value)}`"

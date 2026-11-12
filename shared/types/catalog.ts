@@ -124,6 +124,8 @@ export interface ProductFacets {
   medidas: FacetValue[]
   acabados: FacetValue[]
   price: { min: number; max: number } | null
+  /** Productos con existencias vendibles («Solo en stock»), sin aplicar ese mismo filtro. */
+  inStock?: number
   categories: Array<{ id: number; name: string; slug: string; n: number }>
 }
 
@@ -147,6 +149,7 @@ export interface CatalogFilters {
   acabados: string[]
   priceMin: number | null
   priceMax: number | null
+  inStock?: boolean
 }
 
 export type CatalogQueryParameters = Record<string, string | number | undefined>

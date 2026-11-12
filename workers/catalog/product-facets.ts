@@ -1,4 +1,5 @@
 import type { ProductFacets } from '../../shared/types/catalog'
+import { sellableExpression } from './inventory'
 
 export interface ProductFacetFilter {
   key: string
@@ -19,7 +20,21 @@ export interface ProductFacetRow {
   max?: number | null
 }
 
-const KEYS = ['brand', 'badge', 'envase', 'price', 'category', 'talla', 'capacidad', 'color', 'medida', 'acabado']
+const KEYS = [
+  'brand',
+  'badge',
+  'envase',
+  'price',
+  'category',
+  'talla',
+  'capacidad',
+  'color',
+  'medida',
+  'acabado',
+  'stock'
+]
+/** Number of statements prepareProductFacetStatements adds to the listing batch. */
+export const PRODUCT_FACET_STATEMENTS = KEYS.length
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']
 const CAPACITY_ORDER: Record<string, number> = { L: 0, kg: 1, ud: 2, unidad: 2 }
 const byCount = (left: { value: string; n: number }, right: { value: string; n: number }) =>
@@ -49,6 +64,14 @@ const SEGMENTS = `,facet_segments(variantId,productId,remaining,segment,position
 // ECMAScript \s, not SQLite trim() or just the ASCII space character.
 const PRECORTE = `lower(substr(segment.segment,1,8))='precorte' AND unicode(substr(segment.segment,9,1)) IN (
   9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)`
+
+/**
+ * «Solo en stock»: el producto tiene al menos un formato publicado con existencias
+ * vendibles (físico menos bloqueado, stock de seguridad y reservas activas).
+ */
+export const IN_STOCK_CLAUSE = `EXISTS (SELECT 1 FROM variants stock_variant
+  WHERE stock_variant.product_id = p.id AND stock_variant.status = 'published'
+    AND (SELECT TOTAL(${sellableExpression()}) FROM inventory_balances b WHERE b.variant_id = stock_variant.id) > 0)`
 
 export function prepareProductFacetStatements(
   database: D1Database,
@@ -101,7 +124,8 @@ export function prepareProductFacetStatements(
         FROM facet_segments segment JOIN facet_last last ON last.variantId=segment.variantId AND segment.position<last.position
         JOIN facet_colors color ON color.variantId=segment.variantId
         WHERE NOT(segment.segment GLOB '*[0-9]*' AND instr(lower(segment.segment),'precort')=0)
-        GROUP BY CASE WHEN ${PRECORTE} THEN 'Precortado' ELSE segment.segment END`
+        GROUP BY CASE WHEN ${PRECORTE} THEN 'Precortado' ELSE segment.segment END`,
+      stock: `SELECT count(*) AS n FROM facet_products p WHERE ${IN_STOCK_CLAUSE}`
     }
     return database
       .prepare(sql + '\n' + query[key])
@@ -157,6 +181,7 @@ export function decodeProductFacetResults(results: ReadonlyArray<{ results?: unk
       .map(({ value, n }) => ({ value, n }))
       .sort(byCount),
     price: price?.min == null || price.max == null ? null : { min: price.min, max: price.max },
+    inStock: Number(rows(10)[0]?.n ?? 0),
     categories: rows(4)
       .map((row) => ({ id: row.id!, name: row.name!, slug: row.slug!, n: row.n }))
       .sort((left, right) => right.n - left.n || left.name.localeCompare(right.name, 'es') || left.id - right.id)

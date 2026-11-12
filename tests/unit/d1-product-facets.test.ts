@@ -331,6 +331,40 @@ describe('D1 catalog filters and self-excluding facets', () => {
     expect(body.facets).toBeDefined()
   })
 
+  it('"Solo en stock" keeps products with sellable stock, counts them and serves the HTTP flag', async () => {
+    sqlite.exec(
+      `INSERT INTO inventory_locations (id, code, name, kind, active, created_at)
+       VALUES ('loc-stock', 'ALM-STOCK', 'Almacén stock', 'warehouse', 1, '2026-08-12T00:00:00Z')`
+    )
+    const variantOf = (legacyId: number) =>
+      (
+        sqlite
+          .prepare('SELECT v.id FROM variants v JOIN products p ON p.id=v.product_id WHERE p.legacy_id=? ORDER BY v.id')
+          .get(legacyId) as { id: string }
+      ).id
+    const balance = sqlite.prepare(
+      `INSERT INTO inventory_balances (variant_id, location_id, physical_quantity, blocked_quantity, version, created_at, updated_at)
+       VALUES (?, 'loc-stock', ?, ?, 1, '2026-08-12T00:00:00Z', '2026-08-12T00:00:00Z')`
+    )
+    balance.run(variantOf(20), 5, 0)
+    // Physical units that are all blocked are not stock a customer can buy.
+    balance.run(variantOf(19), 4, 4)
+
+    const all = (await listPublishedProducts(database, query({ facets: true }), { instant }))!
+    expect(all.facets!.inStock).toBe(1)
+    const only = (await listPublishedProducts(database, query({ inStock: true, facets: true }), { instant }))!
+    expect(only.items.map((item) => item.id)).toEqual([20])
+    expect(only.total).toBe(1)
+    // Its own facet ignores the flag, like every other facet.
+    expect(only.facets!.inStock).toBe(1)
+
+    const env = { DB: database, AUTH_ENABLED: 'false', REDSYS_ENABLED: 'false' } as CloudflareEnv
+    const response = await worker.fetch(new Request('https://neteco.invalid/api/products?stock=1&facets=1'), env)
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { total: number; items: Array<{ id: number }> }
+    expect(body.items.map((item) => item.id)).toEqual([20])
+  })
+
   it('honors capacity position fifty without exceeding the real D1 limits', async () => {
     selectedProductFixture()
     const expected = await listPublishedProducts(database, query({ capacidad: '0.75-L', facets: true }), { instant })

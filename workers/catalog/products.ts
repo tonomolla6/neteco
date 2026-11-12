@@ -8,7 +8,13 @@ import {
   type EffectivePricingOptions
 } from './pricing'
 import type { ProductFacets, ProductSingleVariant } from '../../shared/types/catalog'
-import { prepareProductFacetStatements, decodeProductFacetResults, type ProductFacetRow } from './product-facets'
+import {
+  IN_STOCK_CLAUSE,
+  PRODUCT_FACET_STATEMENTS,
+  prepareProductFacetStatements,
+  decodeProductFacetResults,
+  type ProductFacetRow
+} from './product-facets'
 import {
   preparePublicTypedFilters,
   publicTypedAttributeCtes,
@@ -40,6 +46,8 @@ export interface ProductQuery {
   acabado?: string
   priceMin?: string
   priceMax?: string
+  /** «Solo en stock»: solo productos con existencias vendibles. */
+  inStock?: boolean
   featured?: boolean
   facets?: boolean
   page: number
@@ -335,6 +343,7 @@ export async function listPublishedProducts(
         .join(' AND '),
       parameters: [minimum, maximum].filter((value): value is number => value !== null)
     })
+  if (query.inStock) filters.push({ key: 'stock', clause: IN_STOCK_CLAUSE, parameters: [] })
   if (query.featured) filters.push({ key: 'featured', clause: 'p.featured = 1', parameters: [] })
 
   const pricingSummary = parameterizeEffectivePricingSql(
@@ -507,9 +516,13 @@ export async function listPublishedProducts(
     throw new Error('invalid_media_product_ids')
   if (new TextEncoder().encode(JSON.stringify([...new Set(records.map(({ uuid }) => uuid))])).byteLength > 256 * 1024)
     throw new Error('invalid_publication_validity_ids')
-  const facets = query.facets ? decodeProductFacetResults(results.slice(countIndex + 2, countIndex + 12)) : undefined
+  const facets = query.facets
+    ? decodeProductFacetResults(results.slice(countIndex + 2, countIndex + 2 + PRODUCT_FACET_STATEMENTS))
+    : undefined
   const typedFacets = query.facets
-    ? parsePublicTypedFacetsRows((results[countIndex + 12]?.results ?? []) as PublicTypedFacetRow[])
+    ? parsePublicTypedFacetsRows(
+        (results[countIndex + 2 + PRODUCT_FACET_STATEMENTS]?.results ?? []) as PublicTypedFacetRow[]
+      )
     : undefined
 
   return {

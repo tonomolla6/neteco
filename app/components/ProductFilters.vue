@@ -127,6 +127,7 @@ const segStyle = computed(() => {
   const width = ((hi.value - lo.value) / span) * 100
   return { left: `${left}%`, width: `${width}%` }
 })
+const inStockOffered = computed(() => Boolean(props.filters.inStock) || (props.facets?.inStock ?? 0) > 0)
 const priceActive = computed(() => (props.filters.priceMin != null || props.filters.priceMax != null ? 1 : 0))
 
 const THUMB =
@@ -140,6 +141,20 @@ const THUMB =
 
 <template>
   <div class="divide-y divide-slate-100">
+    <!-- solo en stock: lo primero que decide quien compra para reponer -->
+    <section v-if="inStockOffered" data-filter-section="stock" class="py-4 first:pt-0">
+      <label data-filter-in-stock class="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-slate-800">
+        <input
+          type="checkbox"
+          class="size-4 accent-neteco-600"
+          :checked="Boolean(filters.inStock)"
+          @change="emit('update:filters', { ...filters, inStock: ($event.target as HTMLInputElement).checked })"
+        />
+        <span class="font-semibold">Solo en stock</span>
+        <span v-if="facets?.inStock" class="tabular text-slate-500">({{ facets.inStock }})</span>
+      </label>
+    </section>
+
     <fieldset
       v-for="facet in typedFacets"
       :key="facet.definitionId"
@@ -167,7 +182,11 @@ const THUMB =
     </fieldset>
     <p v-if="typedMessage" role="status" class="py-2 text-sm text-slate-600">{{ typedMessage }}</p>
     <!-- gama (solo si hay más de una: con una sola no filtra nada) -->
-    <section v-if="(facets?.brands?.length ?? 0) > 1 && !hide?.includes('gama')" class="py-4 first:pt-0">
+    <section
+      v-if="(facets?.brands?.length ?? 0) > 1 && !hide?.includes('gama')"
+      data-filter-section="gama"
+      class="py-4 first:pt-0"
+    >
       <button
         class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
         :aria-expanded="open.marca"
@@ -224,8 +243,327 @@ const THUMB =
       </ul>
     </section>
 
+    <!-- características -->
+    <section v-if="facets?.badges?.length" data-filter-section="caracteristicas" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.etiquetas"
+        @click="open.etiquetas = !open.etiquetas"
+      >
+        <span class="flex items-center gap-2">
+          Características
+          <span
+            v-if="filters.badges.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.badges.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.etiquetas ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.etiquetas" class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="b in facets.badges"
+          :key="b.value"
+          :aria-pressed="filters.badges.includes(b.value)"
+          :aria-label="`${BADGES[b.value]?.label ?? b.value}, ${b.n} ${b.n === 1 ? 'producto' : 'productos'}`"
+          class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.badges.includes(b.value)
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="toggle('badges', b.value)"
+        >
+          <UIcon v-if="BADGES[b.value]" :name="BADGES[b.value]!.icon" class="size-3.5" />
+          {{ BADGES[b.value]?.label ?? b.value }}
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.badges.includes(b.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >{{ b.n }}</span
+          >
+        </button>
+      </div>
+    </section>
+
+    <!-- tipo de envase: mosaico con las siluetas de la tienda -->
+    <section v-if="(facets?.envases?.length ?? 0) > 1" data-filter-section="envase" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.envase"
+        @click="open.envase = !open.envase"
+      >
+        <span class="flex items-center gap-2">
+          Tipo de envase
+          <span
+            v-if="filters.envases.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.envases.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.envase ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.envase" class="mt-3 grid grid-cols-3 gap-1.5">
+        <button
+          v-for="e in facets?.envases ?? []"
+          :key="e.value"
+          :aria-pressed="filters.envases.includes(e.value)"
+          :aria-label="`${ENVASE_LABELS[e.value] ?? e.value}, ${e.n} ${e.n === 1 ? 'producto' : 'productos'}`"
+          class="flex flex-col items-center gap-0.5 rounded-xl border-2 p-1.5 pb-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.envases.includes(e.value)
+              ? 'border-neteco-600 bg-neteco-50'
+              : 'border-slate-200 bg-white hover:border-neteco-300'
+          "
+          @click="toggle('envases', e.value)"
+        >
+          <span class="w-9">
+            <ProductVisual
+              :visual="{ type: e.value, color: filters.envases.includes(e.value) ? '#009ac9' : '#94a3b8' }"
+            />
+          </span>
+          <span class="text-center text-[11px] leading-tight text-slate-700">{{
+            ENVASE_LABELS[e.value] ?? e.value
+          }}</span>
+          <span class="text-[11px] tabular-nums text-slate-500">{{ e.n }}</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- capacidad del envase -->
+    <section v-if="(facets?.capacidades?.length ?? 0) > 1" data-filter-section="capacidad" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.capacidad"
+        @click="open.capacidad = !open.capacidad"
+      >
+        <span class="flex items-center gap-2">
+          Capacidad
+          <span
+            v-if="filters.capacidades.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.capacidades.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.capacidad ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.capacidad" class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="c in facets?.capacidades ?? []"
+          :key="c.value"
+          :aria-pressed="filters.capacidades.includes(c.value)"
+          :aria-label="`${formatCapacity(c.value)}, ${c.n} ${c.n === 1 ? 'producto' : 'productos'}`"
+          class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.capacidades.includes(c.value)
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="toggle('capacidades', c.value)"
+        >
+          {{ formatCapacity(c.value) }}
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >({{ c.n }})</span
+          >
+        </button>
+      </div>
+    </section>
+
+    <!-- talla (guantes y vestuario) -->
+    <section v-if="facets?.tallas?.length" data-filter-section="talla" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.talla"
+        @click="open.talla = !open.talla"
+      >
+        <span class="flex items-center gap-2">
+          Talla
+          <span
+            v-if="filters.tallas.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.tallas.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.talla ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.talla" class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="t in facets.tallas"
+          :key="t.value"
+          :aria-pressed="filters.tallas.includes(t.value)"
+          class="min-w-11 rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.tallas.includes(t.value)
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="toggle('tallas', t.value)"
+        >
+          {{ t.value }}
+        </button>
+      </div>
+    </section>
+
+    <!-- medida (mantelería y similares) -->
+    <section v-if="filters.medidas && facets?.medidas?.length" data-filter-section="medida" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.medida"
+        @click="open.medida = !open.medida"
+      >
+        <span class="flex items-center gap-2">
+          Medida
+          <span
+            v-if="filters.medidas.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.medidas.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.medida ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.medida" class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="m in facets.medidas"
+          :key="m.value"
+          :aria-pressed="filters.medidas.includes(m.value)"
+          :aria-label="`${m.value}, ${m.n} ${m.n === 1 ? 'producto' : 'productos'}`"
+          class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.medidas.includes(m.value)
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="toggle('medidas', m.value)"
+        >
+          {{ m.value }}
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >({{ m.n }})</span
+          >
+        </button>
+      </div>
+    </section>
+
+    <!-- acabado (precortado / sin precorte…) -->
+    <section v-if="filters.acabados && facets?.acabados?.length" data-filter-section="acabado" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.acabado"
+        @click="open.acabado = !open.acabado"
+      >
+        <span class="flex items-center gap-2">
+          Acabado
+          <span
+            v-if="filters.acabados.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.acabados.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.acabado ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.acabado" class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="a in facets.acabados"
+          :key="a.value"
+          :aria-pressed="filters.acabados.includes(a.value)"
+          :aria-label="`${a.value}, ${a.n} ${a.n === 1 ? 'producto' : 'productos'}`"
+          class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.acabados.includes(a.value)
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="toggle('acabados', a.value)"
+        >
+          {{ a.value }}
+          <span
+            class="ml-1.5 text-xs font-normal tabular-nums"
+            :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-500'"
+            >({{ a.n }})</span
+          >
+        </button>
+      </div>
+    </section>
+
+    <!-- color (con la muestra real de cada tono) -->
+    <section v-if="filters.colors && facets?.colores?.length" data-filter-section="color" class="py-4">
+      <button
+        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
+        :aria-expanded="open.color"
+        @click="open.color = !open.color"
+      >
+        <span class="flex items-center gap-2">
+          Color
+          <span
+            v-if="filters.colors.length"
+            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
+          >
+            {{ filters.colors.length }}
+          </span>
+        </span>
+        <UIcon
+          name="i-lucide-chevron-down"
+          class="size-4 text-slate-600 transition-transform"
+          :class="open.color ? 'rotate-180' : ''"
+        />
+      </button>
+      <div v-show="open.color" class="mt-3 flex flex-wrap gap-1.5">
+        <button
+          v-for="c in facets.colores"
+          :key="c.value"
+          :aria-pressed="filters.colors.includes(c.value)"
+          :title="c.value"
+          class="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
+          :class="
+            filters.colors.includes(c.value)
+              ? 'border-neteco-600 bg-neteco-600 text-white'
+              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
+          "
+          @click="toggle('colors', c.value)"
+        >
+          <span
+            class="size-3.5 shrink-0 rounded-full border border-black/15"
+            :style="{ backgroundColor: c.hex ?? '#e2e8f0' }"
+          />
+          {{ c.value.replace(/\s*\([^)]*\)$/, '') }}
+        </button>
+      </div>
+    </section>
+
     <!-- precio -->
-    <section v-if="facets?.price && bounds.max > bounds.min" class="py-4 first:pt-0">
+    <section v-if="facets?.price && bounds.max > bounds.min" data-filter-section="price" class="py-4 first:pt-0">
       <button
         class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
         :aria-expanded="open.precio"
@@ -311,325 +649,6 @@ const THUMB =
             <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-600">€</span>
           </div>
         </div>
-      </div>
-    </section>
-
-    <!-- características -->
-    <section v-if="facets?.badges?.length" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.etiquetas"
-        @click="open.etiquetas = !open.etiquetas"
-      >
-        <span class="flex items-center gap-2">
-          Características
-          <span
-            v-if="filters.badges.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.badges.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.etiquetas ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.etiquetas" class="mt-3 flex flex-wrap gap-1.5">
-        <button
-          v-for="b in facets.badges"
-          :key="b.value"
-          :aria-pressed="filters.badges.includes(b.value)"
-          :aria-label="`${BADGES[b.value]?.label ?? b.value}, ${b.n} ${b.n === 1 ? 'producto' : 'productos'}`"
-          class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.badges.includes(b.value)
-              ? 'border-neteco-600 bg-neteco-600 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-          "
-          @click="toggle('badges', b.value)"
-        >
-          <UIcon v-if="BADGES[b.value]" :name="BADGES[b.value]!.icon" class="size-3.5" />
-          {{ BADGES[b.value]?.label ?? b.value }}
-          <span
-            class="ml-1.5 text-xs font-normal tabular-nums"
-            :class="filters.badges.includes(b.value) ? 'text-neteco-100' : 'text-slate-500'"
-            >{{ b.n }}</span
-          >
-        </button>
-      </div>
-    </section>
-
-    <!-- tipo de envase: mosaico con las siluetas de la tienda -->
-    <section v-if="(facets?.envases?.length ?? 0) > 1" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.envase"
-        @click="open.envase = !open.envase"
-      >
-        <span class="flex items-center gap-2">
-          Tipo de envase
-          <span
-            v-if="filters.envases.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.envases.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.envase ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.envase" class="mt-3 grid grid-cols-3 gap-1.5">
-        <button
-          v-for="e in facets?.envases ?? []"
-          :key="e.value"
-          :aria-pressed="filters.envases.includes(e.value)"
-          :aria-label="`${ENVASE_LABELS[e.value] ?? e.value}, ${e.n} ${e.n === 1 ? 'producto' : 'productos'}`"
-          class="flex flex-col items-center gap-0.5 rounded-xl border-2 p-1.5 pb-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.envases.includes(e.value)
-              ? 'border-neteco-600 bg-neteco-50'
-              : 'border-slate-200 bg-white hover:border-neteco-300'
-          "
-          @click="toggle('envases', e.value)"
-        >
-          <span class="w-9">
-            <ProductVisual
-              :visual="{ type: e.value, color: filters.envases.includes(e.value) ? '#009ac9' : '#94a3b8' }"
-            />
-          </span>
-          <span class="text-center text-[11px] leading-tight text-slate-700">{{
-            ENVASE_LABELS[e.value] ?? e.value
-          }}</span>
-          <span class="text-[11px] tabular-nums text-slate-500">{{ e.n }}</span>
-        </button>
-      </div>
-    </section>
-
-    <!-- capacidad del envase -->
-    <section v-if="(facets?.capacidades?.length ?? 0) > 1" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.capacidad"
-        @click="open.capacidad = !open.capacidad"
-      >
-        <span class="flex items-center gap-2">
-          Capacidad
-          <span
-            v-if="filters.capacidades.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.capacidades.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.capacidad ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.capacidad" class="mt-3 flex flex-wrap gap-1.5">
-        <button
-          v-for="c in facets?.capacidades ?? []"
-          :key="c.value"
-          :aria-pressed="filters.capacidades.includes(c.value)"
-          :aria-label="`${formatCapacity(c.value)}, ${c.n} ${c.n === 1 ? 'producto' : 'productos'}`"
-          class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.capacidades.includes(c.value)
-              ? 'border-neteco-600 bg-neteco-600 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-          "
-          @click="toggle('capacidades', c.value)"
-        >
-          {{ formatCapacity(c.value) }}
-          <span
-            class="ml-1.5 text-xs font-normal tabular-nums"
-            :class="filters.capacidades.includes(c.value) ? 'text-neteco-100' : 'text-slate-500'"
-            >({{ c.n }})</span
-          >
-        </button>
-      </div>
-    </section>
-
-    <!-- talla (guantes y vestuario) -->
-    <section v-if="facets?.tallas?.length" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.talla"
-        @click="open.talla = !open.talla"
-      >
-        <span class="flex items-center gap-2">
-          Talla
-          <span
-            v-if="filters.tallas.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.tallas.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.talla ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.talla" class="mt-3 flex flex-wrap gap-1.5">
-        <button
-          v-for="t in facets.tallas"
-          :key="t.value"
-          :aria-pressed="filters.tallas.includes(t.value)"
-          class="min-w-11 rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.tallas.includes(t.value)
-              ? 'border-neteco-600 bg-neteco-600 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-          "
-          @click="toggle('tallas', t.value)"
-        >
-          {{ t.value }}
-        </button>
-      </div>
-    </section>
-
-    <!-- medida (mantelería y similares) -->
-    <section v-if="filters.medidas && facets?.medidas?.length" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.medida"
-        @click="open.medida = !open.medida"
-      >
-        <span class="flex items-center gap-2">
-          Medida
-          <span
-            v-if="filters.medidas.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.medidas.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.medida ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.medida" class="mt-3 flex flex-wrap gap-1.5">
-        <button
-          v-for="m in facets.medidas"
-          :key="m.value"
-          :aria-pressed="filters.medidas.includes(m.value)"
-          :aria-label="`${m.value}, ${m.n} ${m.n === 1 ? 'producto' : 'productos'}`"
-          class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.medidas.includes(m.value)
-              ? 'border-neteco-600 bg-neteco-600 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-          "
-          @click="toggle('medidas', m.value)"
-        >
-          {{ m.value }}
-          <span
-            class="ml-1.5 text-xs font-normal tabular-nums"
-            :class="filters.medidas.includes(m.value) ? 'text-neteco-100' : 'text-slate-500'"
-            >({{ m.n }})</span
-          >
-        </button>
-      </div>
-    </section>
-
-    <!-- acabado (precortado / sin precorte…) -->
-    <section v-if="filters.acabados && facets?.acabados?.length" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.acabado"
-        @click="open.acabado = !open.acabado"
-      >
-        <span class="flex items-center gap-2">
-          Acabado
-          <span
-            v-if="filters.acabados.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.acabados.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.acabado ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.acabado" class="mt-3 flex flex-wrap gap-1.5">
-        <button
-          v-for="a in facets.acabados"
-          :key="a.value"
-          :aria-pressed="filters.acabados.includes(a.value)"
-          :aria-label="`${a.value}, ${a.n} ${a.n === 1 ? 'producto' : 'productos'}`"
-          class="rounded-lg border px-2.5 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.acabados.includes(a.value)
-              ? 'border-neteco-600 bg-neteco-600 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-          "
-          @click="toggle('acabados', a.value)"
-        >
-          {{ a.value }}
-          <span
-            class="ml-1.5 text-xs font-normal tabular-nums"
-            :class="filters.acabados.includes(a.value) ? 'text-neteco-100' : 'text-slate-500'"
-            >({{ a.n }})</span
-          >
-        </button>
-      </div>
-    </section>
-
-    <!-- color (con la muestra real de cada tono) -->
-    <section v-if="filters.colors && facets?.colores?.length" class="py-4">
-      <button
-        class="flex w-full items-center justify-between text-sm font-semibold text-slate-800"
-        :aria-expanded="open.color"
-        @click="open.color = !open.color"
-      >
-        <span class="flex items-center gap-2">
-          Color
-          <span
-            v-if="filters.colors.length"
-            class="grid size-5 place-items-center rounded-full bg-neteco-600 text-[11px] font-bold text-white"
-          >
-            {{ filters.colors.length }}
-          </span>
-        </span>
-        <UIcon
-          name="i-lucide-chevron-down"
-          class="size-4 text-slate-600 transition-transform"
-          :class="open.color ? 'rotate-180' : ''"
-        />
-      </button>
-      <div v-show="open.color" class="mt-3 flex flex-wrap gap-1.5">
-        <button
-          v-for="c in facets.colores"
-          :key="c.value"
-          :aria-pressed="filters.colors.includes(c.value)"
-          :title="c.value"
-          class="flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neteco-500"
-          :class="
-            filters.colors.includes(c.value)
-              ? 'border-neteco-600 bg-neteco-600 text-white'
-              : 'border-slate-200 bg-white text-slate-600 hover:border-neteco-300'
-          "
-          @click="toggle('colors', c.value)"
-        >
-          <span
-            class="size-3.5 shrink-0 rounded-full border border-black/15"
-            :style="{ backgroundColor: c.hex ?? '#e2e8f0' }"
-          />
-          {{ c.value.replace(/\s*\([^)]*\)$/, '') }}
-        </button>
       </div>
     </section>
   </div>

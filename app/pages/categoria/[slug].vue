@@ -58,7 +58,8 @@ const filters = reactive({
   medidas: multiFromQuery(route.query.medida, '|'),
   acabados: multiFromQuery(route.query.acabado),
   priceMin: numFromQuery(route.query.min),
-  priceMax: numFromQuery(route.query.max)
+  priceMax: numFromQuery(route.query.max),
+  inStock: route.query.stock === '1'
 })
 
 function replaceValues(target: string[], values: string[]) {
@@ -87,6 +88,7 @@ function applyRouteFilters() {
   replaceValues(filters.acabados, multiFromQuery(route.query.acabado))
   filters.priceMin = numFromQuery(route.query.min)
   filters.priceMax = numFromQuery(route.query.max)
+  filters.inStock = route.query.stock === '1'
   nextTick(() => (applyingRoute = false))
 }
 
@@ -110,6 +112,7 @@ function resetFilters() {
   filters.acabados = []
   filters.priceMin = null
   filters.priceMax = null
+  filters.inStock = false
   sort.value = 'featured'
 }
 watch(slug, resetFilters)
@@ -132,6 +135,7 @@ watch(
     if (filters.acabados.length) query.acabado = filters.acabados.join(',')
     if (filters.priceMin != null) query.min = String(filters.priceMin)
     if (filters.priceMax != null) query.max = String(filters.priceMax)
+    if (filters.inStock) query.stock = '1'
     if (sort.value !== 'featured') query.sort = sort.value
     router.replace({ query })
   },
@@ -154,7 +158,8 @@ const { items, total, page, pages, facets, status, loadingMore, canLoadMore, loa
       medida: filters.medidas.join('|') || undefined,
       acabado: filters.acabados.join(',') || undefined,
       price_min: filters.priceMin ?? undefined,
-      price_max: filters.priceMax ?? undefined
+      price_max: filters.priceMax ?? undefined,
+      stock: filters.inStock ? '1' : undefined
     }))
   )
 
@@ -264,6 +269,7 @@ const activeCount = computed(
     filters.colors.length +
     filters.medidas.length +
     filters.acabados.length +
+    (filters.inStock ? 1 : 0) +
     (filters.priceMin != null || filters.priceMax != null ? 1 : 0)
 )
 
@@ -274,6 +280,7 @@ interface Pill {
   remove: () => void
 }
 const pills = computed<Pill[]>(() => [
+  ...(filters.inStock ? [{ label: 'Solo en stock', remove: () => (filters.inStock = false) }] : []),
   ...catalogTypedPills(filters.typed, facets.value?.typed).map((pill) => ({
     key: `typed:${pill.definitionId}:${JSON.stringify(pill.value)}`,
     typed: true,
