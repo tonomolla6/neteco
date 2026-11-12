@@ -122,11 +122,11 @@ useSeoMeta({
   ogDescription: () => productSeoDescription.value,
   ogType: 'website',
   ogImage: () =>
-    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/logo-figura.png`,
+    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/og-default.jpg`,
   twitterTitle: () => `${productSeoTitle.value} · NETECO`,
   twitterDescription: () => productSeoDescription.value,
   twitterImage: () =>
-    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/logo-figura.png`
+    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/og-default.jpg`
 })
 
 // La variante seleccionada vive en la URL (?sku=REF): el enlace es compartible

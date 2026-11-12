@@ -105,7 +105,7 @@ async function logout() {
         />
 
         <NuxtLink to="/admin" class="flex shrink-0 items-center gap-2">
-          <img src="/logo-figura.png" alt="" width="26" height="28" class="h-7 w-auto" />
+          <img src="/logo-figura.svg" alt="" width="26" height="28" class="h-7 w-auto" />
           <span class="font-display font-bold">NETECO</span>
           <span class="rounded bg-neteco-700 px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">
             Panel

@@ -18,7 +18,7 @@ useSeoMeta({
 
 <template>
   <div class="min-h-screen flex flex-col items-center justify-center gap-4 px-4 text-center bg-slate-50">
-    <img src="/logo-figura.png" alt="NETECO" width="60" height="64" class="h-16 w-auto opacity-80" />
+    <img src="/logo-figura.svg" alt="NETECO" width="60" height="64" class="h-16 w-auto opacity-80" />
     <p class="text-6xl font-bold text-neteco-500">{{ error?.statusCode ?? 500 }}</p>
     <h1 class="text-xl font-semibold text-slate-800">
       {{ is404 ? 'No hemos encontrado esta página' : 'Ha ocurrido un error' }}

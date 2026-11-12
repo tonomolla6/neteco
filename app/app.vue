@@ -16,7 +16,7 @@ const demo = computed(() => runtime.public.demoEnabled === true && runtime.publi
 const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
 const canonicalUrl = computed(() => `${origin}${canonicalPath(route.path, route.query)}`)
 const routeSeo = computed(() => defaultRouteSeo(route.path))
-const defaultOgImage = `${origin}/logo-figura.png`
+const defaultOgImage = `${origin}/og-default.jpg`
 
 useSeoMeta({
   title: () => routeSeo.value.title,
@@ -82,7 +82,7 @@ useHead(() => ({
         '@id': `${origin}/#organization`,
         name: 'NETECO',
         url: origin,
-        logo: `${origin}/logo-figura.png`,
+        logo: `${origin}/logo-figura.svg`,
         contactPoint: {
           '@type': 'ContactPoint',
           telephone: '+34 600 861 334',

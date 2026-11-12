@@ -90,8 +90,8 @@ async function logout() {
       </button>
 
       <NuxtLink to="/" aria-label="NETECO, ir al inicio" class="flex shrink-0 items-center gap-2">
-        <img src="/logo-figura.png" alt="" width="34" height="36" class="h-9 w-auto" />
-        <img src="/logo-texto.png" alt="NETECO" width="140" height="24" class="hidden h-6 w-auto sm:block" />
+        <img src="/logo-figura.svg" alt="" width="34" height="36" class="h-9 w-auto" />
+        <img src="/logo-texto.svg" alt="NETECO" width="140" height="24" class="hidden h-6 w-auto sm:block" />
       </NuxtLink>
 
       <div class="hidden flex-1 md:block">
@@ -273,7 +273,7 @@ async function logout() {
           class="absolute inset-y-0 left-0 flex w-80 max-w-[85vw] flex-col overflow-y-auto bg-white shadow-[var(--shadow-overlay)]"
         >
           <div class="flex items-center justify-between border-b border-slate-100 p-4">
-            <img src="/logo-texto.png" alt="NETECO" width="140" height="24" class="h-6 w-auto" />
+            <img src="/logo-texto.svg" alt="NETECO" width="140" height="24" class="h-6 w-auto" />
             <button
               ref="closeBtn"
               class="rounded-lg p-2 hover:bg-slate-100"

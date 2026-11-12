@@ -58,7 +58,7 @@ describe('bounded recent activity reads required by the real admin layout', () =
   })
 
   it('forwards the exact actual layout logo and favicon in the owned bridge too', async () => {
-    for (const path of ['/logo-figura.png', '/favicon.png']) {
+    for (const path of ['/logo-figura.svg', '/favicon.svg']) {
       for (const method of ['GET', 'HEAD']) {
         const { bridge, dispatch } = transport()
         const request = new Request(context.origin + path, { method })
@@ -66,7 +66,7 @@ describe('bounded recent activity reads required by the real admin layout', () =
         expect(dispatch).toHaveBeenCalledExactlyOnceWith(request)
       }
     }
-    for (const path of ['/logo-figura.png/other', '/favicon.png.bak', '/images/other.png']) {
+    for (const path of ['/logo-figura.svg/other', '/favicon.svg.bak', '/images/other.png']) {
       const { bridge, dispatch } = transport()
       expect((await bridge.forward(new Request(context.origin + path))).action).toBe('abort')
       expect(dispatch).not.toHaveBeenCalled()
@@ -128,7 +128,7 @@ describe('foreign order read diagnostics disclose only bounded categories', () =
       ['/_nuxt/app.js?version=private', 'asset'],
       ['/api/admin/orders/' + context.groupId + '?token=private-token', 'private_api'],
       ['/admin/pedidos?email=private%40example.test', 'page'],
-      ['/logo-figura.png', 'page']
+      ['/logo-figura.svg', 'page']
     ] as const) {
       expect(browserAudit.foreignOrderReadDiagnostic(new Request(context.origin + path))).toEqual({
         method: 'GET',
@@ -175,11 +175,11 @@ describe('foreign workbench context exact read boundary', () => {
     const layout = await readFile('app/layouts/admin.vue', 'utf8')
     const config = await readFile('nuxt.config.ts', 'utf8')
     const images = [...layout.matchAll(/<img\b[^>]*\bsrc="(\/[^"?]+)"/g)].map((match) => match[1]!)
-    expect(images).toEqual(['/logo-figura.png'])
-    expect(config).toContain("href: '/favicon.png'")
+    expect(images).toEqual(['/logo-figura.svg'])
+    expect(config).toContain("href: '/favicon.svg'")
     for (const path of [
       ...images,
-      '/favicon.png',
+      '/favicon.svg',
       '/favicon.ico',
       '/_nuxt/app.js',
       '/_nuxt/app.css',
@@ -188,14 +188,14 @@ describe('foreign workbench context exact read boundary', () => {
       expect(allowed(path), path).toBe(true)
       expect(allowed(path, 'HEAD'), path).toBe(true)
     }
-    for (const path of ['/logo-figura.png/other', '/favicon.png.bak', '/private.json', '/images/other.png']) {
+    for (const path of ['/logo-figura.svg/other', '/favicon.svg.bak', '/private.json', '/images/other.png']) {
       expect(allowed(path), path).toBe(false)
     }
   })
 
   it('never allows POST or other mutation methods even for permitted assets and private reads', () => {
     for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-      for (const path of ['/logo-figura.png', '/_nuxt/app.js', '/api/admin/orders', '/api/admin/order-views']) {
+      for (const path of ['/logo-figura.svg', '/_nuxt/app.js', '/api/admin/orders', '/api/admin/order-views']) {
         expect(allowed(path, method), `${method} ${path}`).toBe(false)
       }
     }
@@ -226,7 +226,7 @@ describe('foreign workbench context exact read boundary', () => {
       '/api/admin/orders/anything/detail'
     ])
       expect(allowed(path), path).toBe(false)
-    expect(allowsOrderOperationsForeignRead(new Request('https://other.neteco.test/logo-figura.png'), context)).toBe(
+    expect(allowsOrderOperationsForeignRead(new Request('https://other.neteco.test/logo-figura.svg'), context)).toBe(
       false
     )
   })

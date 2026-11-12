@@ -67,9 +67,9 @@ export async function auditNativeResourceHubBrowser(
         '/api/cart',
         '/api/_auth/session',
         '/api/categories',
-        '/logo-figura.png',
-        '/logo-texto.png',
-        '/favicon.png',
+        '/logo-figura.svg',
+        '/logo-texto.svg',
+        '/favicon.svg',
         '/favicon.ico'
       ].includes(url.pathname)
     )

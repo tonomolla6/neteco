@@ -39,7 +39,7 @@ function configureCookies() {
     <div class="mx-auto grid max-w-[1600px] gap-10 px-4 py-12 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
       <div>
         <div class="flex items-center gap-2">
-          <img src="/logo-figura.png" alt="" width="34" height="36" loading="lazy" class="h-9 w-auto" />
+          <img src="/logo-figura.svg" alt="" width="34" height="36" loading="lazy" class="h-9 w-auto" />
           <span class="text-lg font-bold text-white">NETECO</span>
         </div>
         <p class="mt-3 text-sm leading-relaxed text-slate-400">

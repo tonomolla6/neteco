@@ -95,9 +95,9 @@ export function createCartRecoveryBrowserBridge(input: CartRecoveryBrowserBridge
           '/api/categories',
           '/cuenta/recuperar-carrito',
           root + '/preferences',
-          '/logo-figura.png',
-          '/logo-texto.png',
-          '/favicon.png',
+          '/logo-figura.svg',
+          '/logo-texto.svg',
+          '/favicon.svg',
           '/favicon.ico'
         ].includes(url.pathname) ||
           /^\/_nuxt\/[A-Za-z0-9_./-]+$/.test(url.pathname))

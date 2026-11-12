@@ -88,8 +88,8 @@ export function allowsOrderOperationsForeignRead(
   const allowed = [
     '/',
     '/admin/pedidos',
-    '/logo-figura.png',
-    '/favicon.png',
+    '/logo-figura.svg',
+    '/favicon.svg',
     '/api/_auth/session',
     '/api/admin/capabilities',
     '/api/admin/orders',
@@ -413,8 +413,8 @@ export function createWorkbenchBrowserBridge(input: {
           '/',
           '/admin/pedidos',
           '/login',
-          '/logo-figura.png',
-          '/favicon.png',
+          '/logo-figura.svg',
+          '/favicon.svg',
           '/api/_auth/session',
           '/api/admin/capabilities'
         ].includes(path) ||
