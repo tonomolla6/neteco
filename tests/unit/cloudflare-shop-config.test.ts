@@ -36,7 +36,7 @@ describe('local full-shop Cloudflare configuration', () => {
       not_found_handling: 'none'
     })
     const shop = await readFile(output.main as string, 'utf8')
-    expect(shop).toContain("import renderer from '#neteco/nitro-renderer'")
+    expect(shop).toContain("import('#neteco/nitro-renderer')")
     expect(shop).toContain("import { handleD1CategoryRedirect } from './catalog/category-redirects'")
     expect(shop).toMatch(/createShopIngress\(\s*api,\s*renderer,/)
     expect(shop).toContain('handleD1CategoryRedirect(request, env.DB)')

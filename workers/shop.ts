@@ -1,6 +1,5 @@
-import renderer from '#neteco/nitro-renderer'
 import api from './canary'
-import { createShopIngress } from './runtime/shop-ingress'
+import { createShopIngress, type ShopRenderer } from './runtime/shop-ingress'
 import { handleD1CategoryRedirect } from './catalog/category-redirects'
 import { resolveCmsPublicRedirect } from './cms/public-http'
 import { cmsRuntimeDependencies } from './runtime/operations-config'
@@ -15,6 +14,24 @@ type ShopEnvironment = CloudflareEnv & {
   CSP_MODE?: string
   /** Orígenes https del chat externo, separados por comas (ver shared/chat-widget.ts). */
   CSP_CHAT_WIDGET_ORIGINS?: string
+}
+
+// Nitro's generated module includes its SSR API bridge and schema graph. Keep
+// its evaluation inside the request budget instead of the Worker startup
+// budget. Share the pending import across concurrent first requests, and let
+// a later request retry a failed load. API/cron/queue never load it.
+let rendererPromise: Promise<ShopRenderer> | undefined
+const renderer: ShopRenderer = {
+  async fetch(request, env, context) {
+    rendererPromise ??= import('#neteco/nitro-renderer')
+      .then((module) => module.default)
+      .catch((error: unknown) => {
+        rendererPromise = undefined
+        throw error
+      })
+    const nitro = await rendererPromise
+    return nitro.fetch(request, env, context)
+  }
 }
 
 const baseIngress = createShopIngress(api, renderer, async (request, env) => {
