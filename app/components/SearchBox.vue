@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useCartStore } from '~/stores/cart'
 import type { SearchSuggestion } from '~~/shared/types/catalog'
 
 const props = defineProps<{ size?: 'sm' | 'md' | 'lg' | 'xl'; placeholder?: string }>()
@@ -59,10 +60,103 @@ function select(item: SearchSuggestion) {
   router.push({ path: `/producto/${item.slug}`, query: item.sku ? { sku: item.sku } : {} })
 }
 
+/**
+ * Añadir desde una sugerencia.
+ *
+ * Quien teclea la referencia del albarán quiere el producto en el carrito, no una página.
+ * Se añade la variante de esa referencia exacta o, si el producto tiene un solo formato, ese.
+ * Con varios formatos y sin referencia exacta no se adivina: se dice y se enlaza la ficha.
+ */
+interface SuggestionDetail {
+  id: number
+  slug: string
+  name: string
+  brand: string
+  visual: { type: string; color: string }
+  variants: Array<{
+    id: number
+    sku: string
+    format: string
+    price: number
+    netPrice?: number
+    minimumQuantity: number
+    quantityIncrement: number
+    maximumQuantity: number | null
+    stock: number
+    backorderAllowed: boolean
+  }>
+}
+const cart = useCartStore()
+const isExact = (item: SearchSuggestion) => !!item.sku && item.sku === q.value.trim()
+const adding = ref('')
+const added = ref('')
+const announcement = ref('')
+const addError = ref('')
+const formatsNotice = ref<{ name: string; slug: string } | null>(null)
+let addedTimer: ReturnType<typeof setTimeout> | undefined
+onBeforeUnmount(() => {
+  clearTimeout(timer)
+  clearTimeout(addedTimer)
+})
+
+async function addSuggestion(item: SearchSuggestion) {
+  if (adding.value || cart.blockedMutations) return
+  adding.value = item.slug
+  addError.value = ''
+  announcement.value = ''
+  formatsNotice.value = null
+  const exact = isExact(item) ? item.sku : null
+  try {
+    const detail = await $fetch<SuggestionDetail>(`/api/products/${encodeURIComponent(item.slug)}`)
+    const variant =
+      (exact ? detail.variants.find((candidate) => candidate.sku === exact) : undefined) ??
+      (detail.variants.length === 1 ? detail.variants[0] : undefined)
+    if (!variant) {
+      formatsNotice.value = { name: item.name, slug: item.slug }
+      return
+    }
+    if (!variantAvailability(variant).orderable) {
+      addError.value = `${item.name} está agotado ahora mismo.`
+      return
+    }
+    await cart.add(
+      {
+        productId: detail.id,
+        slug: detail.slug,
+        name: detail.name,
+        brand: detail.brand,
+        variantId: variant.id,
+        format: variant.format,
+        sku: variant.sku,
+        price: variant.price,
+        visual: detail.visual,
+        image: item.image,
+        minimumQuantity: variant.minimumQuantity,
+        maximumQuantity: variant.maximumQuantity,
+        quantityIncrement: variant.quantityIncrement
+      },
+      variant.minimumQuantity
+    )
+    added.value = item.slug
+    announcement.value = `${variant.minimumQuantity} × ${detail.name} en el carrito`
+    clearTimeout(addedTimer)
+    addedTimer = setTimeout(() => (added.value = ''), 2000)
+  } catch {
+    addError.value = cart.error || 'No se ha podido añadir. Vuelve a intentarlo.'
+    if (!addError.value.startsWith('No se ha podido añadir'))
+      addError.value = `No se ha podido añadir. ${addError.value}`
+  } finally {
+    adding.value = ''
+  }
+}
+
 function onEnter() {
   const item = items.value[active.value]
-  if (open.value && active.value >= 0 && item) select(item)
-  else goToResults()
+  if (open.value && active.value >= 0 && item) return select(item)
+  // Una referencia exacta va la primera: Intro la añade al carrito sin salir de la página.
+  const first = items.value[0]
+  if (open.value && first && isExact(first)) return void addSuggestion(first)
+  goToResults()
 }
 
 function move(delta: number) {
@@ -102,34 +196,68 @@ function onFocusOut(e: FocusEvent) {
       v-if="open"
       :id="listboxId"
       role="listbox"
-      class="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
+      class="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-overlay)]"
     >
       <p v-if="errorMessage" class="px-3 py-4 text-center text-sm text-red-700" role="alert">
         {{ errorMessage }}
       </p>
       <template v-else-if="items.length">
-        <button
+        <div
           v-for="(item, i) in items"
           :id="optionId(i)"
           :key="item.slug"
-          type="button"
           role="option"
           :aria-selected="i === active"
-          class="flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-neteco-50"
+          class="flex w-full items-center gap-3 px-3 py-2 transition-colors"
           :class="i === active ? 'bg-neteco-50' : ''"
-          @click="select(item)"
           @mousemove="active = i"
         >
-          <div class="w-10 shrink-0"><ProductImage :product="item" sizes="40px" /></div>
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-slate-800">{{ item.name }}</p>
-            <p v-if="item.brand" class="text-xs text-slate-500">{{ item.brand }}</p>
-          </div>
-          <span class="text-right text-sm font-semibold text-neteco-700">
-            {{ formatPrice(showNetPrices ? item.minNetPrice : item.minPrice) }}
-            <small v-if="showNetPrices" class="block text-[10px] font-normal text-slate-500">sin IVA</small>
-          </span>
-        </button>
+          <button
+            type="button"
+            tabindex="-1"
+            class="flex min-w-0 flex-1 items-center gap-3 text-left"
+            @click="select(item)"
+          >
+            <span class="block w-10 shrink-0"><ProductImage :product="item" sizes="40px" /></span>
+            <span class="block min-w-0 flex-1">
+              <span class="block truncate text-[15px] font-medium text-[var(--text-strong)]">{{ item.name }}</span>
+              <span class="tabular block text-[13px] text-[var(--text-muted)]">
+                <span v-if="isExact(item)" class="font-semibold text-[var(--stock-ok)]">Referencia exacta · </span>
+                <template v-if="item.sku">Ref. {{ item.sku }} · </template>
+                {{ formatPrice(showNetPrices ? item.minNetPrice : item.minPrice) }}
+                {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            data-suggestion-add
+            :disabled="adding === item.slug"
+            :aria-label="`Añadir ${item.name} al carrito`"
+            class="inline-flex h-11 shrink-0 items-center justify-center gap-1 rounded-[var(--radius-control)] px-3 text-[15px] font-semibold text-white transition-colors disabled:opacity-60"
+            :class="added === item.slug ? 'bg-[var(--stock-ok)]' : 'bg-[var(--action)] hover:bg-[var(--action-hover)]'"
+            @click.stop="addSuggestion(item)"
+          >
+            {{ added === item.slug ? 'Añadido' : 'Añadir' }}
+          </button>
+        </div>
+        <p
+          v-if="formatsNotice"
+          role="status"
+          class="border-t border-[var(--border)] px-3 py-2 text-[13px] text-[var(--text)]"
+        >
+          {{ formatsNotice.name }} tiene varios formatos.
+          <NuxtLink :to="`/producto/${formatsNotice.slug}`" class="font-semibold text-[var(--link)] underline">
+            Elegir formato
+          </NuxtLink>
+        </p>
+        <p
+          v-if="addError"
+          role="alert"
+          class="border-t border-[var(--border)] px-3 py-2 text-[13px] text-[var(--ui-error)]"
+        >
+          {{ addError }}
+        </p>
         <button
           type="button"
           class="w-full border-t border-slate-100 px-3 py-2 text-center text-sm font-medium text-neteco-600 hover:bg-neteco-50"
@@ -140,5 +268,6 @@ function onFocusOut(e: FocusEvent) {
       </template>
       <p v-else class="px-3 py-4 text-center text-sm text-slate-500">Sin resultados para «{{ q }}»</p>
     </div>
+    <p aria-live="polite" class="sr-only">{{ announcement }}</p>
   </div>
 </template>
