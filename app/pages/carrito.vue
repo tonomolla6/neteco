@@ -3,7 +3,6 @@ import { useCartStore } from '~/stores/cart'
 import CartReadFeedback from '~/components/CartReadFeedback.vue'
 import CartSnapshotsPanel from '~/components/CartSnapshotsPanel.vue'
 import CartRecoverySection from '~/components/CartRecoverySection.vue'
-import PublishedProductRelations from '~/components/PublishedProductRelations.vue'
 import FreeShippingProgressBar from '~/components/FreeShippingProgressBar.vue'
 import type { OrderSummary } from '~/composables/useAccount'
 
@@ -34,6 +33,28 @@ async function submitDestination() {
   if (shipping.rate.value) editingDestination.value = false
 }
 /** Total a pagar con lo que se sabe: con envío si hay estimación vigente, sin él si no. */
+/**
+ * Fecha de entrega concreta. Con cotización del servidor manda su día; sin ella, la previsión
+ * con las condiciones comerciales y el código postal recordado (`DeliveryPromiseLine`).
+ */
+const serverDeliveryHeadline = computed(() => {
+  const day = shipping.deliveryDay.value
+  if (!shipping.rate.value || shipping.stale.value || !day) return ''
+  return day.startsWith('entre') ? `Te llega ${day}` : `Te llega el ${day}`
+})
+
+// «Comprados juntos frecuentemente» y, si no hay co-compra, «Recomendado para ti».
+const cartSlugs = computed(() => cart.items.map((item) => item.slug))
+const recommendations = useProductRecommendations({
+  cart: cartSlugs,
+  strips: ['bought_together', 'for_you'],
+  limit: 8
+})
+const cartBoughtTogether = recommendations.strip('bought_together')
+const cartForYou = computed(() =>
+  cartBoughtTogether.value ? [] : recommendations.strips.value.filter((strip) => strip.kind === 'for_you')
+)
+
 const totalWithShipping = computed(() =>
   shipping.rate.value && !shipping.stale.value ? shipping.rate.value.totalGrossCents : cart.subtotal
 )
@@ -238,11 +259,8 @@ async function retryOriginalAdd() {
           </div>
 
           <!-- Venta cruzada y carritos guardados van debajo de las líneas, nunca antes. -->
-          <PublishedProductRelations
-            v-if="runtime.public.serverRuntime === 'cloudflare'"
-            :product-slugs="cart.items.map((item) => item.slug)"
-            class="pt-4"
-          />
+          <FrequentlyBoughtTogether v-if="cartBoughtTogether" :strip="cartBoughtTogether" :max="4" class="mt-4" />
+          <RecommendationStrips v-else-if="cartForYou.length" :strips="cartForYou" :mobile-count="1" class="pt-6" />
           <CartSnapshotsPanel v-if="runtime.public.serverRuntime === 'cloudflare'" />
         </div>
 
@@ -252,6 +270,21 @@ async function retryOriginalAdd() {
           class="h-fit rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 lg:sticky lg:top-24"
         >
           <h2 class="text-lg font-bold text-[var(--text-strong)]">Resumen</h2>
+          <!-- La fecha de entrega, lo primero: es lo que decide si se pide hoy -->
+          <div data-cart-delivery-date class="mt-3">
+            <p v-if="serverDeliveryHeadline" class="text-[15px] leading-snug">
+              <UIcon
+                name="i-lucide-truck"
+                class="mr-1 inline size-4 -translate-y-px align-middle text-[var(--stock-ok)]"
+                aria-hidden="true"
+              />
+              <strong data-delivery-date class="font-semibold text-[var(--stock-ok)]">{{
+                serverDeliveryHeadline
+              }}</strong>
+              <span class="block text-[13px] text-[var(--text-muted)]">{{ shipping.rate.value?.label }}</span>
+            </p>
+            <DeliveryPromiseLine v-else :preparation-days="0" />
+          </div>
           <dl class="tabular mt-4 space-y-2 text-[15px]">
             <div class="flex justify-between gap-3">
               <dt class="text-[var(--text-muted)]">Base imponible ({{ cart.count }} uds.)</dt>
