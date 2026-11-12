@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { MarketHreflangResponse } from '~/utils/hreflang-links'
+import { ogImageForPath } from '~/utils/og-image'
 
 // Antes había aquí un splash de marca a pantalla completa que cubría la página hasta
 // la hidratación y se desvanecía en 0,5 s. El coste era mayor que el problema que
@@ -16,7 +17,7 @@ const demo = computed(() => runtime.public.demoEnabled === true && runtime.publi
 const origin = String(runtime.public.baseUrl).replace(/\/$/, '')
 const canonicalUrl = computed(() => `${origin}${canonicalPath(route.path, route.query)}`)
 const routeSeo = computed(() => defaultRouteSeo(route.path))
-const defaultOgImage = `${origin}/og-default.jpg`
+const shareImage = computed(() => `${origin}${ogImageForPath(route.path)}`)
 
 useSeoMeta({
   title: () => routeSeo.value.title,
@@ -26,13 +27,13 @@ useSeoMeta({
   ogDescription: () => routeSeo.value.description,
   ogUrl: () => canonicalUrl.value,
   ogType: () => (routeSeo.value.ogType === 'product' ? 'website' : routeSeo.value.ogType),
-  ogImage: defaultOgImage,
+  ogImage: () => shareImage.value,
   ogSiteName: 'NETECO',
   ogLocale: 'es_ES',
   twitterCard: 'summary_large_image',
   twitterTitle: () => `${routeSeo.value.title} · NETECO`,
   twitterDescription: () => routeSeo.value.description,
-  twitterImage: defaultOgImage
+  twitterImage: () => shareImage.value
 })
 
 // SEO-033: product pages publish the reciprocal hreflang set of the markets with human-reviewed
