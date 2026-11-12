@@ -66,7 +66,11 @@ async function logout() {
             <UIcon name="i-lucide-mail" class="size-3.5" /> administracion@neteco.es
           </a>
         </div>
-        <NuxtLink to="/envios" data-header-delivery class="flex min-w-0 items-center gap-1.5 hover:text-neteco-200">
+        <NuxtLink
+          to="/envios"
+          data-header-delivery
+          class="hidden min-w-0 items-center gap-1.5 hover:text-neteco-200 min-[480px]:flex"
+        >
           <UIcon name="i-lucide-truck" class="size-3.5 shrink-0" />
           <span class="truncate">
             <span class="sm:hidden">Reparto propio en la Vall d'Albaida</span>
@@ -74,6 +78,7 @@ async function logout() {
             ><template v-if="commercialTerms.ownDeliveryDays">: {{ commercialTerms.ownDeliveryDays }}</template>
           </span>
         </NuxtLink>
+        <PriceModeToggle class="shrink-0" />
       </div>
     </div>
 

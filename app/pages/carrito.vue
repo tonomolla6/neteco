@@ -11,7 +11,7 @@ useSeoMeta({ title: 'Carrito', robots: 'noindex, nofollow' })
 const cart = useCartStore()
 const toast = useToast()
 const runtime = useRuntimeConfig()
-const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
+const { net: showNetPrices } = usePriceDisplay()
 
 const tax = computed(() => cart.tax)
 const lineErrors = reactive<Record<number, string>>({})

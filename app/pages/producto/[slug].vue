@@ -104,7 +104,7 @@ const technicalDocuments = computed(() =>
 const datasheet = computed(() =>
   governedMedia ? publishedDocumentUrl(product.value.datasheet) : product.value.datasheet
 )
-const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
+const { net: showNetPrices } = usePriceDisplay()
 const canonicalOrigin = String(runtime.public.baseUrl).replace(/\/$/, '')
 
 const productSeoTitle = computed(() => formatSeoTitle(product.value.name))

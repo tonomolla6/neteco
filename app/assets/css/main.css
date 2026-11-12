@@ -63,6 +63,18 @@
 
   --border: var(--color-slate-200);
   --border-strong: var(--color-slate-300);
+
+  /* Un solo color de acción: el botón principal de cada vista (Añadir, Tramitar, Pagar) y
+     el estado seleccionado. Iconos y metadatos van en --text-muted para que ese botón sea
+     lo único azul que pide un clic. */
+  --action: var(--color-neteco-700); /* 6,6:1 sobre blanco */
+  --action-hover: var(--color-neteco-800);
+  --link: var(--color-neteco-700);
+  --price-offer: var(--color-red-700);
+  /* Disponibilidad: siempre con texto e icono, nunca solo color. */
+  --stock-ok: var(--color-green-800);
+  --stock-low: var(--color-amber-800);
+  --stock-out: var(--color-slate-600);
 }
 
 body {

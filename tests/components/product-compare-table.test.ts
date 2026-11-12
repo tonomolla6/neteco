@@ -1,7 +1,7 @@
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import ProductCompareTable from '../../app/components/ProductCompareTable.vue'
-import ProductCard from '../../app/components/ProductCard.vue'
+import ProductRow from '../../app/components/ProductRow.vue'
 import type { ProductCompareResponse } from '../../workers/catalog/product-compare'
 import type { ProductCardData } from '../../shared/types/catalog'
 import '#app/nuxt-vitest-app-entry'
@@ -364,7 +364,7 @@ describe('ProductCompareTable Component', () => {
   })
 })
 
-describe('ProductCard Compare Button', () => {
+describe('ProductRow compare button', () => {
   const cardData: ProductCardData = {
     id: 10,
     name: 'Detergente Alcalino Clorado',
@@ -386,7 +386,7 @@ describe('ProductCard Compare Button', () => {
   })
 
   it('renders compare button with accessible attributes and updates localStorage on click', async () => {
-    const wrapper = await mountSuspended(ProductCard, {
+    const wrapper = await mountSuspended(ProductRow, {
       props: {
         product: cardData
       }
@@ -405,13 +405,13 @@ describe('ProductCard Compare Button', () => {
 
   it('enforces maximum 4 products in localStorage', async () => {
     localStorage.setItem('neteco_compare_slugs', JSON.stringify(['p1', 'p2', 'p3', 'p4']))
-    const wrapper = await mountSuspended(ProductCard, {
+    const wrapper = await mountSuspended(ProductRow, {
       props: {
         product: cardData
       }
     })
 
-    const button = wrapper.find('button')
+    const button = wrapper.find('button[aria-pressed]')
     await button.trigger('click')
 
     // Did not add 5th product

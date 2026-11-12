@@ -5,8 +5,7 @@ const props = defineProps<{ size?: 'sm' | 'md' | 'lg' | 'xl'; placeholder?: stri
 
 const q = ref('')
 const items = ref<SearchSuggestion[]>([])
-const runtime = useRuntimeConfig()
-const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
+const { net: showNetPrices } = usePriceDisplay()
 const open = ref(false)
 const loading = ref(false)
 const errorMessage = ref('')

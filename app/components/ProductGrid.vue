@@ -46,6 +46,6 @@ const view = useCatalogView()
     <ProductCard v-for="p in items" :key="p.id" :product="p" />
   </div>
   <div v-else class="flex flex-col gap-2" :class="pending ? 'opacity-60' : ''">
-    <ProductListRow v-for="p in items" :key="p.id" :product="p" />
+    <ProductRow v-for="p in items" :key="p.id" :product="p" />
   </div>
 </template>

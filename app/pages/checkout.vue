@@ -11,7 +11,7 @@ useSeoMeta({ title: 'Tramitar pedido', robots: 'noindex, nofollow' })
 
 const cart = useCartStore()
 const runtime = useRuntimeConfig()
-const showNetPrices = computed(() => runtime.public.priceDisplayMode === 'net-and-gross')
+const { net: showNetPrices } = usePriceDisplay()
 const { ready, loggedIn, user, session } = useUserSession()
 const toast = useToast()
 const { track } = useAnalytics()
