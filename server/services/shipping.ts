@@ -192,6 +192,7 @@ export async function quoteProductDelivery(input: {
   quantity: number
   postalCode: string
   city: string
+  region?: string
 }) {
   const sql = useDatabase()
   const [variant] = await sql<
@@ -256,7 +257,7 @@ export async function quoteProductDelivery(input: {
       line1: 'Dirección pendiente en checkout',
       postalCode: input.postalCode,
       city: input.city,
-      region: input.city,
+      region: input.region ?? input.city,
       countryCode: 'ES'
     },
     parcels: [parcel]

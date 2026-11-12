@@ -14,6 +14,7 @@ import { dynamicOgMeta } from '~/utils/og-image'
 import { ogVersion } from '~~/shared/og-image'
 import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
+import { provinceForPostalCode } from '~~/shared/delivery-estimate'
 import { PRICE_ON_REQUEST, PRICE_REQUEST_ACTION, hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
 import type { ProductCardData, ProductVisualData, TypedAttributeDetail } from '~~/shared/types/catalog'
 
@@ -334,13 +335,24 @@ function deliveryDate(value: string) {
   return new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium' }).format(new Date(value))
 }
 
+// Con el código postal basta: el servidor deduce la provincia. La población solo viaja si
+// ya la conocemos (recordada del carrito) y corresponde a ese mismo código postal.
+watch(deliveryPostalCode, (value, previous) => {
+  if (deliveryEditing.value && value.trim() !== previous.trim()) deliveryCity.value = ''
+})
+
+let deliveryRequest = 0
 async function calculateDelivery() {
   deliveryError.value = ''
   deliveryQuote.value = null
-  if (!/^\d{5}$/.test(deliveryPostalCode.value.trim()) || deliveryCity.value.trim().length < 2) {
-    deliveryError.value = 'Indica código postal y población para calcular la entrega.'
+  const postalCode = deliveryPostalCode.value.trim()
+  const province = provinceForPostalCode(postalCode)
+  if (!province) {
+    deliveryError.value = 'Indica un código postal de 5 cifras para calcular la entrega.'
     return
   }
+  const city = deliveryCity.value.trim()
+  const request = ++deliveryRequest
   deliveryLoading.value = true
   try {
     const quote = await $fetch<DeliveryQuote>('/api/shipping/product-rates', {
@@ -348,18 +360,23 @@ async function calculateDelivery() {
       body: {
         variantId: selected.value.uuid,
         quantity: qty.value,
-        postalCode: deliveryPostalCode.value,
-        city: deliveryCity.value
+        postalCode,
+        ...(city ? { city } : {})
       }
     })
+    // Solo cuenta la última petición: una respuesta lenta de otro destino no la pisa.
+    if (request !== deliveryRequest) return
     deliveryQuote.value = quote
     if (!quote.rates.length) deliveryError.value = 'No hay un servicio contratado disponible para esa zona.'
-    else if (deliveryMemory.remember({ postalCode: deliveryPostalCode.value, city: deliveryCity.value }))
+    else if (deliveryMemory.remember({ postalCode, city: city || province })) {
+      deliveryCity.value = city || province
       deliveryEditing.value = false
+    }
   } catch (error) {
+    if (request !== deliveryRequest) return
     deliveryError.value = apiErrorMessage(error, 'No se puede confirmar una fecha de entrega para esa zona.')
   } finally {
-    deliveryLoading.value = false
+    if (request === deliveryRequest) deliveryLoading.value = false
   }
 }
 
@@ -1102,7 +1119,7 @@ const regulated = computed(() => {
             </p>
             <template v-else>
               <p class="mt-1 text-[13px] text-[var(--text-muted)]">
-                Dinos dónde una vez y te damos la fecha estimada. La confirmamos al pagar.
+                Dinos tu código postal una vez y te damos la fecha estimada. La confirmamos al pagar.
               </p>
               <form class="mt-3 flex flex-col gap-2" @submit.prevent="calculateDelivery">
                 <label class="sr-only" for="delivery-postal-code">Código postal</label>
@@ -1113,14 +1130,6 @@ const regulated = computed(() => {
                   autocomplete="postal-code"
                   maxlength="5"
                   placeholder="Código postal"
-                  class="w-full"
-                />
-                <label class="sr-only" for="delivery-city">Población</label>
-                <UInput
-                  id="delivery-city"
-                  v-model="deliveryCity"
-                  autocomplete="address-level2"
-                  placeholder="Población"
                   class="w-full"
                 />
                 <UButton type="submit" variant="outline" block :loading="deliveryLoading">Ver fecha estimada</UButton>

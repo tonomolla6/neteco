@@ -1,4 +1,5 @@
-import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import { mockNuxtImport, mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
+import { readBody } from 'h3'
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref, Suspense } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -278,5 +279,42 @@ describe('delivery estimate on the product page', () => {
     expect(second.find('#delivery-postal-code').exists()).toBe(false)
     await second.get('[data-delivery-change]').trigger('click')
     expect((second.get('#delivery-postal-code').element as HTMLInputElement).value).toBe('46870')
+  })
+
+  it('needs only the postal code to give a date', async () => {
+    const bodies: unknown[] = []
+    registerEndpoint('/api/shipping/product-rates', {
+      method: 'POST',
+      handler: async (event) => {
+        bodies.push(await readBody(event))
+        return {
+          stockCondition: 'in_stock',
+          leadTimeDays: null,
+          rates: [
+            {
+              serviceCode: 'OWN',
+              label: 'Reparto propio',
+              profile: 'own_delivery',
+              estimatedDeliveryFrom: '2026-11-17T09:00:00Z',
+              estimatedDeliveryTo: '2026-11-18T18:00:00Z'
+            }
+          ]
+        }
+      }
+    })
+    const page = await pdp()
+    bodies.length = 0
+    // The destination remembered by the previous test lives in shared state: change it.
+    if (page.find('[data-delivery-change]').exists()) await page.get('[data-delivery-change]').trigger('click')
+    expect(page.find('#delivery-city').exists()).toBe(false)
+    await page.get('#delivery-postal-code').setValue('28001')
+    await page.get('[aria-labelledby="delivery-title"] form').trigger('submit')
+    await vi.waitFor(() => expect(page.find('[data-delivery-destination]').exists()).toBe(true))
+    expect(bodies).toHaveLength(1)
+    // A new postal code never carries the town remembered for the previous one.
+    expect(bodies[0]).toMatchObject({ postalCode: '28001' })
+    expect(bodies[0]).not.toHaveProperty('city')
+    expect(page.get('[data-delivery-destination]').text()).toContain('28001 Madrid')
+    expect(JSON.parse(localStorage.getItem('neteco-destination') ?? 'null')).toMatchObject({ postalCode: '28001' })
   })
 })
