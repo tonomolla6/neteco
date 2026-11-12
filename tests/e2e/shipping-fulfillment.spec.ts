@@ -69,8 +69,13 @@ async function addCatalogProduct(page: Page, quantity = 1) {
   expect(response.ok(), await response.text()).toBe(true)
   const catalog = (await response.json()) as { items: Array<{ slug: string }> }
   await page.goto(`/producto/${catalog.items[0]!.slug}`)
-  while (Number(await page.getByRole('status', { name: 'Cantidad' }).textContent()) < quantity) {
-    await page.getByRole('button', { name: 'Más unidades' }).click()
+  // The format table carries a quantity per row; products sold by colour keep a single field.
+  if (quantity > 1) {
+    const field = page
+      .locator('[data-variant-row][data-selected="true"] input[inputmode="numeric"], input[aria-label="Cantidad"]')
+      .first()
+    await field.fill(String(quantity))
+    await field.press('Enter')
   }
   await page.getByRole('button', { name: 'Añadir al carrito' }).first().click()
   await expect(page.getByText('Añadido al carrito', { exact: true })).toBeVisible()

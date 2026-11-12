@@ -41,13 +41,25 @@ watch(
   (id) => void load(id),
   { immediate: true }
 )
+/** Nombre de cada pictograma CLP/GHS: un código suelto no dice nada a quien manipula el producto. */
+const PICTOGRAM_NAMES: Record<string, string> = {
+  GHS01: 'Explosivo',
+  GHS02: 'Inflamable',
+  GHS03: 'Comburente',
+  GHS04: 'Gas a presión',
+  GHS05: 'Corrosivo',
+  GHS06: 'Toxicidad aguda',
+  GHS07: 'Nocivo o irritante',
+  GHS08: 'Peligro para la salud',
+  GHS09: 'Peligroso para el medio ambiente'
+}
 const dangerousSignal = computed(() => hazard.value?.signalWord && hazard.value.signalWord !== 'NONE')
 </script>
 
 <template>
   <section
     data-hazard-notice
-    class="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+    class="rounded-[var(--radius-panel)] border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
     :aria-busy="state === 'loading' ? 'true' : undefined"
     aria-labelledby="hazard-notice-title"
   >
@@ -77,9 +89,11 @@ const dangerousSignal = computed(() => hazard.value?.signalWord && hazard.value.
         <li
           v-for="code in hazard.pictograms"
           :key="code"
-          class="rounded border border-amber-400 bg-white px-1.5 py-0.5 font-mono text-xs"
+          data-hazard-pictogram
+          class="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] border border-red-700 bg-white px-2 py-1 text-[13px] text-slate-900"
         >
-          {{ code }}
+          <strong class="tabular">{{ code }}</strong
+          ><template v-if="PICTOGRAM_NAMES[code]"> · {{ PICTOGRAM_NAMES[code] }}</template>
         </li>
       </ul>
       <ul v-if="hazard.hazardStatements.length" class="list-disc pl-5">

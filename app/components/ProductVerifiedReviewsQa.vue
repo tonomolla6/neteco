@@ -22,6 +22,10 @@ const loadNotice = ref('')
 const showReviewForm = ref(false)
 const showQuestionForm = ref(false)
 const successMessage = ref('')
+// Un módulo de opiniones a cero resta: sin nada publicado solo se ofrece una invitación de una
+// línea, y el módulo completo aparece cuando hay algo que leer o alguien quiere escribir.
+const loaded = ref(false)
+const expanded = ref(false)
 
 const reviews = ref<PublicProductReview[]>([])
 const reviewsTotal = ref(0)
@@ -128,20 +132,32 @@ async function handleQuestionSubmit() {
   }
 }
 
-onMounted(() => {
-  loadReviews()
-  loadQuestions()
+onMounted(async () => {
+  await Promise.all([loadReviews(), loadQuestions()])
+  loaded.value = true
 })
+const empty = computed(() => reviewsTotal.value === 0 && questionsTotal.value === 0)
 </script>
 
 <template>
+  <p
+    v-if="loaded && empty && !expanded"
+    data-reviews-invite
+    class="flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px] text-[var(--text)]"
+  >
+    ¿Lo usas? Cuéntanos qué tal o pregúntanos lo que necesites.
+    <button type="button" class="font-semibold text-[var(--link)] underline" @click="expanded = true">
+      Opinar o preguntar
+    </button>
+  </p>
   <section
-    class="border border-slate-200 rounded-xl bg-white p-6 shadow-sm"
-    aria-label="Opiniones y Preguntas de clientes"
+    v-else-if="loaded"
+    class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6"
+    aria-label="Opiniones y preguntas de clientes"
   >
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
       <div>
-        <h2 class="text-xl font-bold text-slate-900">Opiniones y Preguntas</h2>
+        <h2 class="text-xl font-bold text-slate-900">Opiniones y preguntas</h2>
         <p class="text-sm text-slate-600">Experiencias y soporte técnico sobre {{ productName }}</p>
       </div>
 

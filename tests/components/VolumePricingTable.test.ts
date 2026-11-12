@@ -59,4 +59,35 @@ describe('VolumePricingTable.vue (MKT-023)', () => {
     expect(wrapper.text()).toContain('Añade 4 unidades más')
     expect(wrapper.text()).toContain('20%')
   })
+
+  it('always states the next reachable tier in one line and keeps the full scale folded', () => {
+    const wrapper = mount(VolumePricingTable, {
+      props: { baseGrossCents, taxRateBasisPoints: 2100, tiers, currentQuantity: 2 }
+    })
+    const next = wrapper.get('[data-next-tier]')
+    expect(next.text().replace(/\s+/g, ' ')).toBe('Desde 6: 45,00 €/ud (−10 %)')
+    const details = wrapper.get('details')
+    expect(details.attributes('open')).toBeUndefined()
+    expect(details.get('summary').text()).toBe('Ver todos los tramos')
+    expect(details.find('table').exists()).toBe(true)
+  })
+
+  it('follows the price mode and has nothing left to offer at the last tier', () => {
+    const net = mount(VolumePricingTable, {
+      props: { baseGrossCents, taxRateBasisPoints: 2100, tiers, currentQuantity: 6, showNetPrices: true }
+    })
+    expect(net.get('[data-next-tier]').text().replace(/\s+/g, ' ')).toBe('Desde 12: 33,06 €/ud sin IVA (−20 %)')
+    const last = mount(VolumePricingTable, {
+      props: { baseGrossCents, taxRateBasisPoints: 2100, tiers, currentQuantity: 12 }
+    })
+    expect(last.find('[data-next-tier]').exists()).toBe(false)
+    expect(last.text()).toContain('Ya tienes el mejor precio por cantidad')
+  })
+
+  it('uses neutral surfaces: green is reserved for availability', () => {
+    const wrapper = mount(VolumePricingTable, {
+      props: { baseGrossCents, taxRateBasisPoints: 2100, tiers, currentQuantity: 8 }
+    })
+    expect(wrapper.html()).not.toMatch(/emerald-/)
+  })
 })

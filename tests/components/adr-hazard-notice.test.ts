@@ -44,6 +44,12 @@ describe('SHP-029 hazard notice', () => {
     expect(text).toContain('Clase 3')
     expect(text).toContain('Grupo de embalaje II')
     expect(text).toContain('GHS02')
+    // each pictogram is named, never a bare code or colour alone
+    const pictograms = wrapper.findAll('[data-hazard-pictogram]')
+    expect(pictograms.map((item) => item.text().replace(/\s+/g, ' '))).toEqual([
+      'GHS02 · Inflamable',
+      'GHS07 · Nocivo o irritante'
+    ])
     expect(text).toContain('H225 Líquido y vapores muy inflamables')
     expect(text).toContain('P210 Mantener alejado del calor')
     expect(wrapper.find('[data-hazard-notice]').attributes('aria-live')).toBeUndefined()

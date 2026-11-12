@@ -80,7 +80,7 @@ describe('PDP-016: ProductVerifiedReviewsQa accessible component', () => {
 
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Opiniones y Preguntas')
+    expect(wrapper.text()).toContain('Opiniones y preguntas')
     expect(wrapper.text()).toContain('Excelente limpiador industrial')
     // "Comprador verificado" badge rendered for rev-1
     const verifiedBadges = wrapper.findAll('[data-testid="verified-buyer-badge"]')
@@ -130,6 +130,8 @@ describe('PDP-016: ProductVerifiedReviewsQa accessible component', () => {
     })
     await flushPromises()
     expect(wrapper.find('#consent-rev').exists()).toBe(false)
+    // nothing published yet: the module opens from its one-line invitation
+    await wrapper.get('[data-reviews-invite] button').trigger('click')
     await wrapper.find('[data-testid="open-review-form"]').trigger('click')
     const consent = wrapper.find('#consent-rev')
     expect((consent.element as HTMLInputElement).checked).toBe(false)
@@ -154,5 +156,37 @@ describe('PDP-016: ProductVerifiedReviewsQa accessible component', () => {
     })
     await flushPromises()
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  })
+
+  it('does not paint an empty reviews module: with nothing published it offers one compact invitation', async () => {
+    mocks.request.mockReset()
+    mocks.request.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('/reviews') ? { items: [], total: 0, averageRating: 0 } : { items: [], total: 0 })
+    )
+    const wrapper = await mountSuspended(ProductVerifiedReviewsQa, {
+      props: { productId: 'p-1', productName: 'Desengrasante Ultra' }
+    })
+    await flushPromises()
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Opiniones (0)')
+    expect(wrapper.text()).not.toContain('Aún no hay opiniones')
+    const invite = wrapper.get('[data-reviews-invite]')
+    expect(invite.text()).toContain('¿Lo usas?')
+    await invite.get('button').trigger('click')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(true)
+  })
+
+  it('titles the module in sentence case once there is something to read', async () => {
+    mocks.request.mockReset()
+    mocks.request.mockImplementation((url: string) =>
+      Promise.resolve(url.includes('/reviews') ? sampleReviews : sampleQuestions)
+    )
+    const wrapper = await mountSuspended(ProductVerifiedReviewsQa, {
+      props: { productId: 'p-1', productName: 'Desengrasante Ultra' }
+    })
+    await flushPromises()
+    expect(wrapper.get('h2').text()).toBe('Opiniones y preguntas')
+    expect(wrapper.get('section').attributes('aria-label')).toBe('Opiniones y preguntas de clientes')
+    expect(wrapper.find('[data-reviews-invite]').exists()).toBe(false)
   })
 })

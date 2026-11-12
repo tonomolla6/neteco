@@ -191,7 +191,38 @@ const { track } = useAnalytics()
 onMounted(() => {
   void track('product_viewed', { productId: product.value.id, variantId: selected.value.id })
 })
-const qty = ref((initialVariant ?? firstVariant).minimumQuantity)
+/**
+ * Cantidad por formato. Quien repone pide varios formatos a la vez, así que cada variante
+ * tiene la suya y un solo botón las añade todas. El formato elegido empieza en su mínimo y
+ * el resto en cero; mientras no se toque ninguna cantidad, elegir otro formato se lleva ese
+ * punto de partida consigo, de modo que «elegir y añadir» sigue funcionando como siempre.
+ */
+const quantities = reactive<Record<number, number>>({})
+const quantitiesTouched = ref(false)
+function variantMaximum(variant: ProductVariant) {
+  return Math.min(
+    MAX_CART_QUANTITY,
+    variant.maximumQuantity ?? Infinity,
+    variant.backorderAllowed ? Infinity : variant.stock
+  )
+}
+const variantOrderable = (variant: ProductVariant) =>
+  variant.minimumQuantity <= MAX_CART_QUANTITY && variantMaximum(variant) >= variant.minimumQuantity
+function startQuantities(focus: ProductVariant) {
+  for (const variant of product.value.variants) quantities[variant.id] = 0
+  if (variantOrderable(focus)) quantities[focus.id] = focus.minimumQuantity
+  quantitiesTouched.value = false
+}
+startQuantities(initialVariant ?? firstVariant)
+function setQuantity(variantId: number, value: number) {
+  quantities[variantId] = value
+  quantitiesTouched.value = true
+}
+/** Cantidad del formato elegido: la que rige su precio, su tramo y su entrega estimada. */
+const qty = computed({
+  get: () => Math.max(quantities[selected.value.id] ?? 0, selected.value.minimumQuantity),
+  set: (value: number) => setQuantity(selected.value.id, value)
+})
 function priceForQuantity(variant: ProductVariant, quantity: number) {
   let price = variant.price
   for (const tier of variant.priceTiers) if (quantity >= tier.minimumQuantity) price = tier.unitGrossCents
@@ -201,16 +232,43 @@ const selectedUnitGrossPrice = computed(() => priceForQuantity(selected.value, q
 const selectedUnitNetPrice = computed(
   () => splitGross(selectedUnitGrossPrice.value, selected.value.taxRateBasisPoints).netCents
 )
-const selectedLineNetPrice = computed(
-  () => splitGross(selectedUnitGrossPrice.value * qty.value, selected.value.taxRateBasisPoints).netCents
+const maximumQuantity = computed(() => variantMaximum(selected.value))
+
+/** Lo que se va a añadir: cada formato con cantidad, a su precio por tramo. */
+const orderLines = computed(() =>
+  product.value.variants
+    .filter((variant) => (quantities[variant.id] ?? 0) > 0 && variantOrderable(variant))
+    .map((variant) => {
+      const quantity = quantities[variant.id]!
+      const unitGross = priceForQuantity(variant, quantity)
+      return {
+        variant,
+        quantity,
+        unitGross,
+        gross: unitGross * quantity,
+        net: splitGross(unitGross * quantity, variant.taxRateBasisPoints).netCents
+      }
+    })
 )
-const maximumQuantity = computed(() =>
-  Math.min(
-    MAX_CART_QUANTITY,
-    selected.value.maximumQuantity ?? Infinity,
-    selected.value.backorderAllowed ? Infinity : selected.value.stock
+const orderTotal = computed(() =>
+  orderLines.value.reduce(
+    (total, line) => ({
+      units: total.units + line.quantity,
+      gross: total.gross + line.gross,
+      net: total.net + line.net
+    }),
+    { units: 0, gross: 0, net: 0 }
   )
 )
+/** «Se vende de 10 en 10»: solo se dice cuando el mínimo o el incremento no son uno. */
+const sellingRule = computed(() => {
+  const { minimumQuantity: minimum, quantityIncrement: increment } = selected.value
+  if (minimum === 1 && increment === 1) return ''
+  if (minimum === increment) return `Se vende de ${increment} en ${increment}.`
+  return increment === 1
+    ? `Pedido mínimo: ${minimum}.`
+    : `Pedido mínimo: ${minimum}; después, de ${increment} en ${increment}.`
+})
 const outOfStock = computed(
   () =>
     selected.value.minimumQuantity > MAX_CART_QUANTITY ||
@@ -236,6 +294,11 @@ const availability = computed(() => {
   return { label: 'Agotado', tone: 'unavailable' }
 })
 
+// La estimación por producto existe en el entorno Node; en Cloudflare la entrega se calcula
+// con el carrito, así que aquí no se enseña un formulario que no puede responder.
+const deliveryEstimateAvailable = computed(() => runtime.public.serverRuntime !== 'cloudflare')
+const deliveryMemory = useDeliveryDestination()
+const deliveryEditing = ref(true)
 const deliveryPostalCode = ref('')
 const deliveryCity = ref('')
 const deliveryLoading = ref(false)
@@ -277,6 +340,8 @@ async function calculateDelivery() {
     })
     deliveryQuote.value = quote
     if (!quote.rates.length) deliveryError.value = 'No hay un servicio contratado disponible para esa zona.'
+    else if (deliveryMemory.remember({ postalCode: deliveryPostalCode.value, city: deliveryCity.value }))
+      deliveryEditing.value = false
   } catch (error) {
     deliveryError.value = apiErrorMessage(error, 'No se puede confirmar una fecha de entrega para esa zona.')
   } finally {
@@ -287,10 +352,22 @@ async function calculateDelivery() {
 watch([selectedId, qty], () => {
   deliveryQuote.value = null
   deliveryError.value = ''
+  if (!deliveryEditing.value) void calculateDelivery()
+})
+onMounted(() => {
+  if (!deliveryEstimateAvailable.value) return
+  const known = deliveryMemory.restore()
+  if (!known) return
+  deliveryPostalCode.value = known.postalCode
+  deliveryCity.value = known.city
+  deliveryEditing.value = false
+  void calculateDelivery()
 })
 
 watch(selected, (variant) => {
-  qty.value = outOfStock.value ? variant.minimumQuantity : Math.min(variant.minimumQuantity, maximumQuantity.value)
+  // Con selector de color solo se pide el color elegido. En la tabla de formatos las
+  // cantidades son independientes: solo se mueve el punto de partida si nadie las ha tocado.
+  if (colorMode.value || !quantitiesTouched.value) startQuantities(variant)
 })
 
 const router = useRouter()
@@ -524,21 +601,6 @@ watch(
 )
 
 // precio informativo por unidad/litro/kilo del envase (estilo mayorista)
-/**
- * Disponibilidad por fila del selector, para poder descartar un formato agotado sin
- * tener que seleccionarlo primero. El indicador detallado de la variante elegida sigue
- * estando debajo; esto es la versión corta para comparar en vertical.
- */
-function rowAvailability(variant: ProductVariant) {
-  if (variant.stock >= variant.minimumQuantity) {
-    const low = Math.max(variant.minimumQuantity * 3, 5)
-    return variant.stock <= low
-      ? { label: 'Pocas uds.', class: 'text-amber-700' }
-      : { label: 'Disponible', class: 'text-emerald-700' }
-  }
-  if (variant.backorderAllowed) return { label: 'Bajo pedido', class: 'text-amber-700' }
-  return { label: 'Agotado', class: 'text-red-700' }
-}
 
 function perUnit(variant: ProductVariant, grossCents = variant.price): string | null {
   if (!variant.units || !variant.unitLabel) return null
@@ -585,41 +647,45 @@ async function addFavorite() {
   }
 }
 
-async function addToCart(goToCart = false) {
-  if (adding.value) return
+async function addToCart() {
+  if (adding.value || !orderLines.value.length) return
   adding.value = true
+  const lines = [...orderLines.value]
+  let current = lines[0]!
   try {
-    await cart.add(
-      {
-        productId: product.value.id,
-        slug: product.value.slug,
-        name: product.value.name,
-        brand: product.value.brand,
-        variantId: selected.value.id,
-        format: selected.value.format,
-        sku: selected.value.sku,
-        price: selectedUnitGrossPrice.value,
-        netPrice: selectedUnitNetPrice.value,
-        taxRateBasisPoints: selected.value.taxRateBasisPoints,
-        visual: product.value.visual,
-        image: selected.value.image ?? (colorMode.value ? null : product.value.image) ?? null
-      },
-      qty.value
-    )
-    if (goToCart) {
-      navigateTo('/checkout')
-    } else {
-      toast.add({
-        title: 'Añadido al carrito',
-        description: `${product.value.name} · ${selected.value.format} × ${qty.value}`,
-        icon: 'i-lucide-shopping-cart',
-        color: 'success'
-      })
+    for (const line of lines) {
+      current = line
+      await cart.add(
+        {
+          productId: product.value.id,
+          slug: product.value.slug,
+          name: product.value.name,
+          brand: product.value.brand,
+          variantId: line.variant.id,
+          format: line.variant.format,
+          sku: line.variant.sku,
+          price: line.unitGross,
+          netPrice: splitGross(line.unitGross, line.variant.taxRateBasisPoints).netCents,
+          taxRateBasisPoints: line.variant.taxRateBasisPoints,
+          visual: product.value.visual,
+          image: line.variant.image ?? (colorMode.value ? null : product.value.image) ?? null
+        },
+        line.quantity
+      )
     }
+    toast.add({
+      title: 'Añadido al carrito',
+      description:
+        lines.length === 1
+          ? `${product.value.name} · ${current.variant.format} × ${current.quantity}`
+          : `${product.value.name} · ${lines.length} formatos, ${orderTotal.value.units} uds`,
+      icon: 'i-lucide-shopping-cart',
+      color: 'success'
+    })
   } catch {
     toast.add({
       title: 'No se ha podido añadir',
-      description: cart.error || 'Actualiza la página y vuelve a intentarlo.',
+      description: `${current.variant.format}: ${cart.error || 'actualiza la página y vuelve a intentarlo.'}`,
       icon: 'i-lucide-triangle-alert',
       color: 'error'
     })
@@ -627,6 +693,12 @@ async function addToCart(goToCart = false) {
     adding.value = false
   }
 }
+
+/** Productos con información regulatoria: necesitan su ficha de seguridad a mano. */
+const regulated = computed(() => {
+  const info = product.value.regulatory ?? {}
+  return !!(info.signalWord || info.ufi || info.registrationNumber || info.hazardStatements?.length)
+})
 </script>
 
 <template>
@@ -733,7 +805,7 @@ async function addToCart(goToCart = false) {
       <div class="xl:col-span-5">
         <p
           v-if="product.brand && !product.name.toUpperCase().startsWith(product.brand.toUpperCase())"
-          class="text-xs font-semibold uppercase tracking-widest text-neteco-600"
+          class="text-[13px] font-medium text-[var(--text-muted)]"
         >
           {{ product.brand }}
         </p>
@@ -786,33 +858,55 @@ async function addToCart(goToCart = false) {
                 @click="selectedId = p.v.id"
               />
             </div>
-            <p class="mt-2.5 font-mono text-xs text-slate-500">Ref. {{ selected.sku }}</p>
+            <p class="tabular mt-2.5 text-[13px] font-medium text-[var(--text-muted)]">Ref. {{ selected.sku }}</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-[15px] font-semibold text-[var(--text-strong)]">Cantidad</span>
+            <QuantityStepper
+              v-model="qty"
+              :minimum="selected.minimumQuantity"
+              :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
+              :step="selected.quantityIncrement"
+              label="Cantidad"
+              :disabled="outOfStock"
+            />
           </div>
         </div>
 
         <!-- formatos -->
         <div v-else class="mt-6">
-          <VariantSelector
+          <VariantOrderTable
             v-model="selectedId"
             :variants="product.variants"
-            :columns="['Formato', 'Disponibilidad', showNetPrices ? 'Precio sin IVA' : 'Precio']"
+            :quantities="quantities"
+            :maximum="(variant) => (Number.isFinite(variantMaximum(variant)) ? variantMaximum(variant) : null)"
+            @quantity="setQuantity"
           >
             <template #default="{ variant: v }">
               <span class="min-w-0">
-                <span class="block truncate font-medium text-[var(--text-strong)]">{{ v.format }}</span>
-                <span class="block font-mono text-xs text-[var(--text-muted)]">Ref. {{ v.sku }}</span>
-              </span>
-              <span class="text-right text-xs" :class="rowAvailability(v).class">
-                {{ rowAvailability(v).label }}
+                <span class="block font-medium text-[var(--text-strong)]">{{ v.format }}</span>
+                <span class="tabular block text-[13px] text-[var(--text-muted)]">Ref. {{ v.sku }}</span>
+                <span
+                  class="mt-0.5 flex items-center gap-1 text-[13px] font-medium"
+                  :class="variantAvailability(v).tone"
+                >
+                  <UIcon :name="variantAvailability(v).icon" class="size-3.5 shrink-0" />
+                  {{ variantAvailability(v).label }}
+                </span>
               </span>
               <span class="text-right">
-                <span class="tabular block font-display font-bold text-[var(--text-strong)]">
+                <span class="tabular block font-display text-lg font-bold text-[var(--text-strong)]">
                   {{ formatPrice(showNetPrices ? v.netPrice : v.price) }}
                 </span>
-                <span v-if="perUnit(v)" class="tabular block text-xs text-[var(--text-muted)]">{{ perUnit(v) }}</span>
+                <span class="tabular block text-[13px] text-[var(--text-muted)]">
+                  {{ showNetPrices ? 'sin IVA' : 'IVA incluido'
+                  }}<template v-if="perUnit(v, showNetPrices ? v.netPrice : v.price)">
+                    · {{ perUnit(v, showNetPrices ? v.netPrice : v.price) }}</template
+                  >
+                </span>
               </span>
             </template>
-          </VariantSelector>
+          </VariantOrderTable>
         </div>
 
         <!-- otros colores/versiones de la gama -->
@@ -833,17 +927,6 @@ async function addToCart(goToCart = false) {
             </NuxtLink>
           </div>
         </div>
-
-        <section v-if="product.description || product.usage" class="mt-8 border-t border-[var(--border)] pt-6">
-          <h2 class="text-lg font-bold text-[var(--text-strong)]">Descripción</h2>
-          <p class="mt-3 whitespace-pre-line leading-relaxed text-[var(--text)]">{{ product.description }}</p>
-          <template v-if="product.usage">
-            <h3 class="mt-6 flex items-center gap-2 font-semibold text-[var(--text-strong)]">
-              <UIcon name="i-lucide-beaker" class="size-4 text-neteco-600" /> Modo de empleo y dosificación
-            </h3>
-            <p class="mt-2 leading-relaxed text-[var(--text)]">{{ product.usage }}</p>
-          </template>
-        </section>
       </div>
 
       <!-- Caja de compra fija, al estilo de las fichas de Amazon: precio, disponibilidad,
@@ -854,53 +937,61 @@ async function addToCart(goToCart = false) {
         <div
           class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 xl:sticky xl:top-24"
         >
-          <div class="flex flex-wrap items-center gap-4">
-            <QuantityStepper
-              v-model="qty"
-              :minimum="selected.minimumQuantity"
-              :maximum="Number.isFinite(maximumQuantity) ? maximumQuantity : null"
-              :step="selected.quantityIncrement"
-              label="Cantidad"
-            />
-            <div>
-              <p class="font-display text-2xl font-bold text-slate-900">
-                {{ formatPrice(showNetPrices ? selectedLineNetPrice : selectedUnitGrossPrice * qty) }}
-              </p>
-              <p class="text-xs text-slate-500">
-                <template v-if="showNetPrices">
-                  sin IVA · {{ formatPrice(selectedUnitGrossPrice * qty) }} con IVA ({{
-                    selected.taxRateBasisPoints / 100
-                  }}
-                  %)
-                </template>
-                <template v-else>IVA incluido ({{ selected.taxRateBasisPoints / 100 }} %)</template>
-                <template v-if="perUnit(selected, selectedUnitGrossPrice)">
-                  · {{ perUnit(selected, selectedUnitGrossPrice) }}</template
-                >
-              </p>
-            </div>
+          <div data-order-summary>
+            <p class="text-[13px] font-medium text-[var(--text-muted)]">
+              <template v-if="orderTotal.units">
+                {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds'
+                }}<template v-if="orderLines.length > 1"> · {{ orderLines.length }} formatos</template>
+              </template>
+              <template v-else>Indica una cantidad</template>
+            </p>
             <p
-              class="flex items-center gap-1.5 text-sm"
+              data-order-total
+              class="tabular font-display text-[1.625rem] font-bold leading-tight text-[var(--text-strong)] sm:text-3xl"
+            >
+              {{ formatPrice(showNetPrices ? orderTotal.net : orderTotal.gross) }}
+              <span class="font-sans text-[13px] font-medium text-[var(--text-muted)]">
+                {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+              </span>
+            </p>
+            <p class="tabular text-[13px] text-[var(--text-muted)]">
+              {{ formatPrice(showNetPrices ? orderTotal.gross : orderTotal.net) }}
+              {{ showNetPrices ? 'con IVA' : 'sin IVA' }} ({{ selected.taxRateBasisPoints / 100 }} %)
+              <template
+                v-if="
+                  orderLines.length <= 1 &&
+                  perUnit(selected, showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice)
+                "
+              >
+                · {{ perUnit(selected, showNetPrices ? selectedUnitNetPrice : selectedUnitGrossPrice) }}
+              </template>
+            </p>
+            <p
+              v-if="orderLines.length <= 1"
+              class="mt-2 flex items-center gap-1.5 text-[15px] font-medium"
               :class="
                 availability.tone === 'unavailable'
-                  ? 'text-red-700'
+                  ? 'text-[var(--stock-out)]'
                   : availability.tone === 'warning' || availability.tone === 'backorder'
-                    ? 'text-amber-700'
-                    : 'text-emerald-700'
+                    ? 'text-[var(--stock-low)]'
+                    : 'text-[var(--stock-ok)]'
               "
             >
-              <span
-                class="size-2 rounded-full"
-                :class="
+              <UIcon
+                :name="
                   availability.tone === 'unavailable'
-                    ? 'bg-red-600'
-                    : availability.tone === 'warning' || availability.tone === 'backorder'
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-600'
+                    ? 'i-lucide-circle-x'
+                    : availability.tone === 'warning'
+                      ? 'i-lucide-circle-alert'
+                      : availability.tone === 'backorder'
+                        ? 'i-lucide-clock'
+                        : 'i-lucide-circle-check'
                 "
+                class="size-4 shrink-0"
               />
               {{ availability.label }}
             </p>
+            <p v-if="sellingRule" class="mt-1 text-[13px] text-[var(--text-muted)]">{{ sellingRule }}</p>
           </div>
 
           <VolumePricingTable
@@ -917,67 +1008,79 @@ async function addToCart(goToCart = false) {
             anteriores: {{ formatPrice(selected.referencePrice30d) }}.
           </p>
 
+          <!-- Una sola acción principal. «Comprar ahora» se ha quitado: en reposición nadie compra
+               una sola referencia. «Guardar en lista» lleva su texto, no un corazón suelto. -->
           <div class="mt-5 flex flex-col gap-2">
-            <UButton
-              size="xl"
-              icon="i-lucide-shopping-cart"
-              class="justify-center"
-              :disabled="outOfStock || adding"
-              :loading="adding"
-              @click="addToCart(false)"
+            <button
+              type="button"
+              data-add-to-cart
+              :disabled="!orderLines.length || adding"
+              class="inline-flex h-12 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-5 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+              @click="addToCart"
             >
-              Añadir al carrito
-            </UButton>
-            <!-- «Comprar ahora» baja a secundario y «Favorito» a icono: antes los tres competían
-                 por ser la acción principal, con «Comprar ahora» en gris oscuro pesando incluso más
-                 que el azul de marca. Una sola acción principal por región. -->
+              <UIcon name="i-lucide-shopping-cart" class="size-5" />Añadir al carrito
+            </button>
             <UButton
-              size="xl"
+              data-save-to-list
+              size="lg"
               color="neutral"
               variant="outline"
-              class="justify-center"
-              :disabled="outOfStock || adding"
-              @click="addToCart(true)"
-            >
-              Comprar ahora
-            </UButton>
-            <UButton
-              size="xl"
-              color="neutral"
-              variant="ghost"
-              icon="i-lucide-heart"
-              aria-label="Guardar en mi lista de compra"
+              icon="i-lucide-list-plus"
               class="justify-center"
               @click="addFavorite"
-            />
+            >
+              Guardar en lista
+            </UButton>
           </div>
 
-          <section class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4" aria-labelledby="delivery-title">
-            <h2 id="delivery-title" class="text-sm font-semibold text-slate-800">¿Cuándo me llega?</h2>
-            <p class="mt-1 text-xs text-slate-500">
-              Dinos dónde y te damos la fecha estimada. La confirmamos al pagar.
+          <section
+            v-if="deliveryEstimateAvailable"
+            class="mt-5 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-4"
+            aria-labelledby="delivery-title"
+          >
+            <h2
+              id="delivery-title"
+              class="font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]"
+            >
+              ¿Cuándo me llega?
+            </h2>
+            <p v-if="!deliveryEditing" data-delivery-destination class="mt-1 text-[15px] text-[var(--text)]">
+              Entrega en {{ deliveryPostalCode }} {{ deliveryCity }}
+              <button
+                type="button"
+                data-delivery-change
+                class="ml-1 font-semibold text-[var(--link)] underline"
+                @click="deliveryEditing = true"
+              >
+                Cambiar
+              </button>
             </p>
-            <form class="mt-3 flex flex-col gap-2" @submit.prevent="calculateDelivery">
-              <label class="sr-only" for="delivery-postal-code">Código postal</label>
-              <UInput
-                id="delivery-postal-code"
-                v-model="deliveryPostalCode"
-                inputmode="numeric"
-                autocomplete="postal-code"
-                maxlength="5"
-                placeholder="Código postal"
-                class="w-full"
-              />
-              <label class="sr-only" for="delivery-city">Población</label>
-              <UInput
-                id="delivery-city"
-                v-model="deliveryCity"
-                autocomplete="address-level2"
-                placeholder="Población"
-                class="w-full"
-              />
-              <UButton type="submit" variant="outline" block :loading="deliveryLoading">Ver fecha estimada</UButton>
-            </form>
+            <template v-else>
+              <p class="mt-1 text-[13px] text-[var(--text-muted)]">
+                Dinos dónde una vez y te damos la fecha estimada. La confirmamos al pagar.
+              </p>
+              <form class="mt-3 flex flex-col gap-2" @submit.prevent="calculateDelivery">
+                <label class="sr-only" for="delivery-postal-code">Código postal</label>
+                <UInput
+                  id="delivery-postal-code"
+                  v-model="deliveryPostalCode"
+                  inputmode="numeric"
+                  autocomplete="postal-code"
+                  maxlength="5"
+                  placeholder="Código postal"
+                  class="w-full"
+                />
+                <label class="sr-only" for="delivery-city">Población</label>
+                <UInput
+                  id="delivery-city"
+                  v-model="deliveryCity"
+                  autocomplete="address-level2"
+                  placeholder="Población"
+                  class="w-full"
+                />
+                <UButton type="submit" variant="outline" block :loading="deliveryLoading">Ver fecha estimada</UButton>
+              </form>
+            </template>
             <p v-if="deliveryError" class="mt-2 text-sm text-amber-800" role="alert">{{ deliveryError }}</p>
             <ul v-else-if="deliveryQuote?.rates.length" class="mt-3 space-y-2" aria-live="polite">
               <li v-for="rate in deliveryQuote.rates" :key="rate.serviceCode" class="text-sm text-slate-700">
@@ -1005,6 +1108,98 @@ async function addToCart(goToCart = false) {
           </div>
         </div>
       </aside>
+
+      <!-- Documentos y seguridad junto a la compra: en un químico profesional la ficha de datos
+           de seguridad es requisito de compra, no letra pequeña al final de la página. -->
+      <section
+        v-if="technicalDocuments.length || regulated"
+        data-product-documents
+        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 xl:col-span-5 xl:col-start-5"
+        aria-labelledby="documents-title"
+      >
+        <h2 id="documents-title" class="text-lg font-bold text-[var(--text-strong)]">Documentos</h2>
+        <ul v-if="technicalDocuments.length" class="mt-3 flex flex-col gap-2">
+          <li v-for="document in technicalDocuments" :key="`${document.id}-${document.role}-${document.version}`">
+            <a
+              :href="document.url"
+              target="_blank"
+              rel="noopener"
+              class="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border-strong)] px-3 text-[15px] font-medium text-[var(--text-strong)] hover:border-[var(--action)] hover:text-[var(--action)]"
+            >
+              <UIcon name="i-lucide-file-down" class="size-4 shrink-0 text-[var(--text-muted)]" />
+              {{
+                document.role === 'sds'
+                  ? 'Ficha de datos de seguridad'
+                  : document.role === 'datasheet'
+                    ? 'Ficha técnica'
+                    : document.role === 'label'
+                      ? 'Etiqueta'
+                      : 'Certificado'
+              }}
+              <span class="text-[13px] font-normal text-[var(--text-muted)]">
+                PDF · v{{ document.version }}<template v-if="document.language"> · {{ document.language }}</template>
+              </span>
+            </a>
+          </li>
+        </ul>
+        <p
+          v-if="regulated && !technicalDocuments.some((document) => document.role === 'sds')"
+          class="mt-3 text-[15px] text-[var(--text)]"
+        >
+          Pídenos la ficha de seguridad: <a href="tel:600861334" class="font-semibold underline">600 861 334</a>.
+        </p>
+
+        <div v-if="regulated" data-product-safety class="mt-4 border-t border-[var(--border)] pt-4 text-[15px]">
+          <h3 class="font-semibold text-[var(--text-strong)]">Seguridad</h3>
+          <p v-if="product.regulatory.signalWord" class="mt-1 flex items-center gap-1.5">
+            <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0 text-[var(--stock-low)]" />
+            Palabra de advertencia: <strong>{{ product.regulatory.signalWord }}</strong>
+          </p>
+          <p v-if="product.regulatory.ufi" class="mt-1">
+            UFI: <strong class="tabular">{{ product.regulatory.ufi }}</strong>
+          </p>
+          <p v-if="product.regulatory.registrationNumber" class="mt-1">
+            Registro: <strong class="tabular">{{ product.regulatory.registrationNumber }}</strong>
+          </p>
+          <details
+            v-if="product.regulatory.hazardStatements?.length || product.regulatory.precautionaryStatements?.length"
+            class="mt-2"
+            open
+          >
+            <summary class="cursor-pointer font-medium text-[var(--link)] underline">
+              Indicaciones de peligro y consejos de prudencia
+            </summary>
+            <ul class="mt-2 list-disc pl-5 text-[var(--text)]">
+              <li v-for="statement in product.regulatory.hazardStatements ?? []" :key="statement">
+                {{ statement }}
+              </li>
+              <li v-for="statement in product.regulatory.precautionaryStatements ?? []" :key="statement">
+                {{ statement }}
+              </li>
+            </ul>
+          </details>
+        </div>
+      </section>
+      <!-- SHP-029: peligros químicos/ADR de la variante elegida, siempre visibles -->
+      <AdrHazardNotice
+        v-if="engagementEnabled"
+        :variant-id="String(selected.id)"
+        class="xl:col-span-5 xl:col-start-5"
+      />
+
+      <section
+        v-if="product.description || product.usage"
+        class="border-t border-[var(--border)] pt-6 xl:col-span-5 xl:col-start-5"
+      >
+        <h2 class="text-lg font-bold text-[var(--text-strong)]">Descripción</h2>
+        <p class="mt-3 whitespace-pre-line leading-relaxed text-[var(--text)]">{{ product.description }}</p>
+        <template v-if="product.usage">
+          <h3 class="mt-6 flex items-center gap-2 font-semibold text-[var(--text-strong)]">
+            <UIcon name="i-lucide-beaker" class="size-4 text-[var(--text-muted)]" /> Modo de empleo y dosificación
+          </h3>
+          <p class="mt-2 leading-relaxed text-[var(--text)]">{{ product.usage }}</p>
+        </template>
+      </section>
     </div>
 
     <!-- ficha técnica -->
@@ -1049,11 +1244,9 @@ async function addToCart(goToCart = false) {
             <dt class="text-slate-500">Unidades por envase</dt>
             <dd class="font-medium text-slate-700">{{ selected.units }}</dd>
           </div>
-          <div class="flex justify-between py-2">
-            <dt class="text-slate-500">Pedido mínimo / incremento</dt>
-            <dd class="font-medium text-slate-700">
-              {{ selected.minimumQuantity }} / {{ selected.quantityIncrement }}
-            </dd>
+          <div v-if="sellingRule" class="flex justify-between py-2">
+            <dt class="text-slate-500">Venta</dt>
+            <dd class="font-medium text-slate-700">{{ sellingRule }}</dd>
           </div>
           <div v-if="selected.unitsPerCase > 1" class="flex justify-between py-2">
             <dt class="text-slate-500">Unidades por caja</dt>
@@ -1081,64 +1274,17 @@ async function addToCart(goToCart = false) {
             <dd class="font-medium text-slate-700">{{ product.breadcrumb.at(-1)?.name }}</dd>
           </div>
         </dl>
-        <div
-          v-if="technicalDocuments.length || runtime.public.appEnv !== 'production'"
-          class="mt-4 rounded-xl bg-slate-50 p-3 text-xs text-slate-500"
+        <UButton
+          v-if="datasheet && runtime.public.appEnv !== 'production'"
+          :href="datasheet"
+          target="_blank"
+          variant="soft"
+          size="sm"
+          icon="i-lucide-file-down"
+          class="mt-4"
         >
-          <p class="flex items-center gap-1.5 font-medium text-slate-600">
-            <UIcon name="i-lucide-file-text" class="size-4" /> Fichas técnicas y de seguridad
-          </p>
-          <UButton
-            v-if="datasheet && runtime.public.appEnv !== 'production'"
-            :href="datasheet"
-            target="_blank"
-            variant="soft"
-            size="sm"
-            icon="i-lucide-file-down"
-            class="mt-2"
-          >
-            Descargar ficha técnica (PDF)
-          </UButton>
-          <ul v-if="technicalDocuments.length" class="mt-2 space-y-2">
-            <li v-for="document in technicalDocuments" :key="`${document.id}-${document.role}-${document.version}`">
-              <UButton :href="document.url" target="_blank" variant="soft" size="sm" icon="i-lucide-file-down">
-                {{
-                  document.role === 'sds'
-                    ? 'Ficha de datos de seguridad'
-                    : document.role === 'datasheet'
-                      ? 'Ficha técnica'
-                      : document.role === 'label'
-                        ? 'Etiqueta'
-                        : 'Certificado'
-                }}
-                · v{{ document.version }}<template v-if="document.language"> · {{ document.language }}</template>
-              </UButton>
-            </li>
-          </ul>
-          <p v-else-if="!datasheet" class="mt-1">
-            Pídenos la ficha de seguridad: <a href="tel:600861334" class="font-medium underline">600 861 334</a>.
-          </p>
-        </div>
-        <div
-          v-if="product.regulatory.signalWord || product.regulatory.ufi || product.regulatory.registrationNumber"
-          class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
-        >
-          <h3 class="font-bold">Información de seguridad del producto</h3>
-          <p v-if="product.regulatory.signalWord" class="mt-1">
-            Palabra de advertencia: <strong>{{ product.regulatory.signalWord }}</strong>
-          </p>
-          <p v-if="product.regulatory.ufi">
-            UFI: <strong>{{ product.regulatory.ufi }}</strong>
-          </p>
-          <p v-if="product.regulatory.registrationNumber">
-            Registro: <strong>{{ product.regulatory.registrationNumber }}</strong>
-          </p>
-          <ul v-if="product.regulatory.hazardStatements?.length" class="mt-2 list-disc pl-5">
-            <li v-for="statement in product.regulatory.hazardStatements" :key="statement">{{ statement }}</li>
-          </ul>
-        </div>
-        <!-- SHP-029: peligros químicos/ADR de la variante elegida, siempre visibles -->
-        <AdrHazardNotice v-if="engagementEnabled" :variant-id="String(selected.id)" />
+          Descargar ficha técnica (PDF)
+        </UButton>
       </div>
     </div>
 
@@ -1187,26 +1333,31 @@ async function addToCart(goToCart = false) {
       :context-key="selectedId"
     />
 
-    <!-- barra de compra fija (móvil) -->
+    <!-- barra de compra fija (móvil): unidades, total y la misma acción que la caja de compra -->
     <div
-      class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-slate-200 bg-white px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(15,23,42,0.06)] lg:hidden"
+      data-mobile-buy-bar
+      class="fixed inset-x-0 bottom-0 z-30 flex items-center gap-3 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[var(--shadow-overlay)] lg:hidden"
     >
       <div class="min-w-0">
-        <p class="truncate text-xs text-slate-500">{{ selected.format }}</p>
-        <p class="font-display text-lg font-bold text-slate-900">
-          {{ formatPrice(showNetPrices ? selectedLineNetPrice : selectedUnitGrossPrice * qty) }}
+        <p class="truncate text-[13px] text-[var(--text-muted)]">
+          <template v-if="orderTotal.units">
+            {{ orderTotal.units }} {{ orderTotal.units === 1 ? 'ud' : 'uds' }} ·
+            {{ showNetPrices ? 'sin IVA' : 'IVA incluido' }}
+          </template>
+          <template v-else>Indica una cantidad</template>
+        </p>
+        <p class="tabular font-display text-lg font-bold text-[var(--text-strong)]">
+          {{ formatPrice(showNetPrices ? orderTotal.net : orderTotal.gross) }}
         </p>
       </div>
-      <UButton
-        size="lg"
-        icon="i-lucide-shopping-cart"
-        class="flex-1 justify-center"
-        :disabled="outOfStock || adding"
-        :loading="adding"
-        @click="addToCart(false)"
+      <button
+        type="button"
+        :disabled="!orderLines.length || adding"
+        class="inline-flex h-12 flex-1 items-center justify-center gap-2 rounded-[var(--radius-control)] bg-[var(--action)] px-4 font-semibold text-white transition-colors hover:bg-[var(--action-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+        @click="addToCart"
       >
-        Añadir al carrito
-      </UButton>
+        <UIcon name="i-lucide-shopping-cart" class="size-5" />Añadir al carrito
+      </button>
     </div>
   </div>
 </template>

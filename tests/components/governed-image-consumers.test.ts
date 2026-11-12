@@ -679,9 +679,10 @@ describe('governed image consumer boundaries', () => {
     await openPdpLightbox(wrapper)
     expect(imageApiMock).toHaveBeenCalledWith(legacy, { format: 'webp', quality: 85, width: 1800 })
     expect(pdpDialog().get('img').attributes('src')).toBe(`/node-image-test?source=${encodeURIComponent(legacy)}`)
+    // Governed documents sit next to the purchase; the legacy demo datasheet stays in the spec card below.
     expect(wrapper.findAll('a[target="_blank"]').map((link) => link.attributes('href'))).toEqual([
-      '/doc/node-legacy.pdf',
-      'https://legacy.example.invalid/sds.pdf'
+      'https://legacy.example.invalid/sds.pdf',
+      '/doc/node-legacy.pdf'
     ])
   })
 
