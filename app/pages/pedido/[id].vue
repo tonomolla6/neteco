@@ -6,6 +6,7 @@ import OrderFiscalSection from '~/components/OrderFiscalSection.vue'
 import OrderRefundPanel from '~/components/refunds/OrderRefundPanel.vue'
 import CustomerSatisfactionPanel from '~/components/CustomerSatisfactionPanel.vue'
 import OrderTrackingPanel from '~/components/OrderTrackingPanel.vue'
+import BeplyOrderPanel from '~/components/BeplyOrderPanel.vue'
 import { readOrderDetail } from '~/utils/orderDetail'
 import { supportUuid } from '~~/shared/support-operations'
 
@@ -814,6 +815,13 @@ async function copyReference(value: string) {
       <UButton to="/catalogo" variant="link" color="neutral" icon="i-lucide-arrow-left">Seguir comprando</UButton>
     </div>
 
+    <BeplyOrderPanel
+      v-if="trackingReady && !isViewOnly"
+      :order-id="order.id"
+      audience="customer"
+      :scope-key="originalTrackingScope"
+      :enabled="trackingReady && !isViewOnly"
+    />
     <OrderTrackingPanel
       v-if="trackingReady"
       :order-id="order.id"

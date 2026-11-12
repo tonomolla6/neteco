@@ -97,6 +97,13 @@ import { handleAdminReturnsHttp, ownsAdminReturnsNamespace } from './returns/adm
 import { handleCustomerReturnsHttp, ownsCustomerReturnsNamespace } from './returns/customer-http'
 import { handleD1FiscalRequest, ownsFiscalNamespace } from './fiscal/http'
 import { dispatchFiscalRuntime } from './fiscal/runtime-dispatch'
+import { handleBeplyOrdersRequest, ownsBeplyOrdersNamespace } from './integrations/beply-orders-http'
+import {
+  beplyOrdersRuntimeProvider,
+  consumeBeplyOrdersMessage,
+  dispatchConfiguredBeplyOrders,
+  type BeplyOrdersVariables
+} from './integrations/beply-orders-runtime'
 import { createFiscalPdfStorage } from './runtime/fiscal-pdf-storage'
 import {
   cmsRuntimeDependencies,
@@ -806,6 +813,22 @@ const canaryWorker = {
       )
       console.log(JSON.stringify({ event: 'fiscal.outbox.publish', ...fiscal }))
     })
+    await stage('beply.orders', async () => {
+      const result = await dispatchConfiguredBeplyOrders(
+        {
+          database: env.DB,
+          queue: {
+            send: async (message) => {
+              await env.ASYNC_JOBS.send(message)
+            }
+          },
+          fetcher: fetch
+        },
+        env as CloudflareEnv & BeplyOrdersVariables,
+        { now, limit: 10 }
+      )
+      console.log(JSON.stringify({ event: 'beply.orders.dispatch', ...result }))
+    })
     await stage('fiscal.runtime', async () => {
       const issuance = await runConfiguredFiscalRuntime(env)
       console.log(JSON.stringify({ event: 'fiscal.runtime.dispatch', ...issuance }))
@@ -930,6 +953,18 @@ const canaryWorker = {
     const demoLogin = await handleDemoLoginRequest(request, env)
     if (demoLogin) return demoLogin
     const earlyPath = new URL(request.url).pathname
+    if (ownsBeplyOrdersNamespace(earlyPath)) {
+      const blocked = await mountGuard(request, env, isAdministrativePath(earlyPath), 'admin-orders')
+      if (blocked) return blocked
+      return (
+        (await handleBeplyOrdersRequest(request, {
+          database: env.DB,
+          sessionCookieConfiguration: mountSession(env),
+          origin: env.AUTH_ORIGIN,
+          now: serverNow
+        })) ?? noStoreJson({ error: { code: 'not_found' } }, 404)
+      )
+    }
     // Dynamic Open Graph cards (/og/<kind>/<slug>.png): public, anonymous, cached and with a static fallback.
     if (parseOgImagePath(earlyPath)) {
       const card = await handleOgImageHttp(
@@ -3659,10 +3694,26 @@ const canaryWorker = {
   },
 
   async queue(batch: MessageBatch, env: CloudflareEnv): Promise<void> {
+    const isBeplyOrder = (body: unknown): boolean =>
+      body !== null && typeof body === 'object' && 'type' in body && body.type === 'beply.order.sync'
+    // Keep Beply transport serial even though unrelated queue families below
+    // can run concurrently. D1 work and provider identity survive redelivery.
+    for (const message of batch.messages) {
+      if (!isBeplyOrder(message.body)) continue
+      try {
+        const provider = beplyOrdersRuntimeProvider(env as CloudflareEnv & BeplyOrdersVariables, fetch)
+        if (provider)
+          await consumeBeplyOrdersMessage(env.DB, provider, message.body, { enabled: true, now: serverNow() })
+        message.ack()
+      } catch {
+        message.retry({ delaySeconds: 60 })
+      }
+    }
     const processedInBatch = new Set<string>()
     let bulkProcessed = 0
     await Promise.all(
       batch.messages.map(async (message) => {
+        if (isBeplyOrder(message.body)) return
         if (
           message.body &&
           typeof message.body === 'object' &&

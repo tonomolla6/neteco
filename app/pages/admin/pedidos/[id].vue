@@ -6,6 +6,7 @@ import OrderRefundPanel from '~/components/refunds/OrderRefundPanel.vue'
 import AdminRefundActions from '~/components/refunds/AdminRefundActions.vue'
 import OrderTimelinePanel from '~/components/OrderTimelinePanel.vue'
 import OrderTrackingPanel from '~/components/OrderTrackingPanel.vue'
+import BeplyOrderPanel from '~/components/BeplyOrderPanel.vue'
 import OrderCancellationPanel from '~/components/OrderCancellationPanel.vue'
 import OrderAnnotationsPanel from '~/components/OrderAnnotationsPanel.vue'
 import { orderCancellationReceiptSchema } from '~~/shared/order-cancellation'
@@ -858,6 +859,14 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
           </UiSurface>
 
           <!-- Traza -->
+          <BeplyOrderPanel
+            v-if="timelineReady"
+            :order-id="orderId"
+            audience="admin"
+            :scope-key="originalTimelineScope"
+            :enabled="timelineReady"
+            :pending="financialCommandPending || cancellationPending || annotationsPending || fulfillmentCommandPending"
+          />
           <OrderTrackingPanel
             v-if="timelineReady"
             :order-id="orderId"
