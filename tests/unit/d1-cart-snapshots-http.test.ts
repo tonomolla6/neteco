@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
@@ -12,6 +11,7 @@ import {
   sharedCartResolveResponseSchema
 } from '../../shared/cart-snapshots'
 import { handleCustomerCartSnapshotsHttp } from '../../workers/catalog/cart-snapshots-http'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://cart-snapshots-http.neteco.test'
 const root = '/api/account/cart-snapshots'
@@ -53,7 +53,7 @@ beforeEach(async () => {
     variantId: 'v-1-1',
     quantity: 2,
     expectedVersion: 1,
-    idempotencyKey: randomUUID(),
+    idempotencyKey: testUuid(),
     now: utc(),
     correlationId: 'snapshot-http-fixture'
   })
@@ -102,7 +102,7 @@ async function call(
 }
 let commandKey: string
 beforeEach(() => {
-  commandKey = randomUUID()
+  commandKey = testUuid()
 })
 function cartState() {
   return [
@@ -122,7 +122,7 @@ it('rejects a frozen cart A header with cart B credentials before creating any l
     variantId: 'v-1-1',
     quantity: 2,
     expectedVersion: 1,
-    idempotencyKey: randomUUID(),
+    idempotencyKey: testUuid(),
     now: utc(),
     correlationId: 'snapshot-replacement-cart'
   })
@@ -226,7 +226,7 @@ it('revokes monotonically by owner session alone and makes public resolution uni
   const created = await call()
   expect(created.status).toBe(201)
   const share = cartSnapshotResponseSchema.parse(await created.json()).share!
-  commandKey = randomUUID()
+  commandKey = testUuid()
   const response = await call(`${root}/${share.id}/revoke`, { value: {}, headers: { Cookie: sessionCookie } })
   expect(response.status).toBe(200)
   const receipt = await response.json()
@@ -267,9 +267,9 @@ it('does not list or revoke another customer share even when its UUID is known',
   const created = await call()
   expect(created.status).toBe(201)
   const result = cartSnapshotResponseSchema.parse(await created.json())
-  const identityId = randomUUID(),
-    sessionId = randomUUID(),
-    customerId = randomUUID(),
+  const identityId = testUuid(),
+    sessionId = testUuid(),
+    customerId = testUuid(),
     now = utc()
   fixture.sqlite
     .prepare("INSERT INTO customers(id,name,created_at,updated_at) VALUES(?,'Other synthetic customer',?,?)")

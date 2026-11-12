@@ -6,6 +6,7 @@ import { runCmsSchedules } from '../../workers/cms/schedules'
 import { madridDateTimeParts } from '../../server/utils/madrid-calendar'
 import { readCmsPublicPage } from '../../workers/cms/public-http'
 import { handleCmsMediaHttp } from '../../workers/cms/media-delivery'
+import { testUuid } from '../support/deterministic'
 describe('independent CMS media associations and owned bytes', () => {
   let f: Awaited<ReturnType<typeof cmsImageFixture>>
   beforeEach(async () => {
@@ -117,7 +118,7 @@ describe('independent CMS media associations and owned bytes', () => {
         "INSERT INTO media_scan_receipts(id,upload_id,checksum,object_key,byte_size,verdict,scanner_version,scanned_at,expires_at,received_at,payload_hash) VALUES (?,?,?,?,?,'infected',?,?,?,?,?)"
       )
       .run(
-        crypto.randomUUID(),
+        testUuid(),
         scan.upload_id,
         scan.checksum,
         scan.object_key,
@@ -139,7 +140,7 @@ describe('independent CMS media associations and owned bytes', () => {
       .prepare(
         "INSERT INTO media_rights_decisions(id,upload_id,decision,reason,actor_id,rights_owner,rights_license,created_at,idempotency_key,payload_hash) VALUES (?,?,'rejected','Rights explicitly denied',?,'','',?,?,?)"
       )
-      .run(crypto.randomUUID(), f.id, CMS_IDENTITY, cmsUtc(), crypto.randomUUID(), old.payload_hash)
+      .run(testUuid(), f.id, CMS_IDENTITY, cmsUtc(), testUuid(), old.payload_hash)
     expect((await handleCmsMediaHttp(new Request('https://cms.neteco.invalid' + url), f.deps))?.status).toBe(404)
     await executeCmsPublicationCommand(
       f.deps,

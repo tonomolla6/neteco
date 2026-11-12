@@ -1,5 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -11,10 +11,12 @@ import {
   adminAuditReceiptSchema,
   adminAuditHash
 } from '../../shared/admin-audit'
-import { adminAuditFixture, ADMIN, RECIPIENT } from './d1-admin-audit-fixture'
+import { adminAuditFixture, ADMIN_AUDIT_CONFIGURATION, ADMIN, RECIPIENT } from './d1-admin-audit-fixture'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
+import { testUuid, testNow } from '../support/deterministic'
 
 it('reads a real invitation audit source, reviews and exports through canary SOURCE/workerd D1/all current migrations with current authority and zero outbound', async () => {
-  const fixture = await adminAuditFixture()
+  let fixture: Awaited<ReturnType<typeof adminAuditFixture>> | undefined
   const outbound = vi.fn(() => {
     throw new Error('unexpected_outbound')
   })
@@ -38,8 +40,7 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         name: 'admin-audit-native',
-        modules: true,
-        script: bundle.outputFiles[0]!.text,
+        ...bundle.nativeSource,
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         cf: false,
@@ -50,7 +51,7 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
           AUTH_ENABLED: 'true',
           EMAIL_ENABLED: 'false',
           AUTH_ORIGIN: origin,
-          NUXT_SESSION_PASSWORD: fixture.configuration.password,
+          NUXT_SESSION_PASSWORD: ADMIN_AUDIT_CONFIGURATION.password,
           AUTH_TOKEN_PEPPER: 'synthetic-admin-audit-native-token-pepper-32',
           AUTH_RATE_LIMIT_PEPPER: 'synthetic-admin-audit-native-rate-pepper-32',
           AUTH_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64')
@@ -64,6 +65,8 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
       })
     )
     const db = (await runtime.getD1Database('DB')) as unknown as D1Database
+    await syncNativeTestClock(db)
+    fixture = await adminAuditFixture()
     const files = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(files).toContain('0084_admin_audit.sql')
     expect(files).toContain('0085_admin_order_views.sql')
@@ -94,7 +97,7 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
     }
     const cookie = (await issueD1SessionCookie(db, ADMIN, fixture.configuration))!.split(';')[0]!
     const foreign = (await issueD1SessionCookie(db, RECIPIENT, fixture.configuration))!.split(';')[0]!
-    const send = (path: string, body?: unknown, key = crypto.randomUUID(), session = cookie) =>
+    const send = (path: string, body?: unknown, key = testUuid(), session = cookie) =>
       runtime!.dispatchFetch(origin + path, {
         method: body === undefined ? 'GET' : 'POST',
         headers: {
@@ -106,7 +109,7 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
         },
         body: body === undefined ? undefined : JSON.stringify(body)
       })
-    const sourceKey = crypto.randomUUID()
+    const sourceKey = testUuid()
     const created = await send('/api/admin/invitations', fixture.input, sourceKey)
     expect(created.status).toBe(201)
     const eventId = 'admin_invitation:' + sourceKey
@@ -115,7 +118,7 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
     const list = adminAuditListSchema.parse(await listResponse.json())
     expect(list.items.map((item) => item.id)).toEqual([eventId])
     const path = '/api/admin/audit/' + encodeURIComponent(eventId)
-    const reviewKey = crypto.randomUUID(),
+    const reviewKey = testUuid(),
       body = { expectedVersion: 0, disposition: 'reviewed', reason: 'Revisión sintética explícita del registro.' }
     const reviewResponse = await send(path + '/reviews', body, reviewKey)
     expect(reviewResponse.status).toBe(201)
@@ -175,12 +178,12 @@ it('reads a real invitation audit source, reviews and exports through canary SOU
     expect(await snapshot()).toEqual(before)
     await db
       .prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?')
-      .bind(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), ADMIN.sessionId)
+      .bind(new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'), ADMIN.sessionId)
       .run()
     expect((await send(`/api/admin/audit/exports/${exported.commandId}/download`)).status).toBe(401)
     expect(outbound).not.toHaveBeenCalled()
   } finally {
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
     await runtime?.dispose()
   }
 }, 120000)

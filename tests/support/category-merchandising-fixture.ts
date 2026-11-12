@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { d1OverSqlite, openAccountSecurityDatabase } from './d1-sqlite'
+import { testUuid, testNow } from './deterministic'
 
 /** Full migrated schema plus a deterministic catalogue. Every instant is relative to the real clock. */
 export const MER_ADMIN = '10000000-0000-4000-8000-0000000c0001'
@@ -9,7 +10,7 @@ export const MER_ROOT = '30000000-0000-4000-8000-0000000c0001'
 export const MER_CHILD = '30000000-0000-4000-8000-0000000c0002'
 export const MER_DRAFT_CATEGORY = '30000000-0000-4000-8000-0000000c0003'
 export const merProduct = (n: number) => `40000000-0000-4000-8000-0000000c00${String(n).padStart(2, '0')}`
-export const merUtc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+export const merUtc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const DAY = 86_400_000
 
 export interface MerProductSpec {
@@ -95,7 +96,7 @@ export async function merchandisingWorld() {
   }
   /** Synthetic paid order line (FKs off for the minimal row). */
   function paidPurchase(n: number, at: string, quantity = 1, paid = true) {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     sqlite.exec('PRAGMA foreign_keys=OFF')
     sqlite
       .prepare(

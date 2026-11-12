@@ -3,6 +3,7 @@ import { handleAdminFulfillmentHttp } from '../../workers/fulfillment/admin-http
 import { handleOrderTrackingHttp } from '../../workers/fulfillment/tracking-http'
 import { trackingFixture, BUYER, CLAIMS, configuration } from './d1-order-tracking-http-fixture'
 import { orderTrackingSchema } from '../../shared/order-tracking'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://tracking.neteco.test',
   id = '10000000-0000-4000-8000-000000000069'
@@ -129,7 +130,7 @@ describe('tracking HTTP with actual checkout, paid assignment and manual packing
   it('uses uniform404 for wrong owner/order and never falls back from an authenticated stranger to a guest grant', async () => {
     for (const [orderId, cookie] of [
       [fixture.ownedOrderId, fixture.foreignCookie],
-      [crypto.randomUUID(), fixture.buyerCookie],
+      [testUuid(), fixture.buyerCookie],
       [fixture.ownedOrderId, fixture.guestCookie],
       [fixture.guestOrderId, fixture.foreignCookie + '; ' + fixture.guestCookie]
     ]) {

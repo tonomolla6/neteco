@@ -3,6 +3,7 @@ import { dispatchAdminOrderBulkRequests, consumeAdminOrderBulkMessage } from '..
 import { readFile } from 'node:fs/promises'
 import { fulfillmentFixture, CLAIMS, ACTOR, REASON, utc } from './d1-fulfillment-fixture'
 import { previewD1AdminOrderBulk, createD1AdminOrderBulk, readD1AdminOrderBulk } from '../../workers/fulfillment/bulk'
+import { testUuid } from '../support/deterministic'
 
 describe('bounded bulk fulfillment runtime boundary', () => {
   const forbiddenDatabase = () =>
@@ -27,7 +28,7 @@ describe('bounded bulk fulfillment runtime boundary', () => {
     expect(
       await consumeAdminOrderBulkMessage(
         database,
-        { type: 'admin.order-bulk.requested', groupId: crypto.randomUUID(), dispatchId: crypto.randomUUID() },
+        { type: 'admin.order-bulk.requested', groupId: testUuid(), dispatchId: testUuid() },
         { enabled: false }
       )
     ).toBe('disabled')
@@ -37,12 +38,12 @@ describe('bounded bulk fulfillment runtime boundary', () => {
     const database = forbiddenDatabase()
     for (const raw of [
       null,
-      { type: 'admin.order-bulk.requested', groupId: 'invalid', dispatchId: crypto.randomUUID() },
+      { type: 'admin.order-bulk.requested', groupId: 'invalid', dispatchId: testUuid() },
       {
         type: 'admin.order-bulk.requested',
-        groupId: crypto.randomUUID(),
-        dispatchId: crypto.randomUUID(),
-        actorId: crypto.randomUUID()
+        groupId: testUuid(),
+        dispatchId: testUuid(),
+        actorId: testUuid()
       }
     ])
       expect(await consumeAdminOrderBulkMessage(database, raw, { enabled: true })).toBe('invalid')
@@ -74,7 +75,7 @@ describe('bounded bulk fulfillment runtime boundary', () => {
         reason: REASON,
         previewHash: preview.previewHash
       }
-      const receipt = await createD1AdminOrderBulk(f.database, CLAIMS, input, { idempotencyKey: crypto.randomUUID() })
+      const receipt = await createD1AdminOrderBulk(f.database, CLAIMS, input, { idempotencyKey: testUuid() })
       const message = { type: 'admin.order-bulk.requested', groupId: receipt.groupId, dispatchId: receipt.dispatchId }
       const before = f.sqlite.prepare('SELECT * FROM inventory_balances ORDER BY rowid').all()
       const unavailable = {

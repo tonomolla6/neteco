@@ -19,6 +19,7 @@ import { provisionPublicationValidityFixture } from '../support/publication-vali
 import { fulfillmentFixture, CLAIMS as fulfillmentClaims } from './d1-fulfillment-fixture'
 import ExcelJS from 'exceljs'
 import { exportCatalogSnapshotXlsx } from '../../app/utils/catalog-export-xlsx.client'
+import { testUuid, testNow } from '../support/deterministic'
 
 const claims = {
   identityId: '0053ce00-0000-4000-8000-000000000001',
@@ -26,7 +27,7 @@ const claims = {
   sessionVersion: 1
 }
 const role = 'catalog-export-adversarial'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('read-only catalog snapshot independent SQLite authority audit', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -362,7 +363,7 @@ describe('read-only catalog snapshot independent SQLite authority audit', () => 
         `INSERT INTO product_media_publication_events(id,publication_id,event_type,reason,actor_id,created_at,idempotency_key,payload_hash)
       VALUES (?,?,'withdrawn','Synthetic local withdrawal',?,?,?,?)`
       )
-      .run(crypto.randomUUID(), publication.id, claims.identityId, utc(), crypto.randomUUID(), 'a'.repeat(64))
+      .run(testUuid(), publication.id, claims.identityId, utc(), testUuid(), 'a'.repeat(64))
     addPrices(2)
     sqlite
       .prepare(

@@ -8,8 +8,9 @@ import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { listPublishedProducts } from '../../workers/catalog/products'
 import { publicationValidityExpression } from '../../workers/catalog/publication-validity'
 import { authorizeD1Session } from '../../workers/catalog/authorization'
+import { testNow } from '../support/deterministic'
 
-const utc = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 async function world() {
   const sqlite = await openMigratedDatabase()
   sqlite.limits.exprDepth = 100
@@ -47,7 +48,7 @@ async function world() {
         size: bytes.length,
         etag: hash,
         httpEtag: `"${hash}"`,
-        uploaded: new Date(),
+        uploaded: new Date(testNow()),
         storageClass: 'Standard',
         checksums: { sha256: checksum, toJSON: () => ({}) },
         writeHttpMetadata() {}

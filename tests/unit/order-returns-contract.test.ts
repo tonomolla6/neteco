@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { returnRequestInputSchema, returnTransitionInputSchema, allowedReturnActions } from '../../shared/order-returns'
+import { testUuid } from '../support/deterministic'
 
 const reason = 'Documented operational review only'
 describe('native custody RMA strict contracts', () => {
@@ -19,8 +20,8 @@ describe('native custody RMA strict contracts', () => {
         { lineIndex: 0, quantity: 1 }
       ]
     },
-    { expectedVersion: 0, reason, lines: [{ orderLineId: crypto.randomUUID(), quantity: 1 }] },
-    { expectedVersion: 0, reason, lines: [{ lineIndex: 0, quantity: 1 }], customerId: crypto.randomUUID() }
+    { expectedVersion: 0, reason, lines: [{ orderLineId: testUuid(), quantity: 1 }] },
+    { expectedVersion: 0, reason, lines: [{ lineIndex: 0, quantity: 1 }], customerId: testUuid() }
   ])('rejects malformed or externally owned request %#', (value) => {
     expect(returnRequestInputSchema.safeParse(value).success).toBe(false)
   })

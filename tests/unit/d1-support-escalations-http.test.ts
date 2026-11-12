@@ -1,17 +1,41 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { supportFixture, ORIGIN } from './d1-support-fixture'
 import { handleSupportEscalationsHttp } from '../../workers/support/escalations-http'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_support_http_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_http_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_support_http_clock()'))
+      return database
+    }
+  }
+})
 
 describe('SUP-006 private HTTP boundary', () => {
   let f: Awaited<ReturnType<typeof supportFixture>>
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await supportFixture()
     f.sqlite.exec(
       await readFile(new URL('../../db/d1/migrations/0079_support_escalations.sql', import.meta.url), 'utf8')
     )
   })
-  afterEach(() => f.sqlite.close())
+  afterEach(() => {
+    f?.sqlite.close()
+    vi.useRealTimers()
+  })
   async function request(
     path: string,
     options: {
@@ -27,9 +51,7 @@ describe('SUP-006 private HTTP boundary', () => {
       headers: {
         cookie: options.cookie ?? f.adminCookie,
         origin: options.origin ?? ORIGIN,
-        ...(options.body === undefined
-          ? {}
-          : { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }),
+        ...(options.body === undefined ? {} : { 'content-type': 'application/json', 'idempotency-key': testUuid() }),
         ...options.headers
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -73,7 +95,7 @@ describe('SUP-006 private HTTP boundary', () => {
   it('requires same origin, strict query, bounded body and known verbs', async () => {
     expect(
       (
-        await request('/api/admin/support/escalations/runbooks/' + crypto.randomUUID() + '/commands', {
+        await request('/api/admin/support/escalations/runbooks/' + testUuid() + '/commands', {
           method: 'POST',
           body: {},
           origin: 'https://foreign.invalid'
@@ -84,7 +106,7 @@ describe('SUP-006 private HTTP boundary', () => {
     expect((await request('/api/admin/support/escalations', { method: 'DELETE' })).status).toBe(405)
     expect(
       (
-        await request('/api/admin/support/escalations/runbooks/' + crypto.randomUUID() + '/commands', {
+        await request('/api/admin/support/escalations/runbooks/' + testUuid() + '/commands', {
           method: 'POST',
           body: { value: 'x'.repeat(17000) }
         })

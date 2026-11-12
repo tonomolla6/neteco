@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { upsertD1B2BPriceList, assignD1CompanyB2BPriceList } from '../../workers/catalog/b2b-pricing'
 import { QuickOrderCompanyError, resolveCompanyQuickOrder } from '../../workers/catalog/quick-order-company'
+import { testUuid } from '../support/deterministic'
 
 const companyId = '30000000-0000-4000-8000-000000000099'
 async function world(status: 'approved' | 'pending' | 'suspended' | 'none' = 'approved') {
@@ -21,7 +22,7 @@ async function world(status: 'approved' | 'pending' | 'suspended' | 'none' = 'ap
 }
 const line = (reference: string, quantity = 1) => ({ reference, quantity })
 async function withContract(f: Awaited<ReturnType<typeof world>>) {
-  const o = { now: () => f.now, idempotencyKey: crypto.randomUUID() }
+  const o = { now: () => f.now, idempotencyKey: testUuid() }
   await upsertD1B2BPriceList(
     f.database,
     CLAIMS,
@@ -44,7 +45,7 @@ async function withContract(f: Awaited<ReturnType<typeof world>>) {
     CLAIMS,
     companyId,
     { priceListId: 'list', expectedVersion: 0, validFrom: utc(-60000), validUntil: null, reason: 'Acuerdo comercial' },
-    { ...o, idempotencyKey: crypto.randomUUID() }
+    { ...o, idempotencyKey: testUuid() }
   )
 }
 

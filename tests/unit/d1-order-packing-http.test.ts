@@ -4,6 +4,31 @@ import { handleAdminPackingHttp } from '../../workers/fulfillment/packing-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { packingFixture, CLAIMS, REASON } from './d1-order-packing-fixture'
 import { adminOrderPackingSchema, orderPackingReceiptSchema, orderPackingIntentHash } from '../../shared/order-packing'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_packing_http_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_packing_http_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_packing_http_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_packing_http_clock()'))
+      return database
+    }
+  }
+})
 
 const origin = 'https://packing.neteco.test'
 const orderId = '10000000-0000-4000-8000-000000000069'
@@ -78,10 +103,15 @@ describe('packing HTTP over real command fixtures', () => {
   let fixture: Awaited<ReturnType<typeof packingFixture>>, cookie: string
   const password = 'synthetic-packing-cookie-password-more-than-32'
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     fixture = await packingFixture({ stage: 'packed' })
     cookie = (await issueD1SessionCookie(fixture.database, CLAIMS, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!
   })
-  afterEach(() => fixture.sqlite.close())
+  afterEach(() => {
+    fixture?.sqlite.close()
+    vi.useRealTimers()
+  })
   const base = () => `/api/admin/orders/${fixture.orderId}/packing`
   function pack() {
     return {
@@ -119,7 +149,7 @@ describe('packing HTTP over real command fixtures', () => {
     path = base(),
     method = 'GET',
     body?: unknown,
-    key = crypto.randomUUID(),
+    key = testUuid(),
     headers: Record<string, string> = {}
   ) {
     return (await handleAdminPackingHttp(
@@ -175,7 +205,7 @@ describe('packing HTTP over real command fixtures', () => {
     expect(fixture.economic()).toEqual(before)
   })
   it('replays only the original key/body, recovers an exact receipt and leaves unknown ambiguous with read-only GET', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       body = pack(),
       hash = await orderPackingIntentHash(fixture.orderId, body)
     const first = await dispatch(base() + '/commands', 'POST', body, key)
@@ -190,7 +220,7 @@ describe('packing HTTP over real command fixtures', () => {
     })
     expect(recovered.status).toBe(200)
     expect(await recovered.json()).toEqual({ source: 'cloudflare', outcome: 'applied', receipt })
-    const unknown = await dispatch(`${base()}/commands/${crypto.randomUUID()}`, 'GET', undefined, key, {
+    const unknown = await dispatch(`${base()}/commands/${testUuid()}`, 'GET', undefined, key, {
       'X-Neteco-Command-Payload-Hash': hash
     })
     expect(unknown.status).toBe(200)
@@ -210,7 +240,7 @@ describe('packing HTTP over real command fixtures', () => {
   it.each(['unauthenticated', 'email_unverified', 'mfa_required', 'forbidden'])(
     'rechecks current %s before reads, replay and private receipt lookup',
     async (code) => {
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         input = pack(),
         hash = await orderPackingIntentHash(fixture.orderId, input)
       expect((await dispatch(base() + '/commands', 'POST', input, key)).status).toBe(201)
@@ -244,14 +274,14 @@ describe('packing HTTP over real command fixtures', () => {
   )
   it('rejects queries, missing receipt hash and unbounded metadata rather than accepting an empty success', async () => {
     expect((await dispatch(base() + '?now=2099')).status).toBe(400)
-    expect((await dispatch(`${base()}/commands/${crypto.randomUUID()}`)).status).toBe(422)
+    expect((await dispatch(`${base()}/commands/${testUuid()}`)).status).toBe(422)
     expect(
       (await dispatch(base() + '/commands', 'POST', { ...pack(), customerEmail: 'synthetic-private@example.invalid' }))
         .status
     ).toBe(422)
     expect((await dispatch(base() + '/commands', 'POST', pack(), 'not-a-uuid')).status).toBe(400)
     expect(
-      (await dispatch(base() + '/commands', 'POST', pack(), crypto.randomUUID(), { 'Content-Length': '65537' })).status
+      (await dispatch(base() + '/commands', 'POST', pack(), testUuid(), { 'Content-Length': '65537' })).status
     ).toBe(413)
   })
   it('bounds the actual request stream without trusting Content-Length and rejects malformed UTF8', async () => {
@@ -263,7 +293,7 @@ describe('packing HTTP over real command fixtures', () => {
       const response = await handleAdminPackingHttp(
         new Request(origin + base() + '/commands', {
           method: 'POST',
-          headers: { cookie, origin, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+          headers: { cookie, origin, 'Content-Type': 'application/json', 'Idempotency-Key': testUuid() },
           body: bytes
         }),
         env

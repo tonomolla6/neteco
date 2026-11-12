@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { placeOrder } from '../../workers/catalog/checkout'
 import { initiateRedsysPayment } from '../../workers/catalog/payments'
 import { cancelD1UnpaidOrder } from '../../workers/catalog/order-cancellation'
@@ -26,6 +26,13 @@ import {
   wireFixture,
   type WireFixture
 } from './d1-checkout-wire-fixture'
+import { testNow, testUuid } from '../support/deterministic'
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => vi.useRealTimers())
 
 const credit = (storeCreditCents: number) => ({ storeCreditCents }) as never
 const redsys = {
@@ -157,7 +164,7 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
         CLAIMS,
         { customerId: CUSTOMER, frozen: true, reason: 'Congelado por revision antifraude' },
         (f.sqlite.prepare('SELECT version FROM store_credit_accounts').get() as { version: number }).version,
-        crypto.randomUUID(),
+        testUuid(),
         utc()
       )
       const frozen = await order(f, await prepare(f), 'pickup', credit(100))
@@ -167,14 +174,14 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
         CLAIMS,
         { customerId: CUSTOMER, frozen: false, reason: 'Revision antifraude cerrada sin hallazgos' },
         (f.sqlite.prepare('SELECT version FROM store_credit_accounts').get() as { version: number }).version,
-        crypto.randomUUID(),
+        testUuid(),
         utc()
       )
       await voidStoreCreditGrant(
         f.database,
         CLAIMS,
         { grantId: grant, reason: 'Anulado por error de emision' },
-        crypto.randomUUID(),
+        testUuid(),
         utc()
       )
       const voided = await order(f, await prepare(f), 'pickup', credit(100))
@@ -231,7 +238,7 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
       const grant = await grantCredit(f, 500)
       const { id } = await created(f, 400)
       expect(balance(f)).toBe(100)
-      const commandId = crypto.randomUUID()
+      const commandId = testUuid()
       const input = {
         expectedStatus: 'awaiting_payment' as const,
         reason: 'Cancelacion solicitada expresamente por el comprador.'
@@ -275,7 +282,7 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
         f.database,
         BUYER_CLAIMS,
         String(plain.body.id),
-        crypto.randomUUID(),
+        testUuid(),
         { expectedStatus: 'awaiting_payment', reason: 'Cancelacion solicitada expresamente por el comprador.' },
         { audience: 'customer', now: () => utc() }
       )
@@ -294,7 +301,7 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
       const plain = await order(f, p)
       if (plain.outcome !== 'order_created') throw new Error(plain.outcome)
       const id = String(plain.body.id)
-      await redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId: id, amountCents: 200 }, crypto.randomUUID(), utc())
+      await redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId: id, amountCents: 200 }, testUuid(), utc())
       await initiateRedsysPayment(
         f.database,
         {
@@ -311,7 +318,7 @@ describe('PRI-018 store credit redeemed atomically at order placement', () => {
         amount_gross_cents: 800
       })
       await expect(
-        redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId: id, amountCents: 100 }, crypto.randomUUID(), utc())
+        redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId: id, amountCents: 100 }, testUuid(), utc())
       ).rejects.toMatchObject({ code: 'invalid_transition' })
       expect(balance(f)).toBe(300)
     } finally {

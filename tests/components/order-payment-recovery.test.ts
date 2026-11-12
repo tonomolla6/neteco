@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Page from '../../app/pages/pedido/[id].vue'
 import type { OrderDetailView } from '../../shared/types/orders'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { read, request, hosted, refresh } = vi.hoisted(() => ({
   read: vi.fn(),
@@ -49,8 +50,8 @@ const order = (patch: Partial<OrderDetailView> = {}): OrderDetailView => ({
   shippingCost: 0,
   tax: 2100,
   total: 12100,
-  createdAt: new Date().toISOString(),
-  reservationExpiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+  createdAt: new Date(testNow()).toISOString(),
+  reservationExpiresAt: new Date(testNow() + 30 * 60_000).toISOString(),
   items: [],
   ...patch
 })
@@ -113,6 +114,8 @@ async function recover() {
   await flushPromises()
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   read.mockReset()
   request.mockReset()
   hosted.mockReset()
@@ -124,6 +127,7 @@ beforeEach(() => {
 afterEach(() => {
   wrapper?.unmount()
   wrapper = undefined
+  vi.useRealTimers()
 })
 
 describe('recovered Cloudflare order payment', () => {

@@ -6,6 +6,7 @@ import { provisionPublicationValidityFixture } from '../support/publication-vali
 import { createPackingOrder, REASON, utc } from './d1-order-packing-fixture'
 import { adminOrderBulkIntentHash } from '../../shared/admin-order-bulk'
 import { handleAdminOrderBulkHttp } from '../../workers/fulfillment/bulk-http'
+import { testUuid } from '../support/deterministic'
 
 describe('administrative bulk fulfillment real D1 HTTP security boundary', () => {
   let f: Awaited<ReturnType<typeof adminAuditFixture>>
@@ -24,7 +25,7 @@ describe('administrative bulk fulfillment real D1 HTTP security boundary', () =>
           cookie: await f.cookie(),
           origin,
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           ...headers
         },
         body: body === undefined ? undefined : JSON.stringify(body)
@@ -67,7 +68,7 @@ describe('administrative bulk fulfillment real D1 HTTP security boundary', () =>
         reason: REASON,
         previewHash: preview.previewHash
       },
-      key = crypto.randomUUID()
+      key = testUuid()
     const response = await request(`${base}/commands`, 'POST', input, { 'idempotency-key': key })
     expect(response.status).toBe(201)
     const receipt = (await response.json()) as { groupId: string }
@@ -83,7 +84,7 @@ describe('administrative bulk fulfillment real D1 HTTP security boundary', () =>
     expect(f.sqlite.prepare('SELECT count(*) n FROM order_fulfillment_commands').get()).toEqual({ n: 0 })
   })
   it('rejects anonymous reads and recovery without revealing any group', async () => {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     expect((await request(`${base}/${id}`, 'GET', undefined, { cookie: '' })).status).toBe(401)
     expect(
       (await request(`${base}/commands/${id}?payloadHash=${'a'.repeat(64)}`, 'GET', undefined, { cookie: '' })).status
@@ -109,7 +110,7 @@ describe('administrative bulk fulfillment real D1 HTTP security boundary', () =>
   it('bounds JSON body bytes and rejects unsupported methods', async () => {
     expect((await request(`${base}/preview`, 'POST', { padding: 'x'.repeat(17000) })).status).toBe(413)
     expect((await request(`${base}/preview`, 'GET')).status).toBe(405)
-    expect((await request(`${base}/${crypto.randomUUID()}`, 'DELETE')).status).toBe(405)
+    expect((await request(`${base}/${testUuid()}`, 'DELETE')).status).toBe(405)
   })
   it('retains case and encoded aliases and malformed children without legacy fallthrough', async () => {
     for (const path of [
@@ -132,7 +133,7 @@ describe('administrative bulk fulfillment real D1 HTTP security boundary', () =>
         throw new Error('must_not_query_before_edge')
       }
     } as unknown as D1Database
-    const req = new Request(origin + base + '/' + crypto.randomUUID())
+    const req = new Request(origin + base + '/' + testUuid())
     expect((await handleAdminOrderBulkHttp(req, { ...deps(), database, edgeGate: async () => 'denied' }))?.status).toBe(
       429
     )

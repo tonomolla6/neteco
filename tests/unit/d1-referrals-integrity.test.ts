@@ -12,6 +12,7 @@ import {
   settleD1ReferralAttributions
 } from '../../workers/marketing/referrals'
 import { assessPromoFraud, decidePromoFraudCase, getPromoFraudBenefitGates } from '../../workers/security/promo-fraud'
+import { testNow } from '../support/deterministic'
 
 /**
  * MKT-026 x SEC-036 integrity: identity of the referee comes from the session, orders must belong to the
@@ -361,7 +362,7 @@ describe('referral HTTP never trusts client identity or time', () => {
   })
 
   it('stamps consent with the server clock, not the client consentedAt', async () => {
-    const before = Date.now()
+    const before = testNow()
     const response = await call(2, '/api/account/referrals/enroll', {
       termsVersion: 'terms-v1',
       consentedAt: '2020-01-01T00:00:00Z'

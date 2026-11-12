@@ -3,6 +3,7 @@ import { creditWorld } from './d1-b2b-credit-fixture'
 import { CLAIMS, BUYER_CLAIMS } from './d1-returns-fixture'
 import { placeOrder } from '../../workers/catalog/checkout'
 import { handleB2BHttp } from '../../workers/catalog/b2b-http'
+import { testUuid } from '../support/deterministic'
 const origin = 'https://credit-test.neteco.test'
 async function world() {
   const f = await creditWorld(),
@@ -21,7 +22,7 @@ async function world() {
   }
   return { ...f, orderId: order.body.id as string, total: input.expectedTotalGrossCents, deps }
 }
-const request = (path: string, method = 'GET', body?: unknown, key = crypto.randomUUID()) =>
+const request = (path: string, method = 'GET', body?: unknown, key = testUuid()) =>
   new Request(origin + path, {
     method,
     headers: { origin, 'Content-Type': 'application/json', 'Idempotency-Key': key, 'CF-Connecting-IP': '192.0.2.1' },
@@ -36,7 +37,7 @@ describe('local reconciliation HTTP', () => {
         enabled: true,
         orders: [{ orderId: f.orderId, simulatedOutstandingCents: f.total }]
       })
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         path = `/api/admin/b2b/transfers/${f.orderId}`,
         body = {
           expectedOutstandingCents: f.total,

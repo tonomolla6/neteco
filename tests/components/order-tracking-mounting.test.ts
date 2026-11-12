@@ -184,6 +184,7 @@ async function render(audience: 'customer' | 'admin' = 'customer') {
         OrderLineThumb: true,
         ReorderDialog: true,
         OrderFiscalSection: true,
+        BeplyOrderPanel: true,
         OrderRefundPanel: true,
         AdminRefundActions: true,
         OrderFulfillmentSection: true,

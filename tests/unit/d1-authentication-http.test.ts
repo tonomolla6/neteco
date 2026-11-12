@@ -7,6 +7,7 @@ import { hashWorkerPassword } from '../../workers/auth/password'
 import { encryptSecret } from '../../server/utils/secrets'
 import { recoveryCodeHashes } from '../../server/domain/mfa'
 import { consumeAuthenticationQuota, pruneAuthenticationQuotas } from '../../workers/auth/anonymous-quota'
+import { testUuid, testNow } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000001'
 const password = 'Synthetic-password-123'
@@ -43,7 +44,7 @@ describe('D1 authentication HTTP boundary', () => {
     limiter.limit.mockReset().mockResolvedValue({ success: true })
     sqlite = await openAccountSecurityDatabase()
     database = d1OverSqlite(sqlite)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare(
         `INSERT INTO identities(id, email, password_hash, status, created_at, updated_at) VALUES (?, 'fixture@example.invalid', ?, 'active', ?, ?)`
@@ -53,7 +54,7 @@ describe('D1 authentication HTTP boundary', () => {
   afterEach(() => sqlite.close())
 
   it('projects only the linked customer and company, reflecting edits and anonymization', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const own = '30000000-0000-4000-8000-000000000001'
     const other = '30000000-0000-4000-8000-000000000002'
     const insertCustomer = sqlite.prepare(
@@ -96,7 +97,7 @@ describe('D1 authentication HTTP boundary', () => {
   })
 
   it('reads and updates only the authenticated account profile through the existing UI routes', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const own = '30000000-0000-4000-8000-000000000011'
     const other = '30000000-0000-4000-8000-000000000012'
     sqlite
@@ -111,7 +112,7 @@ describe('D1 authentication HTTP boundary', () => {
         `INSERT INTO companies(id, customer_id, legal_name, tax_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(crypto.randomUUID(), own, 'Empresa propia', 'B12345678', instant, instant)
+      .run(testUuid(), own, 'Empresa propia', 'B12345678', instant, instant)
     const login = (await handle(request()))!
     const cookie = login.headers.get('set-cookie')!.split(';')[0]!
     const account = await handle(
@@ -185,7 +186,7 @@ describe('D1 authentication HTTP boundary', () => {
   })
 
   it('enforces one identity and one company per customer, with unique fiscal identity', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const customer = '30000000-0000-4000-8000-000000000003'
     sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(customer, instant, instant)
     sqlite.prepare('UPDATE identities SET customer_id = ? WHERE id = ?').run(customer, identityId)
@@ -195,26 +196,26 @@ describe('D1 authentication HTTP boundary', () => {
           `INSERT INTO identities(id, email, password_hash, status, customer_id, created_at, updated_at)
       VALUES (?, 'other@example.invalid', 'fixture', 'active', ?, ?, ?)`
         )
-        .run(crypto.randomUUID(), customer, instant, instant)
+        .run(testUuid(), customer, instant, instant)
     ).toThrow()
     sqlite
       .prepare(
         `INSERT INTO companies(id, customer_id, legal_name, country_code, tax_id, created_at, updated_at)
       VALUES (?, ?, 'Empresa', 'ES', 'B12345678', ?, ?)`
       )
-      .run(crypto.randomUUID(), customer, instant, instant)
+      .run(testUuid(), customer, instant, instant)
     expect(() =>
       sqlite
         .prepare(
           `INSERT INTO companies(id, customer_id, legal_name, country_code, tax_id, created_at, updated_at)
       VALUES (?, ?, 'Empresa duplicada', 'ES', 'B12345678', ?, ?)`
         )
-        .run(crypto.randomUUID(), customer, instant, instant)
+        .run(testUuid(), customer, instant, instant)
     ).toThrow()
   })
 
   it('requires password and verified email for fiscal changes, then records redacted pending review', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const customer = '30000000-0000-4000-8000-000000000021'
     sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(customer, instant, instant)
     sqlite
@@ -265,7 +266,7 @@ describe('D1 authentication HTTP boundary', () => {
         `INSERT INTO companies(id, customer_id, legal_name, tax_id, created_at, updated_at)
       VALUES (?, ?, 'Empresa ajena', 'A58818501', ?, ?)`
       )
-      .run(crypto.randomUUID(), otherCustomer, instant, instant)
+      .run(testUuid(), otherCustomer, instant, instant)
     const duplicate = (await submit({ ...details, taxId: 'A58818501' }))!
     expect(duplicate.status).toBe(409)
     expect(await duplicate.json()).toEqual({ error: { code: 'duplicate_tax_id' } })
@@ -284,7 +285,7 @@ describe('D1 authentication HTTP boundary', () => {
   })
 
   it('denies fiscal writes after password verification if the session was revoked meanwhile', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const customer = '30000000-0000-4000-8000-000000000022'
     sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(customer, instant, instant)
     sqlite
@@ -321,7 +322,7 @@ describe('D1 authentication HTTP boundary', () => {
   })
 
   it('rejects malformed fiscal identifiers before writing a company', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const customer = '30000000-0000-4000-8000-000000000024'
     sqlite.prepare('INSERT INTO customers(id, created_at, updated_at) VALUES (?, ?, ?)').run(customer, instant, instant)
     sqlite
@@ -438,7 +439,7 @@ describe('D1 authentication HTTP boundary', () => {
   })
 
   it('only grants a cookie after password plus a single-use MFA recovery code', async () => {
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const code = 'ABCD-1234-EFAB-5678'
     sqlite
       .prepare(

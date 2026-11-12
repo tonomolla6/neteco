@@ -10,6 +10,7 @@ import {
   ownsMarketingModalsNamespace,
   type MarketingModalsHttpDependencies
 } from '../../workers/marketing/marketing-modals-http'
+import { testUuid } from '../support/deterministic'
 
 const ORIGIN = 'https://shop.neteco.test'
 const NOW = '2026-10-15T10:00:00Z'
@@ -191,7 +192,7 @@ describe('D1 marketing modals HTTP boundary (MKT-009 + MKT-010)', () => {
           cookie: adminCookie,
           origin: ORIGIN,
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID()
+          'idempotency-key': testUuid()
         },
         body: JSON.stringify({
           expectedVersion: 0,

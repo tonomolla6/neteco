@@ -4,6 +4,7 @@ import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { promotionRuleSchema, type PromotionRule } from '../../shared/promotions'
 import { promotionRuleHash } from '../../workers/catalog/promotions'
 import { d1OverSqlite } from './d1-sqlite'
+import { testNow } from './deterministic'
 
 /** Synthetic administrative configuration only, before any quote/order exists. */
 export async function provisionPromotionFixture(sqlite: DatabaseSync, input: PromotionRule, actorId: string) {
@@ -13,7 +14,7 @@ export async function provisionPromotionFixture(sqlite: DatabaseSync, input: Pro
     const database = d1OverSqlite(sqlite)
     await database.batch(splitDemoSql(sql).map((statement) => database.prepare(statement)))
   }
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const ruleHash = await promotionRuleHash(rule)
   sqlite
     .prepare('INSERT INTO promotion_rules(id,code,current_version,created_at,updated_at) VALUES(?,?,?,?,?)')

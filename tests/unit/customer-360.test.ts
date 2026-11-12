@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { customer360Fixture, CLAIMS, BUYER_CLAIMS, utc } from './customer-360-fixture'
 import { readD1Customer360, listD1Customer360 } from '../../workers/support/customer-360'
 import { updateD1AccountPreferences } from '../../workers/auth/account-preferences'
+import { testUuid } from '../support/deterministic'
 describe('CUS017 canonical role-redacted customer360', () => {
   let f: Awaited<ReturnType<typeof customer360Fixture>>
   beforeEach(async () => {
@@ -63,7 +64,7 @@ describe('CUS017 canonical role-redacted customer360', () => {
   })
   it('records preference facts but never infers newsletter consent by matching an email', async () => {
     f.fullAccess()
-    await updateD1AccountPreferences(f.database, BUYER_CLAIMS, crypto.randomUUID(), {
+    await updateD1AccountPreferences(f.database, BUYER_CLAIMS, testUuid(), {
       expectedVersion: 0,
       preferences: { product_updates: true, replenishment: false },
       policyVersion: 'communications-2026-10-08'
@@ -91,7 +92,7 @@ describe('CUS017 canonical role-redacted customer360', () => {
     ).rejects.toMatchObject({ code: 'invalid_input' })
   })
   it('includes unnamed active customers in the initial empty search and exact UUID search', async () => {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     f.sqlite
       .prepare("INSERT INTO customers(id,name,status,created_at,updated_at) VALUES(?,NULL,'active',?,?)")
       .run(id, utc(-60000), utc(-60000))
@@ -104,7 +105,7 @@ describe('CUS017 canonical role-redacted customer360', () => {
   })
   it('does not enrich another customer with this customer orders or next action', async () => {
     f.fullAccess()
-    const other = crypto.randomUUID()
+    const other = testUuid()
     f.sqlite
       .prepare(
         "INSERT INTO customers(id,name,status,created_at,updated_at) VALUES(?,'Otro cliente sintético','active',?,?)"

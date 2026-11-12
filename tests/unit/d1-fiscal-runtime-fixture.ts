@@ -7,6 +7,7 @@ import { placeOrder, requestShippingOptions } from '../../workers/catalog/checko
 import { approveFiscalPolicy, queueFiscalInvoice, fiscalMappingFingerprint } from '../../workers/fiscal/issuance'
 import { PersistentLocalFiscalProvider } from '../../workers/fiscal/local-provider'
 import type { FiscalPolicy, PrivateFiscalStorage } from '../../shared/fiscal-issuance'
+import { testUuid } from '../support/deterministic'
 
 export const FISCAL_RUNTIME_NOW = '2026-10-03T09:00:00Z'
 export const fiscalRuntimeClaims = {
@@ -77,7 +78,7 @@ export async function fiscalRuntimeWorld(opened: DatabaseSync[]) {
     )
   }
   async function paid(policy: FiscalPolicy) {
-    const cart = await createCart(database, { correlationId: crypto.randomUUID(), now: FISCAL_RUNTIME_NOW })
+    const cart = await createCart(database, { correlationId: testUuid(), now: FISCAL_RUNTIME_NOW })
     const common = {
       cartId: cart.cartId,
       token: cart.token,
@@ -124,7 +125,7 @@ export async function fiscalRuntimeWorld(opened: DatabaseSync[]) {
     })
     if (order.outcome !== 'order_created') throw new Error('synthetic_order_failed')
     const orderId = String(order.body.id),
-      paymentId = crypto.randomUUID()
+      paymentId = testUuid()
     const amount = Number(
       sqlite.prepare('SELECT total_gross_cents FROM orders WHERE id=?').get(orderId)!.total_gross_cents
     )
@@ -154,7 +155,7 @@ export async function fiscalRuntimeWorld(opened: DatabaseSync[]) {
     const queued = await queueFiscalInvoice(database, fiscalRuntimeClaims, {
       eventId: `invoice-evaluation:${orderId}`,
       policyId: policy.id,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       now: FISCAL_RUNTIME_NOW
     })
     return { orderId, intentId: queued.intentId, amount }

@@ -4,6 +4,7 @@ import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { fiscalRuntimeWorld } from './d1-fiscal-runtime-fixture'
 import { CLAIMS, fulfillmentFixture } from './d1-fulfillment-fixture'
+import { testNow } from '../support/deterministic'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -272,7 +273,7 @@ describe('Cloudflare canary', () => {
     env.AUTH_EMAIL_ENABLED = 'false'
     env.NEWSLETTER_ENABLED = 'false'
     try {
-      await worker.scheduled({ scheduledTime: Date.now() } as ScheduledController, env)
+      await worker.scheduled({ scheduledTime: testNow() } as ScheduledController, env)
       expect(send).not.toHaveBeenCalled()
       expect(database.prepare('SELECT count(*) AS n FROM transactional_email_deliveries').get()?.n).toBe(0)
       expect(database.prepare('SELECT count(*) AS n FROM identity_lifecycle_deliveries').get()?.n).toBe(0)

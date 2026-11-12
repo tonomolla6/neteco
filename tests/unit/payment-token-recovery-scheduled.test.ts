@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
 import { BUYER_CLAIMS, CUSTOMER, returnsFixture, utc } from './d1-returns-fixture'
 import { requestPaymentTokenRemoval } from '../../workers/payments/token-removal'
+import { testNow } from '../support/deterministic'
 it('scheduled worker dispatches an enabled internal deletion job without outbound fetch', async () => {
   const f = await returnsFixture(),
     id = '40000000-0000-4000-8000-000000000022',
@@ -37,7 +38,7 @@ it('scheduled worker dispatches an enabled internal deletion job without outboun
     // The small fixture omits independent scheduled subsystems. Their failure is
     // observable and must not starve this durable deletion job.
     const error = await worker
-      .scheduled({ scheduledTime: Date.now() } as ScheduledController, env)
+      .scheduled({ scheduledTime: testNow() } as ScheduledController, env)
       .catch((cause: unknown) => cause)
     if (error !== undefined) expect(error).toBeInstanceOf(AggregateError)
     expect(provider).toHaveBeenCalledTimes(1)

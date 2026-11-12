@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { testNow } from '../support/deterministic'
 import {
   MADRID,
   insertAutoRule,
@@ -8,6 +9,12 @@ import {
   updateFreeShippingRule,
   wireFixture
 } from './d1-checkout-wire-fixture'
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => vi.useRealTimers())
 
 const FOUR = [{ variantId: 'v-1-1', quantity: 4 }] // 2000 gross, 1653 net, cost 800
 const parcel = (p: Awaited<ReturnType<typeof prepare>>) => p.options.find((o) => o.methodCode === 'parcel')!

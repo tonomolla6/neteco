@@ -13,6 +13,7 @@ import {
   type ContactReason
 } from '../../workers/fulfillment/delivery-survey'
 import { sha256Hex } from '../../workers/catalog/inventory'
+import { testUuid } from '../support/deterministic'
 
 describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
   let f: Awaited<ReturnType<typeof fulfillmentFixture>>
@@ -51,7 +52,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
         expectedVersion: 0,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeD1AdminFulfillmentCommand(
       f.database,
@@ -62,7 +63,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
         expectedVersion: 1,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeD1AdminFulfillmentCommand(
       f.database,
@@ -73,7 +74,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
         expectedVersion: 2,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeD1AdminFulfillmentCommand(
       f.database,
@@ -85,7 +86,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
         reason: REASON,
         evidence: 'Entregado al cliente en mostrador'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
   })
 
@@ -215,28 +216,28 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
         CLAIMS,
         customerOrderId,
         { action: 'picking', expectedVersion: 0, reason: REASON },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       await executeD1AdminFulfillmentCommand(
         f.database,
         CLAIMS,
         customerOrderId,
         { action: 'packed', expectedVersion: 1, reason: REASON },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       await executeD1AdminFulfillmentCommand(
         f.database,
         CLAIMS,
         customerOrderId,
         { action: 'ready_for_pickup', expectedVersion: 2, reason: REASON },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       await executeD1AdminFulfillmentCommand(
         f.database,
         CLAIMS,
         customerOrderId,
         { action: 'delivered', expectedVersion: 3, reason: REASON, evidence: 'Entregado OK' },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
 
       // Crear preferencia delivery_updates = 0
@@ -254,7 +255,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
           `INSERT INTO delivery_preference_commands (customer_id, command_id, actor_id, session_id, session_version, payload_hash, expected_version, applied_version, delivery_updates, policy_version, text_hash, recorded_at)
            VALUES (?, ?, ?, ?, 1, ?, 0, 1, 0, 'delivery-notices-2026-10-09', ?, ?)`
         )
-        .run(customerId, crypto.randomUUID(), CLAIMS.identityId, CLAIMS.sessionId, 'a'.repeat(64), 'b'.repeat(64), now)
+        .run(customerId, testUuid(), CLAIMS.identityId, CLAIMS.sessionId, 'a'.repeat(64), 'b'.repeat(64), now)
 
       const result = await scheduleDeliverySurveyInvitation(f.database, {
         orderId: customerOrderId,
@@ -305,28 +306,28 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
         CLAIMS,
         b2bOrderId,
         { action: 'picking', expectedVersion: 0, reason: REASON },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       await executeD1AdminFulfillmentCommand(
         f.database,
         CLAIMS,
         b2bOrderId,
         { action: 'packed', expectedVersion: 1, reason: REASON },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       await executeD1AdminFulfillmentCommand(
         f.database,
         CLAIMS,
         b2bOrderId,
         { action: 'ready_for_pickup', expectedVersion: 2, reason: REASON },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       await executeD1AdminFulfillmentCommand(
         f.database,
         CLAIMS,
         b2bOrderId,
         { action: 'delivered', expectedVersion: 3, reason: REASON, evidence: 'Entregado B2B' },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
 
       const res2 = await scheduleDeliverySurveyInvitation(f.database, {
@@ -707,7 +708,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
             expectedVersion: 0,
             reason: REASON
           },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
         await executeD1AdminFulfillmentCommand(
           f.database,
@@ -718,7 +719,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
             expectedVersion: 1,
             reason: REASON
           },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
         await executeD1AdminFulfillmentCommand(
           f.database,
@@ -729,7 +730,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
             expectedVersion: 2,
             reason: REASON
           },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
         await executeD1AdminFulfillmentCommand(
           f.database,
@@ -741,7 +742,7 @@ describe('ORD-017 Delivery Surveys & Post-Delivery Experience', () => {
             reason: REASON,
             evidence: 'Entregado para stats'
           },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
 
         const scheduled = await scheduleDeliverySurveyInvitation(f.database, { orderId, now: utc() })

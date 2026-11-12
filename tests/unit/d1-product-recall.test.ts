@@ -1,9 +1,34 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { executeProductRecall, readProductRecall } from '../../workers/catalog/product-recall'
 import { assignReservation, reserveInventory } from '../../workers/catalog/inventory'
 import { executeD1AdminFulfillmentCommand } from '../../workers/fulfillment/admin'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_product_recall_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_product_recall_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_product_recall_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_product_recall_clock()'))
+      return database
+    }
+  }
+})
 let f: Awaited<ReturnType<typeof returnsFixture>>, orderId: string
 const lot = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const key = '11111111-1111-4111-8111-111111111111'
@@ -11,6 +36,8 @@ const key2 = '22222222-2222-4222-8222-222222222222'
 const options = { now: () => utc() }
 const start = { action: 'open', expectedVersion: 0, evidence: 'incident-case-123' } as const
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await returnsFixture()
   f.sqlite.exec(await readFile('db/d1/migrations/0106_inventory_lots_costing_forecast.sql', 'utf8'))
   f.sqlite.exec(await readFile('db/d1/migrations/0118_recall_market_messaging.sql', 'utf8'))
@@ -29,9 +56,12 @@ beforeEach(async () => {
     .prepare(
       'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,2,?,?)'
     )
-    .run(crypto.randomUUID(), lot, orderId, CUSTOMER, 'synthetic', utc())
+    .run(testUuid(), lot, orderId, CUSTOMER, 'synthetic', utc())
 })
-afterEach(() => f?.sqlite.close())
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
 const save = (raw: unknown = start, id = key) => executeProductRecall(f.database, CLAIMS, lot, id, raw, options)
 it('opens an audited recall and identifies affected order lines and customers', async () => {
   const result = await save()
@@ -154,7 +184,7 @@ it('prevents allocating recalled stock to another order during an active recall'
       .prepare(
         'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,1,?,?)'
       )
-      .run(crypto.randomUUID(), lot, orderId, CUSTOMER, 'synthetic', utc())
+      .run(testUuid(), lot, orderId, CUSTOMER, 'synthetic', utc())
   ).toThrow()
 })
 
@@ -188,7 +218,7 @@ it('paginates affected lines without losing other customers', async () => {
     .prepare(
       'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,2,?,?)'
     )
-    .run(crypto.randomUUID(), lot, other, CUSTOMER, 'synthetic', utc())
+    .run(testUuid(), lot, other, CUSTOMER, 'synthetic', utc())
   const firstPage = await readProductRecall(f.database, CLAIMS, lot, { ...options, limit: 1 })
   expect(firstPage.affected).toHaveLength(1)
   expect(firstPage.nextCursor).toBeTruthy()

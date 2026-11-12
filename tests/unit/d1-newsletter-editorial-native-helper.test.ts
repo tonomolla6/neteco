@@ -3,6 +3,7 @@ import { newsletterEditorialFixture } from './d1-newsletter-editorial-fixture'
 import { auditNativeNewsletterEditorial } from '../../scripts/lib/audit-native-newsletter-editorial'
 import { handleNewsletterEditorialHttp } from '../../workers/marketing/newsletter-editorial-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid, testNow } from '../support/deterministic'
 describe('native newsletter audit helper contracts against actual unit SQLite (not workerd evidence)', () => {
   let w: Awaited<ReturnType<typeof newsletterEditorialFixture>>
   beforeEach(async () => {
@@ -12,10 +13,10 @@ describe('native newsletter audit helper contracts against actual unit SQLite (n
   afterEach(() => w.sqlite.close())
   it.each([false, true])('runs real consent/HTTP/cap/withdraw assertions with feedback=%s', async (feedback) => {
     const adminCookie = (await issueD1SessionCookie(w.database, w.claims, w.deps.session!))!.split(';')[0]!,
-      identity = crypto.randomUUID(),
-      session = crypto.randomUUID(),
-      now = new Date(Date.now() - 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
-      future = new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+      identity = testUuid(),
+      session = testUuid(),
+      now = new Date(testNow() - 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      future = new Date(testNow() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     w.sqlite
       .prepare(
         "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES (?,'simple-newsletter@example.invalid','synthetic-only',?,'active',?,?)"

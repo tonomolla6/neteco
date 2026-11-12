@@ -9,6 +9,7 @@ import { decryptSecret, encryptSecret } from '../../server/utils/secrets'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { readD1UserSession } from '../../workers/auth/profile'
 import * as passwords from '../../workers/auth/password'
+import { testUuid, testNow } from '../support/deterministic'
 
 const password = 'Synthetic-http-lifecycle-password-123'
 const nextPassword = 'Synthetic-http-rotated-password-456'
@@ -76,6 +77,7 @@ describe('D1 identity lifecycle HTTP boundary', () => {
     )
   }
   beforeEach(async () => {
+    testNow()
     limiter.limit.mockReset().mockResolvedValue({ success: true })
     sqlite = await openAccountSecurityDatabase()
     if (!sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='identity_lifecycle_tokens'").get())
@@ -194,9 +196,9 @@ describe('D1 identity lifecycle HTTP boundary', () => {
     })
     expect((await handle(invalidJson))!.status).toBe(400)
     expect((await handle(api(paths[0], registration, { 'content-type': 'text/plain' })))!.status).toBe(415)
-    expect(
-      (await handle(api(paths[0], { ...registration, roles: ['admin'], identityId: crypto.randomUUID() })))!.status
-    ).toBe(400)
+    expect((await handle(api(paths[0], { ...registration, roles: ['admin'], identityId: testUuid() })))!.status).toBe(
+      400
+    )
     expect(hashing).not.toHaveBeenCalled()
   })
 
@@ -356,7 +358,7 @@ describe('D1 identity lifecycle HTTP boundary', () => {
     const a = await registered()
     expect((await handle(api(paths[4], { email: 'new@example.invalid', currentPassword: password })))!.status).toBe(401)
     expect((await handle(api(paths[4], { email: 'new@example.invalid' }, { cookie: a.cookie })))!.status).toBe(400)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare('INSERT INTO identity_mfa(identity_id,encrypted_secret,verified_at,updated_at) VALUES (?,?,?,?)')
       .run(a.identityId, encryptSecret('synthetic-mfa', configuration.encryptionKey), now, now)

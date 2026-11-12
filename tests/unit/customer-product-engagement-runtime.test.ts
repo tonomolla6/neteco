@@ -5,6 +5,7 @@ import { handleCustomerOperationsHttp } from '../../workers/runtime/customer-ope
 import worker from '../../workers/canary'
 import { returnsFixture, BUYER_CLAIMS, CLAIMS, utc } from './d1-returns-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 
 const disabledPaths = [
   '/api/account/product-watches',
@@ -62,7 +63,7 @@ describe('configured product engagement namespaces', () => {
                 : {
                     origin: env.AUTH_ORIGIN,
                     'content-type': 'application/json',
-                    'idempotency-key': crypto.randomUUID()
+                    'idempotency-key': testUuid()
                   })
             },
             ...(body === undefined ? {} : { body: JSON.stringify(body) })

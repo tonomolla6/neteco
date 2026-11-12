@@ -1,6 +1,7 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -17,6 +18,7 @@ import {
   INVENTORY_FIXTURE_ACTOR,
   INVENTORY_FIXTURE_SESSION
 } from '../support/admin-inventory-fixture'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://count-import-native.neteco.test'
 const base = '/api/admin/inventory/count-imports'
@@ -52,8 +54,7 @@ describe('inventory imports through real workerd D1 and the global InventoryCoor
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         name: 'count-import-native',
-        modules: true,
-        script: bundle.outputFiles[0]!.text,
+        ...bundle.nativeSource,
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         cf: false,
@@ -70,12 +71,13 @@ describe('inventory imports through real workerd D1 and the global InventoryCoor
         },
         durableObjects: { INVENTORY: { className: 'InventoryCoordinator', useSQLite: true } },
         ratelimits: { ADMIN_EDGE_LIMIT: { namespace_id: '900771', simple: { limit: 100, period: 60 } } },
-        d1Databases: { DB: randomUUID() },
+        d1Databases: { DB: testUuid() },
         outboundService: outbound
       })
     )
     try {
       database = (await runtime.getD1Database('DB')) as unknown as D1Database
+      await syncNativeTestClock(database)
       const files = (await readdir('db/d1/migrations'))
         .filter((file) => /^\d{4}_.*\.sql$/.test(file) && Number(file.slice(0, 4)) <= 77)
         .sort()
@@ -237,7 +239,7 @@ describe('inventory imports through real workerd D1 and the global InventoryCoor
     expect(preview).toMatchObject({ canPropose: true })
     expect(preview.rows).toHaveLength(100)
     const input = { csv, previewHash: preview.previewHash, reason, reference },
-      key = randomUUID()
+      key = testUuid()
     const proposed = await send(base, 'POST', input, { key })
     expect(proposed.status).toBe(201)
     const receipt = inventoryCountImportReceiptSchema.parse(proposed.body)
@@ -255,10 +257,10 @@ describe('inventory imports through real workerd D1 and the global InventoryCoor
   it('approves all hundred rows via a distinct real actor and replays/recoveries without another movement', async () => {
     const other = await untouched(),
       proposed = await propose(csvFor(11)),
-      key = randomUUID()
+      key = testUuid()
     const input = { expectedVersion: 1, reason },
       hash = await inventoryCountImportIntentHash('approve', proposed.importId, input)
-    const self = await send(`${base}/${proposed.importId}/approve`, 'POST', input, { key: randomUUID() })
+    const self = await send(`${base}/${proposed.importId}/approve`, 'POST', input, { key: testUuid() })
     expect(self).toEqual({ status: 409, body: { error: { code: 'approval_self' } } })
     const approved = await send(`${base}/${proposed.importId}/approve`, 'POST', input, { key, cookie: approverCookie })
     expect(approved.status).toBe(201)
@@ -315,11 +317,11 @@ describe('inventory imports through real workerd D1 and the global InventoryCoor
         reason,
         reference
       },
-      { key: randomUUID() }
+      { key: testUuid() }
     )
     expect(received.status).toBe(200)
     const before = await stock(),
-      key = randomUUID(),
+      key = testUuid(),
       input = { expectedVersion: 1, reason }
     const response = await send(`${base}/${proposed.importId}/approve`, 'POST', input, { key, cookie: approverCookie })
     expect(response).toEqual({ status: 409, body: { error: { code: 'version_conflict' } } })

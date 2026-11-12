@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { cmsFixture } from './d1-cms-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 
 export const NOW = '2026-10-29T12:00:00Z'
 export const COOKIE_CONFIG = { password: 'synthetic-support-insights-session-password-0123456789', maxAgeSeconds: 3600 }
@@ -111,15 +112,15 @@ export function seedKnowledgePage(
     publish?: boolean
   }
 ) {
-  const pageId = crypto.randomUUID(),
-    versionId = crypto.randomUUID(),
-    publicationId = crypto.randomUUID()
+  const pageId = testUuid(),
+    versionId = testUuid(),
+    publicationId = testUuid()
   const created = '2026-09-01T00:00:00Z',
     published = options.publishedAt ?? '2026-10-01T00:00:00Z'
   const document = {
     title: options.title,
     slug: options.slug,
-    blocks: options.text.map((text) => ({ id: crypto.randomUUID(), type: 'paragraph', text })),
+    blocks: options.text.map((text) => ({ id: testUuid(), type: 'paragraph', text })),
     seo: { title: options.title, description: options.description, noindex: false },
     supportKnowledge: { category: options.category, reviewDueAt: options.reviewDueAt ?? '2099-01-01T00:00:00Z' },
     changeSummary: 'Fixture'
@@ -274,7 +275,7 @@ export function seedOrder(
           `INSERT INTO carrier_shipment_labels(id,order_id,parcel_index,idempotency_key,carrier,service_code,tracking_number,provider_shipment_id,label_format,label_data,status,quoted_gross_cents,actual_cost_cents,created_at,updated_at)
            VALUES (?,?,0,?,?,'std','trk','prov','pdf','x','confirmed',0,0,?,?)`
         )
-        .run(crypto.randomUUID(), o.id, crypto.randomUUID(), o.carrier, o.createdAt, o.createdAt)
+        .run(testUuid(), o.id, testUuid(), o.carrier, o.createdAt, o.createdAt)
   } finally {
     sqlite.exec('PRAGMA foreign_keys = ON')
   }

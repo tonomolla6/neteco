@@ -9,6 +9,7 @@ import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import worker from '../../workers/canary'
 import { createSupportTicket } from '../../workers/support/operations'
 import { CONTACT, POLICY } from './d1-support-fixture'
+import { testUuid } from '../support/deterministic'
 
 it('persists calendar and internal escalation receipts through canary.fetch and actual workerd D1, without provider or economic effects', async () => {
   const outbound = vi.fn(() => {
@@ -42,8 +43,8 @@ it('persists calendar and internal escalation receipts through canary.fetch and 
     }
     const now = (await database.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS now").first<{ now: string }>())!
       .now
-    const actor = crypto.randomUUID(),
-      session = crypto.randomUUID()
+    const actor = testUuid(),
+      session = testUuid()
     await database.batch([
       database.prepare("INSERT INTO roles VALUES('operations-native','Synthetic operations','Synthetic')"),
       database.prepare(
@@ -84,7 +85,7 @@ it('persists calendar and internal escalation receipts through canary.fetch and 
       AUTH_RATE_LIMIT_PEPPER: 'synthetic-native-operations-pepper-over-32',
       ADMIN_EDGE_LIMIT: { limit: async () => ({ success: true }) }
     } as unknown as CloudflareEnv
-    const send = (path: string, input?: unknown, key = crypto.randomUUID(), hash?: string) =>
+    const send = (path: string, input?: unknown, key = testUuid(), hash?: string) =>
       worker.fetch(
         new Request(origin + path, {
           method: input === undefined ? 'GET' : 'POST',
@@ -101,7 +102,7 @@ it('persists calendar and internal escalation receipts through canary.fetch and 
         env
       )
     const calendarPath = '/api/admin/shipping/calendars',
-      calendarKey = crypto.randomUUID()
+      calendarKey = testUuid()
     const calendarInput = {
       expectedVersion: 0,
       reason: 'Synthetic native calendar review',
@@ -145,7 +146,7 @@ it('persists calendar and internal escalation receipts through canary.fetch and 
       database,
       { kind: 'anonymous', claims: null, customerId: null, key: 'anonymous:' + 'a'.repeat(64) },
       CONTACT,
-      { idempotencyKey: crypto.randomUUID(), policy: POLICY }
+      { idempotencyKey: testUuid(), policy: POLICY }
     )
     const economicTables = [
       'inventory_balances',
@@ -163,7 +164,7 @@ it('persists calendar and internal escalation receipts through canary.fetch and 
         }))
       )
     const before = await economic(),
-      runbookId = crypto.randomUUID(),
+      runbookId = testUuid(),
       runbookPath = '/api/admin/support/escalations/runbooks/' + runbookId + '/commands'
     expect(
       (
@@ -190,7 +191,7 @@ it('persists calendar and internal escalation receipts through canary.fetch and 
       ).status
     ).toBe(201)
     const escalationPath = '/api/admin/support/' + ticket.publicRef + '/escalation',
-      key = crypto.randomUUID()
+      key = testUuid()
     const input = {
       action: 'handoff',
       expectedVersion: 0,

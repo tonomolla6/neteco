@@ -5,6 +5,7 @@ import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleCustomerFavoritesHttp } from '../../workers/catalog/customer-favorites-http'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-25T09:00:00Z'
 const A = '10000000-0000-4000-8000-000000000071'
@@ -189,7 +190,7 @@ describe('D1 account favorites HTTP boundary on real SQLite', () => {
         `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
       SELECT ?,id,actor_id,'Synthetic HTTP fixture policy withdrawal',? FROM catalog_publication_policies WHERE id=?`
       )
-      .run(crypto.randomUUID(), NOW, publication.policyId)
+      .run(testUuid(), NOW, publication.policyId)
     const read = await handle(request())
     expect(read.status).toBe(200)
     expect(read.headers.get('cache-control')).toBe('no-store')

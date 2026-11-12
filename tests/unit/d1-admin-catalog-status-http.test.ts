@@ -8,6 +8,7 @@ import {
 } from '../../workers/catalog/admin-catalog-http'
 import { AdminCatalogStatusError, type CatalogPublicationGate } from '../../workers/catalog/admin-catalog-status'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 const ORIGIN = 'https://neteco.invalid'
 const IDENTITY = 'a1000000-0000-4000-8000-000000000035'
@@ -29,7 +30,7 @@ describe('catalog status HTTP boundary against real migrated D1 SQLite', () => {
     sqlite.limits.exprDepth = 100
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    const past = utc(Date.now() - 60_000)
+    const past = utc(testNow() - 60_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -41,7 +42,7 @@ describe('catalog status HTTP boundary against real migrated D1 SQLite', () => {
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at)
         VALUES (?, ?, 1, 1, ?, ?)`
       )
-      .run(SESSION, IDENTITY, past, utc(Date.now() + 3600_000))
+      .run(SESSION, IDENTITY, past, utc(testNow() + 3600_000))
     sqlite.exec(`INSERT INTO roles VALUES ('status_editor','Editor','Synthetic fixture'),
         ('status_publisher','Publisher','Synthetic fixture'),('status_customer','Customer','Synthetic fixture');
       INSERT INTO permissions VALUES ('catalog.write','catalog','write','Synthetic fixture'),
@@ -62,7 +63,7 @@ describe('catalog status HTTP boundary against real migrated D1 SQLite', () => {
     sqlite.prepare('DELETE FROM identity_roles WHERE identity_id=?').run(IDENTITY)
     sqlite
       .prepare('INSERT INTO identity_roles(identity_id,role_code,granted_at) VALUES (?,?,?)')
-      .run(IDENTITY, role, utc(Date.now() - 60_000))
+      .run(IDENTITY, role, utc(testNow() - 60_000))
   }
   function currentVersion() {
     const value = sqlite.prepare("SELECT catalog_version FROM products WHERE id='p-1'").get()!.catalog_version
@@ -445,7 +446,7 @@ describe('catalog status HTTP boundary against real migrated D1 SQLite', () => {
   })
 
   it('enforces a separate durable status quota before consuming the body', async () => {
-    const now = Math.floor(Date.now() / 1000)
+    const now = Math.floor(testNow() / 1000)
     sqlite
       .prepare(
         `INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at)

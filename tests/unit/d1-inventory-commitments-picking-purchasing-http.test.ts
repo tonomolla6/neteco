@@ -12,9 +12,10 @@ import {
   INVENTORY_FIXTURE_VARIANT as V
 } from '../support/admin-inventory-fixture'
 import { deterministicUuid } from '../fixtures/deterministic'
+import { testNow } from '../support/deterministic'
 
 const origin = 'https://inventory.neteco.test'
-const at = (days = 0) => new Date(Date.now() + days * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const at = (days = 0) => new Date(testNow() + days * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const NOW = at()
 const LATER = at(20)
 const config: SessionCookieConfiguration = {
@@ -207,7 +208,7 @@ describe('command endpoint', () => {
   })
 
   it('rate limits writes per identity', async () => {
-    const nowSeconds = Math.floor(Date.now() / 1000)
+    const nowSeconds = Math.floor(testNow() / 1000)
     fixture.sqlite.exec(
       `INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at) VALUES('${INVENTORY_FIXTURE_ACTOR}','admin-inventory',120,${nowSeconds},${nowSeconds + 3600})`
     )

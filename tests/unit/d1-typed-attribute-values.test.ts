@@ -24,6 +24,7 @@ import {
 } from '../support/category-command-fixture'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const REFERENCE = '60000000-0000-4000-8000-000000000059'
 const REASON = 'Synthetic typed attribute editorial review'
@@ -76,12 +77,12 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       options.claims === undefined ? CATEGORY_CLAIMS : options.claims,
       '1',
       body,
-      { idempotencyKey: options.key ?? crypto.randomUUID() }
+      { idempotencyKey: options.key ?? testUuid() }
     )
   async function definition(
     kind = 'text',
     config: unknown = { maxLength: 500 },
-    code = `field_${crypto.randomUUID().replaceAll('-', '')}`
+    code = `field_${testUuid().replaceAll('-', '')}`
   ) {
     return (
       await executeD1CatalogTypedAttributeDefinitionCommand(
@@ -98,7 +99,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
           expectedVersion: 0,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
   }
@@ -197,7 +198,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
   it('replays the original receipt after a definition is retired, but rejects changed payloads', async () => {
     const d = await definition(),
       body = input(typed(d, 'Original')),
-      key = crypto.randomUUID()
+      key = testUuid()
     const receipt = await write(body, { key })
     await executeD1CatalogTypedAttributeDefinitionCommand(
       database,
@@ -205,7 +206,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       'retire',
       { definitionId: d.id },
       { expectedVersion: 1, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(await write(body, { key })).toEqual(receipt)
     await rejected({ ...body, typed: typed(d, 'Different') }, 'idempotency_conflict', { key })
@@ -213,7 +214,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
   })
   it('requires fresh authorization for private reads and replay, including MFA and revocation', async () => {
     const body = input(),
-      key = crypto.randomUUID()
+      key = testUuid()
     await write(body, { key })
     sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(CATEGORY_SESSION)
     await expect(readD1CatalogTypedAttributeProduct(database, CATEGORY_CLAIMS, '1')).rejects.toMatchObject({
@@ -243,7 +244,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       'retire',
       { definitionId: d.id },
       { expectedVersion: 1, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const view = await readD1CatalogTypedAttributeProduct(database, CATEGORY_CLAIMS, '1')
     expect(view.definitions).toContainEqual(d)
@@ -261,7 +262,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       'update',
       { definitionId: d.id },
       { label: 'Revised', config: { precision: 2 }, expectedVersion: 1, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await rejected(input(typed(d, 1)), 'invalid_typed_values')
     sqlite.prepare("UPDATE products SET category_id=? WHERE id='p-1'").run(OTHER_CATEGORY)
@@ -269,8 +270,8 @@ describe('governed D1 typed product values using the metadata ledger', () => {
   })
   it('rejects new hidden and missing references, and detects reference withdrawal at batch execution', async () => {
     const d = await definition('reference', {})
-    await rejected(input(typed(d, crypto.randomUUID())), 'reference_unavailable')
-    const self = crypto.randomUUID(),
+    await rejected(input(typed(d, testUuid())), 'reference_unavailable')
+    const self = testUuid(),
       beforeSelf = counts()
     sqlite
       .prepare(
@@ -283,7 +284,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
         CATEGORY_CLAIMS,
         '60',
         { expectedVersion: 1, reason: REASON, typed: typed(d, self) },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_typed_values' })
     expect(counts()).toEqual(beforeSelf)
@@ -324,7 +325,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
           'retire',
           { definitionId: d.id },
           { expectedVersion: 1, reason: REASON },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       })
     })
@@ -348,7 +349,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
         CATEGORY_CLAIMS,
         '1',
         { expectedVersion: version(), reason: REASON, categoryId: 12 },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_typed_values' })
     expect(product()).toEqual(before)
@@ -358,7 +359,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       CATEGORY_CLAIMS,
       '1',
       { expectedVersion: version(), reason: REASON, categoryId: 12, typed: EMPTY },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(product().category_id).toBe(OTHER_CATEGORY)
     expect(JSON.parse(String(product().attributes))).toEqual({ ...ORIGINAL, typed: EMPTY })
@@ -369,7 +370,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       CATEGORY_CLAIMS,
       '1',
       { expectedVersion: version(), reason: REASON, name: 'Changed editorial title' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(Object.keys(result)).toEqual(['source', 'productId', 'productUuid', 'catalogVersion', 'updated'])
     expect(
@@ -398,7 +399,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
       'retire',
       { definitionId: d.id },
       { expectedVersion: 1, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(await write(input(namespace))).toMatchObject({ typed: namespace })
   })
@@ -419,7 +420,7 @@ describe('governed D1 typed product values using the metadata ledger', () => {
           'retire',
           { definitionId: d.id },
           { expectedVersion: 1, reason: REASON },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       })
     })

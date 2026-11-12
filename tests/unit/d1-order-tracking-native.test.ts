@@ -19,6 +19,7 @@ import {
   BUYER,
   FOREIGN
 } from './d1-order-tracking-http-fixture'
+import { testUuid } from '../support/deterministic'
 
 it('reads owner/admin/sealed guest tracking through actual canary.fetch/workerd D1 without writes or carrier claims', async () => {
   const outbound = vi.fn(() => {
@@ -183,7 +184,7 @@ it('reads owner/admin/sealed guest tracking through actual canary.fetch/workerd 
     }
     for (const [id, credential] of [
       [ownedOrderId, foreignCookie],
-      [crypto.randomUUID(), buyerCookie],
+      [testUuid(), buyerCookie],
       [ownedOrderId, guestCookie]
     ]) {
       const response = await dispatch(id!, credential!)

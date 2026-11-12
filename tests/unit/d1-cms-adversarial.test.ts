@@ -8,6 +8,7 @@ import {
   cmsArchiveInputSchema
 } from '../../shared/cms-commands'
 import { cmsFixture, cmsDocument, CMS_CLAIMS, CMS_IDENTITY, CMS_BLOCK, CMS_SESSION, cmsUtc } from './d1-cms-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('CMS D1 adversarial command ownership, live grants and bounded data', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -18,7 +19,7 @@ describe('CMS D1 adversarial command ownership, live grants and bounded data', (
     sqlite.close()
     vi.restoreAllMocks()
   })
-  const create = (db = database, key = crypto.randomUUID(), extra: Record<string, unknown> = {}) =>
+  const create = (db = database, key = testUuid(), extra: Record<string, unknown> = {}) =>
     executeD1CmsDraftCommand(
       db,
       CMS_CLAIMS,
@@ -27,7 +28,7 @@ describe('CMS D1 adversarial command ownership, live grants and bounded data', (
       { ...cmsDocument(extra), expectedVersion: 0 },
       { idempotencyKey: key }
     )
-  const update = (id: string, db = database, key = crypto.randomUUID(), version = 1) =>
+  const update = (id: string, db = database, key = testUuid(), version = 1) =>
     executeD1CmsDraftCommand(
       db,
       CMS_CLAIMS,

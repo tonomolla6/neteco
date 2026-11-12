@@ -4,6 +4,7 @@ import { issueStoreCredit } from '../../workers/pricing/store-credit'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { d1OverSqlite } from '../support/d1-sqlite'
 import { CLAIMS } from './d1-fulfillment-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 const migration = (name: string) => readFile(new URL(`../../db/d1/migrations/${name}`, import.meta.url), 'utf8')
 
@@ -30,19 +31,19 @@ export async function applyStoreCreditMigrations(sqlite: DatabaseSync) {
 
 /** Funds the customer's store credit through the real admin issuance path. */
 export async function fundStoreCredit(database: D1Database, customerId: string, amountCents: number) {
-  const at = new Date(Date.now() - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const at = new Date(testNow() - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
   await issueStoreCredit(
     database,
     CLAIMS,
     {
       customerId,
       kind: 'compensation_coupon',
-      sourceRef: `downstream-${crypto.randomUUID()}`,
+      sourceRef: `downstream-${testUuid()}`,
       amountCents,
       expiresInDays: 60,
       reason: 'Compensacion para pruebas de devolucion'
     },
-    crypto.randomUUID(),
+    testUuid(),
     at
   )
 }

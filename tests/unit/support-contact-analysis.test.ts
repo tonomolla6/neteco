@@ -19,12 +19,13 @@ import {
   NOMFA,
   CUSTOMER_A
 } from './support-insights-fixture'
+import { testUuid } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof insightsFixture>>
 const NOW = '2026-11-02T09:00:00Z'
 const WINDOW = { from: '2026-10-01', to: '2026-11-01', limit: 10 }
 const oid = (n: number) => `50000000-0000-4000-8000-${String(n).padStart(12, '0')}`
-const key = () => crypto.randomUUID()
+const key = () => testUuid()
 const code = async (p: Promise<unknown>) =>
   p.then(
     () => 'ok',
@@ -194,9 +195,7 @@ describe('classifyTicketRootCause', () => {
   it('validates ticket, taxonomy and authority', async () => {
     const base = { ticketId: ticketIds[0]!, rootCause: 'other' as const, expectedVersion: 0 }
     expect(
-      await code(
-        classifyTicketRootCause(f.database, claimsOf(ADMIN), { ...base, ticketId: crypto.randomUUID() }, key(), NOW)
-      )
+      await code(classifyTicketRootCause(f.database, claimsOf(ADMIN), { ...base, ticketId: testUuid() }, key(), NOW))
     ).toBe('not_found')
     expect(
       await code(
@@ -315,7 +314,7 @@ describe('contact backlog', () => {
           f.database,
           claimsOf(ADMIN),
           created.id,
-          { action: 'plan', expectedVersion: 1, rcaId: crypto.randomUUID() },
+          { action: 'plan', expectedVersion: 1, rcaId: testUuid() },
           key(),
           NOW
         )
@@ -326,7 +325,7 @@ describe('contact backlog', () => {
         transitionContactBacklogItem(
           f.database,
           claimsOf(ADMIN),
-          crypto.randomUUID(),
+          testUuid(),
           { action: 'dismiss', expectedVersion: 1 },
           key(),
           NOW

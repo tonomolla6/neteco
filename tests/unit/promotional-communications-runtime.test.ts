@@ -5,6 +5,7 @@ import { cmsPublicationFixture } from './d1-cms-publication-fixture'
 import { communicationHistoryFixture } from './d1-communication-history-fixture'
 import { ORIGIN } from './d1-support-fixture'
 import { communicationRetryIntentHash } from '../../shared/communication-history'
+import { testUuid } from '../support/deterministic'
 
 describe('actual Worker promotions and communication history routing', () => {
   it.each([
@@ -76,7 +77,7 @@ describe('actual Worker promotions and communication history routing', () => {
         EMAIL_ENABLED: 'false',
         SUPPORT_ENABLED: 'false'
       }) as unknown as CloudflareEnv
-      const id = crypto.randomUUID(),
+      const id = testUuid(),
         hash = await communicationRetryIntentHash(f.eventId, f.input)
       const send = (path = '', body?: unknown) =>
         worker.fetch(

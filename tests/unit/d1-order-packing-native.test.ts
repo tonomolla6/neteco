@@ -15,6 +15,7 @@ import {
   orderPackingCommandResponseSchema,
   orderPackingIntentHash
 } from '../../shared/order-packing'
+import { testUuid } from '../support/deterministic'
 
 it('records two parcels and manual dispatch through actual canary.fetch/workerd D1 without economic, stock, fulfillment or provider effects', async () => {
   const outbound = vi.fn(() => {
@@ -182,7 +183,7 @@ it('records two parcels and manual dispatch through actual canary.fetch/workerd 
       taxBps: 2100
     }
     for (const input of [pack, manual]) {
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         hash = await orderPackingIntentHash(orderId, input)
       const post = () =>
         dispatch(`${base}/commands`, {
@@ -244,12 +245,12 @@ it('records two parcels and manual dispatch through actual canary.fetch/workerd 
       }
     })
     expect(await snapshot()).toEqual(before)
-    const unknown = await dispatch(`${base}/commands/${crypto.randomUUID()}`, {
+    const unknown = await dispatch(`${base}/commands/${testUuid()}`, {
       headers: { 'X-Neteco-Command-Payload-Hash': '0'.repeat(64) }
     })
     expect(unknown.status).toBe(200)
     expect(await unknown.json()).toEqual({ source: 'cloudflare', outcome: 'unknown' })
-    for (const path of [base, `${base}/commands/${crypto.randomUUID()}`, base.replace('/packing', '/%70acking')]) {
+    for (const path of [base, `${base}/commands/${testUuid()}`, base.replace('/packing', '/%70acking')]) {
       const disabled = await dispatch(path, {}, { ...env, AUTH_ENABLED: 'false' })
       expect(disabled.status).toBe(503)
       expect(disabled.headers.get('Cache-Control')).toContain('no-store')
@@ -285,14 +286,14 @@ it('records two parcels and manual dispatch through actual canary.fetch/workerd 
       (
         await dispatch(`${base}/commands`, {
           method: 'POST',
-          headers: { Origin: origin, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+          headers: { Origin: origin, 'Content-Type': 'application/json', 'Idempotency-Key': testUuid() },
           body: JSON.stringify(manual)
         })
       ).status
     ).toBe(403)
     expect(
       (
-        await dispatch(`${base}/commands/${crypto.randomUUID()}`, {
+        await dispatch(`${base}/commands/${testUuid()}`, {
           headers: { 'X-Neteco-Command-Payload-Hash': '0'.repeat(64) }
         })
       ).status

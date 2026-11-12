@@ -17,6 +17,7 @@ import { updateD1ProductStatus, type CatalogPublicationGate } from '../../worker
 import { validGtin } from '../../server/domain/catalog-publication'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T10:00:00Z',
   NEXT = '2026-09-30T10:00:01Z',
@@ -49,10 +50,10 @@ describe('current D1 publication governing evidence', () => {
       .prepare(
         `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at) VALUES (?,?,?,?,?)`
       )
-      .run(crypto.randomUUID(), id, ACTOR, REASON, NOW)
+      .run(testUuid(), id, ACTOR, REASON, NOW)
   }
   function withdrawMedia(id: string) {
-    const eventId = crypto.randomUUID()
+    const eventId = testUuid()
     sqlite
       .prepare(
         `INSERT INTO product_media_publication_events(id,publication_id,event_type,reason,actor_id,created_at,idempotency_key,payload_hash)
@@ -72,10 +73,10 @@ describe('current D1 publication governing evidence', () => {
       storedAt?: string
     } = {}
   ) {
-    const id = crypto.randomUUID(),
-      uploadId = crypto.randomUUID(),
-      scanId = crypto.randomUUID(),
-      rightsId = crypto.randomUUID()
+    const id = testUuid(),
+      uploadId = testUuid(),
+      scanId = testUuid(),
+      rightsId = testUuid()
     const role = options.role ?? 'main',
       image = role === 'main' || role === 'label',
       key = `quarantine/${uploadId}/${CHECKSUM}`
@@ -138,7 +139,7 @@ describe('current D1 publication governing evidence', () => {
   function exception(
     options: { validFrom?: string; validUntil?: string | null; reason?: string; reference?: string } = {}
   ) {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     sqlite
       .prepare(
         `INSERT INTO catalog_variant_identifier_exceptions(id,variant_id,actor_id,reason,evidence_reference,valid_from,valid_until,created_at)
@@ -363,7 +364,7 @@ describe('current D1 publication governing evidence', () => {
       .prepare(
         'INSERT INTO catalog_variant_identifier_exception_withdrawals(id,exception_id,actor_id,reason,created_at) VALUES (?,?,?,?,?)'
       )
-      .run(crypto.randomUUID(), id, ACTOR, REASON, NOW)
+      .run(testUuid(), id, ACTOR, REASON, NOW)
     expect(eligible()).toBe(0)
     expect(sqlite.prepare('SELECT count(*) AS total FROM catalog_variant_identifier_exceptions').get()?.total).toBe(1)
   })
@@ -469,7 +470,7 @@ describe('current D1 publication governing evidence', () => {
   it('production ignores captured binding time for an expired optional publication', async () => {
     const fixture = await provision(),
       main = fixture.mainPublications.get('p-1')!,
-      imageId = crypto.randomUUID()
+      imageId = testUuid()
     sqlite
       .prepare(
         `INSERT INTO product_media_publications(id,product_id,variant_id,upload_id,role,title,alt,language,version,valid_from,valid_until,
@@ -499,7 +500,7 @@ describe('current D1 publication governing evidence', () => {
       SELECT ?,upload_id,checksum,object_key,byte_size,?,'Synthetic latest receipt',scanned_at,expires_at,received_at,payload_hash
       FROM media_scan_receipts WHERE id=?`
         )
-        .run(crypto.randomUUID(), verdict, main.scanId)
+        .run(testUuid(), verdict, main.scanId)
       expect(eligible()).toBe(0)
     }
   )
@@ -508,7 +509,7 @@ describe('current D1 publication governing evidence', () => {
     async (decision) => {
       const fixture = await provision(),
         main = fixture.mainPublications.get('p-1')!,
-        id = crypto.randomUUID()
+        id = testUuid()
       sqlite
         .prepare(
           `INSERT INTO media_rights_decisions(id,upload_id,decision,reason,actor_id,evidence_authorized_at,evidence_reference,rights_owner,rights_license,created_at,idempotency_key,payload_hash)
@@ -754,6 +755,7 @@ describe('current D1 publication governing evidence', () => {
           medidas: [],
           acabados: [],
           badges: [],
+          inStock: 0,
           price: null,
           typed: []
         })
@@ -764,6 +766,7 @@ describe('current D1 publication governing evidence', () => {
       expect(fresh?.items).toEqual([])
       expect(fresh?.total).toBe(0)
       expect(fresh?.facets?.brands).toEqual([])
+      expect(fresh?.facets?.inStock).toBe(0)
       expect(eligible()).toBe(0)
     }
   )
@@ -786,7 +789,7 @@ describe('current D1 publication governing evidence', () => {
   it('PDP cannot return a withdrawn optional variant image while main remains valid', async () => {
     const fixture = await provision(),
       main = fixture.mainPublications.get('p-1')!,
-      imageId = crypto.randomUUID()
+      imageId = testUuid()
     sqlite
       .prepare(
         `INSERT INTO product_media_publications(id,product_id,variant_id,upload_id,role,title,alt,language,version,valid_from,valid_until,

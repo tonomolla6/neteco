@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createSupportTicket,
   executeSupportAdminCommand,
@@ -10,16 +10,44 @@ import {
 } from '../../workers/support/operations'
 import { supportAdminTicketSchema, supportCustomerTicketSchema } from '../../shared/support-operations'
 import { supportFixture, CLAIMS, BUYER_CLAIMS, CONTACT, POLICY, utc } from './d1-support-fixture'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_support_operations_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_operations_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_support_operations_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_support_operations_clock()'))
+      return database
+    }
+  }
+})
 
 describe('native D1 operational support ledger and private ownership', () => {
   let fixture: Awaited<ReturnType<typeof supportFixture>>
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     fixture = await supportFixture()
   })
   afterEach(() => {
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
+    vi.useRealTimers()
   })
-  const options = () => ({ idempotencyKey: crypto.randomUUID() })
+  const options = () => ({ idempotencyKey: testUuid() })
   const update = (version: number, extra: Record<string, unknown> = {}) => ({
     action: 'update',
     expectedVersion: version,
@@ -53,7 +81,7 @@ describe('native D1 operational support ledger and private ownership', () => {
     ).toEqual([{ event_type: 'support.ticket.received', source_kind: 'support' }])
   })
   it('replays creation exactly and rejects changed content under the same actor/key', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       first = await fixture.ticket({ ...CONTACT, orderId: fixture.order }, key)
     expect(await fixture.ticket({ ...CONTACT, orderId: fixture.order }, key)).toEqual(first)
     await expect(
@@ -223,7 +251,7 @@ describe('native D1 operational support ledger and private ownership', () => {
   })
   it('permits same-key recovery after later commands but never after grant loss', async () => {
     const ticket = await fixture.ticket(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       input = update(1),
       first = await executeSupportAdminCommand(fixture.database, CLAIMS, ticket.publicRef, input, {
         idempotencyKey: key
@@ -250,7 +278,7 @@ describe('native D1 operational support ledger and private ownership', () => {
   })
   it('rejects assignment to a customer, disabled owner or owner without a live MFA session', async () => {
     const ticket = await fixture.ticket()
-    for (const ownerId of [BUYER_CLAIMS.identityId, crypto.randomUUID()]) {
+    for (const ownerId of [BUYER_CLAIMS.identityId, testUuid()]) {
       await expect(
         executeSupportAdminCommand(fixture.database, CLAIMS, ticket.publicRef, update(1, { ownerId }), options())
       ).rejects.toMatchObject({ code: 'owner_unavailable' })

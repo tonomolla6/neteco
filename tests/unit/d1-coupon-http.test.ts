@@ -5,13 +5,14 @@ import { createCart, setCartLine } from '../../workers/catalog/cart'
 import { handleCartCommand } from '../../workers/cart-coordinator'
 import { handleStorefrontShippingHttp } from '../../workers/catalog/storefront-shipping'
 import type { PromotionRule } from '../../shared/promotions'
+import { testUuid } from '../support/deterministic'
 
 async function world(segment: PromotionRule['segment'] = 'all') {
   const f = await returnsFixture()
   await provisionPromotionFixture(
     f.sqlite,
     {
-      id: crypto.randomUUID(),
+      id: testUuid(),
       version: 1,
       code: 'TEST101',
       status: 'active',
@@ -53,7 +54,7 @@ async function world(segment: PromotionRule['segment'] = 'all') {
       return Response.json(response.body, { status: response.status })
     }
   }
-  const key = crypto.randomUUID()
+  const key = testUuid()
   const request = (couponCode: string, extra: Record<string, unknown> = {}) =>
     new Request('https://shop.test/api/shipping/rates', {
       method: 'POST',

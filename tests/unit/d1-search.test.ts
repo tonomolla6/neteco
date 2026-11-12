@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { searchPublishedProducts } from '../../workers/catalog/search'
@@ -8,11 +8,13 @@ import { provisionPublicationValidityFixture } from '../support/publication-vali
 import { readFile } from 'node:fs/promises'
 import { createSearchSynonymPreview, executeSearchSynonymCommand } from '../../workers/catalog/search-synonyms'
 import { categoryCommandFixture, CATEGORY_CLAIMS } from '../support/category-command-fixture'
+import { testNow, testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T12:00:00Z'
 const databases: DatabaseSync[] = []
 afterEach(() => {
   for (const database of databases.splice(0)) database.close()
+  vi.useRealTimers()
 })
 
 async function fixture() {
@@ -81,7 +83,27 @@ async function fixture() {
 
 describe('D1 public search', () => {
   it('applies direct normalized active synonyms to both suggestions and full catalog, never recursive or private products', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     const { sqlite: db, database } = await categoryCommandFixture()
+    db.function('synthetic_search_clock', () => {
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_search_clock')
+      return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+    })
+    const nativeExec = db.exec.bind(db),
+      nativePrepare = database.prepare.bind(database)
+    db.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_search_clock()'))
+    database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_search_clock()'))
+    const triggers = db
+      .prepare(
+        "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND name LIKE 'search_synonym_%' AND sql LIKE '%strftime%'"
+      )
+      .all() as Array<{ name: string; sql: string }>
+    for (const trigger of triggers) {
+      db.exec(`DROP TRIGGER "${trigger.name}"`)
+      db.exec(trigger.sql)
+    }
     databases.push(db)
     if (!db.prepare("SELECT 1 FROM sqlite_master WHERE name='search_synonym_commands'").get())
       db.exec(await readFile(new URL('../../db/d1/migrations/0061_search_synonyms.sql', import.meta.url), 'utf8'))
@@ -98,7 +120,10 @@ describe('D1 public search', () => {
        ('syn-v3',102,'syn-private','syn-tax','syn-shipping','SYN3','1 L','published',1210);`)
     await provisionPublicationValidityFixture(database, {
       productIds: ['syn-p1', 'syn-p2'],
-      now: '2026-08-19T00:00:00Z',
+      now: vi
+        .getMockedSystemTime()!
+        .toISOString()
+        .replace(/\.\d{3}Z$/, 'Z'),
       validUntil: '2099-01-01T00:00:00Z'
     })
     const save = async (sourceTerm: string, replacements: string[]) => {
@@ -123,7 +148,7 @@ describe('D1 public search', () => {
         database,
         CATEGORY_CLAIMS,
         { previewId: p.previewId, previewHash: p.previewHash },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     }
     await save('hipoclorito', ['cloro'])
@@ -152,7 +177,7 @@ describe('D1 public search', () => {
       database,
       CATEGORY_CLAIMS,
       { previewId: paused.previewId, previewHash: paused.previewHash },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect((await searchPublishedProducts(database, 'lejía')).items).toEqual([])
     expect(

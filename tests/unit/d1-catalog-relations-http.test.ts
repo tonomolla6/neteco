@@ -1,6 +1,5 @@
-import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
@@ -13,6 +12,31 @@ import {
   publicCatalogRelationsSchema,
   catalogRelationsIntentHash
 } from '../../shared/catalog-relations'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_catalog_relations_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_catalog_relations_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const exec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_catalog_relations_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_catalog_relations_clock()'))
+      return database
+    }
+  }
+})
 
 const origin = 'https://catalog-relations-http.neteco.test',
   root = '/api/admin/products/1/relations'
@@ -26,6 +50,8 @@ const input = () => ({
   reviewReference: 'synthetic-review-001'
 })
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   fixture = await returnsFixture()
   for (const file of (await readdir('db/d1/migrations'))
     .filter((file) => /^\d{4}_.*\.sql$/.test(file) && Number(file.slice(0, 4)) > 62 && Number(file.slice(0, 4)) <= 76)
@@ -39,10 +65,13 @@ beforeEach(async () => {
   await provisionPublicationValidityFixture(fixture.database, { productIds: ['p-2'], now: utc(-3600000) })
   cookie = (await issueD1SessionCookie(fixture.database, CLAIMS, configuration))!.split(';')[0]!
   buyer = (await issueD1SessionCookie(fixture.database, BUYER_CLAIMS, configuration))!.split(';')[0]!
-  key = randomUUID()
+  key = testUuid()
   edge = { limit: async () => ({ success: true }) }
 })
-afterEach(() => fixture?.sqlite.close())
+afterEach(() => {
+  fixture?.sqlite.close()
+  vi.useRealTimers()
+})
 async function call(
   path = root,
   method = 'GET',

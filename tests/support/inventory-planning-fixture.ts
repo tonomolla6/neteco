@@ -7,6 +7,7 @@ import {
   openAdminInventoryFixture
 } from './admin-inventory-fixture'
 import type { VerifiedSessionClaims } from '../../workers/catalog/authorization'
+import { testNow } from './deterministic'
 
 export const PLANNING_VARIANT = INVENTORY_FIXTURE_VARIANT
 export const claimsA: VerifiedSessionClaims = {
@@ -25,7 +26,7 @@ export const claimsNoRole: VerifiedSessionClaims = {
   sessionId: '20000000-0000-4000-8000-000000000043',
   sessionVersion: 1
 }
-export const isoNow = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+export const isoNow = (offsetMs = 0) => new Date(testNow() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
 let counter = 0
 export const uuid = () => {
   counter++

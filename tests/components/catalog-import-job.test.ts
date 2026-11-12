@@ -6,6 +6,7 @@ import CatalogImportJob from '../../app/components/CatalogImportJob.vue'
 import { catalogTabularColumns, type CatalogTabularRecord } from '../../shared/catalog-tabular-core'
 import type { CatalogImportJob as Job } from '../../shared/catalog-import-job'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { request, decode, session } = vi.hoisted(() => ({ request: vi.fn(), decode: vi.fn(), session: vi.fn() }))
 mockNuxtImport('useRequestFetch', () => () => request)
@@ -97,7 +98,9 @@ async function confirm(wrapper: Awaited<ReturnType<typeof mount>>) {
 }
 beforeEach(() => {
   vi.clearAllMocks()
-  const now = Date.now()
+  const now = testNow()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(now)
   jobCreatedAt = instant(now - 1_000)
   workspaceExpiresAt = instant(now + 24 * 3600_000)
   sealExpiresAt = instant(now + 30 * 60_000)
@@ -122,6 +125,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const wrapper of wrappers) wrapper.unmount()
   wrappers = []
+  vi.useRealTimers()
   vi.unstubAllGlobals()
 })
 describe('whole catalogue staged import preparation', () => {
@@ -308,8 +312,8 @@ describe('whole catalogue staged import preparation', () => {
         expiry === 'workspace_ttl'
           ? workspaceExpiresAt
           : expiry === 'extended_ttl'
-            ? instant(Date.now() + 31 * 60_000)
-            : instant(Date.now() - 60_000)
+            ? instant(testNow() + 31 * 60_000)
+            : instant(testNow() - 60_000)
       request.mockResolvedValueOnce({ ...fixture(2, 'ready'), expiresAt })
       await wrapper.get('[data-job-seal]').trigger('click')
       await flushPromises()

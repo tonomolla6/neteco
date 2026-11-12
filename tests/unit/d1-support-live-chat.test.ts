@@ -14,14 +14,15 @@ import {
   isSupportChatOperatingHours,
   SUPPORT_CHAT_DISCLAIMER
 } from '../../workers/support/live-chat'
+import { testNow } from '../support/deterministic'
 
 // Support chat only opens in business hours and `now` defaults to the real clock, so the tests that
 // exercise an open chat use the next weekday 10:00 UTC at or after the real clock (never before the
 // fixture rows) plus an offset in milliseconds.
 function businessUtc(offset = 0): string {
-  const d = new Date()
+  const d = new Date(testNow())
   d.setUTCHours(10, 0, 0, 0)
-  if (d.getTime() < Date.now()) d.setUTCDate(d.getUTCDate() + 1)
+  if (d.getTime() < testNow()) d.setUTCDate(d.getUTCDate() + 1)
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1)
   return new Date(d.getTime() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }

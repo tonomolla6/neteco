@@ -7,6 +7,7 @@ import {
   readAdminSatisfaction,
   readCustomerSatisfaction
 } from '../../workers/support/satisfaction'
+import { testUuid } from '../support/deterministic'
 
 describe('CSAT authority and atomicity at the commit boundary', () => {
   let f: Awaited<ReturnType<typeof supportFixture>>
@@ -39,7 +40,7 @@ describe('CSAT authority and atomicity at the commit boundary', () => {
         slaDueAt: null,
         resolution: 'Respuesta sintética documentada antes de valorar.'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     body.expectedPolicyHash = (
       await readCustomerSatisfaction(f.database, BUYER_CLAIMS, 'support', target)
@@ -75,7 +76,7 @@ describe('CSAT authority and atomicity at the commit boundary', () => {
     })
     await expect(
       submitCustomerSatisfaction(race.database, BUYER_CLAIMS, 'support', target, body, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         policy: POLICY
       })
     ).rejects.toMatchObject({ code: 'unauthenticated' })
@@ -100,12 +101,12 @@ describe('CSAT authority and atomicity at the commit boundary', () => {
           nextActionAt: null,
           slaDueAt: null
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     })
     await expect(
       submitCustomerSatisfaction(race.database, BUYER_CLAIMS, 'support', target, body, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         policy: POLICY
       })
     ).rejects.toMatchObject({ code: expect.stringMatching(/^(source_version_conflict|source_not_final)$/) })
@@ -140,7 +141,7 @@ describe('CSAT authority and atomicity at the commit boundary', () => {
         expectedSourceVersion: state.target.version,
         expectedPolicyHash: state.privacy!.policyHash
       },
-      { policy: originalPolicy, idempotencyKey: crypto.randomUUID() }
+      { policy: originalPolicy, idempotencyKey: testUuid() }
     )
     const row = f.sqlite
       .prepare("SELECT retention_until FROM support_satisfaction_feedback WHERE kind='delivery'")
@@ -167,7 +168,7 @@ describe('CSAT authority and atomicity at the commit boundary', () => {
     await expect(
       submitCustomerSatisfaction(f.database, BUYER_CLAIMS, 'delivery', f.order, draft, {
         policy: changedPolicy,
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
     ).rejects.toMatchObject({ code: 'policy_version_conflict' })
     expect(f.sqlite.prepare('SELECT count(*) AS n FROM support_satisfaction_commands').get()).toEqual({ n: 0 })
@@ -185,7 +186,7 @@ describe('CSAT authority and atomicity at the commit boundary', () => {
           ...draft,
           expectedPolicyHash: fresh.privacy!.policyHash
         },
-        { policy: changedPolicy, idempotencyKey: crypto.randomUUID() }
+        { policy: changedPolicy, idempotencyKey: testUuid() }
       )
     ).resolves.toMatchObject({ score: body.score })
   })

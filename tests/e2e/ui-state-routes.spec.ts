@@ -1,4 +1,5 @@
-import { chromium, expect, test as base } from '@playwright/test'
+import { chromium } from '@playwright/test'
+import { expect, test as base } from '../fixtures/playwright'
 import { connectRemoteTestBrowser } from '../../scripts/lib/remote-test-browser'
 
 // Runtime acceptance complements STATIC component images. The caller must supply

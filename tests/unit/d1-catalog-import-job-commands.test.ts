@@ -13,6 +13,7 @@ import {
 } from '../../workers/catalog/import-job'
 import { executeCatalogImportJobCommand } from '../../workers/catalog/import-job-commands'
 import { NativeCatalogImportError } from '../../workers/catalog/native-import'
+import { testUuid, testNow } from '../support/deterministic'
 
 const actor = '00570000-0000-4000-8000-000000000001'
 const session = '00570000-0000-4000-8000-000000000002'
@@ -20,7 +21,7 @@ const warehouse = '00570000-0000-4000-8000-000000000003'
 const claims = { identityId: actor, sessionId: session, sessionVersion: 1 }
 const reason = 'Synthetic whole-job apply approval, local tests only'
 const revertReason = 'Synthetic whole-job stock compensation, local tests only'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const uuid = (kind: number, index: number) =>
   `0057${String(kind).padStart(4, '0')}-0000-4000-8000-${String(index).padStart(12, '0')}`
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
@@ -169,7 +170,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
   const command = (
     job: CatalogImportJob,
     action: 'apply' | 'revert' = 'apply',
-    key = crypto.randomUUID(),
+    key = testUuid(),
     db = database,
     options: { now?: string } = {}
   ) =>
@@ -204,7 +205,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
   }
   async function conflictWithoutEffects(job: CatalogImportJob, action: 'apply' | 'revert' = 'apply', db = database) {
     const before = snapshot()
-    await expect(command(job, action, crypto.randomUUID(), db)).rejects.toMatchObject({ code: 'version_conflict' })
+    await expect(command(job, action, testUuid(), db)).rejects.toMatchObject({ code: 'version_conflict' })
     expect(snapshot()).toEqual(before)
   }
 
@@ -225,7 +226,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
         }
       }
     }
-    expectReceipt(await command(job, 'revert', crypto.randomUUID(), observedDatabase), job, 'revert')
+    expectReceipt(await command(job, 'revert', testUuid(), observedDatabase), job, 'revert')
     const statements = captured.filter(
       ({ sql }) =>
         sql.includes('product_media') &&
@@ -273,7 +274,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
         }
       }
     }
-    expectReceipt(await command(job, 'apply', crypto.randomUUID(), observedDatabase), job, 'apply')
+    expectReceipt(await command(job, 'apply', testUuid(), observedDatabase), job, 'apply')
     expect(rows('variants').map(({ ean, gtin }) => ({ ean, gtin }))).toEqual([
       { ean: null, gtin: null },
       { ean: null, gtin: null }
@@ -491,7 +492,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
 
   it('durably replays a lost apply response byte-for-byte, recovers status through GET and refuses changed/opposite/new-key commands', async () => {
     const job = await sealed(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       receipt = await command(job, 'apply', key),
       before = snapshot()
     expectReceipt(receipt, job, 'apply')
@@ -517,19 +518,19 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
   it('uses expiry only for first apply; allows authorized receipt replay and exact compensation after expiry', async () => {
     const now = utc(),
       job = await sealed([record()], { now }),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       receipt = await command(job, 'apply', key, database, { now })
     const expired = new Date(Date.parse(job.expiresAt) + 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
       before = snapshot()
     expect(JSON.stringify(await command(job, 'apply', key, database, { now: expired }))).toBe(JSON.stringify(receipt))
     expect(snapshot()).toEqual(before)
-    expectReceipt(await command(job, 'revert', crypto.randomUUID(), database, { now: expired }), job, 'revert')
+    expectReceipt(await command(job, 'revert', testUuid(), database, { now: expired }), job, 'revert')
     expect(await readCatalogImportJob(database, claims, job.id, { now: expired })).toMatchObject({ status: 'reverted' })
   })
   it('rejects an expired first apply without effects', async () => {
     const job = await sealed(),
       before = snapshot()
-    await expect(command(job, 'apply', crypto.randomUUID(), database, { now: job.expiresAt })).rejects.toMatchObject({
+    await expect(command(job, 'apply', testUuid(), database, { now: job.expiresAt })).rejects.toMatchObject({
       code: 'preview_expired'
     })
     expect(snapshot()).toEqual(before)
@@ -539,7 +540,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
     async (now) => {
       const job = await sealed(),
         before = snapshot()
-      await expect(command(job, 'apply', crypto.randomUUID(), database, { now })).rejects.toMatchObject({
+      await expect(command(job, 'apply', testUuid(), database, { now })).rejects.toMatchObject({
         code: 'invalid_input'
       })
       expect(snapshot()).toEqual(before)
@@ -556,11 +557,11 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
         job.id,
         'apply',
         { previewHash: '0'.repeat(64), reason },
-        crypto.randomUUID()
+        testUuid()
       )
     ).rejects.toMatchObject({ code: 'version_conflict' })
     await expect(
-      executeCatalogImportJobCommand(database, claims, job.id, 'apply', { reason }, crypto.randomUUID())
+      executeCatalogImportJobCommand(database, claims, job.id, 'apply', { reason }, testUuid())
     ).rejects.toMatchObject({ code: 'invalid_input' })
     await expect(
       executeCatalogImportJobCommand(
@@ -569,7 +570,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
         uploading.id,
         'apply',
         { previewHash: '0'.repeat(64), reason },
-        crypto.randomUUID()
+        testUuid()
       )
     ).rejects.toMatchObject({ code: 'version_conflict' })
     await expect(command(job, 'revert')).rejects.toMatchObject({ code: 'not_applied' })
@@ -577,7 +578,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
   })
   it('keeps sealed jobs and cached command receipts private to their owner', async () => {
     const job = await sealed(),
-      key = crypto.randomUUID()
+      key = testUuid()
     await command(job, 'apply', key)
     const identityId = uuid(9, 1),
       sessionId = uuid(9, 2)
@@ -585,7 +586,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
     const other = { identityId, sessionId, sessionVersion: 1 },
       before = snapshot()
     await expect(readCatalogImportJob(database, other, job.id)).rejects.toMatchObject({ code: 'not_found' })
-    for (const attemptKey of [key, crypto.randomUUID()])
+    for (const attemptKey of [key, testUuid()])
       await expect(
         executeCatalogImportJobCommand(database, other, job.id, 'apply', { previewHash: job.hash!, reason }, attemptKey)
       ).rejects.toMatchObject({ code: 'not_found' })
@@ -608,8 +609,8 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
     'rechecks current %s before new apply and cached apply/revert receipt replay',
     async (_name, change, code) => {
       const job = await sealed(),
-        key = crypto.randomUUID(),
-        revertKey = crypto.randomUUID()
+        key = testUuid(),
+        revertKey = testUuid()
       await command(job, 'apply', key)
       await command(job, 'revert', revertKey)
       const unapplied = await sealed([record(2)])
@@ -618,7 +619,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
       for (const [target, action, attemptKey] of [
         [job, 'apply', key],
         [job, 'revert', revertKey],
-        [unapplied, 'apply', crypto.randomUUID()]
+        [unapplied, 'apply', testUuid()]
       ] as const) {
         await expect(command(target, action, attemptKey)).rejects.toMatchObject({ code })
         expect(snapshot()).toEqual(before)
@@ -634,7 +635,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
         sqlite.exec(change)
         changed = snapshot()
       })
-      await expect(command(job, 'apply', crypto.randomUUID(), db)).rejects.toMatchObject({ code })
+      await expect(command(job, 'apply', testUuid(), db)).rejects.toMatchObject({ code })
       expect(changed).toBeDefined()
       expect(snapshot()).toEqual(changed)
     }
@@ -658,7 +659,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
       sqlite.exec("UPDATE categories SET status='draft'")
       changed = snapshot()
     })
-    await expect(command(job, 'apply', crypto.randomUUID(), db)).rejects.toMatchObject({ code: 'version_conflict' })
+    await expect(command(job, 'apply', testUuid(), db)).rejects.toMatchObject({ code: 'version_conflict' })
     expect(snapshot()).toEqual(changed)
   })
   it('refuses new identifier collisions introduced after sealing without upserting existing records', async () => {
@@ -689,7 +690,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
   it('refuses reuse of an actor idempotency key for a different sealed job', async () => {
     const first = await sealed(),
       second = await sealed([record(2)]),
-      key = crypto.randomUUID()
+      key = testUuid()
     await command(first, 'apply', key)
     const before = snapshot()
     await expect(command(second, 'apply', key)).rejects.toMatchObject({ code: 'idempotency_conflict' })
@@ -698,7 +699,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
   })
   it('rejects unauthenticated claims before resolving a command receipt', async () => {
     const job = await sealed(),
-      key = crypto.randomUUID()
+      key = testUuid()
     await command(job, 'apply', key)
     const before = snapshot()
     await expect(
@@ -786,8 +787,8 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
       }
     } as D1Database
     const results = await Promise.allSettled([
-      command(job, 'apply', crypto.randomUUID(), db),
-      command(job, 'apply', crypto.randomUUID(), db)
+      command(job, 'apply', testUuid(), db),
+      command(job, 'apply', testUuid(), db)
     ])
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
     const rejected = results.find((result) => result.status === 'rejected') as PromiseRejectedResult
@@ -810,7 +811,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
       balances = rows('inventory_balances'),
       initial = rows('inventory_movements'),
       counters = rows('catalog_draft_legacy_counters')
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       revertedAt = utc(60_000),
       batch = vi.spyOn(database, 'batch'),
       receipt = await command(job, 'revert', key, database, { now: revertedAt })
@@ -950,7 +951,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
       sqlite.exec('UPDATE variant_price_versions SET gross_cents=1600')
       changed = snapshot()
     })
-    await expect(command(job, 'revert', crypto.randomUUID(), db)).rejects.toMatchObject({ code: 'version_conflict' })
+    await expect(command(job, 'revert', testUuid(), db)).rejects.toMatchObject({ code: 'version_conflict' })
     expect(snapshot()).toEqual(changed)
   })
   it('rechecks MFA inside compensation and does not partially cancel prices or debit stock', async () => {
@@ -961,7 +962,7 @@ describe('sealed catalog jobs: whole-job atomic application and compensating rev
       sqlite.exec('UPDATE auth_sessions SET mfa_verified=0')
       changed = snapshot()
     })
-    await expect(command(job, 'revert', crypto.randomUUID(), db)).rejects.toMatchObject({ code: 'mfa_required' })
+    await expect(command(job, 'revert', testUuid(), db)).rejects.toMatchObject({ code: 'mfa_required' })
     expect(snapshot()).toEqual(changed)
   })
   it.each([

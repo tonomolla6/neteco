@@ -4,6 +4,7 @@ import { CMS_CLAIMS, cmsUtc } from './d1-cms-fixture'
 import { executeCmsPublicationCommand } from '../../workers/cms/publication'
 import { readCmsPublicPage } from '../../workers/cms/public-http'
 import { listD1ResourceHub, readD1ResourceHub } from '../../workers/content/resource-hub'
+import { testUuid } from '../support/deterministic'
 describe('resource hub uses canonical CMS publication authority', () => {
   let f: Awaited<ReturnType<typeof resourceHubFixture>>
   beforeEach(async () => {
@@ -35,7 +36,7 @@ describe('resource hub uses canonical CMS publication authority', () => {
       CMS_CLAIMS,
       r.pageId,
       { action: 'withdraw', expectedRevision: 1, expectedVersion: 1, reason: 'Retirada editorial sintética' },
-      crypto.randomUUID()
+      testUuid()
     )
     expect((await listD1ResourceHub(f.deps, {})).items).toEqual([])
     await expect(readD1ResourceHub(f.deps, 'recurso-retirado')).rejects.toMatchObject({ code: 'not_found' })
@@ -88,9 +89,9 @@ describe('resource hub uses canonical CMS publication authority', () => {
     await f.resource({
       slug: 'cta-filtradas',
       blocks: [
-        { id: crypto.randomUUID(), type: 'paragraph', text: 'Contenido editorial sintético.' },
-        { id: crypto.randomUUID(), type: 'cta', label: 'Destino externo', href: 'https://example.invalid/private' },
-        { id: crypto.randomUUID(), type: 'cta', label: 'Producto inexistente', href: '/producto/no-publicado' }
+        { id: testUuid(), type: 'paragraph', text: 'Contenido editorial sintético.' },
+        { id: testUuid(), type: 'cta', label: 'Destino externo', href: 'https://example.invalid/private' },
+        { id: testUuid(), type: 'cta', label: 'Producto inexistente', href: '/producto/no-publicado' }
       ]
     })
     const dto = await readD1ResourceHub(f.deps, 'cta-filtradas')

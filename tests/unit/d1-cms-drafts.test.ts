@@ -9,6 +9,7 @@ import {
   type CmsAction
 } from '../../shared/cms-commands'
 import { cmsFixture, cmsDocument, CMS_CLAIMS, CMS_SESSION, CMS_IDENTITY, CMS_BLOCK, cmsUtc } from './d1-cms-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('D1 CMS draft port commits versions, CAS and audit without publication', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -31,7 +32,7 @@ describe('D1 CMS draft port commits versions, CAS and audit without publication'
       action,
       target,
       input,
-      { idempotencyKey: options.key ?? crypto.randomUUID() }
+      { idempotencyKey: options.key ?? testUuid() }
     )
   }
   const create = (

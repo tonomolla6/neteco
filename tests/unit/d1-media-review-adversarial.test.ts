@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { createHmac } from 'node:crypto'
 import {
@@ -11,6 +11,7 @@ import {
 } from '../../workers/media/governance'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 const IDENTITY = '10000000-0000-4000-8000-000000000001'
 const SESSION = '20000000-0000-4000-8000-000000000001'
@@ -22,12 +23,13 @@ const CHECKSUM = 'a'.repeat(64)
 const OBJECT_KEY = `quarantine/${UPLOAD}/${CHECKSUM}`
 const APPROVAL = { decision: 'approve', reason: 'Fixture human reviewed exact rights evidence' }
 
-function utc(milliseconds = Date.now()) {
+function utc(milliseconds = testNow()) {
   return new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
-/** These tests intentionally do NOT use fake timers, options.now or scanner
- * nowInput. A real SQLite execution clock exercises production's SQL guards. */
+/** Never inject options.now or scanner nowInput. The runtime Date and SQLite
+ * now expressions share the fixture clock, including a change at the awaited
+ * batch boundary; the real schema and production SQL guards remain in use. */
 describe('independent media-governance adversarial replay, tie and execution-clock regressions', () => {
   let sqlite: DatabaseSync
   let database: D1Database
@@ -39,7 +41,7 @@ describe('independent media-governance adversarial replay, tie and execution-clo
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
     fixtureNow = utc()
-    const yesterday = utc(Date.now() - 86400_000)
+    const yesterday = utc(testNow() - 86400_000)
     const evidence = await provisionPublicationValidityFixture(database, {
       productIds: ['p-1'],
       now: yesterday,
@@ -75,7 +77,7 @@ describe('independent media-governance adversarial replay, tie and execution-clo
         `INSERT INTO auth_sessions(id, identity_id, session_version, mfa_verified, created_at, expires_at)
         VALUES (?, ?, 1, 1, ?, ?)`
       )
-      .run(SESSION, IDENTITY, utc(Date.now() - 60_000), utc(Date.now() + 3600_000))
+      .run(SESSION, IDENTITY, utc(testNow() - 60_000), utc(testNow() + 3600_000))
     // Persist the private original's immutable evidence directly in the real
     // migrated schema. No R2/client bytes or real scanner is contacted.
     sqlite
@@ -107,7 +109,7 @@ describe('independent media-governance adversarial replay, tie and execution-clo
 
   function receipt(verdict: 'clean' | 'infected' = 'clean'): MediaScanReceipt {
     return {
-      receiptId: crypto.randomUUID(),
+      receiptId: testUuid(),
       uploadId: UPLOAD,
       checksum: CHECKSUM,
       objectKey: OBJECT_KEY,
@@ -115,7 +117,7 @@ describe('independent media-governance adversarial replay, tie and execution-clo
       verdict,
       scannerVersion: 'fixture-independent-scanner/1',
       scannedAt: fixtureNow,
-      expiresAt: utc(Date.now() + 86400_000)
+      expiresAt: utc(testNow() + 86400_000)
     }
   }
 
@@ -139,7 +141,7 @@ describe('independent media-governance adversarial replay, tie and execution-clo
   }
 
   async function preparePublication() {
-    await decideMediaRights(database, CLAIMS, UPLOAD, APPROVAL, { idempotencyKey: crypto.randomUUID() })
+    await decideMediaRights(database, CLAIMS, UPLOAD, APPROVAL, { idempotencyKey: testUuid() })
     await signedScan(receipt())
   }
 
@@ -280,7 +282,7 @@ describe('independent media-governance adversarial replay, tie and execution-clo
   })
 
   it.each(['rights', 'publication', 'withdrawal'] as const)(
-    'rejects %s when a real grant expires during the awaited D1 batch, with no injected test clock',
+    'rejects %s when a grant expires during the awaited D1 batch, without injecting a service clock',
     async (operation) => {
       let target: string | undefined
       if (operation !== 'rights') await preparePublication()
@@ -295,16 +297,16 @@ describe('independent media-governance adversarial replay, tie and execution-clo
         publication: count('product_media_publications'),
         withdrawal: count('product_media_publication_events')
       }
-      const expiresAt = utc(Date.now() + 2500)
+      const expiresAt = utc(testNow() + 2500)
       sqlite.prepare("UPDATE identity_roles SET expires_at = ? WHERE role_code = 'review_publisher'").run(expiresAt)
       let reachedBatch = false
       const delayed = {
         ...database,
         async batch<T>(statements: D1PreparedStatement[]) {
           reachedBatch = true
-          const untilExpired = Math.max(0, Date.parse(expiresAt) + 150 - Date.now())
-          await new Promise<void>((resolve) => setTimeout(resolve, untilExpired))
-          expect(Date.now()).toBeGreaterThan(Date.parse(expiresAt))
+          await Promise.resolve()
+          vi.setSystemTime(Date.parse(expiresAt) + 150)
+          expect(testNow()).toBeGreaterThan(Date.parse(expiresAt))
           return database.batch<T>(statements)
         }
       } as D1Database

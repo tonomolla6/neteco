@@ -10,7 +10,8 @@ import {
   archiveD1AdminOrderView,
   readD1AdminOrderViewCommand
 } from '../../workers/catalog/admin-order-views'
-const options = () => ({ idempotencyKey: crypto.randomUUID() })
+import { testUuid } from '../support/deterministic'
+const options = () => ({ idempotencyKey: testUuid() })
 describe('private D1 administrative order views', () => {
   it('rejects REPLACE of immutable commands and archived projections with recursive triggers off', async () => {
     const outcomes: boolean[] = []
@@ -188,7 +189,7 @@ describe('private D1 administrative order views', () => {
         outcome: 'applied',
         receipt
       })
-      expect(await readD1AdminOrderViewCommand(f.database, ADMIN, crypto.randomUUID(), 'a'.repeat(64))).toEqual({
+      expect(await readD1AdminOrderViewCommand(f.database, ADMIN, testUuid(), 'a'.repeat(64))).toEqual({
         source: 'cloudflare',
         outcome: 'unknown',
         receipt: null

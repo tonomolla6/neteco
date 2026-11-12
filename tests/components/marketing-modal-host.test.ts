@@ -3,6 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import MarketingModalHost from '../../app/components/MarketingModalHost.vue'
 import '#app/nuxt-vitest-app-entry'
+import { testUuid } from '../support/deterministic'
 
 const MODAL_ID = '50000000-0000-4000-8000-000000000001'
 
@@ -104,7 +105,7 @@ describe('MarketingModalHost client component (MKT-009 + MKT-010)', () => {
       if (url === '/api/marketing/modals/eligibility') return eligiblePayload()
       return {
         source: 'cloudflare',
-        eventId: crypto.randomUUID(),
+        eventId: testUuid(),
         recorded: false,
         persisted: 'browser_only',
         replayed: false
@@ -166,7 +167,7 @@ describe('MarketingModalHost client component (MKT-009 + MKT-010)', () => {
       }
       return {
         source: 'cloudflare',
-        eventId: crypto.randomUUID(),
+        eventId: testUuid(),
         recorded: true,
         persisted: 'server_d1',
         replayed: false
@@ -195,7 +196,7 @@ describe('MarketingModalHost client component (MKT-009 + MKT-010)', () => {
       if (url === '/api/marketing/modals/eligibility') return eligiblePayload()
       return {
         source: 'cloudflare',
-        eventId: crypto.randomUUID(),
+        eventId: testUuid(),
         recorded: true,
         persisted: 'server_d1',
         replayed: false
@@ -254,7 +255,7 @@ describe('MarketingModalHost guards, persistence and accessibility matrix (MKT-0
       if (url === ELIGIBILITY) return eligiblePayload()
       return {
         source: 'cloudflare',
-        eventId: crypto.randomUUID(),
+        eventId: testUuid(),
         recorded: false,
         persisted: 'browser_only',
         replayed: false

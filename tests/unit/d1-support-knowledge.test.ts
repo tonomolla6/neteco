@@ -10,10 +10,11 @@ import {
   recordSupportKnowledgeFeedback,
   readSupportKnowledgeFeedback
 } from '../../workers/support/knowledge'
+import { testNow } from '../support/deterministic'
 
 // support_knowledge_feedback_current compares reviewDueAt with SQLite's real clock, so the
 // frozen JS clock must be anchored at the real present (a fixed past date would age out).
-const ANCHOR = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString()
+const ANCHOR = new Date(Math.floor(testNow() / 1000) * 1000).toISOString()
 
 describe('published CMS help knowledge and anonymous bounded feedback', () => {
   let f: Awaited<ReturnType<typeof cmsFixture>> & {

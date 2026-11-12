@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
@@ -8,13 +8,15 @@ import {
   ownsCarrierScorecardNamespace
 } from '../../workers/fulfillment/carrier-scorecard-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testNow } from '../support/deterministic'
 
 const connections: DatabaseSync[] = []
 afterEach(() => {
   for (const db of connections.splice(0)) db.close()
+  vi.useRealTimers()
 })
 
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 const ADMIN_ID = '10000000-0000-4000-8000-000000000043'
 const SESSION_ID = '20000000-0000-4000-8000-000000000043'
@@ -30,6 +32,7 @@ async function createScorecardFixture() {
   sqlite.exec(migrationSql)
 
   const now = '2026-10-29T10:00:00Z'
+  vi.setSystemTime(new Date(now))
   // Admin permissions setup
   sqlite.exec(`
     INSERT INTO roles VALUES('administrator', 'Administrator', 'Synthetic');

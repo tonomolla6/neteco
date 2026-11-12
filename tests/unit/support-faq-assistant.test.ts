@@ -19,10 +19,11 @@ import {
   CUSTOMER_A,
   NOW
 } from './support-insights-fixture'
+import { testUuid } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof insightsFixture>>
 let deps: { database: D1Database; enabled: boolean; now: () => string }
-const key = () => crypto.randomUUID()
+const key = () => testUuid()
 const code = async (p: Promise<unknown>) =>
   p.then(
     () => 'ok',
@@ -221,9 +222,7 @@ describe('human handoff', () => {
   it('accepts a signed-in customer without e-mail and rejects unknown turns', async () => {
     const turnId = await turn()
     expect((await requestFaqHandoff(deps, { turnId }, CUSTOMER_A.customer)).status).toBe('open')
-    expect(await code(requestFaqHandoff(deps, { turnId: crypto.randomUUID(), contactEmail: 'a@b.es' }, null))).toBe(
-      'not_found'
-    )
+    expect(await code(requestFaqHandoff(deps, { turnId: testUuid(), contactEmail: 'a@b.es' }, null))).toBe('not_found')
   })
   it('is reflected when the same turn is replayed', async () => {
     const k = key()
@@ -237,7 +236,7 @@ describe('human handoff', () => {
     expect(await recordFaqFeedback(deps, { turnId, helpful: true })).toEqual({ turnId, helpful: true, recorded: true })
     expect((await recordFaqFeedback(deps, { turnId, helpful: true })).helpful).toBe(true)
     expect(await code(recordFaqFeedback(deps, { turnId, helpful: false }))).toBe('idempotency_conflict')
-    expect(await code(recordFaqFeedback(deps, { turnId: crypto.randomUUID(), helpful: true }))).toBe('not_found')
+    expect(await code(recordFaqFeedback(deps, { turnId: testUuid(), helpful: true }))).toBe('not_found')
   })
 })
 
@@ -314,14 +313,7 @@ describe('administrative handoff queue', () => {
     ).toBe('invalid_transition')
     expect(
       await code(
-        commandFaqHandoff(
-          f.database,
-          claimsOf(ADMIN),
-          crypto.randomUUID(),
-          { action: 'claim', expectedVersion: 1 },
-          key(),
-          NOW
-        )
+        commandFaqHandoff(f.database, claimsOf(ADMIN), testUuid(), { action: 'claim', expectedVersion: 1 }, key(), NOW)
       )
     ).toBe('not_found')
     expect(

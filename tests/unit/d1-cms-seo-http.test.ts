@@ -4,6 +4,7 @@ import { executeD1CmsDraftCommand } from '../../workers/cms/drafts'
 import { executeCmsPublicationCommand } from '../../workers/cms/publication'
 import { cmsPublicationFixture, cmsImageFixture } from './d1-cms-publication-fixture'
 import { CMS_CLAIMS, CMS_IDENTITY, cmsDocument, cmsUtc } from './d1-cms-fixture'
+import { testUuid } from '../support/deterministic'
 
 const ORIGIN = 'https://neteco.es'
 const locations = (body: string) => [...body.matchAll(/<loc>(.*?)<\/loc>/g)].map((match) => match[1]!)
@@ -53,9 +54,9 @@ describe('native CMS sitemap against migrated real SQLite', () => {
 
   // Scalable migration-constrained fixtures, not fabricated D1 query results.
   function seedPage(slug: string, options: { publish?: boolean; noindex?: boolean; publishedAt?: string } = {}) {
-    const pageId = crypto.randomUUID(),
-      versionId = crypto.randomUUID(),
-      publicationId = crypto.randomUUID()
+    const pageId = testUuid(),
+      versionId = testUuid(),
+      publicationId = testUuid()
     const now = cmsUtc(-1000),
       document = cmsDocument({ slug, seo: { ...seo, noindex: options.noindex ?? false } })
     f.sqlite
@@ -91,9 +92,7 @@ describe('native CMS sitemap against migrated real SQLite', () => {
       {
         ...cmsDocument({
           seo,
-          blocks: [
-            { id: crypto.randomUUID(), type: 'image', assetId: image.id, alt: 'Synthetic CMS image', caption: '' }
-          ]
+          blocks: [{ id: testUuid(), type: 'image', assetId: image.id, alt: 'Synthetic CMS image', caption: '' }]
         }),
         expectedVersion: 2
       },
@@ -124,7 +123,7 @@ describe('native CMS sitemap against migrated real SQLite', () => {
         `INSERT INTO media_rights_decisions(id,upload_id,decision,reason,actor_id,rights_owner,rights_license,created_at,idempotency_key,payload_hash)
  VALUES (?,?,'rejected','Explicit synthetic rights denial',?,'','',?,?,?)`
       )
-      .run(crypto.randomUUID(), uploadId, CMS_IDENTITY, cmsUtc(), crypto.randomUUID(), hash)
+      .run(testUuid(), uploadId, CMS_IDENTITY, cmsUtc(), testUuid(), hash)
   }
 
   it('absent/disabled CMS preserves the previous index and route ownership exactly', async () => {
@@ -314,7 +313,7 @@ describe('native CMS sitemap against migrated real SQLite', () => {
  VALUES (?,?,?,?,?,'infected','synthetic-new-denial',?,?,?,?)`
               )
               .run(
-                crypto.randomUUID(),
+                testUuid(),
                 image.id,
                 checksum,
                 image.key,

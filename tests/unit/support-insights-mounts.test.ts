@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
+import { testUuid } from '../support/deterministic'
 
 // Mounting regression for SUP-012/014/015/017: the modules must be reachable through the Worker
 // router and fail closed before touching the database.
@@ -64,7 +65,7 @@ describe('support insight mounts', () => {
         headers: {
           origin: 'https://shop.example',
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID()
+          'idempotency-key': testUuid()
         },
         body: JSON.stringify({ question: '¿Cuánto tarda el envío?' })
       }),

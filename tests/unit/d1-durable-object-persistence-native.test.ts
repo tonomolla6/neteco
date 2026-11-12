@@ -1,15 +1,16 @@
-import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { build } from 'esbuild'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { createCart } from '../../workers/catalog/cart'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid, testNow } from '../support/deterministic'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 
 // Local workerd acceptance, not the controlled remote suite required by TST-009.
 // Only this generated temporary directory is persisted and subsequently removed.
@@ -18,8 +19,8 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
   let database: D1Database
   let directory: string | undefined
   let script: string
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const expiresAt = new Date(Date.parse(now) + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  let now: string
+  let expiresAt: string
   const outbound = vi.fn(() => {
     throw new Error('unexpected_outbound')
   })
@@ -58,7 +59,7 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
     return { status: response.status, body: (await response.json()) as Record<string, unknown> }
   }
   const reserve = (variantId: string, quantity: number) => {
-    const key = randomUUID()
+    const key = testUuid()
     return {
       type: 'reserve',
       commandId: key,
@@ -72,7 +73,7 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
     }
   }
   const mutate = (cart: { cartId: string; token: string }, quantity: number) => {
-    const key = randomUUID()
+    const key = testUuid()
     return {
       type: 'mutate',
       commandId: key,
@@ -147,6 +148,8 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
       })
       script = bundle.outputFiles[0]!.text
       await start()
+      now = await syncNativeTestClock(database)
+      expiresAt = new Date(Date.parse(now) + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       // Setup only: migration behaviour has its own existing native suite.
       const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
       for (const name of migrations)
@@ -180,6 +183,10 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
       throw error
     }
   }, 60_000)
+  beforeEach(async () => {
+    now = await syncNativeTestClock(database)
+    expiresAt = new Date(Date.parse(now) + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  })
   afterAll(async () => {
     try {
       await runtime?.dispose()
@@ -271,7 +278,7 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
   }, 30_000)
 
   it('automatically fires persisted cart and inventory alarms after restart without another DO request', async () => {
-    const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const due = new Date(Date.parse(instant) + 15_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     // Historical fixture creation keeps the production three-day cart TTL
     // intact. No Date/fake-clock override, shortened policy or expiry SQL write.
@@ -326,7 +333,7 @@ describe('real cart/inventory Durable Objects: concurrency, failure and restart'
       [{ status: 'reserved', expires_at: due, expired_at: null }],
       []
     ])
-    expect(Date.now()).toBeLessThan(Date.parse(due))
+    expect(testNow()).toBeLessThan(Date.parse(due))
     await runtime!.dispose()
     runtime = undefined
     await start()

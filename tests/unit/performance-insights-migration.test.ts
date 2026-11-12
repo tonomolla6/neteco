@@ -58,9 +58,10 @@ describe('migration 0128 constraints', () => {
   it('a removed third-party script must carry reason, actor and time', () => {
     const insert = (extra: string) =>
       `INSERT INTO third_party_scripts (id, vendor, name, kind, monthly_cost_cents, load_ms_p75, status ${extra ? ', removal_reason, removed_by, removed_at' : ''}, version, created_by, created_at, updated_at)
-       VALUES ('${uuid()}', 'Vendor', 'Name${Math.random()}', 'pixel', 0, 0, 'removed' ${extra}, 1, '${ADMIN_ID}', '${NOW}', '${NOW}')`
+       VALUES ('${uuid()}', 'Vendor', 'Removed script', 'pixel', 0, 0, 'removed' ${extra}, 1, '${ADMIN_ID}', '${NOW}', '${NOW}')`
     expect(() => sqlite.exec(insert(''))).toThrow(/CHECK/)
     expect(() => sqlite.exec(insert(`, 'Sin retorno medido', '${ADMIN_ID}', '${NOW}'`))).not.toThrow()
+    expect(sqlite.prepare('SELECT name FROM third_party_scripts').get()).toMatchObject({ name: 'Removed script' })
   })
 
   it('experiment counts are bounded by visitors and timestamps are canonical', () => {

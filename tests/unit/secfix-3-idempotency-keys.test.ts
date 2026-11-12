@@ -7,7 +7,7 @@ import { handleBundlesHttp } from '../../workers/marketing/bundles-http'
 import { handleReferralsHttp } from '../../workers/marketing/referrals-http'
 import { handleEventsHttp } from '../../workers/marketing/events-http'
 
-// SECFIX-3 finding 13: server-generated `Date.now()`/random idempotency keys defeat retries.
+// SECFIX-3 finding 13: server-generated time-based or random idempotency keys defeat retries.
 const NOW = '2026-10-29T12:00:00Z'
 const ADMIN = { identity: '10000000-0000-4000-8000-000000000001', session: '20000000-0000-4000-8000-000000000001' }
 const config = { password: 'i'.repeat(64), maxAgeSeconds: 3600 }

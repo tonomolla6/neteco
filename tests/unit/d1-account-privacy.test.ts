@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import type { SQLInputValue } from 'node:sqlite'
 import { updateD1AccountPreferences } from '../../workers/auth/account-preferences'
@@ -14,10 +14,37 @@ import {
   readD1AccountPrivacyCommand,
   downloadD1AccountPrivacy
 } from '../../workers/auth/account-privacy'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_privacy_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_privacy_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_privacy_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_privacy_clock()'))
+      return database
+    }
+  }
+})
 let f: Awaited<ReturnType<typeof returnsFixture>>
 const key = '11111111-1111-4111-8111-111111111165'
 const options = { now: () => utc() }
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await returnsFixture()
   f.sqlite.exec(await readFile('db/d1/migrations/0065_account_privacy.sql', 'utf8'))
   f.sqlite.exec(await readFile('db/d1/migrations/0066_account_preferences.sql', 'utf8'))
@@ -28,7 +55,10 @@ beforeEach(async () => {
     )
   )
 })
-afterEach(() => f?.sqlite.close())
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
 async function exportReceipt() {
   return executeD1AccountPrivacy(f.database, BUYER_CLAIMS, { requestType: 'export', idempotencyKey: key }, options)
 }
@@ -42,7 +72,7 @@ function securityNotice(
     createdAt?: string
   } = {}
 ) {
-  const id = input.id ?? crypto.randomUUID()
+  const id = input.id ?? testUuid()
   f.sqlite
     .prepare(
       `INSERT INTO identity_account_security_events
@@ -55,7 +85,7 @@ function securityNotice(
       input.kind ?? 'email_changed',
       input.recipient ?? 'historical-mailbox@example.invalid',
       input.audience ?? 'previous',
-      crypto.randomUUID(),
+      testUuid(),
       input.createdAt ?? utc(-1000)
     )
   return id
@@ -411,8 +441,8 @@ it('enforces immutable ledger, UUIDs and UTC timestamps in D1 itself', async () 
   for (const change of changes) {
     const invalid: Record<string, SQLInputValue> = {
       ...row,
-      id: crypto.randomUUID(),
-      command_id: crypto.randomUUID(),
+      id: testUuid(),
+      command_id: testUuid(),
       ...change
     }
     expect(() => statement.run(...columns.map((c) => invalid[c]!))).toThrow()

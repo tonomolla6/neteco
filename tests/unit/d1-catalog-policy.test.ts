@@ -17,6 +17,7 @@ import {
   type PolicyCreateInput
 } from '../../shared/catalog-publication-policy'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const IDENTITY = '10000000-0000-4000-8000-000000000037'
 const SESSION = '20000000-0000-4000-8000-000000000037'
@@ -24,7 +25,7 @@ const PRODUCT = '81000000-0000-4000-8000-000000000037'
 const VARIANT = '82000000-0000-4000-8000-000000000037'
 const CLAIMS = { identityId: IDENTITY, sessionId: SESSION, sessionVersion: 1 }
 const REASON = 'Synthetic local governance test decision'
-const utc = (milliseconds = Date.now()) => new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (milliseconds = testNow()) => new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 // The fixtures are synthetic governance records in an ephemeral SQLite database,
 // not approval of actual products, rights, regulatory policy or provider evidence.
@@ -32,10 +33,20 @@ describe('governed D1 publication policy authoring and private reads', () => {
   let sqlite: DatabaseSync
   let database: D1Database
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     sqlite = await openMigratedDatabase()
     seedInventoryFixture(sqlite)
-    database = d1OverSqlite(sqlite)
-    const past = utc(Date.now() - 86400_000)
+    sqlite.function('synthetic_catalog_policy_clock', () => {
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_catalog_policy_clock')
+      return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+    })
+    const nativeDatabase = d1OverSqlite(sqlite),
+      nativePrepare = nativeDatabase.prepare.bind(nativeDatabase)
+    database = new Proxy(nativeDatabase, {})
+    database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_catalog_policy_clock()'))
+    const past = utc(testNow() - 86400_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -53,7 +64,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at)
       VALUES (?,?,1,1,?,?)`
       )
-      .run(SESSION, IDENTITY, past, utc(Date.now() + 3600_000))
+      .run(SESSION, IDENTITY, past, utc(testNow() + 3600_000))
     sqlite
       .prepare(
         `INSERT INTO products(id,legacy_id,category_id,brand_id,name,slug,status,attributes,regulatory)
@@ -88,7 +99,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
       requiredFields: ['regulatory.requiresSds'],
       requiredMediaRoles: ['datasheet'],
       identifierExceptionsAllowed: true,
-      validFrom: utc(Date.now() - 3600_000),
+      validFrom: utc(testNow() - 3600_000),
       validUntil: null,
       reason: REASON,
       ...overrides
@@ -106,7 +117,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
       action,
       target,
       body,
-      { idempotencyKey: options.key ?? crypto.randomUUID(), ...(options.now === undefined ? {} : { now: options.now }) }
+      { idempotencyKey: options.key ?? testUuid(), ...(options.now === undefined ? {} : { now: options.now }) }
     )
   }
   function create(overrides: Partial<PolicyCreateInput> = {}, options: { key?: string; database?: D1Database } = {}) {
@@ -131,7 +142,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
       variantId: VARIANT,
       reason: REASON,
       evidenceReference: 'Synthetic fixture reference',
-      validFrom: utc(Date.now() - 3600_000),
+      validFrom: utc(testNow() - 3600_000),
       validUntil: null,
       ...overrides
     }
@@ -355,7 +366,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
     const first = await create()
     await withdrawPolicy(first)
     await expect(create()).rejects.toMatchObject({ code: 'version_conflict' })
-    const second = await create({ expectedVersion: 1, validFrom: utc(Date.now() + 86400_000) })
+    const second = await create({ expectedVersion: 1, validFrom: utc(testNow() + 86400_000) })
     expect(second.policyVersion).toBe(2)
     await expect(assign(second.entityId)).rejects.toMatchObject({ code: 'policy_unavailable' })
     const view = await readD1CatalogPolicies(database, CLAIMS, { page: 1, perPage: 1, code: 'local_fixture' })
@@ -436,8 +447,8 @@ describe('governed D1 publication policy authoring and private reads', () => {
     await expect(assign(policy.entityId)).rejects.toMatchObject({ code: 'policy_unavailable' })
     const expired = await create({
       code: 'expired_fixture',
-      validFrom: utc(Date.now() - 7200_000),
-      validUntil: utc(Date.now() - 3600_000)
+      validFrom: utc(testNow() - 7200_000),
+      validUntil: utc(testNow() - 3600_000)
     })
     await expect(
       execute(
@@ -454,7 +465,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
   })
   it('rejects foreign/discontinued variants and foreign/missing exception withdrawals', async () => {
     await setupAssigned()
-    const other = crypto.randomUUID()
+    const other = testUuid()
     sqlite
       .prepare(
         `INSERT INTO variants(id,product_id,tax_class_id,shipping_profile_id,sku,format,status,price_gross_cents)
@@ -471,7 +482,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
     await expect(
       execute(
         'exception_withdraw',
-        { productId: '101', resourceId: crypto.randomUUID() },
+        { productId: '101', resourceId: testUuid() },
         { expectedVersion: version(), reason: REASON }
       )
     ).rejects.toMatchObject({ code: 'not_found' })
@@ -529,7 +540,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
     ]
   ] as const
   it.each(authCases)('requires fresh %s for every private read and command', async (_label, sql, code) => {
-    sqlite.exec(sql)
+    sqlite.exec(sql.replaceAll("'now'", 'synthetic_catalog_policy_clock()'))
     await expect(create()).rejects.toMatchObject({ code })
     await expect(readD1CatalogPolicies(database, CLAIMS, { page: 1, perPage: 10 })).rejects.toMatchObject({ code })
     await expect(readD1ProductPublicationPolicy(database, CLAIMS, '101')).rejects.toMatchObject({ code })
@@ -537,7 +548,12 @@ describe('governed D1 publication policy authoring and private reads', () => {
   })
   it.each(authCases)('rolls back late %s before the command batch', async (_label, sql, code) => {
     const before = snapshot()
-    await expect(create({}, { database: beforeBatch(() => sqlite.exec(sql)) })).rejects.toMatchObject({ code })
+    await expect(
+      create(
+        {},
+        { database: beforeBatch(() => sqlite.exec(sql.replaceAll("'now'", 'synthetic_catalog_policy_clock()'))) }
+      )
+    ).rejects.toMatchObject({ code })
     expect(snapshot()).toEqual(before)
   })
   it('catalog.write alone is insufficient for all new governance reads and writes', async () => {
@@ -591,7 +607,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
       kind === 'regulatory'
         ? `UPDATE products SET regulatory='{"productType":"unexpected","requiresSds":true}' WHERE id='${PRODUCT}';`
         : `INSERT INTO catalog_product_publication_policies(id,product_id,policy_id,actor_id,reason,created_at)
-         VALUES ('${crypto.randomUUID()}','${PRODUCT}','${policy.entityId}','${IDENTITY}','${REASON}',strftime('%Y-%m-%dT%H:%M:%SZ','now'));`
+         VALUES ('${testUuid()}','${PRODUCT}','${policy.entityId}','${IDENTITY}','${REASON}',strftime('%Y-%m-%dT%H:%M:%SZ','now'));`
     sqlite.exec(`CREATE TRIGGER mutate_after_cas AFTER UPDATE OF catalog_version ON products
       WHEN NEW.id='${PRODUCT}' AND NEW.catalog_version=OLD.catalog_version+1 BEGIN ${change} END`)
     const before = snapshot()
@@ -614,7 +630,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
           `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
       VALUES (?,?,?,?,?)`
         )
-        .run(crypto.randomUUID(), policy.entityId, IDENTITY, REASON, utc())
+        .run(testUuid(), policy.entityId, IDENTITY, REASON, utc())
     )
     const previous = product()
     await expect(assign(policy.entityId, { database: db })).rejects.toMatchObject({ code: 'policy_unavailable' })
@@ -639,7 +655,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
           `INSERT INTO catalog_product_publication_policies(id,product_id,policy_id,actor_id,reason,created_at)
       VALUES (?,'p-2',?,?,?,?)`
         )
-        .run(crypto.randomUUID(), policy.entityId, IDENTITY, REASON, utc())
+        .run(testUuid(), policy.entityId, IDENTITY, REASON, utc())
     )
     await assign(policy.entityId, { database: db })
     expect(counts().assignments).toBe(2)
@@ -759,17 +775,17 @@ describe('governed D1 publication policy authoring and private reads', () => {
     const first = await execute(
       'exception_create',
       { productId: '101' },
-      exceptionInput({ validFrom: utc(Date.now() - 7200_000) })
+      exceptionInput({ validFrom: utc(testNow() - 7200_000) })
     )
     const second = await execute(
       'exception_create',
       { productId: '101' },
-      exceptionInput({ validFrom: utc(Date.now() - 3600_000) })
+      exceptionInput({ validFrom: utc(testNow() - 3600_000) })
     )
     const future = await execute(
       'exception_create',
       { productId: '101' },
-      exceptionInput({ validFrom: utc(Date.now() + 3600_000) })
+      exceptionInput({ validFrom: utc(testNow() + 3600_000) })
     )
     expect((await readD1ProductPublicationPolicy(database, CLAIMS, '101')).variants[0]?.identifierException?.id).toBe(
       second.entityId
@@ -868,7 +884,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
     const insert =
       sqlite.prepare(`INSERT INTO variants(id,product_id,tax_class_id,shipping_profile_id,sku,format,status,price_gross_cents)
       VALUES (?,?,'t21','sp1',?,'Unit','draft',500)`)
-    for (let index = 0; index < 500; index++) insert.run(crypto.randomUUID(), PRODUCT, `VAR-OVERFLOW-${index}`)
+    for (let index = 0; index < 500; index++) insert.run(testUuid(), PRODUCT, `VAR-OVERFLOW-${index}`)
     await expect(readD1ProductPublicationPolicy(database, CLAIMS, '101')).rejects.toMatchObject({ code: 'conflict' })
   })
 
@@ -909,7 +925,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
       SELECT ?,?,${columns.map((key) => (key === 'reason' ? "'Corrupted audit reason'" : `c.${key}`)).join(',')}
       FROM catalog_policy_commands c WHERE c.id=?`
         )
-        .run(crypto.randomUUID(), command.id, command.id)
+        .run(testUuid(), command.id, command.id)
     ).toThrow(/immutable|audit_command/)
   })
   it('an unaudited foreign claim never completes or authorizes a stolen nonce write', async () => {
@@ -924,7 +940,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
           // this partial row has no audit or domain effect and must not be replayed.
           await claim.all()
           sqlite.exec('DROP TRIGGER catalog_policy_commands_no_update')
-          sqlite.prepare('UPDATE catalog_policy_commands SET claim_nonce=?').run(crypto.randomUUID())
+          sqlite.prepare('UPDATE catalog_policy_commands SET claim_nonce=?').run(testUuid())
           sqlite.exec(
             "CREATE TRIGGER catalog_policy_commands_no_update BEFORE UPDATE ON catalog_policy_commands BEGIN SELECT RAISE(ABORT,'catalog_policy_commands_immutable'); END"
           )
@@ -974,7 +990,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
           `INSERT INTO catalog_product_publication_policies(id,product_id,policy_id,actor_id,reason,created_at)
       VALUES (?,?,?,?,?,?)`
         )
-        .run(crypto.randomUUID(), PRODUCT, first.entityId, IDENTITY, REASON, utc())
+        .run(testUuid(), PRODUCT, first.entityId, IDENTITY, REASON, utc())
     )
     const previous = product()
     await expect(assign(second.entityId, { database: db })).rejects.toMatchObject({ code: 'conflict' })
@@ -1025,9 +1041,9 @@ describe('governed D1 publication policy authoring and private reads', () => {
   it('the same idempotency key is actor scoped rather than globally blocking another publisher', async () => {
     const key = 'actor-isolated-key',
       first = await create({}, { key }),
-      otherIdentity = crypto.randomUUID(),
-      otherSession = crypto.randomUUID(),
-      past = utc(Date.now() - 86400_000)
+      otherIdentity = testUuid(),
+      otherSession = testUuid(),
+      past = utc(testNow() - 86400_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -1041,7 +1057,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
       .prepare(
         'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES (?,?,1,1,?,?)'
       )
-      .run(otherSession, otherIdentity, past, utc(Date.now() + 3600_000))
+      .run(otherSession, otherIdentity, past, utc(testNow() + 3600_000))
     const second = await execute('policy_create', {}, policyInput({ expectedVersion: 1 }), {
       key,
       claims: { identityId: otherIdentity, sessionId: otherSession, sessionVersion: 1 }
@@ -1127,7 +1143,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
   it.each(['list', 'product'] as const)(
     'post-%s authorization uses the fresh real clock across a fractional second, not a truncated baseline',
     async (reader) => {
-      const beginning = Math.ceil(Date.now() / 1000) * 1000 + 900
+      const beginning = Math.ceil(testNow() / 1000) * 1000 + 900
       sqlite.prepare('UPDATE auth_sessions SET expires_at=? WHERE id=?').run(utc(beginning + 100), SESSION)
       // Only this boundary probe controls Date. SQLite migrations, transactions and
       // ordinary command fixtures continue to use the real production SQL clock.
@@ -1150,7 +1166,7 @@ describe('governed D1 publication policy authoring and private reads', () => {
   it.each(['list', 'product'] as const)(
     'post-%s checks a publisher grant expiring across the fractional second',
     async (reader) => {
-      const beginning = Math.ceil(Date.now() / 1000) * 1000 + 900
+      const beginning = Math.ceil(testNow() / 1000) * 1000 + 900
       sqlite.prepare('UPDATE identity_roles SET expires_at=? WHERE identity_id=?').run(utc(beginning + 100), IDENTITY)
       vi.useFakeTimers({ toFake: ['Date'] })
       vi.setSystemTime(beginning)

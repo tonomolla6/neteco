@@ -12,6 +12,7 @@ import {
   suppressNewsletterEmail
 } from '../../workers/marketing/newsletter'
 import { NEWSLETTER_CONSENT_TEXT, NEWSLETTER_POLICY_VERSION } from '../../shared/newsletter'
+import { testUuid } from '../support/deterministic'
 
 describe('newsletter editorial HTTP over D1', () => {
   let w: Awaited<ReturnType<typeof newsletterEditorialFixture>>, cookie: string
@@ -27,7 +28,7 @@ describe('newsletter editorial HTTP over D1', () => {
         Cookie: cookie,
         Origin: w.deps.publicOrigin,
         'CF-Connecting-IP': '192.0.2.50',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }),
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'Idempotency-Key': testUuid() }),
         ...headers
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) })
@@ -77,7 +78,7 @@ describe('newsletter editorial HTTP over D1', () => {
         document: newsletterCampaignDocument(),
         reason: 'Alta editorial de prueba'
       },
-      key = crypto.randomUUID(),
+      key = testUuid(),
       request = () => req('/api/admin/newsletter/campaigns', 'POST', input, { 'Idempotency-Key': key })
     const created = await handleNewsletterEditorialHttp(request(), w.deps)
     expect(created!.status).toBe(201)
@@ -179,7 +180,7 @@ describe('newsletter editorial HTTP over D1', () => {
           consentText: NEWSLETTER_CONSENT_TEXT,
           consentVersion: NEWSLETTER_POLICY_VERSION,
           consentSource: 'footer',
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: testUuid(),
           now: Math.floor(Date.parse(w.getNow()) / 1000)
         },
         w.secrets
@@ -228,7 +229,7 @@ describe('newsletter editorial HTTP over D1', () => {
           consentText: NEWSLETTER_CONSENT_TEXT,
           consentVersion: NEWSLETTER_POLICY_VERSION,
           consentSource: 'footer',
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: testUuid(),
           now: at
         },
         w.secrets

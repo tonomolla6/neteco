@@ -7,6 +7,7 @@ import { provisionPublicationValidityFixture } from '../support/publication-vali
 import { updateD1CatalogRelations } from '../../workers/catalog/catalog-relations'
 import { readD1ProductDetailExtras, ProductDetailExtrasError } from '../../workers/catalog/product-detail-extras'
 import { productDetailExtrasSchema } from '../../shared/product-detail-extras'
+import { testNow } from '../support/deterministic'
 
 const actor = '10000000-0000-4000-8000-000000000146'
 const claims = { identityId: actor, sessionId: '20000000-0000-4000-8000-000000000146', sessionVersion: 1 }
@@ -60,8 +61,8 @@ beforeEach(async () => {
     ).map((sql) => database.prepare(sql))
   )
   seedInventoryFixture(sqlite)
-  const past = new Date(Date.now() - 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const future = new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const past = new Date(testNow() - 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const future = new Date(testNow() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
   sqlite
     .prepare(
       `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES (?,'extras-editor@example.invalid','synthetic-not-login',?,'active',?,?)`

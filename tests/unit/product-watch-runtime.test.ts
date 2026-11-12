@@ -12,6 +12,7 @@ import {
   confirmD1ProductWatch,
   dispatchD1ProductWatchDeliveries
 } from '../../workers/marketing/product-watch'
+import { testUuid } from '../support/deterministic'
 
 let f: { sqlite: Awaited<ReturnType<typeof openAccountSecurityDatabase>>; database: D1Database }
 const pepper = 'synthetic-product-watch-runtime-hmac-0123456789abcdef'
@@ -62,7 +63,7 @@ async function pending() {
     f.database,
     CLAIMS,
     { variantId: 11, kind: 'price_drop', consent: true, policyVersion: PRODUCT_WATCH_POLICY_VERSION },
-    crypto.randomUUID(),
+    testUuid(),
     options
   )
 }
@@ -70,7 +71,7 @@ async function confirmedPriceDrop() {
   await updateD1AccountPreferences(
     f.database,
     CLAIMS,
-    crypto.randomUUID(),
+    testUuid(),
     {
       expectedVersion: 0,
       preferences: { product_updates: true, replenishment: true },
@@ -91,20 +92,13 @@ async function confirmedPriceDrop() {
     { ...options, origin: 'https://product-watch.example.invalid' }
   )
   expect(token).toBeDefined()
-  await confirmD1ProductWatch(
-    f.database,
-    CLAIMS,
-    receipt.watchId,
-    { expectedVersion: 1, token },
-    crypto.randomUUID(),
-    options
-  )
+  await confirmD1ProductWatch(f.database, CLAIMS, receipt.watchId, { expectedVersion: 1, token }, testUuid(), options)
   f.sqlite
     .prepare(
       `INSERT INTO variant_price_versions(id,variant_id,gross_cents,volume_tiers,valid_from,status,reason,created_at)
     VALUES(?,'v-1-1',400,'[]',?,'approved','Synthetic scheduled governed price drop',?)`
     )
-    .run(crypto.randomUUID(), BEFORE, BEFORE)
+    .run(testUuid(), BEFORE, BEFORE)
 }
 it('the actual scheduled Worker evaluates committed watches and persists one obligation without sending while delivery is OFF', async () => {
   await confirmedPriceDrop()

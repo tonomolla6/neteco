@@ -3,6 +3,7 @@ import { cmsPublicationFixture } from './d1-cms-publication-fixture'
 import { CMS_CLAIMS, CMS_IDENTITY, cmsUtc, cmsDocument } from './d1-cms-fixture'
 import { executeCmsPublicationCommand } from '../../workers/cms/publication'
 import { executeD1CmsDraftCommand } from '../../workers/cms/drafts'
+import { testUuid } from '../support/deterministic'
 describe('CMS publication D1 schema refuses NULL-passing and foreign-version corruption', () => {
   let f: Awaited<ReturnType<typeof cmsPublicationFixture>>
   beforeEach(async () => {
@@ -10,7 +11,7 @@ describe('CMS publication D1 schema refuses NULL-passing and foreign-version cor
   })
   afterEach(() => f.sqlite.close())
   const preview = (f: Awaited<ReturnType<typeof cmsPublicationFixture>>, fields: Record<string, unknown> = {}) => ({
-    id: crypto.randomUUID(),
+    id: testUuid(),
     page_id: f.created.pageId,
     version_id: f.created.versionId,
     actor_id: CMS_IDENTITY,
@@ -54,7 +55,7 @@ describe('CMS publication D1 schema refuses NULL-passing and foreign-version cor
     expect(() => insert('content_previews', preview(f, { version_id: other.versionId }))).toThrow(/cms_preview_version/)
     expect(() =>
       insert('content_schedules', {
-        id: crypto.randomUUID(),
+        id: testUuid(),
         page_id: f.created.pageId,
         version_id: other.versionId,
         actor_id: CMS_IDENTITY,
@@ -67,7 +68,7 @@ describe('CMS publication D1 schema refuses NULL-passing and foreign-version cor
     ).toThrow(/cms_schedule_version/)
     expect(() =>
       insert('content_publications', {
-        id: crypto.randomUUID(),
+        id: testUuid(),
         page_id: f.created.pageId,
         version_id: other.versionId,
         slug: 'other-page',
@@ -82,7 +83,7 @@ describe('CMS publication D1 schema refuses NULL-passing and foreign-version cor
     (date) => {
       expect(() =>
         insert('content_schedules', {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           page_id: f.created.pageId,
           version_id: f.created.versionId,
           actor_id: CMS_IDENTITY,
@@ -126,8 +127,8 @@ describe('CMS publication D1 schema refuses NULL-passing and foreign-version cor
     expect(() =>
       insert('content_publication_commands', {
         ...row,
-        id: crypto.randomUUID(),
-        idempotency_key: crypto.randomUUID(),
+        id: testUuid(),
+        idempotency_key: testUuid(),
         ...fields
       })
     ).toThrow()
@@ -175,7 +176,7 @@ describe('CMS publication D1 schema refuses NULL-passing and foreign-version cor
     for (const date of [null, 'bad', '2026-02-30T00:00:00Z'])
       expect(() =>
         insert('content_schedule_events', {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           schedule_id: schedule.id,
           phase: 'publish',
           outcome: 'blocked',

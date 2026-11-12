@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   categoryCommandFixture,
@@ -19,6 +19,7 @@ import {
   readSearchMerchandisingRule,
   searchMerchandisingInputSchema
 } from '../../workers/catalog/search-merchandising'
+import { testUuid, testNow } from '../support/deterministic'
 
 const P = {
   A: '10000000-0000-4000-8000-000000000a01',
@@ -27,14 +28,35 @@ const P = {
   D: '10000000-0000-4000-8000-000000000a04',
   E: '10000000-0000-4000-8000-000000000a05'
 }
-const at = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const at = (offsetMs = 0) => new Date(testNow() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const HOUR = 3_600_000,
   DAY = 24 * HOUR
 
 describe('governed D1 search merchandising rules (SEA-013)', () => {
   let sqlite: DatabaseSync, database: D1Database
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     ;({ sqlite, database } = await categoryCommandFixture())
+    sqlite.function('synthetic_merch_clock', () =>
+      vi
+        .getMockedSystemTime()!
+        .toISOString()
+        .replace(/\.\d{3}Z$/, 'Z')
+    )
+    const exec = sqlite.exec.bind(sqlite),
+      prepare = database.prepare.bind(database)
+    sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_merch_clock()'))
+    database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_merch_clock()'))
+    const triggers = sqlite
+      .prepare(
+        "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND name LIKE 'search_merchandising_%' AND sql LIKE '%strftime%'"
+      )
+      .all() as Array<{ name: string; sql: string }>
+    for (const trigger of triggers) {
+      sqlite.exec(`DROP TRIGGER "${trigger.name}"`)
+      sqlite.exec(trigger.sql)
+    }
     if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='search_merchandising_commands'").get())
       sqlite.exec(
         await readFile(new URL('../../db/d1/migrations/0091_search_merchandising_rules.sql', import.meta.url), 'utf8')
@@ -75,11 +97,14 @@ describe('governed D1 search merchandising rules (SEA-013)', () => {
     }
     await provisionPublicationValidityFixture(database, {
       productIds: [P.A, P.B, P.C, P.D, P.E],
-      now: '2026-08-19T00:00:00Z',
+      now: '2026-01-01T00:00:00Z',
       validUntil: '2099-01-01T00:00:00Z'
     })
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
 
   const rule = (extra: Record<string, unknown> = {}) => ({
     action: 'save',
@@ -104,7 +129,7 @@ describe('governed D1 search merchandising rules (SEA-013)', () => {
       redirectPath: '/catalogo?categoria=limpieza',
       ...extra
     })
-  const run = (input: unknown, key = crypto.randomUUID(), options: Record<string, unknown> = {}) =>
+  const run = (input: unknown, key = testUuid(), options: Record<string, unknown> = {}) =>
     executeSearchMerchandisingCommand(database, CATEGORY_CLAIMS, input, { idempotencyKey: key, ...options })
   const count = () => (sqlite.prepare('SELECT count(*) n FROM search_merchandising_commands').get() as { n: number }).n
   const slugs = async (query = 'lejía neutra', instant?: string) =>
@@ -508,8 +533,8 @@ describe('governed D1 search merchandising rules (SEA-013)', () => {
 
   describe('database defenses independent of the worker', () => {
     const base = () => {
-      const id = crypto.randomUUID(),
-        ruleId = crypto.randomUUID(),
+      const id = testUuid(),
+        ruleId = testUuid(),
         created = at(),
         item = {
           id: ruleId,
@@ -603,7 +628,7 @@ describe('governed D1 search merchandising rules (SEA-013)', () => {
         weight: 9,
         reason: 'Retirada con contenido cambiado'
       }
-      const id = crypto.randomUUID()
+      const id = testUuid()
       expect(() =>
         sqlite
           .prepare(
@@ -701,7 +726,7 @@ describe('governed D1 search merchandising rules (SEA-013)', () => {
           { length: 8 },
           (_, index) => `10000000-0000-4000-8000-0000000c${String(index).padStart(4, '0')}`
         ),
-        now: '2026-08-19T00:00:00Z',
+        now: '2026-01-01T00:00:00Z',
         validUntil: '2099-01-01T00:00:00Z'
       })
       const before = await slugs()

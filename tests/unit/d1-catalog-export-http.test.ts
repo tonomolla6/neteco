@@ -4,12 +4,13 @@ import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../sup
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleCatalogExportHttp, ownsCatalogExportNamespace } from '../../workers/catalog/catalog-export-http'
 import { verifyCatalogExportSnapshot } from '../../shared/catalog-export'
+import { testNow } from '../support/deterministic'
 
 const actor = '00530000-0000-4000-8000-000000000031',
   session = '00530000-0000-4000-8000-000000000032'
 const password = 'catalog-export-synthetic-local-test-only-password'.repeat(2)
 const origin = 'https://catalog-export.neteco.test'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 describe('private catalogue snapshot HTTP', () => {
   let sqlite: DatabaseSync,
     env: Pick<CloudflareEnv, 'DB' | 'AUTH_ENABLED' | 'AUTH_ORIGIN' | 'NUXT_SESSION_PASSWORD'>,

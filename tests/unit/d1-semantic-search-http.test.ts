@@ -5,9 +5,10 @@ import { categoryCommandFixture, CATEGORY_CLAIMS, ROOT_CATEGORY } from '../suppo
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleSemanticSearchHttp, ownsSemanticSearchNamespace } from '../../workers/catalog/semantic-search-http'
+import { testNow } from '../support/deterministic'
 
 const PRODUCT = '10000000-0000-4000-8000-000000000001'
-const NOW = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const NOW = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('SEA-019: Semantic search & human evaluation HTTP contract', () => {
   let sqlite: DatabaseSync

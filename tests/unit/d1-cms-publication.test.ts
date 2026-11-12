@@ -4,6 +4,7 @@ import { CMS_CLAIMS, CMS_SESSION, cmsDocument } from './d1-cms-fixture'
 import { executeCmsPublicationCommand, readCmsPublicationState } from '../../workers/cms/publication'
 import { executeD1CmsDraftCommand } from '../../workers/cms/drafts'
 import { readCmsPublicPage, handleCmsPublicHttp } from '../../workers/cms/public-http'
+import { testUuid } from '../support/deterministic'
 describe('CMS publication immutable snapshots and actor commands', () => {
   let f: Awaited<ReturnType<typeof cmsPublicationFixture>>
   beforeEach(async () => {
@@ -55,7 +56,7 @@ describe('CMS publication immutable snapshots and actor commands', () => {
         f.deps,
         CMS_CLAIMS,
         f.created.pageId,
-        { ...input(f), expectedRevision: 1, versionId: crypto.randomUUID() },
+        { ...input(f), expectedRevision: 1, versionId: testUuid() },
         'wrong'
       )
     ).rejects.toMatchObject({ code: 'not_found' })

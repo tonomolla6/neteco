@@ -120,6 +120,7 @@ async function render(audience: 'customer' | 'admin', props = {}) {
         OrderFulfillmentSection: true,
         OrderTrackingPanel: true,
         OrderFiscalSection: true,
+        BeplyOrderPanel: true,
         AdminRefundActions: true
       }
     }

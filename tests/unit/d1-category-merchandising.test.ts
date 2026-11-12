@@ -21,6 +21,7 @@ import {
   readCategoryMerchandisingRule,
   readLiveCategoryOrder
 } from '../../workers/catalog/category-merchandising'
+import { testUuid } from '../support/deterministic'
 
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
@@ -43,7 +44,7 @@ const rule = (extra: Record<string, unknown> = {}) => ({
   validUntil: at(30 * DAY),
   ...extra
 })
-const run = (input: unknown, key = crypto.randomUUID(), options: Record<string, unknown> = {}) =>
+const run = (input: unknown, key = testUuid(), options: Record<string, unknown> = {}) =>
   executeCategoryMerchandisingCommand(database, MER_CLAIMS, input, { idempotencyKey: key, ...options })
 const code = (promise: Promise<unknown>) =>
   promise.then(
@@ -88,11 +89,11 @@ describe('SEA-015 rule lifecycle', () => {
     expect(await code(run(rule({ id: first.item.id, expectedVersion: 1 })))).toBe('version_conflict')
     const history = await readCategoryMerchandisingHistory(database, MER_CLAIMS, first.item.id)
     expect(history?.items.map((item) => item.version)).toEqual([1, 2])
-    expect(await readCategoryMerchandisingHistory(database, MER_CLAIMS, crypto.randomUUID())).toBeNull()
+    expect(await readCategoryMerchandisingHistory(database, MER_CLAIMS, testUuid())).toBeNull()
     expect((await readCategoryMerchandisingRule(database, MER_CLAIMS, first.item.id))?.version).toBe(2)
   })
   it('refuses to update an unknown rule and a different category through the same id', async () => {
-    expect(await code(run(rule({ id: crypto.randomUUID(), expectedVersion: 1 })))).toBe('version_conflict')
+    expect(await code(run(rule({ id: testUuid(), expectedVersion: 1 })))).toBe('version_conflict')
     const first = await run(rule())
     expect(await code(run(rule({ id: first.item.id, expectedVersion: 1, categoryId: MER_CHILD })))).toBe(
       'version_conflict'
@@ -111,21 +112,21 @@ describe('SEA-015 rule lifecycle', () => {
   it('rejects a reused key with another payload and honours target/action guards', async () => {
     await run(rule(), 'same-key')
     expect(await code(run(rule({ reason: 'Otro motivo distinto' }), 'same-key'))).toBe('idempotency_conflict')
-    expect(await code(run(rule(), 'k2', { target: crypto.randomUUID() }))).toBe('invalid_input')
+    expect(await code(run(rule(), 'k2', { target: testUuid() }))).toBe('invalid_input')
     expect(await code(run(rule(), 'k3', { action: 'retire' }))).toBe('invalid_input')
     expect(await code(run(rule(), 'bad key with spaces'))).toBe('invalid_input')
   })
   it('validates the input and the referenced category and products', async () => {
     expect(await code(run({ action: 'save' }))).toBe('invalid_input')
     expect(await code(run(rule({ weights: noWeights })))).toBe('invalid_input')
-    expect(await code(run(rule({ categoryId: crypto.randomUUID() })))).toBe('category_unavailable')
+    expect(await code(run(rule({ categoryId: testUuid() })))).toBe('category_unavailable')
     expect(await code(run(rule({ categoryId: MER_DRAFT_CATEGORY })))).toBe('category_unavailable')
     expect(
       await code(
         run(
           rule({
             weights: { ...noWeights, campaign: 5 },
-            campaign: { campaignId: null, productIds: [crypto.randomUUID()] }
+            campaign: { campaignId: null, productIds: [testUuid()] }
           })
         )
       )
@@ -145,7 +146,7 @@ describe('SEA-015 rule lifecycle', () => {
           rule({
             categoryId: MER_CHILD,
             weights: { ...noWeights, campaign: 5 },
-            campaign: { campaignId: crypto.randomUUID(), productIds: [P(5)] }
+            campaign: { campaignId: testUuid(), productIds: [P(5)] }
           })
         )
       )
@@ -314,7 +315,7 @@ describe('SEA-015 signals and preview', () => {
     expect(ids(result)[0]).toBe(P(5))
   })
   it('flags campaign products only while their campaign is active', async () => {
-    const campaignId = crypto.randomUUID()
+    const campaignId = testUuid()
     const campaign = { campaignId, productIds: [P(5)] }
     const input = draft({ campaign: 5 }, {}, campaign)
     sqlite
@@ -347,7 +348,7 @@ describe('SEA-015 signals and preview', () => {
         "INSERT INTO companies(id,customer_id,legal_name,status,created_at,updated_at) VALUES('mer-company','mer-customer','Hostelería SL','approved',?,?)"
       )
       .run(past, past)
-    const options = () => ({ now: () => at(), idempotencyKey: crypto.randomUUID() })
+    const options = () => ({ now: () => at(), idempotencyKey: testUuid() })
     await upsertD1B2BPriceList(
       database,
       MER_CLAIMS,
@@ -404,12 +405,10 @@ describe('SEA-015 signals and preview', () => {
     expect(await code(preview({ categoryId: MER_ROOT, ruleId: null, companyId: null, draft: null }))).toBe(
       'invalid_input'
     )
-    expect(
-      await code(preview({ categoryId: MER_ROOT, ruleId: crypto.randomUUID(), companyId: null, draft: null }))
-    ).toBe('not_found')
-    expect(await code(preview({ ...draft({ stock: 1 }), categoryId: crypto.randomUUID() }))).toBe(
-      'category_unavailable'
+    expect(await code(preview({ categoryId: MER_ROOT, ruleId: testUuid(), companyId: null, draft: null }))).toBe(
+      'not_found'
     )
+    expect(await code(preview({ ...draft({ stock: 1 }), categoryId: testUuid() }))).toBe('category_unavailable')
     expect(await code(preview({ ...draft({ stock: 1 }), extra: true }))).toBe('invalid_input')
   })
   it('requires catalog.write with MFA to preview', async () => {

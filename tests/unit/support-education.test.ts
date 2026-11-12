@@ -8,11 +8,12 @@ import {
 } from '../../workers/support/education'
 import { InsightError } from '../../workers/support/insight-commands'
 import { insightsFixture, seedKnowledgePage, claimsOf, ADMIN, ADMIN2, NOPERM } from './support-insights-fixture'
+import { testUuid } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof insightsFixture>>
 let clock = '2026-10-01T10:00:00Z'
 const deps = () => ({ database: f.database, enabled: true, now: () => clock })
-const key = () => crypto.randomUUID()
+const key = () => testUuid()
 const code = async (p: Promise<unknown>) =>
   p.then(
     () => 'ok',
@@ -233,7 +234,7 @@ describe('review and publication workflow', () => {
     expect(await code(run({ action: 'start_review', expectedVersion: 1 }, key(), ADMIN2))).toBe('concurrency_conflict')
     expect(await code(run({ ...approve, safetyReviewed: false }))).toBe('invalid_input')
     expect(await code(run({ ...approve, reviewNotes: 'ok' }))).toBe('invalid_input')
-    expect(await code(run(approve, key(), ADMIN, crypto.randomUUID()))).toBe('not_found')
+    expect(await code(run(approve, key(), ADMIN, testUuid()))).toBe('not_found')
   })
   it('can reject a topic and then closes it for good', async () => {
     await run({ action: 'start_review', expectedVersion: 1 })
@@ -305,9 +306,7 @@ describe('measureEducationDeflection', () => {
     await detectEducationCandidates(f.database, claimsOf(ADMIN), WINDOW, key(), NOW)
     const id = (await listEducationCandidates(f.database, claimsOf(ADMIN), {}, NOW)).items[0]!.id
     expect(await code(measureEducationDeflection(f.database, claimsOf(ADMIN), id, NOW))).toBe('invalid_transition')
-    expect(await code(measureEducationDeflection(f.database, claimsOf(ADMIN), crypto.randomUUID(), NOW))).toBe(
-      'not_found'
-    )
+    expect(await code(measureEducationDeflection(f.database, claimsOf(ADMIN), testUuid(), NOW))).toBe('not_found')
   })
   it('measures the real fall in questions that still needed a human', async () => {
     const id = await publishedCandidate()

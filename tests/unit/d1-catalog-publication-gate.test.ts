@@ -10,6 +10,7 @@ import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../sup
 import { executeD1CatalogTypedAttributeDefinitionCommand } from '../../workers/catalog/typed-attribute-definitions'
 import { readD1CatalogPublicationReadiness } from '../../workers/catalog/catalog-publication-readiness'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T10:00:00Z'
 const IDENTITY = '10000000-0000-4000-8000-000000000036'
@@ -74,7 +75,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     sqlite.prepare(sql).run(...parameters)
   }
   function policy(options: { fields?: string[]; roles?: string[]; exceptions?: boolean; code?: string } = {}) {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     update(
       `INSERT INTO catalog_publication_policies(id,code,version,name,required_fields,required_media_roles,
       identifier_exceptions_allowed,actor_id,reason,valid_from,created_at) VALUES (?,?,1,'Synthetic type policy',?,?,?,?, 'Synthetic review, not legal approval',?,?)`,
@@ -90,7 +91,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     update(
       `INSERT INTO catalog_product_publication_policies(id,product_id,policy_id,actor_id,reason,created_at)
       VALUES (?,'p-1',?,?,'Synthetic assignment, not real product approval',?)`,
-      crypto.randomUUID(),
+      testUuid(),
       id,
       IDENTITY,
       NOW
@@ -98,10 +99,10 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     return id
   }
   async function media(role: 'main' | 'sds' | 'datasheet' = 'main', variant: string | null = null) {
-    const upload = crypto.randomUUID(),
-      scan = crypto.randomUUID(),
-      rights = crypto.randomUUID(),
-      publication = crypto.randomUUID()
+    const upload = testUuid(),
+      scan = testUuid(),
+      rights = testUuid(),
+      publication = testUuid()
     const bytes = role === 'main' ? png() : new TextEncoder().encode('%PDF-1.7\nSynthetic envelope only\n%%EOF')
     const checksum = hex(await crypto.subtle.digest('SHA-256', bytes))
     const key = `quarantine/${upload}/${checksum}`
@@ -182,7 +183,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     return { key, upload, publication, scan }
   }
   function exception() {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     update(
       `INSERT INTO catalog_variant_identifier_exceptions(id,variant_id,actor_id,reason,evidence_reference,valid_from,created_at)
       VALUES (?,'v-1-1',?,'Synthetic reviewed exception, not commercial approval','Synthetic reference',?,?)`,
@@ -209,7 +210,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
       .first<{ eligible: number }>()
     return row?.eligible
   }
-  async function publish(key = crypto.randomUUID()) {
+  async function publish(key = testUuid()) {
     const row = sqlite.prepare("SELECT catalog_version FROM products WHERE id='p-1'").get()!
     return updateD1ProductStatus(
       database,
@@ -312,7 +313,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
               version: 1,
               values: [
                 {
-                  definitionId: cause === 'definition' ? crypto.randomUUID() : definition.id,
+                  definitionId: cause === 'definition' ? testUuid() : definition.id,
                   revision: 1,
                   value: cause === 'value' ? 'false' : false
                 }
@@ -394,7 +395,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
       update(
         `INSERT INTO catalog_product_publication_policies(seq,id,product_id,policy_id,actor_id,reason,created_at)
       VALUES (-2,?,'p-1',?,?,'Synthetic invalid negative sequence',?)`,
-        crypto.randomUUID(),
+        testUuid(),
         id,
         IDENTITY,
         NOW
@@ -403,7 +404,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
   })
   it('publishes complete explicitly governed data, audits and replays original receipt without touching R2 again', async () => {
     policy()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const first = await publish(key)
     expect(first).toMatchObject({
       source: 'cloudflare',
@@ -527,7 +528,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     const prepared = await prepare()
     update(
       `INSERT INTO catalog_publication_policy_withdrawals VALUES (?,?,?,'Synthetic withdrawal of policy approval',?)`,
-      crypto.randomUUID(),
+      testUuid(),
       id,
       IDENTITY,
       NOW
@@ -591,7 +592,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     expect(await eligible(prepared)).toBe(1)
     update(
       `INSERT INTO catalog_variant_identifier_exception_withdrawals VALUES (?,?,?,'Synthetic reviewed exception withdrawn',?)`,
-      crypto.randomUUID(),
+      testUuid(),
       id,
       IDENTITY,
       NOW
@@ -664,7 +665,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     exception()
     update(
       `INSERT INTO catalog_publication_policy_withdrawals VALUES (?,?,?,'Synthetic withdrawal of policy approval',?)`,
-      crypto.randomUUID(),
+      testUuid(),
       id,
       IDENTITY,
       NOW
@@ -672,7 +673,7 @@ describe('authoritative publication policy, original bytes and D1 transactional 
     const exceptionId = sqlite.prepare('SELECT id FROM catalog_variant_identifier_exceptions').get()!.id
     update(
       `INSERT INTO catalog_variant_identifier_exception_withdrawals VALUES (?,?,?,'Synthetic exception withdrawal',?)`,
-      crypto.randomUUID(),
+      testUuid(),
       exceptionId!,
       IDENTITY,
       NOW

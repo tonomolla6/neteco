@@ -1,9 +1,11 @@
 import { defineConfig, defineProject } from 'vitest/config'
 import { resolve } from 'node:path'
 import coveragePolicy from './docs/testing/coverage-policy.json' with { type: 'json' }
+import { workerAssetsPlugin } from './tests/support/worker-assets-plugin.ts'
 
 /** Shared by the full matrix and the fast Node-only entry point. */
 export const unitProject = defineProject({
+  plugins: [workerAssetsPlugin()],
   resolve: {
     alias: {
       '~~': resolve('.'),
@@ -15,6 +17,7 @@ export const unitProject = defineProject({
     include: ['tests/unit/**/*.test.ts'],
     setupFiles: ['tests/support/no-external-network.ts'],
     environment: 'node',
+    server: { deps: { inline: [/\/yoga-wasm-web\/dist\/yoga\.wasm$/, /\/@resvg\/resvg-wasm\/index_bg\.wasm$/] } },
     testTimeout: 10_000
   }
 })

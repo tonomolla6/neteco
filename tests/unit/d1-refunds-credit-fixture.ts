@@ -18,6 +18,7 @@ import { planD1Refund, confirmD1Refund, dispatchD1Refunds } from '../../workers/
 import type { PromotionRule } from '../../shared/promotions'
 import { provisionPromotionFixture } from '../support/promotion-fixture'
 import { applyStoreCreditMigrations, fundStoreCredit } from './d1-store-credit-downstream-fixture'
+import { testUuid } from '../support/deterministic'
 
 export { CLAIMS, BUYER_CLAIMS, REASON, utc }
 export async function refundsCreditFixture(
@@ -80,7 +81,7 @@ export async function refundsCreditFixture(
       CLAIMS,
       requested.publicRef,
       { reason: REASON, publicMessage: REASON, evidence: REASON, ...input },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
   const mappings = {
       merchantCode: REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode,
@@ -153,7 +154,7 @@ export async function refundsCreditFixture(
       reason: REASON
     }),
     creditProvider = new PersistentLocalCreditProvider(database, await hash(fiscalRuntimeMappings))
-  const plan = (quantity = 1, idempotencyKey = crypto.randomUUID()) =>
+  const plan = (quantity = 1, idempotencyKey = testUuid()) =>
     planD1Refund(database, CLAIMS, {
       idempotencyKey,
       policyId: policy.id,
@@ -165,7 +166,7 @@ export async function refundsCreditFixture(
     })
   const confirm = (id: string, generation: number, fingerprint: string) =>
     confirmD1Refund(database, CLAIMS, id, {
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       expectedGeneration: generation,
       contractFingerprint: fingerprint,
       reason: REASON,

@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleD1AdminOrdersRequest, type AdminOrdersHttpDependencies } from '../../workers/catalog/admin-orders-http'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T09:00:00Z'
 const ORIGIN = 'https://neteco.invalid'
@@ -14,7 +15,7 @@ const PATHS = [
   '/api/admin/orders',
   '/api/admin/stats',
   '/api/admin/operations',
-  `/api/admin/orders/${crypto.randomUUID()}/detail`
+  `/api/admin/orders/${testUuid()}/detail`
 ] as const
 
 describe('existing administrative GET origin boundary', () => {

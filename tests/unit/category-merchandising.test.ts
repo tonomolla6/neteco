@@ -6,6 +6,7 @@ import {
   rankCategoryProducts,
   type CategoryProductSignals
 } from '../../shared/category-merchandising'
+import { testNow } from '../support/deterministic'
 
 const id = (n: number, group = 'a') => `${group}0000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const product = (n: number, extra: Partial<CategoryProductSignals> = {}): CategoryProductSignals => ({
@@ -167,7 +168,7 @@ describe('SEA-015 guardrails', () => {
 })
 
 describe('SEA-015 input schema', () => {
-  const now = Date.now()
+  const now = testNow()
   const iso = (offsetMs: number) => new Date(now + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const DAY = 86_400_000
   const save = (extra: Record<string, unknown> = {}) => ({

@@ -11,6 +11,7 @@ import { releaseReservation, reserveInventory } from '../../workers/catalog/inve
 import { handleCartCommand } from '../../workers/cart-coordinator'
 import { applyGeneratedSeed, d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-08-25T09:00:00Z'
 const UUID_A = '11111111-1111-4111-8111-111111111111'
@@ -185,7 +186,7 @@ describe('current publication authority throughout checkout recovery', () => {
       SELECT ?,id,actor_id,'Synthetic evidence withdrawal during checkout',?
       FROM catalog_publication_policies WHERE code='local_fixture' ORDER BY version DESC LIMIT 1`
       )
-      .run(crypto.randomUUID(), NOW)
+      .run(testUuid(), NOW)
   }
 
   it('revalidates publication before creating any reservation or attempt', async () => {

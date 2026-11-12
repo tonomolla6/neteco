@@ -9,6 +9,7 @@ import {
 } from './d1-multichannel-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleMultichannelHttp } from '../../workers/communications/multichannel-http'
+import { testUuid } from '../support/deterministic'
 
 // COM-015 admin API: a signed-in storefront buyer must not dispatch messages, read other
 // customers' orchestration logs or read/rewrite another customer's channel preferences.
@@ -36,7 +37,7 @@ describe('COM-015: el API admin multicanal exige autoridad administrativa viva',
         Cookie: cookie,
         Origin: origin,
         'Content-Type': 'application/json',
-        'Idempotency-Key': crypto.randomUUID()
+        'Idempotency-Key': testUuid()
       },
       ...(body ? { body: JSON.stringify(body) } : {})
     })

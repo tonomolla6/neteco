@@ -14,6 +14,7 @@ import {
   EditorialApprovalError
 } from '../../workers/cms/editorial-approval'
 import { executeCmsPublicationCommand, CmsPublicationError } from '../../workers/cms/publication'
+import { testUuid } from '../support/deterministic'
 
 const PUBLISHER_IDENTITY = '10000000-0000-4000-8000-000000000099'
 const PUBLISHER_SESSION = '20000000-0000-4000-8000-000000000099'
@@ -98,7 +99,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         assignedReviewerId: PUBLISHER_IDENTITY,
         note: 'Por favor revisar FDS y pictogramas para este producto'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     expect(result.id).toBeDefined()
@@ -122,7 +123,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'chemical_safety' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Complete only 2 of 3 items
@@ -131,14 +132,14 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.publisherClaims,
       rev.id,
       { itemKey: 'fds_vigente', completed: true, expectedVersion: 1 },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await updateChecklistItem(
       f.database,
       f.publisherClaims,
       rev.id,
       { itemKey: 'pictogramas_clp', completed: true, expectedVersion: 2 },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Try approving when phrases_hp_revisadas is still incomplete
@@ -148,7 +149,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { expectedVersion: 3, note: 'Intento de aprobación incompleto' },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toThrow(EditorialApprovalError)
   })
@@ -159,7 +160,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'legal', isCritical: false },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(rev.isCritical).toBe(true)
   })
@@ -172,13 +173,13 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       'create_draft',
       {},
       { ...cmsDocument({ title: 'Aviso legal', slug: 'aviso-legal' }), expectedVersion: 0 },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const rev = await createEditorialReview(
       f.database,
       f.authorClaims,
       { pageId: legal.pageId, versionId: legal.versionId, contentType: 'general', isCritical: false },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(rev.isCritical).toBe(true)
   })
@@ -189,20 +190,20 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'chemical_safety' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await rejectEditorialReview(
       f.database,
       f.publisherClaims,
       first.id,
       { expectedVersion: first.version, reason: 'Faltan frases H/P' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const second = await createEditorialReview(
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'general' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(second.isCritical).toBe(true)
   })
@@ -213,7 +214,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'legal' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Complete all items for legal review
@@ -224,20 +225,14 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.authorClaims,
         rev.id,
         { itemKey: item.itemKey, completed: true, expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       v++
     }
 
     // Author tries to self-approve critical review
     await expect(
-      approveEditorialReview(
-        f.database,
-        f.authorClaims,
-        rev.id,
-        { expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
-      )
+      approveEditorialReview(f.database, f.authorClaims, rev.id, { expectedVersion: v }, { idempotencyKey: testUuid() })
     ).rejects.toThrow(EditorialApprovalError)
 
     // Author cannot self-approve -> error code should be author_cannot_approve
@@ -247,7 +242,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.authorClaims,
         rev.id,
         { expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     } catch (err: unknown) {
       expect((err as EditorialApprovalError).code).toBe('author_cannot_approve')
@@ -261,7 +256,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.publisherClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'general' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(rev.isCritical).toBe(false)
 
@@ -273,7 +268,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { itemKey: item.itemKey, completed: true, expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       v++
     }
@@ -284,7 +279,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.publisherClaims,
       rev.id,
       { expectedVersion: v, note: 'Autoaprobado cambio no crítico de estilo' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(approved.status).toBe('approved')
     expect(approved.approvedBy).toBe(PUBLISHER_IDENTITY)
@@ -296,7 +291,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'general' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     let v = 1
@@ -306,7 +301,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.writeOnlyClaims,
         rev.id,
         { itemKey: item.itemKey, completed: true, expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       v++
     }
@@ -318,7 +313,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.writeOnlyClaims,
         rev.id,
         { expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toThrow(EditorialApprovalError)
   })
@@ -329,7 +324,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'pricing' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     let v = 1
@@ -339,7 +334,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { itemKey: item.itemKey, completed: true, expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       v++
     }
@@ -354,7 +349,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toThrow(EditorialApprovalError)
 
@@ -364,7 +359,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     } catch (err: unknown) {
       expect((err as EditorialApprovalError).code).toBe('mfa_expired')
@@ -377,7 +372,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'general' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Reject review with valid reason
@@ -386,7 +381,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.publisherClaims,
       rev.id,
       { expectedVersion: 1, reason: 'Información desactualizada' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(rejected.status).toBe('rejected')
 
@@ -397,7 +392,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { expectedVersion: 2 },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toThrow(EditorialApprovalError)
   })
@@ -408,7 +403,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'general' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     const comment = await addReviewComment(
@@ -416,7 +411,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.authorClaims,
       rev.id,
       { comment: 'Primer comentario inmutable' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(comment.id).toBeDefined()
 
@@ -438,7 +433,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId: f.created.pageId, versionId: f.created.versionId, contentType: 'general' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Update with wrong expectedVersion
@@ -448,14 +443,14 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.authorClaims,
         rev.id,
         { assignedReviewerId: PUBLISHER_IDENTITY, expectedVersion: 99 },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toThrow(EditorialApprovalError)
   })
 
   it('replays identical command responses idempotently', async () => {
     const f = await setupEditorialFixture()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const first = await createEditorialReview(
       f.database,
       f.authorClaims,
@@ -482,7 +477,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.database,
       f.authorClaims,
       { pageId, versionId, contentType: 'chemical_safety' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Try publishing while in_review -> should fail
@@ -495,7 +490,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
     }
 
     await expect(
-      executeCmsPublicationCommand(f.deps, f.publisherClaims, pageId, publishInput, crypto.randomUUID())
+      executeCmsPublicationCommand(f.deps, f.publisherClaims, pageId, publishInput, testUuid())
     ).rejects.toThrow(CmsPublicationError)
 
     // Complete checklist
@@ -506,7 +501,7 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
         f.publisherClaims,
         rev.id,
         { itemKey: item.itemKey, completed: true, expectedVersion: v },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       v++
     }
@@ -517,22 +512,16 @@ describe('Editorial Approval Workflow (ADM-023)', () => {
       f.publisherClaims,
       rev.id,
       { expectedVersion: v, note: 'Revisión técnica aprobada' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     // Critical change: author still cannot publish own change
     await expect(
-      executeCmsPublicationCommand(f.deps, f.authorClaims, pageId, publishInput, crypto.randomUUID())
+      executeCmsPublicationCommand(f.deps, f.authorClaims, pageId, publishInput, testUuid())
     ).rejects.toThrow(CmsPublicationError)
 
     // Different publisher can publish
-    const receipt = await executeCmsPublicationCommand(
-      f.deps,
-      f.publisherClaims,
-      pageId,
-      publishInput,
-      crypto.randomUUID()
-    )
+    const receipt = await executeCmsPublicationCommand(f.deps, f.publisherClaims, pageId, publishInput, testUuid())
     expect(receipt.updated).toBe(true)
 
     // Review status transitions to published

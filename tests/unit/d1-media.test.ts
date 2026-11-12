@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { quarantineMediaUpload, reconcileMediaStorage, type QuarantineUploadInput } from '../../workers/catalog/media'
+import { testNow } from '../support/deterministic'
 
 function input(): QuarantineUploadInput {
   return {
@@ -27,7 +28,7 @@ function privateBucket() {
       etag: 'etag',
       httpEtag: '"etag"',
       version: 'version',
-      uploaded: new Date(),
+      uploaded: new Date(testNow()),
       storageClass: 'Standard',
       checksums: { sha256: checksum, toJSON: () => ({}) },
       writeHttpMetadata: () => {}
@@ -41,6 +42,7 @@ function privateBucket() {
 describe('D1 media quarantine', () => {
   let sqlite: DatabaseSync
   beforeEach(async () => {
+    testNow()
     sqlite = await openMigratedDatabase()
   })
   afterEach(() => {
@@ -54,7 +56,7 @@ describe('D1 media quarantine', () => {
     await expect(quarantineMediaUpload(database, bucket, input())).rejects.toThrow('crash')
     sqlite.exec('DROP TRIGGER fail_receipt')
     expect((await reconcileMediaStorage(database, bucket)).inspected).toBe(0)
-    const now = new Date(Date.now() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     expect(await reconcileMediaStorage(database, bucket, { now })).toEqual({
       inspected: 1,
       recovered: 1,
@@ -78,7 +80,7 @@ describe('D1 media quarantine', () => {
         'offline'
       )
     }
-    const now = new Date(Date.now() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     expect((await reconcileMediaStorage(database, bucket, { now, limit: 1 })).missing).toBe(1)
     bucket.head.mockRejectedValueOnce(new Error('R2 unavailable'))
     expect((await reconcileMediaStorage(database, bucket, { now, limit: 1 })).unavailable).toBe(1)
@@ -102,7 +104,7 @@ describe('D1 media quarantine', () => {
       await quarantineMediaUpload(database, bucket, input())
       return bucket.objects.get(key)?.object ?? null
     })
-    const now = new Date(Date.now() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     expect((await reconcileMediaStorage(database, bucket, { now })).raced).toBe(1)
     expect(sqlite.prepare('SELECT storage_status, storage_check_result FROM media_uploads').get()).toEqual({
       storage_status: 'quarantined',
@@ -117,7 +119,7 @@ describe('D1 media quarantine', () => {
     await expect(quarantineMediaUpload(database, bucket, input())).rejects.toThrow('offline')
     const key = String(sqlite.prepare('SELECT object_key FROM media_uploads').get()?.object_key)
     await bucket.put(key, new Uint8Array(input().bytes.length), { onlyIf: { etagDoesNotMatch: '*' } })
-    const now = new Date(Date.now() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow() + 120_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     expect((await reconcileMediaStorage(database, bucket, { now })).mismatch).toBe(1)
     for (const options of [{ now: 'invalid' }, { limit: 0 }, { limit: 101 }, { limit: 1.5 }]) {
       await expect(reconcileMediaStorage(database, bucket, options)).rejects.toThrow('invalid_media')

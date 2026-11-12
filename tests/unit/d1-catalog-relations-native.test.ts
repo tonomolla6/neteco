@@ -1,7 +1,7 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -15,6 +15,7 @@ import {
   publicCatalogRelationsSchema,
   catalogRelationsIntentHash
 } from '../../shared/catalog-relations'
+import { testUuid } from '../support/deterministic'
 
 it('serves real catalog relations via canary and workerd D1 with authenticated replay and live public withdrawal', async () => {
   const origin = 'https://catalog-relations-native.neteco.test',
@@ -39,8 +40,7 @@ it('serves real catalog relations via canary and workerd D1 with authenticated r
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       name: 'catalog-relations-native',
-      modules: true,
-      script: bundle.outputFiles[0]!.text,
+      ...bundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       cf: false,
@@ -90,8 +90,8 @@ it('serves real catalog relations via canary and workerd D1 with authenticated r
     const now = (await database.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') now").first<{ now: string }>())!
       .now
     await provisionPublicationValidityFixture(database, { productIds: ['p-1', 'p-2'], now })
-    const identityId = randomUUID(),
-      sessionId = randomUUID()
+    const identityId = testUuid(),
+      sessionId = testUuid()
     await database.batch([
       database.prepare("INSERT INTO roles VALUES('relations-editor','Synthetic editor','Synthetic')"),
       database.prepare("INSERT OR IGNORE INTO permissions VALUES('catalog.write','catalog','write','Synthetic')"),
@@ -116,7 +116,7 @@ it('serves real catalog relations via canary and workerd D1 with authenticated r
       { password, maxAgeSeconds: 3600 }
     ))!.split(';')[0]!
     const root = '/api/admin/products/1/relations',
-      key = randomUUID()
+      key = testUuid()
     const body = {
       expectedVersion: 0,
       relations: [{ targetProductId: 2, kind: 'compatible' }],

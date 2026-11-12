@@ -22,6 +22,7 @@ import { transportReady, resolveEditorialSender } from '../../workers/marketing/
 import { environment } from '../support/customer-operations-fixture'
 import { newsletterEditorialFixture, newsletterCampaignDocument } from './d1-newsletter-editorial-fixture'
 import { cmsDocument } from './d1-cms-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 type World = Awaited<ReturnType<typeof newsletterEditorialFixture>>
 const opened: World[] = []
@@ -60,7 +61,7 @@ function request(w: World, path: string, method = 'GET', body?: string, cookie =
       'cf-connecting-ip': '192.0.2.50',
       cookie,
       'content-type': 'application/json',
-      'idempotency-key': crypto.randomUUID()
+      'idempotency-key': testUuid()
     },
     ...(body === undefined ? {} : { body })
   })
@@ -150,7 +151,7 @@ describe('independent customer-operation authority audit with real SQLite', () =
             consentText: NEWSLETTER_CONSENT_TEXT,
             consentVersion: NEWSLETTER_POLICY_VERSION,
             consentSource: 'footer',
-            idempotencyKey: crypto.randomUUID()
+            idempotencyKey: testUuid()
           },
           w.secrets
         )
@@ -180,7 +181,7 @@ describe('independent customer-operation authority audit with real SQLite', () =
         '/api/newsletter/preferences/access',
         'POST',
         JSON.stringify({
-          confirmationToken: `n1.${crypto.randomUUID()}.${'0'.repeat(64)}`
+          confirmationToken: `n1.${testUuid()}.${'0'.repeat(64)}`
         })
       ),
       response = await handleCustomerOperationsHttp(incoming, runtime(w))
@@ -236,7 +237,7 @@ describe('independent customer-operation authority audit with real SQLite', () =
         w,
         '/api/newsletter/unsubscribe',
         'POST',
-        JSON.stringify({ token: `u1.${crypto.randomUUID()}.${'0'.repeat(64)}` })
+        JSON.stringify({ token: `u1.${testUuid()}.${'0'.repeat(64)}` })
       ),
       maintenance
     )
@@ -263,7 +264,7 @@ describe('independent customer-operation authority audit with real SQLite', () =
         origin: w.deps.publicOrigin,
         'cf-connecting-ip': '192.0.2.50',
         'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID(),
+        'idempotency-key': testUuid(),
         authorization: 'Bearer ' + bearer
       },
       body: JSON.stringify({
@@ -287,14 +288,14 @@ describe('independent customer-operation authority audit with real SQLite', () =
     // publication without a sleep. CMS authoring and newsletter authoring share
     // the fixture's explicit clock; configured cron still uses the live clock.
     vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(Date.now() + 2000)
+    vi.setSystemTime(testNow() + 2000)
     const created = await executeD1CmsDraftCommand(
       w.database,
       w.claims,
       'create_draft',
       {},
       { ...cmsDocument(), expectedVersion: 0 },
-      { idempotencyKey: crypto.randomUUID(), now: w.getNow() }
+      { idempotencyKey: testUuid(), now: w.getNow() }
     )
     await executeCmsPublicationCommand(
       cms,
@@ -307,14 +308,14 @@ describe('independent customer-operation authority audit with real SQLite', () =
         versionId: created.versionId,
         reason: 'Synthetic authority audit publication'
       },
-      crypto.randomUUID()
+      testUuid()
     )
     w.deps.cmsPublication = cms
     await w.subscriber()
     await w.policy()
     const document = newsletterCampaignDocument()
     document.blocks.push({
-      id: crypto.randomUUID(),
+      id: testUuid(),
       type: 'link',
       kind: 'editorial',
       label: 'Contenido CMS vigente',
@@ -344,7 +345,7 @@ describe('independent customer-operation authority audit with real SQLite', () =
           expectedVersion: 1,
           reason: 'Explicit audit withdrawal before delivery'
         },
-        crypto.randomUUID()
+        testUuid()
       )
       await expect(readCmsPublicPage(cms, 'guia-editorial')).rejects.toMatchObject({ code: 'not_found' })
     }

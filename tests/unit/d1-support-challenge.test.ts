@@ -5,6 +5,7 @@ import {
   type SupportChallengeConfiguration
 } from '../../shared/support-operations'
 import { supportFixture, CONTACT, POLICY } from './d1-support-fixture'
+import { testUuid } from '../support/deterministic'
 
 const configuration: SupportChallengeConfiguration = {
   provider: 'turnstile',
@@ -101,7 +102,7 @@ describe('support challenge HTTP publication and immutable recovery', () => {
   it('replays the same business/key with a renewed token before quota or verification', async () => {
     const optionResponse = await f.request('/api/support/options', 'GET', undefined, ''),
       cookie = optionResponse.headers.get('set-cookie')!.split(';')[0]!,
-      key = crypto.randomUUID()
+      key = testUuid()
     f.deps.challengeVerifier = vi.fn(async () => true)
     const first = await f.request(
       '/api/support/tickets',
@@ -132,7 +133,7 @@ describe('support challenge HTTP publication and immutable recovery', () => {
   it('a renewable credential never permits changing the business for the same key', async () => {
     const optionResponse = await f.request('/api/support/options', 'GET', undefined, ''),
       cookie = optionResponse.headers.get('set-cookie')!.split(';')[0]!,
-      key = crypto.randomUUID()
+      key = testUuid()
     f.deps.challengeVerifier = vi.fn(async () => true)
     const first = await f.request(
       '/api/support/tickets',

@@ -16,6 +16,8 @@ import {
   INVENTORY_FIXTURE_ACTOR,
   INVENTORY_FIXTURE_SESSION
 } from '../support/admin-inventory-fixture'
+import { testNow } from '../support/deterministic'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 
 it('runs threshold, evaluation, acknowledgement and receipt recovery against actual workerd D1 without changing stock', async () => {
   const outbound = vi.fn(() => {
@@ -37,8 +39,9 @@ it('runs threshold, evaluation, acknowledgement and receipt recovery against act
   )
   let fixture: Awaited<ReturnType<typeof openAdminInventoryFixture>> | undefined
   try {
-    fixture = await openAdminInventoryFixture()
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
+    await syncNativeTestClock(database)
+    fixture = await openAdminInventoryFixture()
     for (const name of (await readdir('db/d1/migrations')).filter((name) => /^\d+.*\.sql$/.test(name)).sort()) {
       const statements = splitDemoSql(await readFile(join('db/d1/migrations', name), 'utf8'))
       for (let offset = 0; offset < statements.length; offset += 50)
@@ -79,7 +82,7 @@ it('runs threshold, evaluation, acknowledgement and receipt recovery against act
     // and no ledger. Their intentional divergence tests anomaly detection; this
     // setup is outside every measured interval, never a stock-repair operation.
     const positions: D1PreparedStatement[] = []
-    const fixtureInstant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const fixtureInstant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     for (let legacy = 12; legacy <= 110; legacy++) {
       const id = `70000000-0000-4000-8000-${String(legacy).padStart(12, '0')}`
       positions.push(
@@ -135,7 +138,7 @@ it('runs threshold, evaluation, acknowledgement and receipt recovery against act
         }),
         env
       )
-      expect(response.status).toBe(200)
+      expect(response.status, await response.clone().text()).toBe(200)
       expect(response.headers.get('cache-control')).toBe('private, no-store')
       expect(response.headers.get('set-cookie')).toBeNull()
       return response.json()

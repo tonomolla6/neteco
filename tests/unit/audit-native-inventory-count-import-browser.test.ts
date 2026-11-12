@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { runInNewContext } from 'node:vm'
 import { transformSync } from 'esbuild'
@@ -23,6 +22,7 @@ import {
   INVENTORY_COUNT_IMPORT_BROWSER_SCENARIOS,
   type InventoryCountImportBrowserFixture
 } from '../../scripts/lib/audit-native-inventory-count-import-browser'
+import { testUuid } from '../support/deterministic'
 
 const connect = vi.hoisted(() => vi.fn())
 vi.mock('../../scripts/lib/remote-test-browser', () => ({
@@ -178,7 +178,7 @@ beforeEach(async () => {
   connect.mockReset()
 })
 afterEach(() => fixture?.sqlite.close())
-function request(path: string, body?: unknown, cookie = prepared.proposerCookie, key = randomUUID(), hash?: string) {
+function request(path: string, body?: unknown, cookie = prepared.proposerCookie, key = testUuid(), hash?: string) {
   return new Request(origin + path, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
@@ -207,7 +207,7 @@ async function proposal(value: Awaited<ReturnType<typeof bridge>>, cookie = prep
     reason: 'Synthetic physical count import reviewed',
     reference: 'SYNTHETIC-BROWSER-INV010'
   }
-  const key = randomUUID(),
+  const key = testUuid(),
     hash = await inventoryCountImportIntentHash('propose', null, body)
   const result = await value.forward(request(base, body, cookie, key))
   return { key, hash, result, body }
@@ -347,7 +347,7 @@ it('rejects wrong receipt correlation after real commit rather than manufacturin
     const response = await actual(req)
     if (req.method === 'POST' && new URL(req.url).pathname === base && response.status === 201) {
       const data = (await response.json()) as Record<string, unknown>
-      return new Response(JSON.stringify({ ...data, commandId: randomUUID() }), {
+      return new Response(JSON.stringify({ ...data, commandId: testUuid() }), {
         status: 201,
         headers: response.headers
       })

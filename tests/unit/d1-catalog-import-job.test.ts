@@ -11,13 +11,14 @@ import {
   sealCatalogImportJob,
   readCatalogImportJob
 } from '../../workers/catalog/import-job'
+import { testNow } from '../support/deterministic'
 
 const actor = '00550000-0000-4000-8000-000000000001'
 const session = '00550000-0000-4000-8000-000000000002'
 const warehouse = '00550000-0000-4000-8000-000000000003'
 const claims = { identityId: actor, sessionId: session, sessionVersion: 1 }
 const reason = 'Synthetic whole-job review; local staging tests only'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const uuid = (kind: number, index: number) =>
   `0055${String(kind).padStart(4, '0')}-0000-4000-8000-${String(index).padStart(12, '0')}`
 

@@ -9,6 +9,7 @@ import {
 } from '../../workers/fulfillment/delivery-survey-http'
 import { scheduleDeliverySurveyInvitation } from '../../workers/fulfillment/delivery-survey'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 
 describe('ORD-017 Delivery Surveys HTTP Endpoints', () => {
   let f: Awaited<ReturnType<typeof fulfillmentFixture>>
@@ -51,7 +52,7 @@ describe('ORD-017 Delivery Surveys HTTP Endpoints', () => {
         expectedVersion: 0,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeD1AdminFulfillmentCommand(
       f.database,
@@ -62,7 +63,7 @@ describe('ORD-017 Delivery Surveys HTTP Endpoints', () => {
         expectedVersion: 1,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeD1AdminFulfillmentCommand(
       f.database,
@@ -73,7 +74,7 @@ describe('ORD-017 Delivery Surveys HTTP Endpoints', () => {
         expectedVersion: 2,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeD1AdminFulfillmentCommand(
       f.database,
@@ -85,7 +86,7 @@ describe('ORD-017 Delivery Surveys HTTP Endpoints', () => {
         reason: REASON,
         evidence: 'Entregado OK'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
 
     const scheduled = await scheduleDeliverySurveyInvitation(f.database, {

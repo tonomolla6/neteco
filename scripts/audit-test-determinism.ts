@@ -1,5 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
+import { allowsLocalNetworkHarness } from './lib/determinism-policy'
 
 interface Violation {
   file: string
@@ -33,10 +34,10 @@ const violations: Violation[] = []
 for (const file of files) {
   const source = await readFile(file, 'utf8')
   for (const rule of rules) {
+    // In-memory sockets / loopback-only harnesses must opt in explicitly; external
+    // traffic is still blocked by tests/support/no-external-network.ts at runtime.
     const controlledLocalNetwork =
-      rule.name === 'raw Node network client' &&
-      relative(process.cwd(), file) === 'tests/integration/provider-recovery.test.ts' &&
-      source.includes('determinism-audit: allow-local-network-harness')
+      rule.name === 'raw Node network client' && allowsLocalNetworkHarness(relative(process.cwd(), file), source)
     if (rule.pattern.test(source) && !controlledLocalNetwork) {
       violations.push({ file: relative(process.cwd(), file), rule: rule.name })
     }

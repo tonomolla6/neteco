@@ -23,12 +23,13 @@ import {
   CUSTOMER_B,
   CUSTOMER_PENDING
 } from './support-insights-fixture'
+import { testUuid } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof insightsFixture>>
 const NOW = '2026-10-29T12:00:00Z'
 const ORDER_A = '50000000-0000-4000-8000-0000000000a1'
 const ORDER_B = '50000000-0000-4000-8000-0000000000b1'
-const key = () => crypto.randomUUID()
+const key = () => testUuid()
 const code = async (p: Promise<unknown>) =>
   p.then(
     () => 'ok',
@@ -112,7 +113,7 @@ describe('createB2bRequest (SUP-017)', () => {
   })
   it('lets a claim reference only the customer own orders', async () => {
     expect(await code(create({ ...claim, orderId: ORDER_B }))).toBe('not_found')
-    expect(await code(create({ ...claim, orderId: crypto.randomUUID() }))).toBe('not_found')
+    expect(await code(create({ ...claim, orderId: testUuid() }))).toBe('not_found')
     expect((await create(claim)).status).toBe('submitted')
   })
   it('is idempotent and rejects key reuse with another payload', async () => {
@@ -370,7 +371,7 @@ describe('administrative queue and workflow', () => {
     expect(await cmd('start_review', 2)).toBe('invalid_transition')
     expect(await cmd('resolve', 2)).toBe('ok')
     expect(await cmd('reply', 3)).toBe('invalid_transition')
-    expect(await cmd('start_review', 1, crypto.randomUUID())).toBe('not_found')
+    expect(await cmd('start_review', 1, testUuid())).toBe('not_found')
   })
   it('needs a note to reject, ask for information or reply', async () => {
     const r = await create()

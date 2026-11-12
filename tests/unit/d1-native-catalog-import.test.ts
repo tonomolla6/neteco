@@ -10,13 +10,14 @@ import {
   executeNativeCatalogImportCommand
 } from '../../workers/catalog/native-import'
 import { executeD1CatalogDraftAuthoringCommand } from '../../workers/catalog/admin-catalog-authoring'
+import { testUuid, testNow } from '../support/deterministic'
 
 const actor = '00540000-0000-4000-8000-000000000001'
 const session = '00540000-0000-4000-8000-000000000002'
 const warehouse = '00540000-0000-4000-8000-000000000003'
 const claims = { identityId: actor, sessionId: session, sessionVersion: 1 }
 const reason = 'Synthetic native import approval, local tests only'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('native D1 catalog import: private previews and compensating transactions', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -120,7 +121,7 @@ describe('native D1 catalog import: private previews and compensating transactio
   function command(
     p: { id: string; hash: string },
     action: 'apply' | 'revert' = 'apply',
-    key = crypto.randomUUID(),
+    key = testUuid(),
     db = database
   ) {
     return executeNativeCatalogImportCommand(db, claims, p.id, action, { previewHash: p.hash, reason }, key)
@@ -290,8 +291,8 @@ describe('native D1 catalog import: private previews and compensating transactio
   })
   it('keeps previews owner private even for another fully privileged identity', async () => {
     const p = await preview(),
-      other = crypto.randomUUID(),
-      otherSession = crypto.randomUUID()
+      other = testUuid(),
+      otherSession = testUuid()
     sqlite
       .prepare(
         "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES (?,'other54@example.invalid','unusable',?,'active',?,?)"
@@ -477,14 +478,14 @@ describe('native D1 catalog import: private previews and compensating transactio
     await command(p)
     const next = {
       ...record(),
-      product_id: crypto.randomUUID(),
+      product_id: testUuid(),
       product_legacy_id: '900002',
       product_slug: 'new-product',
-      variant_id: crypto.randomUUID(),
+      variant_id: testUuid(),
       variant_legacy_id: '910002',
       sku: 'NEW-SKU',
       ean: '5901234123457',
-      asset_id: crypto.randomUUID(),
+      asset_id: testUuid(),
       asset_checksum_sha256: 'b'.repeat(64),
       asset_storage_key: 'clean/new-product.png'
     }
@@ -499,13 +500,13 @@ describe('native D1 catalog import: private previews and compensating transactio
     sqlite.prepare('UPDATE variants SET gtin=ean,ean=NULL WHERE id=?').run(ids.variant)
     const next = {
       ...record(),
-      product_id: crypto.randomUUID(),
+      product_id: testUuid(),
       product_legacy_id: '900002',
       product_slug: 'new-product',
-      variant_id: crypto.randomUUID(),
+      variant_id: testUuid(),
       variant_legacy_id: '910002',
       sku: 'NEW-SKU',
-      asset_id: crypto.randomUUID(),
+      asset_id: testUuid(),
       asset_checksum_sha256: 'b'.repeat(64),
       asset_storage_key: 'clean/new.png'
     }
@@ -520,7 +521,7 @@ describe('native D1 catalog import: private previews and compensating transactio
     expect(state()).toEqual(before)
   })
   it('rejects multiple inventory warehouses and non-warehouse balances', async () => {
-    const secondWarehouse = crypto.randomUUID()
+    const secondWarehouse = testUuid()
     sqlite
       .prepare(
         "INSERT INTO inventory_locations(id,code,name,kind,active,created_at) VALUES (?,'SECOND-WH','Second warehouse','warehouse',1,?)"
@@ -544,7 +545,7 @@ describe('native D1 catalog import: private previews and compensating transactio
   it('deduplicates consistent product and asset descriptors across multiple new variants', async () => {
     const second = {
       ...record(),
-      variant_id: crypto.randomUUID(),
+      variant_id: testUuid(),
       variant_legacy_id: '910002',
       sku: 'DET-5L-SECOND',
       ean: '5901234123457'
@@ -759,7 +760,7 @@ describe('native D1 catalog import: private previews and compensating transactio
     const count = 40
     const records = Array.from({ length: count }, (_unused, index) => ({
       ...record(),
-      variant_id: crypto.randomUUID(),
+      variant_id: testUuid(),
       variant_legacy_id: String(910001 + index),
       sku: `NATIVE-BOUND-${index}`,
       ean: '',
@@ -797,9 +798,7 @@ describe('native D1 catalog import: private previews and compensating transactio
   it.each([
     { variant_source_version: 'mismatched-source' },
     {
-      inventory_json: JSON.stringify([
-        { locationId: crypto.randomUUID(), physicalQuantity: 40, blockedQuantity: 2, version: 1 }
-      ])
+      inventory_json: JSON.stringify([{ locationId: testUuid(), physicalQuantity: 40, blockedQuantity: 2, version: 1 }])
     },
     { price_gross_cents: '-1' },
     { product_attributes_json: '{invalid' }

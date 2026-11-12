@@ -5,6 +5,7 @@ import { prepareSupportEmail, supportEmailRenderers } from '../../workers/suppor
 import { executeSupportAdminCommand, createSupportTicket } from '../../workers/support/operations'
 import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communications/email-outbox'
 import { dispatchTransactionalEmails } from '../../workers/communications/transactional-email-delivery'
+import { testUuid } from '../support/deterministic'
 let f: Awaited<ReturnType<typeof supportFixture>>
 beforeEach(async () => {
   f = await supportFixture()
@@ -52,14 +53,14 @@ describe('support email renderer source fencing', () => {
       f.database,
       { kind: 'anonymous', claims: null, customerId: null, key: 'anonymous:' + 'a'.repeat(64) },
       CONTACT,
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeSupportAdminCommand(
       f.database,
       CLAIMS,
       ticket.publicRef,
       { action: 'note', expectedVersion: 1, reason: 'Internal note', message: 'SECRET_INTERNAL' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeSupportAdminCommand(
       f.database,
@@ -71,7 +72,7 @@ describe('support email renderer source fencing', () => {
         reason: 'Public reply',
         message: 'Public <script>unsafe</script> & response'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const event = f.sqlite
       .prepare("SELECT id FROM email_outbox_events WHERE event_type='support.ticket.reply'")
@@ -131,7 +132,7 @@ describe('support email renderer source fencing', () => {
     f.sqlite.prepare('UPDATE identities SET email=? WHERE id=?').run('changed@example.invalid', BUYER_CLAIMS.identityId)
     const statements = supportEmailRenderers[0]!.authorityStatements(
       f.database,
-      { eventId: event.id, leaseToken: crypto.randomUUID(), sendingAt: utc(), leaseUntil: utc(60000) },
+      { eventId: event.id, leaseToken: testUuid(), sendingAt: utc(), leaseUntil: utc(60000) },
       prepared
     )
     await expect(f.database.batch(statements)).rejects.toThrow()

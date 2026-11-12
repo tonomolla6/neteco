@@ -6,6 +6,7 @@ import {
   withdrawMediaPublication,
   type MediaScanReceipt
 } from '../../workers/media/governance'
+import { testUuid } from './deterministic'
 
 // Test-only synthetic signer and human reviewer. These exercise the attestation
 // protocol and D1 authority, not an antivirus or a real external provider.
@@ -91,7 +92,7 @@ export async function publishMediaFixture(
   const imageAlt = options.imageAlt ?? `Fotografía aprobada de ${options.variantId ?? options.productId}`
   const upload = await quarantineMediaUpload(database, bucket, {
     actorId: CLAIMS.identityId,
-    idempotencyKey: crypto.randomUUID(),
+    idempotencyKey: testUuid(),
     bytes: pngHeader(),
     declaredType: 'image/png',
     filename: 'fixture.png',
@@ -112,7 +113,7 @@ export async function publishMediaFixture(
     .first<{ checksum: string; object_key: string; byte_size: number }>()
   if (!original) throw new Error('missing media fixture upload')
   const receipt: MediaScanReceipt = {
-    receiptId: crypto.randomUUID(),
+    receiptId: testUuid(),
     uploadId: upload.id,
     checksum: original.checksum,
     objectKey: original.object_key,
@@ -137,7 +138,7 @@ export async function publishMediaFixture(
     CLAIMS,
     upload.id,
     { decision: 'approve', reason: 'Synthetic human review of test evidence' },
-    { idempotencyKey: crypto.randomUUID(), now: options.now }
+    { idempotencyKey: testUuid(), now: options.now }
   )
   const result = await createMediaPublication(
     database,
@@ -153,7 +154,7 @@ export async function publishMediaFixture(
       version: options.version ?? 'v1',
       validFrom: options.now
     },
-    { idempotencyKey: crypto.randomUUID(), now: options.now }
+    { idempotencyKey: testUuid(), now: options.now }
   )
   return {
     id: result.publication.id,
@@ -166,7 +167,7 @@ export async function publishMediaFixture(
         CLAIMS,
         result.publication.id,
         { reason: 'Synthetic publication withdrawal' },
-        { idempotencyKey: crypto.randomUUID(), now: options.now }
+        { idempotencyKey: testUuid(), now: options.now }
       )
   }
 }

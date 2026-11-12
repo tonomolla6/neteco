@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
+import { FIXED_TEST_INSTANT } from '../fixtures/deterministic'
 import {
   categoryCommandFixture,
   CATEGORY_CLAIMS,
@@ -24,13 +25,14 @@ const VAR_DESENG = '20000000-0000-4000-8000-000000000002'
 const VAR_ANTICAL = '20000000-0000-4000-8000-000000000003'
 const VAR_OUTOFSTOCK = '20000000-0000-4000-8000-000000000004'
 
-const NOW = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const NOW = FIXED_TEST_INSTANT.replace(/\.\d{3}Z$/, 'Z')
 
 describe('SEA-019: D1 Semantic Search & Human Evaluation', () => {
   let sqlite: DatabaseSync
   let database: D1Database
 
   beforeEach(async () => {
+    vi.setSystemTime(new Date(NOW))
     ;({ sqlite, database } = await categoryCommandFixture())
 
     // Apply migration 0104 if not present
@@ -97,7 +99,7 @@ describe('SEA-019: D1 Semantic Search & Human Evaluation', () => {
       .run(PROD_OUTOFSTOCK, ROOT_CATEGORY)
 
     // Insert variants with real prices and MPN
-    function addVariant(id: string, prodId: string, sku: string, gross: number) {
+    function addVariant(id: string, legacyId: number, prodId: string, sku: string, gross: number) {
       sqlite
         .prepare(
           `
@@ -105,13 +107,13 @@ describe('SEA-019: D1 Semantic Search & Human Evaluation', () => {
         VALUES (?, ?, ?, ?, '1 L', 'published', ?, 'tax-21', 'ship-parcel', ?)
       `
         )
-        .run(id, Math.floor(Math.random() * 100000), prodId, sku, gross, 'MPN-' + id)
+        .run(id, legacyId, prodId, sku, gross, 'MPN-' + id)
     }
 
-    addVariant(VAR_LEJIA, PROD_LEJIA, 'LEJ-HOSP-001', 750)
-    addVariant(VAR_DESENG, PROD_DESENG, 'DES-ALC-002', 1250)
-    addVariant(VAR_ANTICAL, PROD_ANTICAL, 'CAL-ACID-003', 490)
-    addVariant(VAR_OUTOFSTOCK, PROD_OUTOFSTOCK, 'LIM-CRIS-004', 350)
+    addVariant(VAR_LEJIA, 101, PROD_LEJIA, 'LEJ-HOSP-001', 750)
+    addVariant(VAR_DESENG, 102, PROD_DESENG, 'DES-ALC-002', 1250)
+    addVariant(VAR_ANTICAL, 103, PROD_ANTICAL, 'CAL-ACID-003', 490)
+    addVariant(VAR_OUTOFSTOCK, 104, PROD_OUTOFSTOCK, 'LIM-CRIS-004', 350)
 
     await provisionPublicationValidityFixture(database, {
       productIds: [PROD_LEJIA, PROD_DESENG, PROD_ANTICAL, PROD_OUTOFSTOCK],
@@ -176,6 +178,19 @@ describe('SEA-019: D1 Semantic Search & Human Evaluation', () => {
 
   afterEach(() => {
     sqlite.close()
+    vi.useRealTimers()
+  })
+
+  it('uses repeatable variant identifiers and index timestamps', () => {
+    expect(sqlite.prepare('SELECT legacy_id FROM variants ORDER BY legacy_id').all()).toEqual([
+      { legacy_id: 101 },
+      { legacy_id: 102 },
+      { legacy_id: 103 },
+      { legacy_id: 104 }
+    ])
+    expect(sqlite.prepare('SELECT DISTINCT indexed_at FROM catalog_semantic_embeddings').get()).toMatchObject({
+      indexed_at: '2026-08-13T12:00:00Z'
+    })
   })
 
   describe('Catalog Anchoring & No Hallucinations', () => {

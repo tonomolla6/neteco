@@ -9,6 +9,7 @@ import {
   type AnalyticsHttpDependencies
 } from '../../workers/analytics/http'
 import { analyticsSnapshotSchema, analyticsReconciliationSchema } from '../../shared/analytics-measurement'
+import { testUuid, testNow } from '../support/deterministic'
 
 const opened: DatabaseSync[] = []
 afterEach(() => {
@@ -16,7 +17,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 const origin = 'https://analytics.neteco.test',
-  utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const claims = {
   identityId: '10000000-0000-4000-8000-000000000052',
   sessionId: '20000000-0000-4000-8000-000000000052',
@@ -67,7 +68,7 @@ async function fixture() {
   }
   const query = '?' + new URLSearchParams({ from: utc(-3600000), to: utc(3600000) }),
     event = {
-      eventId: crypto.randomUUID(),
+      eventId: testUuid(),
       name: 'search_completed',
       taxonomyVersion: 'v1',
       occurredAt: now,

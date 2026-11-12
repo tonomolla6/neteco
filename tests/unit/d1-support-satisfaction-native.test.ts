@@ -29,6 +29,7 @@ import {
 } from '../../shared/support-satisfaction'
 import { GUEST_ORDER_COOKIE } from '../../workers/catalog/guest-order-access'
 import { CONTACT, POLICY } from './d1-support-fixture'
+import { testUuid } from '../support/deterministic'
 
 it('executes resolved support and delivered order CSAT through actual canary.fetch and workerd D1, with no economic effects', async () => {
   const outbound = vi.fn(() => {
@@ -69,9 +70,9 @@ it('executes resolved support and delivered order CSAT through actual canary.fet
       }
     } as unknown as DatabaseSync)
     await database.batch(seeds)
-    const identity = crypto.randomUUID(),
-      customer = crypto.randomUUID(),
-      session = crypto.randomUUID()
+    const identity = testUuid(),
+      customer = testUuid(),
+      session = testUuid()
     const claims = { identityId: identity, sessionId: session, sessionVersion: 1 }
     const instant = (await database
       .prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS now")
@@ -232,7 +233,7 @@ it('executes resolved support and delivered order CSAT through actual canary.fet
       database,
       await supportActor(database, claims, 'customer', supportClock()),
       { ...CONTACT, orderId },
-      { idempotencyKey: crypto.randomUUID(), policy: POLICY }
+      { idempotencyKey: testUuid(), policy: POLICY }
     )
     await executeSupportAdminCommand(
       database,
@@ -249,14 +250,14 @@ it('executes resolved support and delivered order CSAT through actual canary.fet
         reason: 'Resolución sintética revisada',
         resolution: 'Respuesta sintética completa al caso.'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const origin = 'https://csat.neteco.test',
       password = 'synthetic-csat-cookie-password-more-than-32'
     const cookie = (await issueD1SessionCookie(database, claims, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!
-    const otherIdentity = crypto.randomUUID(),
-      otherCustomer = crypto.randomUUID(),
-      otherSession = crypto.randomUUID()
+    const otherIdentity = testUuid(),
+      otherCustomer = testUuid(),
+      otherSession = testUuid()
     await database.batch([
       database
         .prepare(
@@ -341,7 +342,7 @@ it('executes resolved support and delivered order CSAT through actual canary.fet
         expectedSourceVersion: state.target.version,
         expectedPolicyHash: state.privacy!.policyHash
       }
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         hash = await satisfactionIntentHash(kind, id, body)
       const init = {
         method: 'POST',
@@ -374,7 +375,7 @@ it('executes resolved support and delivered order CSAT through actual canary.fet
           })
         ).status
       ).toBe(404)
-      const unknown = await dispatch(`${path}/commands/${crypto.randomUUID()}`, {
+      const unknown = await dispatch(`${path}/commands/${testUuid()}`, {
         headers: { 'X-Neteco-Command-Payload-Hash': hash }
       })
       expect(unknown.status).toBe(200)
@@ -393,7 +394,7 @@ it('executes resolved support and delivered order CSAT through actual canary.fet
         cookie: `${GUEST_ORDER_COOKIE}=synthetic-view-only`,
         origin,
         'Content-Type': 'application/json',
-        'Idempotency-Key': crypto.randomUUID()
+        'Idempotency-Key': testUuid()
       },
       body: JSON.stringify({ score: 5, expectedSourceVersion: 4, privacyAcknowledged: true })
     })

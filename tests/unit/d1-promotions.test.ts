@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { openAccountSecurityDatabase, d1OverSqlite } from '../support/d1-sqlite'
 import { deterministicUuid } from '../fixtures/deterministic'
@@ -9,6 +9,7 @@ import { readFile } from 'node:fs/promises'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { fulfillmentFixture, CLAIMS, ACTOR as ORDER_ACTOR, utc } from './d1-fulfillment-fixture'
 import { createPackingOrder } from './d1-order-packing-fixture'
+import { testNow } from '../support/deterministic'
 
 const NOW = '2030-01-02T12:00:00Z'
 const ACTOR = deterministicUuid('promotion-lookup-actor')
@@ -32,6 +33,8 @@ const rule: PromotionRule = {
 let sqlite: DatabaseSync
 let database: D1Database
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   sqlite = await openAccountSecurityDatabase()
   database = d1OverSqlite(sqlite)
   sqlite
@@ -40,6 +43,7 @@ beforeEach(async () => {
 })
 afterEach(() => {
   if (sqlite?.isOpen) sqlite.close()
+  vi.useRealTimers()
 })
 async function seed(value: PromotionRule = rule, options: { hash?: string; json?: string; headOnly?: boolean } = {}) {
   sqlite

@@ -6,6 +6,7 @@ import CmsEditorialCalendar from '../../app/components/CmsEditorialCalendar.vue'
 import { cmsCalendarLocalTime, cmsCalendarRange } from '../../shared/cms-calendar'
 import { madridDateKey } from '../../server/utils/madrid-calendar'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }))
 mockNuxtImport('useRequestFetch', () => () => fetchMock)
@@ -53,6 +54,8 @@ function calendar(month: string, page = 1, total = 1) {
 const wrappers: Array<{ unmount(): void }> = []
 let authority: ReturnType<typeof ref<boolean>>
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   authority = ref(true)
   fetchMock.mockReset()
   fetchMock.mockImplementation(async (_path: string, options: { query: { month: string; page: number } }) =>
@@ -75,7 +78,7 @@ async function render(props: Record<string, unknown> = {}) {
 describe('CMS editorial calendar actual Nuxt component', () => {
   it('uses a private retry0 GET only and renders Madrid month with labelled controls', async () => {
     const wrapper = await render(),
-      month = madridDateKey(new Date()).slice(0, 7)
+      month = madridDateKey(new Date(testNow())).slice(0, 7)
     expect(fetchMock.mock.calls[0]).toEqual([
       '/api/admin/content/calendar',
       { method: 'GET', query: { month, page: 1, perPage: 25 }, retry: 0, cache: 'no-store' }
@@ -197,7 +200,7 @@ describe('CMS editorial calendar actual Nuxt component', () => {
     const wrapper = await render()
     authority.value = false
     await flushPromises()
-    release(calendar(madridDateKey(new Date()).slice(0, 7)))
+    release(calendar(madridDateKey(new Date(testNow())).slice(0, 7)))
     await flushPromises()
     expect(wrapper.text()).not.toContain('Guía editorial aprobada')
     expect(wrapper.find('[data-cms-calendar-page]').exists()).toBe(false)
@@ -216,7 +219,7 @@ describe('CMS editorial calendar actual Nuxt component', () => {
     )
     const wrapper = await render()
     await wrapper.setProps({ operatorId: '10000000-0000-4000-8000-000000000052', runtime: 'node' })
-    release(calendar(madridDateKey(new Date()).slice(0, 7)))
+    release(calendar(madridDateKey(new Date(testNow())).slice(0, 7)))
     await flushPromises()
     expect(wrapper.text()).not.toContain('Guía editorial aprobada')
     expect(wrapper.find('[data-cms-calendar-page]').exists()).toBe(false)

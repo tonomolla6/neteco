@@ -16,6 +16,7 @@ import {
 } from '../../workers/media/governance'
 import { handleMediaGovernanceHttp } from '../../workers/media/governance-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000001'
 const sessionId = '20000000-0000-4000-8000-000000000001'
@@ -40,7 +41,7 @@ function privateBucket() {
         etag: 'original-private-etag',
         httpEtag: '"original-private-etag"',
         version: 'original-version',
-        uploaded: new Date(),
+        uploaded: new Date(now),
         storageClass: 'Standard',
         checksums: { sha256: await crypto.subtle.digest('SHA-256', new Uint8Array(bytes)), toJSON: () => ({}) },
         writeHttpMetadata: () => {}
@@ -141,7 +142,7 @@ describe('governed media publication against real SQLite', () => {
   ) {
     return quarantineMediaUpload(database, privateBucket(), {
       actorId: identityId,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       bytes: new TextEncoder().encode('%PDF-1.7 original'),
       declaredType: 'application/pdf',
       filename: '../../manual.pdf',
@@ -155,7 +156,7 @@ describe('governed media publication against real SQLite', () => {
       .prepare('SELECT checksum, object_key, byte_size FROM media_uploads WHERE id = ?')
       .get(uploadId)!
     return {
-      receiptId: crypto.randomUUID(),
+      receiptId: testUuid(),
       uploadId,
       checksum: String(original.checksum),
       objectKey: String(original.object_key),
@@ -178,7 +179,7 @@ describe('governed media publication against real SQLite', () => {
     return ingestMediaScanReceipt(database, rawBody, signature, scanSecret)
   }
 
-  function rights(decision: 'approve' | 'reject' = 'approve', key = crypto.randomUUID()) {
+  function rights(decision: 'approve' | 'reject' = 'approve', key = testUuid()) {
     return decideMediaRights(
       database,
       claims,
@@ -188,7 +189,7 @@ describe('governed media publication against real SQLite', () => {
     )
   }
 
-  function publication(patch: Record<string, unknown> = {}, key = crypto.randomUUID()) {
+  function publication(patch: Record<string, unknown> = {}, key = testUuid()) {
     return createMediaPublication(
       database,
       claims,
@@ -212,7 +213,9 @@ describe('governed media publication against real SQLite', () => {
     return sqlite.prepare(`SELECT * FROM (${eligibleMediaPublicationSql('?1')}) WHERE upload_id=?2`).all(at, uploadId)
   }
   function testNow() {
-    return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const clock = vi.getMockedSystemTime()
+    if (!clock) throw new Error('missing_synthetic_media_clock')
+    return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
   }
   function sqliteNow() {
     return String(sqlite.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ', synthetic_media_clock()) AS now").get()!.now)
@@ -238,7 +241,7 @@ describe('governed media publication against real SQLite', () => {
         origin: configuration.origin,
         'cf-connecting-ip': '192.0.2.3',
         'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID(),
+        'idempotency-key': testUuid(),
         ...headers
       }
     })
@@ -340,7 +343,7 @@ describe('governed media publication against real SQLite', () => {
   })
 
   it('uses server actor, explicit reason, immutable decisions and CAS versions', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const first = await rights('approve', key)
     expect(await rights('approve', key)).toMatchObject({ decisionId: first.decisionId, replayed: true })
     await expect(rights('reject', key)).rejects.toThrow('idempotency_conflict')
@@ -350,7 +353,7 @@ describe('governed media publication against real SQLite', () => {
         claims,
         uploadId,
         { decision: 'reject', reason: 'Revoke distribution evidence' },
-        { idempotencyKey: crypto.randomUUID(), expectedVersion: 0, now: testNow() }
+        { idempotencyKey: testUuid(), expectedVersion: 0, now: testNow() }
       )
     ).rejects.toThrow('conflict')
     await expect(
@@ -359,7 +362,7 @@ describe('governed media publication against real SQLite', () => {
         claims,
         uploadId,
         { decision: 'approve', reason: 'abc', actorId: identityId },
-        { idempotencyKey: crypto.randomUUID(), now: testNow() }
+        { idempotencyKey: testUuid(), now: testNow() }
       )
     ).rejects.toThrow('invalid_input')
     expect(
@@ -546,7 +549,7 @@ describe('governed media publication against real SQLite', () => {
   it.each(['rights', 'publication', 'withdrawal'])(
     'returns the persisted exact command when a matching request wins the preflight race: %s',
     async (command) => {
-      const key = crypto.randomUUID()
+      const key = testUuid()
       let run: () => Promise<{ replayed: boolean }>
       let table: string
       if (command === 'rights') {
@@ -585,7 +588,7 @@ describe('governed media publication against real SQLite', () => {
   )
 
   it('never uses idempotent-race recovery to return data after the actor loses authority', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const realBatch = database.batch.bind(database)
     vi.spyOn(database, 'batch').mockImplementationOnce(async (statements) => {
       await rights('approve', key)
@@ -598,7 +601,7 @@ describe('governed media publication against real SQLite', () => {
   })
 
   it('recovers a matching rights winner committed between the absent-key read and the If-Match version read', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     let winner: Awaited<ReturnType<typeof rights>> | undefined
     let injected = false
     const realPrepare = database.prepare.bind(database)
@@ -629,7 +632,7 @@ describe('governed media publication against real SQLite', () => {
   it('replays a publication winner even if its evidence is revoked before the competing preflight finishes', async () => {
     await rights()
     await scan()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     let winner: Awaited<ReturnType<typeof publication>> | undefined
     let injected = false
     const realPrepare = database.prepare.bind(database)
@@ -679,11 +682,11 @@ describe('governed media publication against real SQLite', () => {
   it('records append-only withdrawal and exact idempotent replay without deleting assets', async () => {
     await rights()
     await scan()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const first = await publication({}, key)
     expect((await publication({}, key)).replayed).toBe(true)
     await expect(publication({ title: 'Changed metadata' }, key)).rejects.toThrow('idempotency_conflict')
-    const withdrawalKey = crypto.randomUUID()
+    const withdrawalKey = testUuid()
     const withdraw = () =>
       withdrawMediaPublication(
         database,
@@ -704,7 +707,7 @@ describe('governed media publication against real SQLite', () => {
         claims,
         first.publication.id,
         { reason: 'Another withdrawal' },
-        { idempotencyKey: crypto.randomUUID(), expectedVersion: 1, now: testNow() }
+        { idempotencyKey: testUuid(), expectedVersion: 1, now: testNow() }
       )
     ).rejects.toThrow('conflict')
     for (const table of ['product_media_publications', 'product_media_publication_events']) {
@@ -831,7 +834,7 @@ describe('governed media publication against real SQLite', () => {
       version: 'label-2026-09',
       validFrom: now
     }
-    const key = crypto.randomUUID()
+    const key = testUuid()
     expect((await handle(request(path, 'POST', body, { 'idempotency-key': key })))!.status).toBe(201)
     expect((await handle(request(path, 'POST', body, { 'idempotency-key': key })))!.status).toBe(200)
     expect(eligible(sqliteNow())).toMatchObject([{ role: 'label', content_type: 'application/pdf' }])
@@ -854,7 +857,7 @@ describe('governed media publication against real SQLite', () => {
         claims,
         created.publication.id,
         { reason: 'Withdrawal requires live human authority' },
-        { idempotencyKey: crypto.randomUUID(), expectedVersion: 1, now: testNow() }
+        { idempotencyKey: testUuid(), expectedVersion: 1, now: testNow() }
       )
     ).rejects.toThrow('mfa_required')
     expect(count('product_media_publication_events')).toBe(0)
@@ -884,7 +887,7 @@ describe('governed media publication against real SQLite', () => {
       .prepare(
         "INSERT INTO identity_rate_limits(identity_id, scope, used, window_started_at, expires_at) VALUES (?, 'admin-media-governance', 40, ?, ?)"
       )
-      .run(identityId, Date.now() / 1000, Date.now() / 1000 + 3600)
+      .run(identityId, Date.parse(testNow()) / 1000, Date.parse(testNow()) / 1000 + 3600)
     expect(
       (await handle(
         request(`/api/admin/media/${uploadId}`, 'PUT', { decision: 'approve', reason: 'Human reviewed evidence' })

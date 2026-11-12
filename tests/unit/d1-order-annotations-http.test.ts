@@ -3,6 +3,7 @@ import { beforeEach, afterEach, expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleOrderAnnotationsHttp } from '../../workers/catalog/order-annotations-http'
+import { testNow } from '../support/deterministic'
 const origin = 'https://annotations.neteco.test',
   configuration = { password: 'synthetic-annotations-cookie-password-32', maxAgeSeconds: 3600 },
   key = '11111111-1111-4111-8111-111111111111'
@@ -82,8 +83,8 @@ it('denies edge or identity quotas without an annotation write', async () => {
       CLAIMS.identityId,
       'admin-order-annotations',
       60,
-      Math.floor(Date.now() / 1000),
-      Math.floor(Date.now() / 1000) + 3600
+      Math.floor(testNow() / 1000),
+      Math.floor(testNow() / 1000) + 3600
     )
   expect((await handleOrderAnnotationsHttp(request('POST'), deps()))?.status).toBe(429)
   expect(f.sqlite.prepare('SELECT count(*) n FROM order_annotation_commands').get()).toEqual({ n: 0 })

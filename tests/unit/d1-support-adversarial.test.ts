@@ -7,6 +7,7 @@ import {
   supportClock,
   createSupportTicket
 } from '../../workers/support/operations'
+import { testUuid } from '../support/deterministic'
 let f: Awaited<ReturnType<typeof supportFixture>>
 beforeEach(async () => {
   f = await supportFixture()
@@ -52,7 +53,7 @@ describe('support adversarial authority and immutable snapshots', () => {
           nextActionAt: null,
           slaDueAt: null
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     expect(assigned.version).toBe(2)
     expect(f.sqlite.prepare('SELECT mfa_verified FROM auth_sessions WHERE id=?').get(BUYER_CLAIMS.sessionId)).toEqual({
@@ -65,7 +66,7 @@ describe('support adversarial authority and immutable snapshots', () => {
       CLAIMS,
       ticket.publicRef,
       { ...reply, expectedVersion: 2 },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(response.version).toBe(3)
     expect(f.sqlite.prepare('SELECT owner_id FROM support_tickets').get()).toEqual({
@@ -83,7 +84,7 @@ describe('support adversarial authority and immutable snapshots', () => {
       }
     })
     await expect(
-      executeSupportAdminCommand(db, CLAIMS, ticket.publicRef, reply, { idempotencyKey: crypto.randomUUID() })
+      executeSupportAdminCommand(db, CLAIMS, ticket.publicRef, reply, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'mfa_required' })
     expect(f.sqlite.prepare('SELECT version FROM support_tickets').get()).toEqual({ version: 1 })
     expect(f.sqlite.prepare('SELECT count(*) AS n FROM email_outbox_events').get()).toEqual(before)
@@ -99,7 +100,7 @@ describe('support adversarial authority and immutable snapshots', () => {
       }
     }
     await expect(
-      executeSupportAdminCommand(db, CLAIMS, ticket.publicRef, reply, { idempotencyKey: crypto.randomUUID() })
+      executeSupportAdminCommand(db, CLAIMS, ticket.publicRef, reply, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'mfa_required' })
     expect(f.sqlite.prepare('SELECT count(*) AS n FROM support_commands').get()).toEqual({ n: 1 })
     expect(f.sqlite.prepare('SELECT count(*) AS n FROM support_events').get()).toEqual({ n: 1 })
@@ -107,7 +108,7 @@ describe('support adversarial authority and immutable snapshots', () => {
   })
   it('authority lost after committed batch suppresses receipt, same-key reauth recovers', async () => {
     const ticket = await f.ticket(),
-      key = crypto.randomUUID()
+      key = testUuid()
     const db: D1Database = {
       ...f.database,
       batch: async (statements) => {
@@ -128,7 +129,7 @@ describe('support adversarial authority and immutable snapshots', () => {
   })
   it('ambiguous acknowledgement after batch returns only confirmed persisted replay', async () => {
     const ticket = await f.ticket(),
-      key = crypto.randomUUID()
+      key = testUuid()
     const db: D1Database = {
       ...f.database,
       batch: async (statements) => {
@@ -144,7 +145,7 @@ describe('support adversarial authority and immutable snapshots', () => {
   })
   it('same-key concurrent publication commits one event/outbox all-or-nothing', async () => {
     const ticket = await f.ticket(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       results = await Promise.all([
         executeSupportAdminCommand(f.database, CLAIMS, ticket.publicRef, reply, { idempotencyKey: key }),
         executeSupportAdminCommand(f.database, CLAIMS, ticket.publicRef, reply, { idempotencyKey: key })
@@ -165,7 +166,7 @@ describe('support adversarial authority and immutable snapshots', () => {
       }
     }
     await expect(
-      createSupportTicket(db, actor, { ...CONTACT, orderId: f.order }, { idempotencyKey: crypto.randomUUID() })
+      createSupportTicket(db, actor, { ...CONTACT, orderId: f.order }, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'unauthenticated' })
     expect(f.sqlite.prepare('SELECT count(*) AS n FROM support_tickets').get()).toEqual({ n: 0 })
   })
@@ -208,7 +209,7 @@ describe('support adversarial authority and immutable snapshots', () => {
   it('elapsed documented retention disables mutation while the session remains valid', async () => {
     const actor = await supportActor(f.database, BUYER_CLAIMS, 'customer', supportClock())
     const ticket = await createSupportTicket(f.database, actor, CONTACT, {
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       now: utc(-2000),
       policy: {
         reference: 'explicit-test-retention',
@@ -235,7 +236,7 @@ describe('support adversarial authority and immutable snapshots', () => {
     expect('requester' in expired && expired.requester.email).toBe('')
     await expect(
       executeSupportAdminCommand(f.database, CLAIMS, ticket.publicRef, reply, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         now: utc(86400000)
       })
     ).rejects.toMatchObject({ code: 'retention_expired' })

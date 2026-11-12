@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { hashWorkerPassword } from '../../workers/auth/password'
+import { testUuid, testNow } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000051'
 const customerId = '30000000-0000-4000-8000-000000000051'
@@ -62,7 +63,7 @@ describe('D1 customer address book', () => {
     limiter.limit.mockReset().mockResolvedValue({ success: true })
     sqlite = await openMigratedDatabase()
     database = d1OverSqlite(sqlite)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare('INSERT INTO customers(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run(customerId, 'Cliente', now, now)
@@ -85,8 +86,8 @@ describe('D1 customer address book', () => {
     expect(created.headers.get('cache-control')).toBe('no-store')
     const { id } = (await created.json()) as { id: string }
     expect(id).toMatch(/^[0-9a-f-]{36}$/)
-    const otherId = crypto.randomUUID()
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const otherId = testUuid()
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare(
         `INSERT INTO customer_addresses(id, customer_id, kind, label, recipient_name, line1,
@@ -227,13 +228,13 @@ describe('D1 customer address book', () => {
       403
     )
     expect((await handle(api('PUT', '/api/account/addresses/not-a-uuid', cookie, address)))!.status).toBe(400)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const insert = sqlite.prepare(
       `INSERT INTO customer_addresses(id, customer_id, kind, label, recipient_name, line1,
        postal_code, city, region, country_code, created_at, updated_at)
        VALUES (?, ?, 'shipping', ?, 'Cliente de prueba', 'Calle Test 1', '28001', 'Madrid', 'Madrid', 'ES', ?, ?)`
     )
-    for (let index = 0; index < 50; index++) insert.run(crypto.randomUUID(), customerId, `Dirección ${index}`, now, now)
+    for (let index = 0; index < 50; index++) insert.run(testUuid(), customerId, `Dirección ${index}`, now, now)
     expect((await handle(api('POST', '/api/account/addresses', cookie, address)))!.status).toBe(409)
     expect(
       sqlite.prepare('SELECT count(*) AS n FROM customer_addresses WHERE customer_id = ?').get(customerId)

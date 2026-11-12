@@ -4,6 +4,7 @@ import { listD1AdminOrders, type AdminOrderQuery } from '../../workers/catalog/a
 import { listD1AdminOrdersByCursor, type AdminOrderCursorPage } from '../../workers/catalog/admin-order-cursor'
 import { handleD1AdminOrdersRequest } from '../../workers/catalog/admin-orders-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid, testNow } from '../support/deterministic'
 
 const CONFIG = { password: 'synthetic-cursor-secret-not-a-production-value-32', maxAgeSeconds: 3600 }
 const ORIGIN = 'https://cursor.neteco.invalid'
@@ -136,7 +137,7 @@ describe('live, sealed, actor-bound administrative order keyset pages', () => {
 
   it('rejects a cursor reused by another live session of the same actor', async () => {
     const first = await page()
-    const otherSession = crypto.randomUUID()
+    const otherSession = testUuid()
     fixture.sqlite
       .prepare(
         'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,1,1,?,?)'
@@ -159,7 +160,7 @@ describe('live, sealed, actor-bound administrative order keyset pages', () => {
   it('expires cursors after ten minutes without extending the session', async () => {
     const first = await page()
     vi.useFakeTimers()
-    vi.setSystemTime(Date.now() + 11 * 60000)
+    vi.setSystemTime(testNow() + 11 * 60000)
     await expect(
       listD1AdminOrdersByCursor(
         fixture.database,

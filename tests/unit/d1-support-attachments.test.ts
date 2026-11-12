@@ -8,13 +8,41 @@ import {
   type SupportPrivateStorage,
   type SupportScanReceipt
 } from '../../workers/support/attachments'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_support_attachment_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_attachment_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_support_attachment_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_support_attachment_clock()'))
+      return database
+    }
+  }
+})
 
 let f: Awaited<ReturnType<typeof supportFixture>>
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await supportFixture()
 })
 afterEach(() => {
-  f.sqlite.close()
+  f?.sqlite.close()
+  vi.useRealTimers()
 })
 const bytes = new TextEncoder().encode('%PDF-1.7\nSynthetic local case evidence\n%%EOF')
 function privateStorage() {
@@ -46,7 +74,7 @@ async function uploaded(visibility: 'public' | 'internal' = 'public') {
       visibility === 'internal' ? 'admin' : 'customer',
       supportClock()
     )
-  const key = crypto.randomUUID(),
+  const key = testUuid(),
     input = { bytes, declaredType: 'application/pdf', filename: 'private-case.pdf', expectedVersion: 1, visibility }
   const receipt = await uploadSupportAttachment(f.database, store.storage, actor, ticket.publicRef, input, {
     idempotencyKey: key
@@ -63,15 +91,17 @@ function scan(
   row: { id: string; checksum: string; byte_size: number },
   verdict: 'clean' | 'infected' = 'clean'
 ): SupportScanReceipt {
+  const clock = vi.getMockedSystemTime()
+  if (!clock) throw new Error('missing_synthetic_support_attachment_clock')
   return {
     scope: 'support_attachment',
-    id: crypto.randomUUID(),
+    id: testUuid(),
     attachmentId: row.id,
     checksum: row.checksum,
     byteSize: row.byte_size,
     verdict,
     scannerVersion: 'synthetic-trusted-local-scanner-v1',
-    scannedAt: utc(),
+    scannedAt: clock.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     expiresAt: utc(3600000)
   }
 }
@@ -228,7 +258,7 @@ describe('private support attachment custody', () => {
       store = privateStorage(),
       actor = await supportActor(f.database, BUYER_CLAIMS, 'customer', supportClock())
     const original = store.storage.put,
-      key = crypto.randomUUID(),
+      key = testUuid(),
       input = {
         bytes,
         declaredType: 'application/pdf',
@@ -277,7 +307,7 @@ describe('private support attachment custody', () => {
           expectedVersion: 1,
           visibility: 'public'
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'unauthenticated' })
     expect(f.sqlite.prepare('SELECT state FROM support_attachments').get()).toEqual({ state: 'staging' })
@@ -298,8 +328,8 @@ describe('private support attachment custody', () => {
     const value = await uploaded(),
       clean = scan(value.row)
     await accept(value.store.storage, clean)
-    await accept(value.store.storage, { ...clean, id: crypto.randomUUID(), verdict: 'infected' })
-    await expect(accept(value.store.storage, { ...clean, id: crypto.randomUUID() })).rejects.toMatchObject({
+    await accept(value.store.storage, { ...clean, id: testUuid(), verdict: 'infected' })
+    await expect(accept(value.store.storage, { ...clean, id: testUuid() })).rejects.toMatchObject({
       code: 'invalid_scan_receipt'
     })
     await expect(
@@ -313,7 +343,7 @@ describe('private support attachment custody', () => {
     const get = value.store.storage.get
     value.store.storage.get = vi.fn(async (...args: Parameters<typeof get>) => {
       const result = await get(...args)
-      await accept(value.store.storage, { ...clean, id: crypto.randomUUID(), verdict: 'infected' })
+      await accept(value.store.storage, { ...clean, id: testUuid(), verdict: 'infected' })
       return result
     })
     await expect(
@@ -347,7 +377,7 @@ describe('private support attachment custody', () => {
           expectedVersion: 1,
           visibility: 'internal'
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'forbidden' })
     await expect(
@@ -363,7 +393,7 @@ describe('private support attachment custody', () => {
           expectedVersion: 1,
           visibility: 'public'
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_file' })
     expect(store.storage.put).not.toHaveBeenCalled()

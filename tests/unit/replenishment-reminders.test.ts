@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deterministicUuid } from '../fixtures/deterministic'
 import {
   lifecycleFixture,
@@ -37,20 +37,22 @@ const plan = (over: Record<string, unknown> = {}) => ({
 })
 const save = (k: string, body: unknown, claims = CLAIMS) =>
   saveD1ReplenishmentPlan(f.database, claims, key(k), body, OPTIONS)
-const consent = (replenishment: boolean) =>
-  updateD1AccountPreferences(
+const consent = (replenishment: boolean) => {
+  const version = (
+    f.sqlite.prepare('SELECT COALESCE(max(version),0) v FROM customer_account_preferences').get() as { v: number }
+  ).v
+  return updateD1AccountPreferences(
     f.database,
     CLAIMS,
-    key(`consent-${replenishment}-${Math.random()}`),
+    key(`consent-${replenishment}-${version}`),
     {
-      expectedVersion: (
-        f.sqlite.prepare('SELECT COALESCE(max(version),0) v FROM customer_account_preferences').get() as { v: number }
-      ).v,
+      expectedVersion: version,
       policyVersion: ACCOUNT_PREFERENCES_POLICY_VERSION,
       preferences: { product_updates: false, replenishment }
     },
     OPTIONS
   )
+}
 const sched = (now = NOW) => scheduleReplenishmentReminders(f.database, { now })
 const reminders = () =>
   f.sqlite
@@ -67,6 +69,22 @@ const planRow = (variant = V1) =>
 const dayAgo = (n: number) => new Date(Date.parse(NOW) - n * 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('CUS-019 configurable plans', () => {
+  it('records repeated consent changes without relying on random numbers', async () => {
+    const random = vi.spyOn(Math, 'random').mockImplementation(() => {
+      throw new Error('Unexpected random number')
+    })
+    try {
+      await consent(true)
+      await consent(false)
+      await consent(true)
+      expect(f.sqlite.prepare('SELECT version, replenishment FROM customer_account_preferences').get()).toMatchObject({
+        version: 3,
+        replenishment: 1
+      })
+    } finally {
+      random.mockRestore()
+    }
+  })
   it('creates a declared-consumption plan anchored on the last paid purchase', async () => {
     f.paidPurchase(V1, dayAgo(10))
     const receipt = await save('a', plan())

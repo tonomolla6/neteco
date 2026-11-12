@@ -11,6 +11,7 @@ import {
 import { CATEGORY_CLAIMS, categoryCommandFixture } from '../support/category-command-fixture'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const SOURCE = '80000000-0000-4000-8000-000000000058'
 const TARGET = '90000000-0000-4000-8000-000000000058'
@@ -68,7 +69,7 @@ describe('D1 live typed attribute integrity guard', () => {
           expectedVersion: 0,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
   }
@@ -153,7 +154,7 @@ describe('D1 live typed attribute integrity guard', () => {
       const def = await definition('boolean', {})
       values([[def, false]])
       if (condition === 'unknown definition')
-        set({ version: 1, values: [{ definitionId: crypto.randomUUID(), revision: 1, value: false }] })
+        set({ version: 1, values: [{ definitionId: testUuid(), revision: 1, value: false }] })
       else if (condition === 'missing revision')
         set({ version: 1, values: [{ definitionId: def.id, revision: 999, value: false }] })
       else
@@ -167,7 +168,7 @@ describe('D1 live typed attribute integrity guard', () => {
 
   it.each(['self', 'missing', 'draft'] as const)('rejects a %s reference in write mode', async (condition) => {
     const ref = await definition('reference', {})
-    values([[ref, condition === 'self' ? SOURCE : condition === 'missing' ? crypto.randomUUID() : TARGET]])
+    values([[ref, condition === 'self' ? SOURCE : condition === 'missing' ? testUuid() : TARGET]])
     if (condition === 'draft') sqlite.prepare("UPDATE products SET status='draft' WHERE id=?").run(TARGET)
     expect(valid()).toBe(0)
   })
@@ -209,7 +210,7 @@ describe('D1 live typed attribute integrity guard', () => {
         expectedVersion: 1,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(valid()).toBe(0)
     expect(valid({ mode: 'historical' })).toBe(1)
@@ -222,7 +223,7 @@ describe('D1 live typed attribute integrity guard', () => {
       'retire',
       { definitionId: list.id },
       { expectedVersion: 2, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(valid()).toBe(0)
     expect(valid({ mode: 'historical' })).toBe(1)

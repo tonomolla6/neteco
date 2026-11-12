@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { fulfillmentFixture, CLAIMS, REASON, ACTOR, SESSION, utc } from './d1-fulfillment-fixture'
 import { executeD1AdminFulfillmentCommand } from '../../workers/fulfillment/admin'
@@ -14,11 +14,38 @@ import {
   adminOrderBulkIntentHash,
   adminOrderBulkPreviewInputSchema
 } from '../../shared/admin-order-bulk'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_order_bulk_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_order_bulk_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_order_bulk_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_order_bulk_clock()'))
+      return database
+    }
+  }
+})
 
 describe('bounded explicit administrative fulfillment groups', () => {
   let fixture: Awaited<ReturnType<typeof fulfillmentFixture>>
   let id: string
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     fixture = await fulfillmentFixture({ stock: 100 })
     fixture.sqlite.exec(
       await readFile(new URL('../../db/d1/migrations/0086_admin_order_bulk.sql', import.meta.url), 'utf8')
@@ -30,7 +57,10 @@ describe('bounded explicit administrative fulfillment groups', () => {
       .run(ACTOR, utc(-60000), utc(-60000))
     id = await fixture.order()
   })
-  afterEach(() => fixture?.sqlite.close())
+  afterEach(() => {
+    fixture?.sqlite.close()
+    vi.useRealTimers()
+  })
   const input = (ids = [id], action: 'picking' | 'packed' = 'picking') => ({ action, orderIds: ids, reason: REASON })
   const economic = () =>
     Object.fromEntries(
@@ -55,14 +85,14 @@ describe('bounded explicit administrative fulfillment groups', () => {
       previewHash: preview.previewHash
     }
   }
-  const create = async (ids = [id], key = crypto.randomUUID()) => {
+  const create = async (ids = [id], key = testUuid()) => {
     const body = await reviewed(ids)
     return { body, receipt: await createD1AdminOrderBulk(fixture.database, CLAIMS, body, { idempotencyKey: key }), key }
   }
   it('bounds explicit unique selection and reuses operational evidence rules', () => {
     expect(adminOrderBulkPreviewInputSchema.safeParse(input([id, id])).success).toBe(false)
     expect(
-      adminOrderBulkPreviewInputSchema.safeParse(input(Array.from({ length: 26 }, () => crypto.randomUUID()))).success
+      adminOrderBulkPreviewInputSchema.safeParse(input(Array.from({ length: 26 }, () => testUuid()))).success
     ).toBe(false)
     expect(adminOrderBulkPreviewInputSchema.safeParse({ ...input(), action: 'delivered' }).success).toBe(false)
     expect(
@@ -133,7 +163,7 @@ describe('bounded explicit administrative fulfillment groups', () => {
       { idempotencyKey: 'changed-after-review' }
     )
     await expect(
-      createD1AdminOrderBulk(fixture.database, CLAIMS, body, { idempotencyKey: crypto.randomUUID() })
+      createD1AdminOrderBulk(fixture.database, CLAIMS, body, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'revalidation_required' })
     expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM admin_order_bulk_groups').get()?.n).toBe(0)
   })
@@ -235,16 +265,16 @@ describe('bounded explicit administrative fulfillment groups', () => {
       "CREATE TRIGGER synthetic_group_failure BEFORE INSERT ON admin_order_bulk_groups BEGIN SELECT RAISE(ABORT,'synthetic_failure'); END"
     )
     await expect(
-      createD1AdminOrderBulk(fixture.database, CLAIMS, body, { idempotencyKey: crypto.randomUUID() })
+      createD1AdminOrderBulk(fixture.database, CLAIMS, body, { idempotencyKey: testUuid() })
     ).rejects.toBeTruthy()
     expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM admin_order_bulk_groups').get()?.n).toBe(0)
     expect(fixture.sqlite.prepare('SELECT count(*) AS n FROM order_fulfillment_commands').get()?.n).toBe(0)
   })
   it('rejects a foreign dispatch ID and a mismatched recovery hash without executing any order', async () => {
     const { receipt, key } = await create()
-    await expect(
-      processD1AdminOrderBulkStep(fixture.database, receipt.groupId, crypto.randomUUID())
-    ).rejects.toMatchObject({ code: 'not_found' })
+    await expect(processD1AdminOrderBulkStep(fixture.database, receipt.groupId, testUuid())).rejects.toMatchObject({
+      code: 'not_found'
+    })
     await expect(readD1AdminOrderBulkCommand(fixture.database, CLAIMS, key, 'f'.repeat(64))).rejects.toMatchObject({
       code: 'idempotency_conflict'
     })
@@ -276,7 +306,7 @@ describe('bounded explicit administrative fulfillment groups', () => {
       orders: preview.rows.map((row) => ({ orderId: row.orderId, expectedVersion: row.expectedVersion })),
       previewHash: preview.previewHash
     }
-    const receipt = await createD1AdminOrderBulk(database, CLAIMS, body, { idempotencyKey: crypto.randomUUID() })
+    const receipt = await createD1AdminOrderBulk(database, CLAIMS, body, { idempotencyKey: testUuid() })
     const createQueries = queries
     queries = 0
     const step = await processD1AdminOrderBulkStep(database, receipt.groupId, receipt.dispatchId, { limit: 5 })
@@ -356,8 +386,8 @@ describe('bounded explicit administrative fulfillment groups', () => {
   )
   it('rejects replacing a group using another id but the same unique dispatch capability', async () => {
     const { receipt } = await create(),
-      replacement = crypto.randomUUID(),
-      key = crypto.randomUUID()
+      replacement = testUuid(),
+      key = testUuid()
     fixture.sqlite.exec('PRAGMA recursive_triggers=OFF')
     const before = fixture.sqlite.prepare('SELECT * FROM admin_order_bulk_groups').all()
     expect(() =>

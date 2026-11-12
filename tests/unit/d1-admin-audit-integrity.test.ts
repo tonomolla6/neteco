@@ -6,6 +6,7 @@ import { seedInventoryFixture } from '../support/d1-sqlite'
 import { updateD1DraftProductMetadata } from '../../workers/catalog/admin-catalog-mutations'
 import { cancelD1UnpaidOrder } from '../../workers/catalog/order-cancellation'
 import { readD1AdminAudit, readD1AdminAuditDetail, exportD1AdminAudit } from '../../workers/auth/admin-audit'
+import { testUuid } from '../support/deterministic'
 
 it('reports the actual awaiting_payment state before a proven administrative cancellation', async () => {
   const f = await returnsFixture()
@@ -28,7 +29,7 @@ it('reports the actual awaiting_payment state before a proven administrative can
       )
       .run(CLAIMS.identityId, utc(-60000), utc(-60000))
     const orderId = await f.order({ paid: false, delivered: false }),
-      key = crypto.randomUUID()
+      key = testUuid()
     expect(f.sqlite.prepare('SELECT status FROM orders WHERE id=?').get(orderId)).toEqual({
       status: 'awaiting_payment'
     })
@@ -59,7 +60,7 @@ it.each(['missing', 'mismatched'] as const)(
         "INSERT INTO permissions VALUES('catalog.write','catalog','write','Synthetic fixture'); INSERT INTO role_permissions VALUES('admin','catalog.write'); UPDATE products SET status='draft',published_at=NULL WHERE id='p-1'"
       )
       const original = f.sqlite.prepare("SELECT catalog_version FROM products WHERE id='p-1'").get()!
-      const key = crypto.randomUUID()
+      const key = testUuid()
       await updateD1DraftProductMetadata(
         f.database,
         ADMIN,
@@ -93,7 +94,7 @@ it.each(['missing', 'mismatched'] as const)(
           f.database,
           ADMIN,
           { filters: { family: 'catalog_metadata' }, reason: 'Explicit integrity validation export.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ])
       expect(f.sqlite.prepare("SELECT * FROM products WHERE id='p-1'").get()).toEqual(product)

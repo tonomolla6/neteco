@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { buildPaymentSchedule, reconcileSchedule } from '../../shared/payment-schedule'
+import { testNow } from '../support/deterministic'
 
-const at = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const at = (offsetMs = 0) => new Date(testNow() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const now = at()
 const base = { totalGrossCents: 100001, depositBasisPoints: 3000, installments: 2, intervalDays: 30, now }
 

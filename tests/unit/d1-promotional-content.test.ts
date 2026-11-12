@@ -11,6 +11,7 @@ import {
   promotionalContentSchema,
   type PromotionalMetadata
 } from '../../shared/promotional-content'
+import { testUuid } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof cmsPublicationFixture>>
 beforeEach(async () => {
@@ -37,7 +38,7 @@ async function publish(slug: string, promotional = metadata()) {
       ...cmsDocument({ slug, title: slug, promotional }),
       expectedVersion: 0
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   const receipt = await executeCmsPublicationCommand(
     f.deps,
@@ -50,7 +51,7 @@ async function publish(slug: string, promotional = metadata()) {
       versionId: created.versionId,
       reason: 'Synthetic manual editorial approval'
     },
-    crypto.randomUUID()
+    testUuid()
   )
   return { created, receipt }
 }
@@ -66,7 +67,7 @@ it('selects only current published contextual promotions, not ordinary pages or 
       ...cmsDocument({ slug: 'ordinary-page' }),
       expectedVersion: 0
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   await executeCmsPublicationCommand(
     f.deps,
@@ -79,7 +80,7 @@ it('selects only current published contextual promotions, not ordinary pages or 
       versionId: ordinary.versionId,
       reason: 'Synthetic ordinary page approval'
     },
-    crypto.randomUUID()
+    testUuid()
   )
   const result = promotionalContentSchema.parse(await readD1PromotionalContent(f.deps, home))
   expect(result.items.map((item) => item.pageId)).toEqual([selected.created.pageId])
@@ -132,7 +133,7 @@ it('never projects an unpublished edit instead of the immutable published versio
       ...cmsDocument({ slug: 'immutable-promo', promotional: metadata(), title: 'Unpublished private replacement' }),
       expectedVersion: 1
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   const result = await readD1PromotionalContent(f.deps, home)
   expect(result.items[0]?.version).toBe(1)
@@ -150,7 +151,7 @@ it('withdrawal immediately removes the promotional block', async () => {
       expectedVersion: 1,
       reason: 'Synthetic explicit withdrawal'
     },
-    crypto.randomUUID()
+    testUuid()
   )
   expect((await readD1PromotionalContent(f.deps, home)).items).toEqual([])
 })
@@ -180,7 +181,7 @@ it('discards a release withdrawn during the selection await before returning pub
                 expectedVersion: 1,
                 reason: 'Synthetic concurrent withdrawal'
               },
-              crypto.randomUUID()
+              testUuid()
             )
           }
           return result
@@ -208,8 +209,7 @@ it('preserves old documents and rejects private-route or personalized promotiona
   expect(cmsDocumentSchema.safeParse(cmsDocument()).success).toBe(true)
   expect(cmsDocumentSchema.safeParse(cmsDocument({ promotional: metadata() })).success).toBe(true)
   expect(
-    cmsDocumentSchema.safeParse(cmsDocument({ promotional: { ...metadata(), customerId: crypto.randomUUID() } }))
-      .success
+    cmsDocumentSchema.safeParse(cmsDocument({ promotional: { ...metadata(), customerId: testUuid() } })).success
   ).toBe(false)
   expect(cmsDocumentSchema.safeParse(cmsDocument({ promotional: metadata({ paths: ['/cuenta'] }) })).success).toBe(
     false
@@ -228,13 +228,13 @@ it('rejects unsafe promotional DTO links with the same strong canonical CMS CTA 
         evaluatedAt: '2026-10-09T12:00:00Z',
         items: [
           {
-            pageId: crypto.randomUUID(),
-            publicationId: crypto.randomUUID(),
+            pageId: testUuid(),
+            publicationId: testUuid(),
             version: 1,
             title: 'Unsafe synthetic content',
             format: 'bar',
             media: {},
-            blocks: [{ id: crypto.randomUUID(), type: 'cta', label: 'Untrusted link', href }]
+            blocks: [{ id: testUuid(), type: 'cta', label: 'Untrusted link', href }]
           }
         ]
       }).success
@@ -251,7 +251,7 @@ it('returns promotional presentation only through the existing version-pinned pr
       ...cmsDocument({ slug: 'private-promotional-preview', promotional: metadata({ format: 'card' }) }),
       expectedVersion: 0
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   const receipt = await executeCmsPublicationCommand(
     f.deps,
@@ -265,7 +265,7 @@ it('returns promotional presentation only through the existing version-pinned pr
       device: 'mobile',
       reason: 'Synthetic private promotional preview'
     },
-    crypto.randomUUID()
+    testUuid()
   )
   const token = new URL(receipt.url!, 'https://cms.neteco.invalid').searchParams.get('preview')!
   expect(await readCmsPublicPage(f.deps, 'private-promotional-preview', token)).toMatchObject({

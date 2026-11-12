@@ -13,8 +13,7 @@ import {
   clearedSessionCookie
 } from '../../workers/auth/session-cookie'
 import { unsealSession, createEvent } from 'h3'
-import { IncomingMessage, ServerResponse } from 'node:http'
-import { Socket } from 'node:net'
+import { testUuid } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000001'
 const sessionId = '20000000-0000-4000-8000-000000000001'
@@ -59,19 +58,13 @@ describe('D1 authorization from verified session claims', () => {
     expect(cookie).toContain('; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax')
     expect(cookie).not.toContain('Domain=')
     const sealed = decodeURIComponent(cookie!.split(';')[0]!.slice('neteco-session='.length))
-    const socket = new Socket()
-    try {
-      const incoming = new IncomingMessage(socket)
-      const event = createEvent(incoming, new ServerResponse(incoming))
-      const session = await unsealSession(
-        event,
-        { name: 'neteco-session', password: configuration.password, maxAge: 86400 },
-        sealed
-      )
-      expect(session.data).toEqual({ sessionId, sessionVersion: 1, user: { id: identityId } })
-    } finally {
-      socket.destroy()
-    }
+    const event = createEvent({} as Parameters<typeof createEvent>[0], {} as Parameters<typeof createEvent>[1])
+    const session = await unsealSession(
+      event,
+      { name: 'neteco-session', password: configuration.password, maxAge: 86400 },
+      sealed
+    )
+    expect(session.data).toEqual({ sessionId, sessionVersion: 1, user: { id: identityId } })
   })
 
   it('revokes a signed session idempotently and refuses to reissue it', async () => {
@@ -166,8 +159,8 @@ describe('D1 authorization from verified session claims', () => {
       const cookie = await seal(
         ironCrypto,
         {
-          id: crypto.randomUUID(),
-          createdAt: Date.now(),
+          id: testUuid(),
+          createdAt: Date.parse(now),
           data: {
             sessionId,
             sessionVersion: 1,

@@ -16,6 +16,7 @@ import {
   dispatchTransactionalEmails,
   type TransactionalEmailSender
 } from '../../workers/communications/transactional-email-delivery'
+import { testUuid } from '../support/deterministic'
 let f: Awaited<ReturnType<typeof returnsFixture>>,
   orderId: string,
   envelope: { Ds_MerchantParameters: string; Ds_SignatureVersion: string; Ds_Signature: string }
@@ -216,7 +217,7 @@ it('superseded paid state cannot pass prepared final authority guard', async () 
     f.database.batch(
       orderPaymentEmailRenderers[0]!.authorityStatements(
         f.database,
-        { eventId: id, leaseToken: crypto.randomUUID(), sendingAt: utc(), leaseUntil: utc(60000) },
+        { eventId: id, leaseToken: testUuid(), sendingAt: utc(), leaseUntil: utc(60000) },
         prepared
       )
     )
@@ -278,7 +279,7 @@ it.each(['authorization_json', 'capture_json', 'amount', 'payload_hash'])(
         f.database.batch(
           orderPaymentEmailRenderers[0]!.authorityStatements(
             f.database,
-            { eventId: id, leaseToken: crypto.randomUUID(), sendingAt: utc(), leaseUntil: utc(60000) },
+            { eventId: id, leaseToken: testUuid(), sendingAt: utc(), leaseUntil: utc(60000) },
             prepared
           )
         )

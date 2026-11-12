@@ -6,6 +6,7 @@ import { analyticsFixture, ANALYTICS_CONSENT, CLAIMS, pageEvent, utc } from './d
 import { collectClientAnalytics } from '../../workers/analytics/collector'
 import { readAnalyticsSnapshot } from '../../workers/analytics/read-model'
 import { dispatchAnalyticsRetention } from '../../workers/analytics/retention'
+import { testUuid } from '../support/deterministic'
 
 const connections: DatabaseSync[] = []
 afterEach(() => {
@@ -17,7 +18,7 @@ const pageId = '20000000-0000-4000-8000-000000000092'
 const publicationId = '20000000-0000-4000-8000-000000000093'
 function promotionalEvent(name = 'promotional_impression') {
   return {
-    eventId: crypto.randomUUID(),
+    eventId: testUuid(),
     taxonomyVersion: 'v1',
     name,
     occurredAt: utc(),
@@ -60,7 +61,7 @@ describe('additive promotional telemetry storage and global retention', () => {
       .prepare(
         `INSERT INTO analytics_client_events VALUES(?, 'page_view', ?, 'local', 'synthetic-local-measurement', 'fixture-v1', ?, '{"path":"/catalogo"}', ?, ?, ?, ?)`
       )
-      .run(crypto.randomUUID(), 'a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), utc(), utc(), utc(86400000))
+      .run(testUuid(), 'a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64), utc(), utc(), utc(86400000))
     const schema = f.sqlite
       .prepare("SELECT type,name,sql FROM sqlite_schema WHERE tbl_name='analytics_client_events' ORDER BY name")
       .all()
@@ -131,7 +132,7 @@ describe('additive promotional telemetry storage and global retention', () => {
       { ...promotionalEvent().properties, blockId: publicationId },
       { ...promotionalEvent().properties, placement: 'unknown' }
     ])
-      expect(() => insert.run(crypto.randomUUID(), JSON.stringify(properties))).toThrow()
+      expect(() => insert.run(testUuid(), JSON.stringify(properties))).toThrow()
   })
   it('reads both families as client-reported counts with one anonymous session and no financial authority', async () => {
     const f = await fixture()
@@ -182,7 +183,7 @@ describe('additive promotional telemetry storage and global retention', () => {
         .prepare(
           `INSERT INTO ${table} SELECT ?,name,session_hash,environment,policy_reference,policy_version,policy_fingerprint,properties_json,payload_hash,occurred_at,received_at,expires_at FROM ${table} LIMIT 1`
         )
-        .run(crypto.randomUUID())
+        .run(testUuid())
     }
     f.setNow(utc(31 * 86400000))
     expect(await dispatchAnalyticsRetention(f.deps, { ...maintenance, limit: 100 })).toMatchObject({

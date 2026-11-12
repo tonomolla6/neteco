@@ -21,6 +21,7 @@ import {
   CATEGORY_SESSION,
   categoryUtc
 } from '../support/category-command-fixture'
+import { testNow } from '../support/deterministic'
 
 const ORIGIN = 'https://typed.neteco.invalid'
 const PASSWORD = 'synthetic-typed-cookie-password-at-least-32'
@@ -257,7 +258,7 @@ describe('typed attribute HTTP uses live private authority and bounded requests'
       {
         pull(controller) {
           if (chunks++ < 3) {
-            vi.setSystemTime(Date.now() + 3000)
+            vi.setSystemTime(testNow() + 3000)
             controller.enqueue(new Uint8Array())
           } else controller.close()
         },

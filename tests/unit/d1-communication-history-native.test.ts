@@ -9,6 +9,7 @@ import { createSupportTicket } from '../../workers/support/operations'
 import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communications/email-outbox'
 import { communicationRetryIntentHash } from '../../shared/communication-history'
 import { CONTACT, POLICY } from './d1-support-fixture'
+import { testUuid } from '../support/deterministic'
 
 it('rearms real support preparation atomically through canary and workerd D1, without sending or allowing revoked replay', async () => {
   const outbound = vi.fn(() => {
@@ -42,8 +43,8 @@ it('rearms real support preparation atomically through canary and workerd D1, wi
     }
     let now = (await database.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS now").first<{ now: string }>())!
       .now
-    const identityId = crypto.randomUUID(),
-      sessionId = crypto.randomUUID()
+    const identityId = testUuid(),
+      sessionId = testUuid()
     await database.batch([
       database.prepare(
         "INSERT INTO roles VALUES('communication-native','Synthetic communication operator','Synthetic')"
@@ -76,7 +77,7 @@ it('rearms real support preparation atomically through canary and workerd D1, wi
       database,
       { kind: 'anonymous', claims: null, customerId: null, key: 'anonymous:' + 'a'.repeat(64) },
       CONTACT,
-      { idempotencyKey: crypto.randomUUID(), policy: POLICY }
+      { idempotencyKey: testUuid(), policy: POLICY }
     )
     now = (await database.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS now").first<{ now: string }>())!.now
     await publishEmailOutbox(
@@ -124,7 +125,7 @@ it('rearms real support preparation atomically through canary and workerd D1, wi
         expectedAvailableAt: availableAt,
         reason: 'Revisada la preparación local sin contactar al proveedor.'
       },
-      key = crypto.randomUUID()
+      key = testUuid()
     const hash = await communicationRetryIntentHash(eventId, input),
       base = '/api/admin/communications/history'
     const send = (path: string, body?: unknown) =>

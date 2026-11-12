@@ -13,6 +13,7 @@ import { hash } from '../../workers/refunds/authority'
 import { refundsCreditFixture, CLAIMS, REASON, utc } from './d1-refunds-credit-fixture'
 import { approveRefundPolicy, withdrawFinancialPolicy } from '../../workers/refunds/policies'
 import { dispatchD1Refunds, planD1Refund, reconcileD1Refund } from '../../workers/refunds/operations'
+import { testUuid } from '../support/deterministic'
 
 const configuration: WorkerRedsysRefundConfiguration = {
   appEnvironment: 'preview',
@@ -42,7 +43,7 @@ async function approved(environment: 'sandbox' | 'production' = 'sandbox') {
   })
   return {
     ...input,
-    id: crypto.randomUUID(),
+    id: testUuid(),
     approvedAt: '2026-10-03T10:00:00Z',
     fingerprint: await hash({ scope: 'refund', input })
   }
@@ -50,9 +51,9 @@ async function approved(environment: 'sandbox' | 'production' = 'sandbox') {
 function historicalContract(policy: RefundPolicy) {
   return refundContractSchema.parse({
     schemaVersion: 1,
-    refundId: crypto.randomUUID(),
-    orderId: crypto.randomUUID(),
-    returnId: crypto.randomUUID(),
+    refundId: testUuid(),
+    orderId: testUuid(),
+    returnId: testUuid(),
     returnPublicRef: 'RMA-0123456789ABCDEF01234567',
     returnVersion: 5,
     policyId: policy.id,
@@ -65,7 +66,7 @@ function historicalContract(policy: RefundPolicy) {
     evidenceRef: 'captured-authorization-proof',
     createdAt: '2026-10-03T10:01:00Z',
     capture: {
-      paymentIntentId: crypto.randomUUID(),
+      paymentIntentId: testUuid(),
       merchantOrder: '1234567890',
       providerReference: '1234567890:ABC123',
       capturedCents: 1000,
@@ -243,7 +244,7 @@ describe('governed Worker Redsys refund protocol, entirely injected/offline', ()
       { ...base, amountCents: 1001 },
       { ...base, currency: 'USD' },
       { ...base, validationOnly: true },
-      { ...base, policyId: crypto.randomUUID() },
+      { ...base, policyId: testUuid() },
       { ...base, policyFingerprint: 'c'.repeat(64) },
       { ...base, capture: { ...base.capture, environment: 'production' } },
       { ...base, capture: { ...base.capture, mappings: { ...base.capture.mappings, terminal: '2' } } },
@@ -298,7 +299,7 @@ describe('governed Worker Redsys refund protocol, entirely injected/offline', ()
       { policy, provider } = await adapter(fetcher),
       first = historicalContract(policy)
     await provider.refund(first)
-    const second = { ...first, refundId: crypto.randomUUID(), idempotencyKey: 'second-partial' }
+    const second = { ...first, refundId: testUuid(), idempotencyKey: 'second-partial' }
     await expect(provider.refund(second)).rejects.toMatchObject({ code: 'outcome_unconfirmed' })
     expect(fetcher).toHaveBeenCalledTimes(2)
     expect(sent(fetcher.mock.calls[0]![1]).DS_MERCHANT_MERCHANTDATA).not.toBe(
@@ -409,13 +410,13 @@ describe('actual D1 capture/policy fencing with offline Redsys REST adapter', ()
     const { id: _id, fingerprint: _fingerprint, approvedAt: _at, ...input } = fixture.policy,
       policy = await approveRefundPolicy(fixture.database, CLAIMS, {
         ...input,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         provider: 'redsys',
         environment: 'sandbox',
         evidenceRef: 'signed-offline-capture-rest-protocol'
       }),
       planned = await planD1Refund(fixture.database, CLAIMS, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         policyId: policy.id,
         returnPublicRef: fixture.returnRef,
         expectedReturnVersion: 5,
@@ -502,7 +503,7 @@ describe('actual D1 capture/policy fencing with offline Redsys REST adapter', ()
           CLAIMS,
           f.planned.id,
           {
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey: testUuid(),
             expectedGeneration: 3,
             reason: REASON,
             evidenceRef: 'no-authoritative-rest-lookup-configured'

@@ -15,11 +15,12 @@ import { dispatchTransactionalEmails } from '../../workers/communications/transa
 import { updateD1DeliveryPreferences } from '../../workers/auth/delivery-preferences'
 import { DELIVERY_PREFERENCES_POLICY_VERSION } from '../../shared/delivery-preferences'
 import { suppressNewsletterEmail } from '../../workers/marketing/newsletter'
+import { testUuid, testNow } from '../support/deterministic'
 
 const EMAIL = 'security-notice@example.invalid'
 const PASSWORD = 'Synthetic-original-password-123'
 const NEXT = 'Synthetic-replacement-password-456'
-const utc = () => new Date(Date.now() - 2000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = () => new Date(testNow() - 2000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('password-reset security notice through real D1 lifecycle/outbox/dispatcher, fake provider only', () => {
   let sqlite: DatabaseSync, database: D1Database, now: string, token: string
@@ -30,8 +31,16 @@ describe('password-reset security notice through real D1 lifecycle/outbox/dispat
   }
   const sender = { send: vi.fn(async (_message: unknown) => ({ messageId: 'synthetic-security-receipt' })) }
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow())
     sqlite = await openAccountSecurityDatabase()
-    database = d1OverSqlite(sqlite)
+    sqlite.function('synthetic_security_notice_clock', () =>
+      new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    )
+    const nativeDatabase = d1OverSqlite(sqlite),
+      nativePrepare = nativeDatabase.prepare.bind(nativeDatabase)
+    database = new Proxy(nativeDatabase, {})
+    database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_security_notice_clock()'))
     now = utc()
     sender.send.mockReset().mockResolvedValue({ messageId: 'synthetic-security-receipt' })
     expect(
@@ -65,7 +74,10 @@ describe('password-reset security notice through real D1 lifecycle/outbox/dispat
       .get()!
     token = decryptSecret(reset.token_envelope as string, secrets.encryptionKey)
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
   const reset = () => resetD1Password(database, { token, password: NEXT }, secrets, now)
   const dispatch = (enabled = true, db = database) =>
     dispatchTransactionalEmails(db, sender, { enabled, from: 'seguridad@neteco.es', now, appEnvironment: 'local' })
@@ -101,7 +113,23 @@ describe('password-reset security notice through real D1 lifecycle/outbox/dispat
       same_identity: 1
     })
     await deliverQueue()
-    expect(await dispatch()).toMatchObject({ sent: 1, manualReview: 0 })
+    expect(
+      sqlite
+        .prepare(
+          `SELECT l.created_at<=strftime('%Y-%m-%dT%H:%M:%SZ','now') AS past,
+          t.used_at=l.created_at AS used, t.created_at<=l.created_at AS started,
+          t.expires_at>l.created_at AS unexpired, e.created_at=l.created_at AS event_matches
+          FROM email_outbox_events e JOIN identity_lifecycle_events l ON l.id=e.source_event_id
+          JOIN identity_lifecycle_tokens t ON t.id=l.token_id`
+        )
+        .get()
+    ).toMatchObject({ past: 1, used: 1, started: 1, unexpired: 1, event_matches: 1 })
+    const outcome = await dispatch()
+    expect(sqlite.prepare('SELECT status,last_error_code FROM transactional_email_deliveries').get()).toMatchObject({
+      status: 'sent',
+      last_error_code: null
+    })
+    expect(outcome).toMatchObject({ sent: 1, manualReview: 0 })
     const message = sender.send.mock.calls[0]![0] as { to: string; subject: string; text: string; html: string }
     expect(message.to).toBe(EMAIL)
     expect(message.subject).toMatch(/contraseña/i)
@@ -135,7 +163,7 @@ describe('password-reset security notice through real D1 lifecycle/outbox/dispat
   it('delivers a reset whose authoritative input clock predates the actual batch by two seconds', async () => {
     // All setup primitives use this valid earlier clock; no forged token/event
     // timestamp or sleep is needed to reproduce a delayed password hash/batch.
-    expect(Date.parse(now)).toBeLessThanOrEqual(Date.now() - 2000)
+    expect(Date.parse(now)).toBeLessThanOrEqual(testNow() - 2000)
     expect((await reset()).ok).toBe(true)
     await deliverQueue()
     expect(await dispatch()).toMatchObject({ sent: 1, manualReview: 0 })
@@ -152,7 +180,7 @@ describe('password-reset security notice through real D1 lifecycle/outbox/dispat
         sessionId: session.id as string,
         sessionVersion: session.session_version as number
       },
-      crypto.randomUUID(),
+      testUuid(),
       { expectedVersion: 0, deliveryUpdates: false, policyVersion: DELIVERY_PREFERENCES_POLICY_VERSION },
       { now: () => now }
     )

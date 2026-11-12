@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { randomUUID } from 'node:crypto'
+
 import { readFile, readdir } from 'node:fs/promises'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
@@ -20,6 +20,7 @@ import {
   executeD1AdminReturnCommand,
   readD1CustomerReturns
 } from '../../workers/returns/operations'
+import { testUuid } from '../support/deterministic'
 
 it.each([true, false])(
   'opens the returns panel once without closing an already expanded order: initial=%s',
@@ -444,9 +445,9 @@ it('reproduces browser requested approved received through real HTTP and indepen
           )
         })
       )
-    expect((await send('requested', randomUUID())).action).toBe('fulfill')
-    expect((await send('approved', randomUUID())).action).toBe('fulfill')
-    const key = randomUUID(),
+    expect((await send('requested', testUuid())).action).toBe('fulfill')
+    expect((await send('approved', testUuid())).action).toBe('fulfill')
+    const key = testUuid(),
       received = await send('received', key)
     expect(statuses).toEqual([
       { action: 'requested', status: 201, code: null },

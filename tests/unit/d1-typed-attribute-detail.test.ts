@@ -7,6 +7,7 @@ import { executeD1CatalogTypedAttributeDefinitionCommand } from '../../workers/c
 import { CATEGORY_CLAIMS, categoryCommandFixture } from '../support/category-command-fixture'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const TARGET = '90000000-0000-4000-8000-000000000058'
 const REASON = 'Definición sintética de detalle tipado'
@@ -51,7 +52,7 @@ describe('D1 public detail with historically typed attributes', () => {
           expectedVersion: 0,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
   }
@@ -114,7 +115,7 @@ describe('D1 public detail with historically typed attributes', () => {
         expectedVersion: 1,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect((await getPublishedProductDetail(database, 'producto-1'))?.typedAttrs).toEqual([
       {
@@ -181,7 +182,7 @@ describe('D1 public detail with historically typed attributes', () => {
       'retire',
       { definitionId: flag.id },
       { expectedVersion: 1, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect((await getPublishedProductDetail(database, 'producto-1'))?.typedAttrs).toEqual([])
   })

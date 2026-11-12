@@ -8,6 +8,7 @@ import { validateCatalogRecords } from '../../shared/catalog-tabular-core'
 import { catalogRecord, catalogFixtureIds as ids } from '../support/catalog-tabular-fixture'
 import type { CatalogImportJob } from '../../shared/catalog-import-job'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { request, session } = vi.hoisted(() => ({ request: vi.fn(), session: vi.fn() }))
 mockNuxtImport('useRequestFetch', () => () => request)
@@ -71,6 +72,8 @@ async function start(wrapper: Awaited<ReturnType<typeof mount>>) {
   await flushPromises()
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   vi.clearAllMocks()
   actor = identity()
   session.mockReturnValue(actor)
@@ -79,8 +82,8 @@ beforeEach(() => {
     outcome: 'job',
     id: ID,
     status: 'ready',
-    createdAt: instant(Date.now() - 1000),
-    expiresAt: instant(Date.now() + 30 * 60_000),
+    createdAt: instant(testNow() - 1000),
+    expiresAt: instant(testNow() + 30 * 60_000),
     totalPages: 1,
     receivedPages: 1,
     recordCount: 1,
@@ -96,6 +99,7 @@ afterEach(() => {
   for (const wrapper of wrappers) wrapper.unmount()
   wrappers = []
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 describe('read-only paginated real catalogue job review', () => {
   it('never fetches automatically or invents apply/revert and warns about staged authority', async () => {
@@ -296,7 +300,7 @@ describe('read-only paginated real catalogue job review', () => {
           hash: null,
           counts: { products: 0, variants: 0, assets: 0, mappings: 0 }
         }
-      if (problem === 'expired') job = { ...selectedJob, expiresAt: instant(Date.now() - 1) }
+      if (problem === 'expired') job = { ...selectedJob, expiresAt: instant(testNow() - 1) }
       if (problem === 'node') job = { ...selectedJob, source: 'node' }
       if (problem === 'hash') job = { ...selectedJob, hash: null }
       if (problem === 'undefined') job = undefined
@@ -378,7 +382,7 @@ describe('read-only paginated real catalogue job review', () => {
     expect(wrapper.find('[data-review-entry]').exists()).toBe(false)
   })
   it('ignores a late read after expiry or unmount', async () => {
-    const expiresAt = instant(Date.now() + 60_000),
+    const expiresAt = instant(testNow() + 60_000),
       wrapper = await mount({ job: { ...selectedJob, expiresAt } }),
       pending = deferred<ReturnType<typeof page>>()
     request.mockReturnValueOnce(pending.promise)

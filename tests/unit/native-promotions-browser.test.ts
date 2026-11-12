@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
@@ -16,6 +15,7 @@ import {
   auditNativePromotionsBrowser,
   createPromotionsBrowserBridge
 } from '../../scripts/lib/audit-native-promotions-browser'
+import { testUuid } from '../support/deterministic'
 
 const connection = vi.hoisted(() => vi.fn())
 vi.mock('../../scripts/lib/remote-test-browser', () => ({
@@ -47,7 +47,7 @@ beforeEach(async () => {
     variantId: 'v-1-1',
     quantity: 2,
     expectedVersion: 1,
-    idempotencyKey: randomUUID(),
+    idempotencyKey: testUuid(),
     now: utc(),
     correlationId: 'browser-coupon-fixture'
   })
@@ -111,14 +111,7 @@ const setup = (override: Partial<{ dispatch: typeof dispatch; purchaseOrderRefer
     dispatch,
     ...override
   })
-const request = (
-  path: string,
-  method = 'GET',
-  body?: unknown,
-  cookie = adminCookie,
-  key = randomUUID(),
-  hash?: string
-) =>
+const request = (path: string, method = 'GET', body?: unknown, cookie = adminCookie, key = testUuid(), hash?: string) =>
   new Request(origin + path, {
     method,
     headers: {
@@ -136,7 +129,7 @@ async function activate(bridge: Awaited<ReturnType<typeof setup>>) {
     expectedVersion: 0,
     reason: 'Synthetic explicit browser campaign',
     rule: {
-      id: randomUUID(),
+      id: testUuid(),
       version: 1,
       code: 'BROWSER101',
       status: 'paused',
@@ -156,7 +149,7 @@ async function activate(bridge: Awaited<ReturnType<typeof setup>>) {
   if (created.action !== 'fulfill') throw new Error('expected_real_receipt')
   expect(created.response.status).toBe(201)
   const body = { ...initial, expectedVersion: 1, rule: { ...initial.rule, version: 2, status: 'active' } },
-    key = randomUUID()
+    key = testUuid()
   expect(await bridge.forward(request('/api/admin/promotions/' + body.rule.id, 'PUT', body, adminCookie, key))).toEqual(
     { action: 'abort', reason: 'proven_promotion_activation_response_lost' }
   )
@@ -169,7 +162,7 @@ async function activate(bridge: Awaited<ReturnType<typeof setup>>) {
       'GET',
       undefined,
       adminCookie,
-      randomUUID(),
+      testUuid(),
       await adminPromotionIntentHash(body)
     )
   )
@@ -390,7 +383,7 @@ it('blocks payment and external writes before dispatch rather than fabricating p
     bridge = await setup({ dispatch: send })
   send.mockClear()
   expect(
-    await bridge.forward(request('/api/checkout/pay', 'POST', { orderId: randomUUID(), method: 'tarjeta' }))
+    await bridge.forward(request('/api/checkout/pay', 'POST', { orderId: testUuid(), method: 'tarjeta' }))
   ).toMatchObject({ action: 'abort', reason: 'forbidden_write' })
   expect(await bridge.forward(new Request('https://provider.invalid/payment', { method: 'POST' }))).toMatchObject({
     action: 'abort',

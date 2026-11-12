@@ -17,6 +17,7 @@ import {
   parsePublicTypedFacetsRows,
   type PublicTypedFacetRow
 } from '../../workers/catalog/typed-attribute-facets'
+import { testUuid } from '../support/deterministic'
 
 const REASON = 'Definición sintética de facetas tipadas'
 const TARGET = '90000000-0000-4000-8000-000000000058'
@@ -139,7 +140,7 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
           expectedVersion: 0,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
   }
@@ -198,8 +199,8 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
       const id = `typed-contributor-${index}`
       product.run(id, 10_000 + index, id)
       variant.run(`${id}-variant`, 20_000 + index, id, id)
-      policy.run(crypto.randomUUID(), id)
-      media.run(crypto.randomUUID(), id, crypto.randomUUID())
+      policy.run(testUuid(), id)
+      media.run(testUuid(), id, testUuid())
     }
     const result = await listPublishedProducts(database, query([{ definitionId: flag.id, values: [false] }]))
     expect(result?.total).toBe(1)
@@ -239,7 +240,7 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
           condition === 'definition revision'
             ? { label: 'Etiqueta final', config: {}, expectedVersion: 1, reason: REASON }
             : { expectedVersion: 1, reason: REASON },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
     }, phase)
     const result = await listPublishedProducts(mutation.guarded, query([{ definitionId: flag.id, values: [false] }]))
@@ -283,7 +284,7 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
           action === 'update'
             ? { label: 'Nueva revisión', config: {}, expectedVersion: 1, reason: REASON }
             : { expectedVersion: 1, reason: REASON },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       }, 'before')
       await expect(
@@ -407,7 +408,7 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
         expectedVersion: 1,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const result = await listPublishedProducts(database, query([{ definitionId: list.id, values: ['stable'] }]))
     expect(result?.total).toBe(1)
@@ -420,7 +421,7 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
       'retire',
       { definitionId: list.id },
       { expectedVersion: 2, reason: REASON },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect((await listPublishedProducts(database, query()))?.facets?.typed).toEqual([])
     await expect(
@@ -487,11 +488,11 @@ describe('D1 typed attribute filters and self-excluding facets', () => {
           expectedVersion: 0,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
     for (const filters of [
-      [{ definitionId: crypto.randomUUID(), values: [true] }],
+      [{ definitionId: testUuid(), values: [true] }],
       [{ definitionId: text.id, values: ['free'] }],
       [{ definitionId: privateDef.id, values: [true] }],
       [{ definitionId: flag.id, values: ['false'] }],

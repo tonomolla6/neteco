@@ -10,6 +10,7 @@ import {
 } from '../../workers/catalog/inventory-count-import'
 import { executeD1AdminInventoryCommand } from '../../workers/catalog/admin-inventory'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 // The initial thirteen cases ran RED against productive signatures, then GREEN
 // against the atomic importer and its real feature migration.
@@ -27,7 +28,7 @@ const APPROVAL_KEY = '50000000-0000-4000-8000-000000000082'
 const csv = 'sku,countedPhysicalQuantity\nCOUNT-FIRST,18\nCOUNT-SECOND,33'
 const reason = 'Synthetic physical count reviewed independently'
 const reference = 'SYNTHETIC-COUNT-081'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('D1 single-warehouse inventory count CSV import', () => {
   let sqlite: DatabaseSync

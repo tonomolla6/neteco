@@ -12,6 +12,7 @@ import { orderReturnEmailRenderers } from '../../workers/communications/order-re
 import { orderPaymentEmailRenderers } from '../../workers/communications/order-payment-email'
 import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communications/email-outbox'
 import { auditNativeOrderEmails, type NativeOrderEmailsInput } from '../../scripts/lib/audit-native-order-emails'
+import { testUuid } from '../support/deterministic'
 let f: Awaited<ReturnType<typeof returnsFixture>>,
   input: NativeOrderEmailsInput,
   messages: Parameters<TransactionalEmailSender['send']>[0][]
@@ -48,15 +49,15 @@ beforeEach(async () => {
     f.database,
     BUYER_CLAIMS,
     cancelled,
-    crypto.randomUUID(),
+    testUuid(),
     { expectedStatus: 'awaiting_payment', reason: 'Synthetic cancellation audit reason' },
     { audience: 'customer', now: () => utc() }
   )
   const returned = await requestD1CustomerReturn(f.database, BUYER_CLAIMS, paid, REQUEST, {
-    idempotencyKey: crypto.randomUUID()
+    idempotencyKey: testUuid()
   })
   await executeD1AdminReturnCommand(f.database, CLAIMS, returned.publicRef, ADMISSION, {
-    idempotencyKey: crypto.randomUUID()
+    idempotencyKey: testUuid()
   })
   const common = {
     reason: 'Synthetic private reason not for email',
@@ -68,7 +69,7 @@ beforeEach(async () => {
     CLAIMS,
     returned.publicRef,
     { ...common, action: 'received', expectedVersion: 2, lines: [{ lineIndex: 0, quantity: 2 }] },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   await executeD1AdminReturnCommand(
     f.database,
@@ -80,7 +81,7 @@ beforeEach(async () => {
       expectedVersion: 3,
       lines: [{ lineIndex: 0, quantity: 2, condition: 'sealed', disposition: 'quarantine' }]
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   await executeD1AdminReturnCommand(
     f.database,
@@ -92,13 +93,13 @@ beforeEach(async () => {
       expectedVersion: 4,
       resolution: 'Synthetic private resolution no economic effect'
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   messages = []
   const sender: TransactionalEmailSender = {
     send: async (message) => {
       messages.push(message)
-      return { messageId: crypto.randomUUID() }
+      return { messageId: testUuid() }
     }
   }
   input = {
@@ -193,7 +194,7 @@ it('local unknown-send complement is held for manual review and never automatica
     send: async (message) => {
       messages.push(message)
       if (message.subject.includes('Captura registrada')) throw new Error('synthetic-response-lost')
-      return { messageId: crypto.randomUUID() }
+      return { messageId: testUuid() }
     }
   }
   const run: NativeOrderEmailsInput['runEmails'] = (config) =>

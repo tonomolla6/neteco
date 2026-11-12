@@ -20,6 +20,7 @@ import {
   shippingCalendarRevalidationDeadline,
   shippingCalendarCurrentPredicate
 } from '../../workers/catalog/shipping-calendar'
+import { testUuid, testNow } from '../support/deterministic'
 
 const actor = '10000000-0000-4000-8000-000000000078'
 const session = '20000000-0000-4000-8000-000000000078'
@@ -202,7 +203,7 @@ describe('Configured shipping calendars: real D1 authority and stable operationa
       )
     ).rejects.toMatchObject({ code: 'idempotency_conflict' })
     await expect(
-      updateD1ShippingCalendars(database, claims, input(), { idempotencyKey: crypto.randomUUID() })
+      updateD1ShippingCalendars(database, claims, input(), { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'version_conflict' })
   })
   it('denies revoked sessions and missing MFA before private recovery or mutation', async () => {
@@ -220,7 +221,7 @@ describe('Configured shipping calendars: real D1 authority and stable operationa
           return async (statements: D1PreparedStatement[]) => {
             sqlite
               .prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?')
-              .run(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), session)
+              .run(new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'), session)
             return target.batch(statements)
           }
         const value: unknown = Reflect.get(target, field)
@@ -296,7 +297,7 @@ describe('Configured shipping calendars: real D1 authority and stable operationa
       database,
       claims,
       { ...input(1), configuration: { ...configuration(), preparationBusinessDays: 2 } },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect(await database.prepare(`SELECT ${predicate} AS valid`).first()).toEqual({ valid: 0 })
   })

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import { handleCustomerSupportHttp } from '../../workers/support/customer-http'
 import { handleAdminSupportHttp } from '../../workers/support/admin-http'
@@ -11,18 +11,42 @@ import {
   satisfactionReceiptSchema
 } from '../../shared/support-satisfaction'
 import { supportFixture, ORIGIN, CLAIMS } from './d1-support-fixture'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_support_http_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_http_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_support_http_clock()'))
+      return database
+    }
+  }
+})
 
 // The initial behavioral RED used the existing real support dispatch (404).
 // Keep legacy handlers after the new namespace to test accidental fallthrough.
 describe('support satisfaction HTTP boundaries', () => {
   let fixture: Awaited<ReturnType<typeof supportFixture>>
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     fixture = await supportFixture()
     fixture.sqlite.exec(
       await readFile(new URL('../../db/d1/migrations/0068_support_satisfaction.sql', import.meta.url), 'utf8')
     )
   })
-  afterEach(() => fixture.sqlite.close())
+  afterEach(() => {
+    fixture?.sqlite.close()
+    vi.useRealTimers()
+  })
 
   async function dispatch(request: Request, edge = true) {
     const dependencies = { ...fixture.deps, edgeGate: edge ? fixture.deps.edgeGate : undefined }
@@ -66,7 +90,7 @@ describe('support satisfaction HTTP boundaries', () => {
           origin: ORIGIN,
           'CF-Connecting-IP': '192.0.2.149',
           'Content-Type': 'application/json',
-          'Idempotency-Key': crypto.randomUUID()
+          'Idempotency-Key': testUuid()
         },
         body: JSON.stringify({ score: 5, privacyAcknowledged: true, expectedSourceVersion: 1 })
       })
@@ -162,7 +186,7 @@ describe('support satisfaction HTTP boundaries', () => {
       cookie: fixture.customerCookie,
       'CF-Connecting-IP': '192.0.2.149',
       'Content-Type': 'application/json',
-      'Idempotency-Key': crypto.randomUUID()
+      'Idempotency-Key': testUuid()
     }
     const body = JSON.stringify({ score: 5, expectedSourceVersion: 1 })
     await privateFailure(await dispatch(new Request(ORIGIN + path, { method: 'POST', headers, body })), 403)
@@ -173,7 +197,7 @@ describe('support satisfaction HTTP boundaries', () => {
   })
 
   it('rejects invalid recovery correlation without exposing absence as a successful result', async () => {
-    const path = `/api/account/satisfaction/delivery/${fixture.order}/commands/${crypto.randomUUID()}`
+    const path = `/api/account/satisfaction/delivery/${fixture.order}/commands/${testUuid()}`
     await privateFailure(await dispatch(request(path, fixture.customerCookie)), 422)
     await privateFailure(await dispatch(request(path + '?comment=private', fixture.customerCookie)), 400)
   })
@@ -221,7 +245,7 @@ describe('support satisfaction HTTP boundaries', () => {
         slaDueAt: null,
         resolution: 'Respuesta sintética completa al caso.'
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const path = `/api/account/satisfaction/support/${ticket.publicRef}`
     const read = await dispatch(request(path, fixture.customerCookie))
@@ -238,7 +262,7 @@ describe('support satisfaction HTTP boundaries', () => {
       expectedSourceVersion: 2,
       expectedPolicyHash: state.privacy!.policyHash
     }
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const mutation = () =>
       new Request(ORIGIN + path, {
         method: 'POST',
@@ -270,7 +294,7 @@ describe('support satisfaction HTTP boundaries', () => {
         }
       })
     expect(await (await dispatch(recovery(key))).json()).toEqual({ source: 'cloudflare', outcome: 'applied', receipt })
-    expect(await (await dispatch(recovery(crypto.randomUUID()))).json()).toEqual({
+    expect(await (await dispatch(recovery(testUuid()))).json()).toEqual({
       source: 'cloudflare',
       outcome: 'unknown'
     })

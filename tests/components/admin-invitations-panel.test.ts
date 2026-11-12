@@ -14,6 +14,7 @@ import {
   type AdminInvitationReceipt
 } from '../../shared/admin-invitations'
 import '#app/nuxt-vitest-app-entry'
+import { testUuid } from '../support/deterministic'
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -286,7 +287,7 @@ it('rejects a receipt with a foreign key before exposing the secret', async () =
   const original = mocks.request.getMockImplementation()!
   mocks.request.mockImplementation(async (path: string, options: Options) => {
     const result = await original(path, options)
-    return options.method === 'POST' ? { ...result, commandId: crypto.randomUUID() } : result
+    return options.method === 'POST' ? { ...result, commandId: testUuid() } : result
   })
   const w = await render()
   await review(w)

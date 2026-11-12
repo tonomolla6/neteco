@@ -9,6 +9,7 @@ import { createCart, setCartLine, quoteCart } from '../../workers/catalog/cart'
 import { requestShippingOptions } from '../../workers/catalog/checkout'
 import { salesQuoteConversionIntentHash } from '../../shared/sales-quotes'
 import { executeD1SalesQuoteCommand, readD1AdminSalesQuote } from '../../workers/catalog/sales-quotes'
+import { testUuid } from '../support/deterministic'
 
 const ORIGIN = 'https://sales-quotes.neteco.test'
 async function fixture() {
@@ -61,7 +62,7 @@ async function fixture() {
         headers: {
           Cookie: cookie,
           ...(init.method && init.method !== 'GET'
-            ? { Origin: ORIGIN, 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() }
+            ? { Origin: ORIGIN, 'Content-Type': 'application/json', 'Idempotency-Key': testUuid() }
             : {}),
           ...init.headers
         }
@@ -78,7 +79,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
     const f = await fixture()
     try {
       const created = await executeD1SalesQuoteCommand(f.database, CLAIMS, 'create', null, f.input, {
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
       await executeD1SalesQuoteCommand(
         f.database,
@@ -86,7 +87,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
         'review',
         created.quoteId,
         { expectedVersion: 1, reason: f.input.reason },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       const reviewed = await readD1AdminSalesQuote(f.database, CLAIMS, created.quoteId)
       await executeD1SalesQuoteCommand(
@@ -95,7 +96,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
         'approve',
         created.quoteId,
         { expectedVersion: 2, reviewedHash: reviewed.reviewedHash, reason: f.input.reason },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       const snapshot = await readD1AdminSalesQuote(f.database, CLAIMS, created.quoteId)
       const cart = await createCart(f.database, { now: utc(), correlationId: 'shipping-approval-test' })
@@ -106,7 +107,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
         expectedVersion: 1,
         variantId: 'v-1-1',
         quantity: 2,
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
       const buyer = (await issueD1SessionCookie(f.database, BUYER_CLAIMS, f.configuration))!.split(';')[0]!
       const cookie = `${buyer}; neteco-cart-v2=v1.${cart.cartId}.${cart.token}`
@@ -199,13 +200,13 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
         expectedVersion: 1,
         variantId: 'v-1-1',
         quantity: 2,
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
-      const quote = await quoteCart(f.database, { ...common, idempotencyKey: crypto.randomUUID() })
+      const quote = await quoteCart(f.database, { ...common, idempotencyKey: testUuid() })
       const shipping = await requestShippingOptions(f.database, {
         ...common,
         destination: f.input.destination,
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
       if (quote.outcome !== 'quoted' || shipping.outcome !== 'options')
         throw new Error('synthetic_checkout_fixture_failed')
@@ -236,7 +237,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
         }
       }
       const hash = await salesQuoteConversionIntentHash(created.quoteId, cart.cartId, input),
-        key = crypto.randomUUID()
+        key = testUuid()
       const buyerCookie = (await issueD1SessionCookie(f.database, BUYER_CLAIMS, f.configuration))!.split(';')[0]!
       const cookie = `${buyerCookie}; neteco-cart-v2=v1.${cart.cartId}.${cart.token}`
       for (const field of ['phone', 'province'] as const) {
@@ -282,7 +283,7 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
   it('creates a real private draft and replays the exact receipt without a second version or any order/reservation', async () => {
     const f = await fixture()
     try {
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         init = { method: 'POST', body: JSON.stringify(f.input), headers: { 'Idempotency-Key': key } }
       const first = await handleSalesQuotesHttp(f.request(undefined, init), f.deps)
       expect(first!.status).toBe(201)
@@ -413,9 +414,9 @@ describe('commercial quotes HTTP authority and recovery boundaries', () => {
       )
       expect(owned!.status).toBe(200)
       expect(JSON.stringify(await owned!.json())).not.toMatch(/cost|margin|reason|actor|session|token/i)
-      const foreignId = crypto.randomUUID(),
-        foreignSession = crypto.randomUUID(),
-        foreignCustomer = crypto.randomUUID(),
+      const foreignId = testUuid(),
+        foreignSession = testUuid(),
+        foreignCustomer = testUuid(),
         now = utc(-60000)
       f.sqlite
         .prepare('INSERT INTO customers(id,name,created_at,updated_at) VALUES(?,?,?,?)')

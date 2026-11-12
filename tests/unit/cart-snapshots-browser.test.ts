@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { returnsFixture, BUYER_CLAIMS, utc } from './d1-returns-fixture'
@@ -19,6 +18,7 @@ import {
   CART_SNAPSHOTS_BROWSER_SCENARIOS,
   createCartSnapshotsBrowserBridge
 } from '../../scripts/lib/audit-native-cart-snapshots-browser'
+import { testUuid } from '../support/deterministic'
 
 const connect = vi.hoisted(() => vi.fn())
 vi.mock('../../scripts/lib/remote-test-browser', () => ({
@@ -54,7 +54,7 @@ beforeEach(async () => {
     variantId: 'v-1-1',
     quantity: 2,
     expectedVersion: 1,
-    idempotencyKey: randomUUID(),
+    idempotencyKey: testUuid(),
     now: utc(),
     correlationId: 'snapshot-browser-fixture'
   })
@@ -105,7 +105,7 @@ const body = () => ({
   expectedCartVersion: prepared.cartVersion,
   createShare: true
 })
-const request = (path: string, method = 'POST', value: unknown = body(), key = randomUUID(), hash?: string) =>
+const request = (path: string, method = 'POST', value: unknown = body(), key = testUuid(), hash?: string) =>
   new Request(origin + path, {
     method,
     headers: {
@@ -174,7 +174,7 @@ it('required fails without a private endpoint before preparing or reading SQL', 
 })
 it('loses only the real committed 201 and recovers the exact receipt plus fresh owner list without repost', async () => {
   const transport = bridge(),
-    key = randomUUID(),
+    key = testUuid(),
     before = unchanged()
   expect(await transport.forward(request('/api/account/cart-snapshots', 'POST', body(), key))).toMatchObject({
     action: 'abort',
@@ -202,7 +202,7 @@ it('loses only the real committed 201 and recovers the exact receipt plus fresh 
 })
 it('resolves a real capability at current public prices then owner revocation makes it uniformly unavailable', async () => {
   const transport = bridge(),
-    key = randomUUID(),
+    key = testUuid(),
     before = unchanged()
   await transport.forward(request('/api/account/cart-snapshots', 'POST', body(), key))
   const recovered = await transport.forward(
@@ -233,7 +233,7 @@ it('resolves a real capability at current public prices then owner revocation ma
 })
 it('blocks a second create POST after response loss before dispatch', async () => {
   const transport = bridge(),
-    key = randomUUID()
+    key = testUuid()
   await transport.forward(request('/api/account/cart-snapshots', 'POST', body(), key))
   const calls = dispatch.mock.calls.length
   await expect(transport.forward(request('/api/account/cart-snapshots', 'POST', body(), key))).rejects.toThrow(
@@ -248,7 +248,7 @@ it('blocks provider and foreign transport with zero dispatch', async () => {
   expect(dispatch).not.toHaveBeenCalled()
 })
 async function resolveOriginal(transport: ReturnType<typeof bridge>) {
-  const key = randomUUID()
+  const key = testUuid()
   await transport.forward(request('/api/account/cart-snapshots', 'POST', body(), key))
   const recovered = await transport.forward(
     request('/api/account/cart-snapshots/commands/' + key, 'GET', undefined, key, await cartSnapshotIntentHash(body()))
@@ -284,7 +284,7 @@ it('copies an explicitly resolved line through the real cart facade into a disti
         variantId: prepared.variantLegacyId,
         quantity: prepared.quantity,
         expectedVersion: 1,
-        idempotencyKey: randomUUID()
+        idempotencyKey: testUuid()
       })
     })
   )
@@ -312,7 +312,7 @@ it('rejects copying back into the original cart before dispatch', async () => {
         variantId: prepared.variantLegacyId,
         quantity: prepared.quantity,
         expectedVersion: prepared.cartVersion,
-        idempotencyKey: randomUUID()
+        idempotencyKey: testUuid()
       })
     )
   ).rejects.toThrow('Destination must not be the source cart')

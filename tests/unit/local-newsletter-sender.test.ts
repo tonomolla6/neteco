@@ -5,6 +5,7 @@ import { transportReady } from '../../workers/marketing/newsletter-campaign-tran
 import { openMigratedDatabase, d1OverSqlite } from '../support/d1-sqlite'
 import { environment } from '../support/customer-operations-fixture'
 import type { DatabaseSync } from 'node:sqlite'
+import { testUuid } from '../support/deterministic'
 
 const opened: DatabaseSync[] = []
 afterEach(() => {
@@ -12,7 +13,7 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 const message = () => ({
-  deliveryId: crypto.randomUUID(),
+  deliveryId: testUuid(),
   to: 'recipient@example.invalid',
   from: 'newsletter@example.test',
   subject: 'Synthetic editorial test',

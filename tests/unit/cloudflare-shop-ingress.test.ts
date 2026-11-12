@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createShopIngress } from '../../workers/runtime/shop-ingress'
+import { testNow } from '../support/deterministic'
 
 function context() {
   return {
@@ -496,7 +497,7 @@ describe('Cloudflare shop ingress', () => {
     const api = { fetch: vi.fn(), scheduled, queue }
     const renderer = { fetch: vi.fn() }
     const ingress = createShopIngress(api, renderer)
-    const controller = { scheduledTime: Date.now(), cron: '* * * * *' } as ScheduledController
+    const controller = { scheduledTime: testNow(), cron: '* * * * *' } as ScheduledController
     const batch = { queue: 'neteco-preprod-jobs', messages: [] } as unknown as MessageBatch
     const env = environment()
     const ctx = context()

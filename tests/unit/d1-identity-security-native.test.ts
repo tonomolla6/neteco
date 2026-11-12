@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { expect, it, vi } from 'vitest'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { decryptSecret } from '../../server/utils/secrets'
@@ -31,7 +31,8 @@ it('runs actual canary source reset and compiled dispatcher on workerd D1/all71 
         let sends=0;
         export default {async fetch(request,env,context){
           if(new URL(request.url).pathname!='/__native/deliver') return worker.fetch(request,env,context);
-          const now=new Date().toISOString().replace(/\\.\\d{3}Z$/,'Z');
+          const {now}=await env.DB.prepare("SELECT MAX(available_at) AS now FROM email_outbox_delivery WHERE status='ready'").first();
+          if(!now)throw Error('native_queue_not_ready');
           const messages=[];
           await publishEmailOutbox(env.DB,{send:async message=>{messages.push(message)}},{now});
           if(messages.length!==1)throw Error('native_queue_count');
@@ -62,8 +63,7 @@ it('runs actual canary source reset and compiled dispatcher on workerd D1/all71 
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       name: 'identity-security-native',
-      modules: true,
-      script: bundle.outputFiles[0]!.text,
+      ...bundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       cf: false,
@@ -87,7 +87,7 @@ it('runs actual canary source reset and compiled dispatcher on workerd D1/all71 
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 154 }, (_, index) => index + 1)
+      Array.from({ length: 155 }, (_, index) => index + 1)
     )
     for (const name of migrations) {
       const sql = splitDemoSql(await readFile('db/d1/migrations/' + name, 'utf8'))
@@ -183,7 +183,7 @@ it('runs actual canary source reset and compiled dispatcher on workerd D1/all71 
       )
     const domain = await snapshot()
     const delivery = await runtime.dispatchFetch(origin + '/__native/deliver')
-    expect(delivery.status).toBe(200)
+    expect(delivery.status, await delivery.clone().text()).toBe(200)
     expect(await delivery.json()).toMatchObject({
       first: 'stored',
       replay: 'replayed',

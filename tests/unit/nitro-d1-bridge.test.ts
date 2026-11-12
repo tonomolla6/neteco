@@ -7,7 +7,8 @@ import { checkAdministrativeEdgeLimit } from '../../workers/auth/edge-limit'
 import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
+import { testUuid, testNow } from '../support/deterministic'
 
 const { fetchD1 } = vi.hoisted(() => ({ fetchD1: vi.fn() }))
 vi.mock('../../workers/canary', () => ({ default: { fetch: fetchD1 } }))
@@ -39,11 +40,11 @@ async function authenticatedNavigationFixture() {
       tokenPepper: randomBytes(32).toString('hex'),
       encryptionKey: randomBytes(32).toString('base64')
     }
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-    const expires = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-    const identityId = randomUUID()
-    const customerId = randomUUID()
-    const sessionId = randomUUID()
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const expires = new Date(testNow() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const identityId = testUuid()
+    const customerId = testUuid()
+    const sessionId = testUuid()
     sqlite
       .prepare('INSERT INTO customers(id,name,created_at,updated_at) VALUES (?,?,?,?)')
       .run(customerId, 'Navigation Customer', now, now)

@@ -426,7 +426,7 @@ describe('private D1 pricing reads against every migrated SQLite table', () => {
       ironCrypto,
       {
         id: SESSION,
-        createdAt: Date.now(),
+        createdAt: Date.parse(NOW),
         data: { sessionId: SESSION, sessionVersion: 1, user: { id: IDENTITY, role: 'admin', mfaVerified: true } }
       },
       COOKIE.password,
@@ -458,7 +458,7 @@ describe('private D1 pricing reads against every migrated SQLite table', () => {
       if (scope === 'role') sqlite.exec("UPDATE identity_roles SET expires_at='2026-09-30T09:00:01Z'")
       else sqlite.exec("UPDATE auth_sessions SET expires_at='2026-09-30T09:00:01Z'")
       const result = await request('/api/admin/prices', {
-        database: afterHistory(() => vi.setSystemTime(Date.now() + 2000))
+        database: afterHistory(() => vi.setSystemTime(Date.parse(NOW) + 2000))
       })
       expect(result.status).toBe(scope === 'role' ? 403 : 401)
       expect(await result.json()).toEqual({ error: { code: scope === 'role' ? 'forbidden' : 'unauthenticated' } })

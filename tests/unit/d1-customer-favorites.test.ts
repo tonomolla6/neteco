@@ -13,6 +13,7 @@ import {
   renameD1FavoriteList,
   saveD1CustomerFavorite
 } from '../../workers/catalog/customer-favorites'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-25T09:00:00Z'
 const A = '10000000-0000-4000-8000-000000000071'
@@ -167,7 +168,7 @@ describe('D1 customer favorites and simple lists', () => {
         `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
       SELECT ?,id,actor_id,'Synthetic fixture policy withdrawal',? FROM catalog_publication_policies WHERE id=?`
       )
-      .run(crypto.randomUUID(), NOW, publication.policyId)
+      .run(testUuid(), NOW, publication.policyId)
     expect((await listD1CustomerFavorites(database, request(), config))?.lists[0]?.items[0]).toMatchObject({
       variantId: 'v-1-1',
       quantity: '2',
@@ -206,7 +207,7 @@ describe('D1 customer favorites and simple lists', () => {
               `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
             SELECT ?,id,actor_id,'Synthetic fixture withdrawal before batch',? FROM catalog_publication_policies WHERE id=?`
             )
-            .run(crypto.randomUUID(), NOW, publication.policyId)
+            .run(testUuid(), NOW, publication.policyId)
           return target.batch(statements)
         }
       }

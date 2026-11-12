@@ -8,6 +8,7 @@ import { encryptSecret, hashOpaqueToken } from '../../server/utils/secrets'
 import { recoveryCodeHashes } from '../../server/domain/mfa'
 import { hashWorkerPassword } from '../../workers/auth/password'
 import { loginD1 } from '../../workers/auth/login'
+import { testUuid } from '../support/deterministic'
 
 const now = '2026-09-08T12:00:00Z'
 const identityId = '10000000-0000-4000-8000-000000000001'
@@ -31,7 +32,7 @@ describe('D1 MFA challenge completion', () => {
         `INSERT INTO mfa_challenges(id, identity_id, session_version, token_hash, created_at, expires_at)
       VALUES (?, ?, 1, ?, '2026-09-08T11:59:00Z', '2026-09-08T12:04:00Z')`
       )
-      .run(crypto.randomUUID(), identityId, hashOpaqueToken(token, tokenPepper))
+      .run(testUuid(), identityId, hashOpaqueToken(token, tokenPepper))
     return token
   }
   beforeEach(async () => {

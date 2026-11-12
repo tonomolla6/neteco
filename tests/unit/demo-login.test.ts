@@ -8,13 +8,14 @@ import { readD1UserSession } from '../../workers/auth/profile'
 import { authorizeD1Session } from '../../workers/catalog/authorization'
 import { loginD1 } from '../../workers/auth/login'
 import { hashWorkerPassword } from '../../workers/auth/password'
+import { testNow } from '../support/deterministic'
 
 const opened: DatabaseSync[] = []
 afterEach(() => {
   vi.restoreAllMocks()
   for (const database of opened.splice(0)) database.close()
 })
-const instant = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const instant = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 async function fixture() {
   const sqlite = await openMigratedDatabase()
   opened.push(sqlite)

@@ -2,6 +2,7 @@ import { cmsPublicationFixture } from './d1-cms-publication-fixture'
 import { CMS_CLAIMS, cmsDocument, cmsUtc } from './d1-cms-fixture'
 import { executeD1CmsDraftCommand } from '../../workers/cms/drafts'
 import { executeCmsPublicationCommand } from '../../workers/cms/publication'
+import { testUuid } from '../support/deterministic'
 export const editorial = (extra: Record<string, unknown> = {}) => ({
   kind: 'article',
   category: { slug: 'limpieza-profesional', label: 'Limpieza profesional' },
@@ -23,10 +24,10 @@ export async function resourceHubFixture() {
       'create_draft',
       {},
       {
-        ...cmsDocument({ slug: `recurso-${crypto.randomUUID()}`, resourceHub: editorial(), ...extra }),
+        ...cmsDocument({ slug: `recurso-${testUuid()}`, resourceHub: editorial(), ...extra }),
         expectedVersion: 0
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     if (published)
       await executeCmsPublicationCommand(
@@ -40,7 +41,7 @@ export async function resourceHubFixture() {
           versionId: receipt.versionId,
           reason: 'Revisión editorial sintética, no aprobación de contenido real'
         },
-        crypto.randomUUID()
+        testUuid()
       )
     return receipt
   }

@@ -9,8 +9,9 @@ import {
   ownsContentGovernanceAdminNamespace,
   ownsContentGovernancePublicNamespace
 } from '../../workers/content/content-governance-http'
+import { testUuid, testNow } from '../support/deterministic'
 
-const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
+const day = (offset: number) => new Date(testNow() + offset * 86_400_000).toISOString().slice(0, 10)
 const origin = 'https://governance.neteco.invalid'
 const password = 'synthetic-only-cookie-password-32-characters'
 const SECOND = {
@@ -31,7 +32,7 @@ describe('content governance HTTP contract', () => {
           cookie,
           origin,
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           ...headers
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) })
@@ -56,7 +57,7 @@ describe('content governance HTTP contract', () => {
     f.sqlite.exec(
       await readFile(new URL('../../db/d1/migrations/0149_content_governance.sql', import.meta.url), 'utf8')
     )
-    const past = new Date(Date.now() - 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const past = new Date(testNow() - 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     f.sqlite
       .prepare(
         "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES (?,'second-http@example.invalid','synthetic-only',?,'active',?,?)"
@@ -73,7 +74,7 @@ describe('content governance HTTP contract', () => {
         SECOND.sessionId,
         SECOND.identityId,
         past,
-        new Date(Date.now() + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+        new Date(testNow() + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       )
     cookie = (await issueD1SessionCookie(f.database, CMS_CLAIMS, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!
     secondCookie = (await issueD1SessionCookie(f.database, SECOND, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!

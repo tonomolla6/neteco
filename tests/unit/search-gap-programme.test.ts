@@ -18,9 +18,10 @@ import {
   listSearchGapCases,
   measureSearchGapCase
 } from '../../workers/catalog/search-gap-programme'
+import { testUuid, testNow } from '../support/deterministic'
 
 const DAY = 86_400_000
-const iso = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const iso = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const day = (offsetDays: number) => iso(offsetDays * DAY).slice(0, 10)
 
 describe('SEO-025 zero-result optimisation programme', () => {
@@ -47,7 +48,7 @@ describe('SEO-025 zero-result optimisation programme', () => {
       )
       .run(day(offsetDays), term, env, searches, zero, iso())
   }
-  const run = (input: unknown, key = crypto.randomUUID(), options: { now?: string } = {}) =>
+  const run = (input: unknown, key = testUuid(), options: { now?: string } = {}) =>
     executeSearchGapCommand(database, CATEGORY_CLAIMS, input, { idempotencyKey: key, ...options })
   const seedBaseline = (term = 'quitasarros', start = -10) => {
     for (let d = start; d <= start + 9; d++) daily(term, d, 5, 5)
@@ -210,7 +211,7 @@ describe('SEO-025 zero-result optimisation programme', () => {
       )
       const base = { action: 'record_action', id: opened.id, expectedVersion: 1, actionType: 'synonym' }
       expect(await code(run({ ...base, referenceId: wrong.item.id }))).toBe('invalid_reference')
-      expect(await code(run({ ...base, referenceId: crypto.randomUUID() }))).toBe('invalid_reference')
+      expect(await code(run({ ...base, referenceId: testUuid() }))).toBe('invalid_reference')
     })
     it('records a redirect action referencing an active redirect rule for the term, then CAS rejects stale updates', async () => {
       const opened = await openCase('oferta limpieza')
@@ -286,9 +287,9 @@ describe('SEO-025 zero-result optimisation programme', () => {
       await openCase() // a new live case for the same term is allowed after dismissal (baseline already seeded)
     })
     it('returns not_found for unknown ids and keeps events append-only', async () => {
-      expect(
-        await code(run({ action: 'dismiss', id: crypto.randomUUID(), expectedVersion: 1, note: 'No existe' }))
-      ).toBe('not_found')
+      expect(await code(run({ action: 'dismiss', id: testUuid(), expectedVersion: 1, note: 'No existe' }))).toBe(
+        'not_found'
+      )
       await openCase()
       expect(() => sqlite.exec("UPDATE search_gap_events SET action='open'")).toThrow(/immutable/)
       expect(() => sqlite.exec('DELETE FROM search_gap_events')).toThrow(/immutable/)
@@ -388,7 +389,7 @@ describe('SEO-025 zero-result optimisation programme', () => {
       expect(worse).toBe('worse')
     })
     it('returns not_found for unknown cases', async () => {
-      expect(await code(measureSearchGapCase(database, CATEGORY_CLAIMS, crypto.randomUUID()))).toBe('not_found')
+      expect(await code(measureSearchGapCase(database, CATEGORY_CLAIMS, testUuid()))).toBe('not_found')
       expect(await code(measureSearchGapCase(database, CATEGORY_CLAIMS, 'bad'))).toBe('invalid_input')
     })
   })

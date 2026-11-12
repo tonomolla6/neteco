@@ -1,9 +1,10 @@
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
 import { ref } from 'vue'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import PayGoldLinkPanel from '../../app/components/PayGoldLinkPanel.vue'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
   auth: null as unknown as {
@@ -17,8 +18,10 @@ mockNuxtImport('useUserSession', () => () => mocks.auth)
 const quoteId = '68000000-0000-4000-8000-000000000001',
   orderId = '68000000-0000-4000-8000-000000000002'
 const receipt = { action: 'convert' as const, quoteId, orderId, version: 4 }
-const future = () => new Date(Date.now() + 600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const future = () => new Date(testNow() + 600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   mocks.auth = {
     user: ref({ id: 'buyer-a' }),
     session: ref({ sessionId: 'session-a', sessionVersion: 1 }),
@@ -55,6 +58,7 @@ beforeEach(() => {
     throw new Error('unexpected request')
   })
 })
+afterEach(() => vi.useRealTimers())
 it('waits for a confirmed converted quote', async () => {
   const wrapper = await mountSuspended(PayGoldLinkPanel, { props: { receipt: null } })
   await flushPromises()

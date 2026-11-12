@@ -11,6 +11,7 @@ import {
   type CatalogExportSnapshot
 } from '../../shared/catalog-export'
 import { parseCatalogCsvCells } from '../../shared/catalog-tabular-core'
+import { testNow } from '../support/deterministic'
 
 async function empty(): Promise<CatalogExportSnapshot> {
   const snapshot = catalogExportSnapshotSchema.parse({
@@ -149,7 +150,7 @@ describe('native catalogue export contract', () => {
     cyclic.self = cyclic
     for (const bad of [
       cyclic,
-      new Date(),
+      new Date(testNow()),
       new Array(2),
       Object.assign([], { extra: 1 }),
       {

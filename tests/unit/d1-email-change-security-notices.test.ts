@@ -16,6 +16,7 @@ import { updateD1AccountPreferences } from '../../workers/auth/account-preferenc
 import { updateD1DeliveryPreferences } from '../../workers/auth/delivery-preferences'
 import { ACCOUNT_PREFERENCES_POLICY_VERSION } from '../../shared/account-preferences'
 import { DELIVERY_PREFERENCES_POLICY_VERSION } from '../../shared/delivery-preferences'
+import { testUuid, testNow } from '../support/deterministic'
 
 const PREVIOUS = 'previous-security@example.invalid',
   CURRENT = 'current-security@example.invalid'
@@ -26,7 +27,7 @@ let configuration: { password: string; tokenPepper: string; encryptionKey: strin
 beforeEach(async () => {
   sqlite = await openAccountSecurityDatabase()
   database = d1OverSqlite(sqlite)
-  now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
   configuration = {
     password: randomBytes(32).toString('hex'),
     tokenPepper: randomBytes(32).toString('hex'),
@@ -135,7 +136,7 @@ it('delivers both historical security recipients exactly once despite explicit m
   await updateD1AccountPreferences(
     database,
     claims,
-    crypto.randomUUID(),
+    testUuid(),
     {
       expectedVersion: 0,
       preferences: { product_updates: false, replenishment: false },
@@ -146,7 +147,7 @@ it('delivers both historical security recipients exactly once despite explicit m
   await updateD1DeliveryPreferences(
     database,
     claims,
-    crypto.randomUUID(),
+    testUuid(),
     {
       expectedVersion: 0,
       deliveryUpdates: false,

@@ -16,6 +16,7 @@ import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleAnalyticsHttp } from '../../workers/analytics/http'
 import { auditNativeAnalytics } from '../../scripts/lib/audit-native-analytics'
 import { createShopIngress } from '../../workers/runtime/shop-ingress'
+import { testUuid } from '../support/deterministic'
 
 const opened: DatabaseSync[] = []
 afterEach(() => {
@@ -185,9 +186,9 @@ async function world(environment: AnalyticsMeasurementDependencies['environment'
   }
   async function events(count: number, overrides: Partial<AnalyticsMeasurementDependencies> = {}) {
     const ids: string[] = [],
-      anonymousCookie = crypto.randomUUID()
+      anonymousCookie = testUuid()
     for (let i = 0; i < count; i++) {
-      const eventId = crypto.randomUUID()
+      const eventId = testUuid()
       expect(
         (
           await collectClientAnalytics(

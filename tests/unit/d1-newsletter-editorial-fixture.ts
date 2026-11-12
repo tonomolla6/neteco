@@ -13,6 +13,7 @@ import { newsletterCampaignDocumentSchema, newsletterPolicyDocumentSchema } from
 import type { NewsletterEditorialHttpDependencies } from '../../workers/marketing/newsletter-editorial-core'
 import type { NewsletterEditorialMessage } from '../../workers/marketing/newsletter-campaign-transport'
 import { NEWSLETTER_CONSENT_TEXT, NEWSLETTER_POLICY_VERSION } from '../../shared/newsletter'
+import { testUuid, testNow } from '../support/deterministic'
 
 export const newsletterCampaignDocument = () =>
   newsletterCampaignDocumentSchema.parse({
@@ -22,9 +23,7 @@ export const newsletterCampaignDocument = () =>
     topics: [],
     topicMatch: 'any',
     frequencies: ['immediate', 'weekly', 'monthly'],
-    blocks: [
-      { id: crypto.randomUUID(), type: 'paragraph', kind: 'editorial', text: 'Contenido educativo sintético y seguro.' }
-    ],
+    blocks: [{ id: testUuid(), type: 'paragraph', kind: 'editorial', text: 'Contenido educativo sintético y seguro.' }],
     changeSummary: 'Versión sintética inicial'
   })
 export const newsletterPolicyDocument = () =>
@@ -61,7 +60,7 @@ export async function newsletterEditorialFixture() {
   if (!world.sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='product_watch_requests'").get())
     world.sqlite.exec(await readFile(new URL('../../db/d1/migrations/0087_product_watch.sql', import.meta.url), 'utf8'))
   world.sqlite.exec(await readFile(new URL('../../db/d1/migrations/0090_cart_recovery.sql', import.meta.url), 'utf8'))
-  let now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  let now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const secrets = { hmacKey: crypto.getRandomValues(new Uint8Array(32)) },
     sent: NewsletterEditorialMessage[] = []
   const deps: NewsletterEditorialHttpDependencies = {
@@ -106,7 +105,7 @@ export async function newsletterEditorialFixture() {
           consentText: NEWSLETTER_CONSENT_TEXT,
           consentVersion: NEWSLETTER_POLICY_VERSION,
           consentSource: 'footer',
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: testUuid(),
           now: at
         },
         secrets
@@ -122,7 +121,7 @@ export async function newsletterEditorialFixture() {
       deps,
       authority,
       { action: 'save', expectedRevision: 0, preference: { frequency, topics, locale: 'es', quietHours: null } },
-      crypto.randomUUID()
+      testUuid()
     )
     return { id: row.id, token, authority }
   }
@@ -138,7 +137,7 @@ export async function newsletterEditorialFixture() {
         policy: newsletterPolicyDocument(),
         reason: 'Política de prueba explícita'
       },
-      crypto.randomUUID()
+      testUuid()
     )
   }
   async function campaign(approve = true, document = newsletterCampaignDocument()) {
@@ -152,7 +151,7 @@ export async function newsletterEditorialFixture() {
         document,
         reason: 'Creación sintética'
       },
-      crypto.randomUUID()
+      testUuid()
     )
     if (!approve) return created.resourceId
     const snapshot = await readNewsletterEditorialAdmin(deps, CMS_CLAIMS),
@@ -183,7 +182,7 @@ export async function newsletterEditorialFixture() {
         repeatedHour: 'earlier',
         reason: 'Aprobación sintética por operador autorizado'
       },
-      crypto.randomUUID()
+      testUuid()
     )
     return item.id
   }

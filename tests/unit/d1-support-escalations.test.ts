@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { supportFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-support-fixture'
 import {
   executeSupportEscalationCommand,
@@ -11,6 +11,7 @@ import {
 } from '../../workers/support/escalations'
 import { supportEscalationIntentHash } from '../../shared/support-escalations'
 import { readSupportTicket } from '../../workers/support/operations'
+import { testUuid } from '../support/deterministic'
 
 describe('SUP-006 governed internal human escalations', () => {
   let f: Awaited<ReturnType<typeof supportFixture>>
@@ -31,8 +32,8 @@ describe('SUP-006 governed internal human escalations', () => {
     reason
   }
   async function runbook(expiresAt = utc(86400000)) {
-    const id = crypto.randomUUID()
-    await executeSupportRunbookCommand(f.database, CLAIMS, id, draft, { idempotencyKey: crypto.randomUUID() })
+    const id = testUuid()
+    await executeSupportRunbookCommand(f.database, CLAIMS, id, draft, { idempotencyKey: testUuid() })
     await executeSupportRunbookCommand(
       f.database,
       CLAIMS,
@@ -45,7 +46,7 @@ describe('SUP-006 governed internal human escalations', () => {
         expiresAt,
         reason
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     return { id, version: 2 }
   }
@@ -65,7 +66,7 @@ describe('SUP-006 governed internal human escalations', () => {
     }
     return { ticket, input }
   }
-  const execute = (ref: string, input: unknown, key = crypto.randomUUID()) =>
+  const execute = (ref: string, input: unknown, key = testUuid()) =>
     executeSupportEscalationCommand(f.database, CLAIMS, ref, input, { idempotencyKey: key })
   it('creates a linked escalation with eligible owner, approved runbook and no ticket or economic effects', async () => {
     const { ticket, input } = await context(),
@@ -96,7 +97,7 @@ describe('SUP-006 governed internal human escalations', () => {
   })
   it('replays exactly, rejects changed payload and recovers only actor-bound exact hash', async () => {
     const { ticket, input } = await context(),
-      key = crypto.randomUUID()
+      key = testUuid()
     const receipt = await execute(ticket.publicRef, input, key)
     expect(await execute(ticket.publicRef, input, key)).toEqual(receipt)
     await expect(execute(ticket.publicRef, { ...input, severity: 'critical' }, key)).rejects.toMatchObject({
@@ -162,8 +163,8 @@ describe('SUP-006 governed internal human escalations', () => {
   })
   it('does not treat a draft or withdrawn internal runbook as approved', async () => {
     const { ticket, input } = await context(),
-      id = crypto.randomUUID()
-    await executeSupportRunbookCommand(f.database, CLAIMS, id, draft, { idempotencyKey: crypto.randomUUID() })
+      id = testUuid()
+    await executeSupportRunbookCommand(f.database, CLAIMS, id, draft, { idempotencyKey: testUuid() })
     await expect(execute(ticket.publicRef, { ...input, runbook: { id, version: 1 } })).rejects.toMatchObject({
       code: 'runbook_unavailable'
     })
@@ -172,7 +173,7 @@ describe('SUP-006 governed internal human escalations', () => {
       CLAIMS,
       input.runbook.id,
       { action: 'withdraw', expectedVersion: 2, reason },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await expect(execute(ticket.publicRef, input)).rejects.toMatchObject({ code: 'runbook_unavailable' })
   })
@@ -188,7 +189,7 @@ describe('SUP-006 governed internal human escalations', () => {
   })
   it('denies customers and revoked admin sessions on reads and historical replay', async () => {
     const { ticket, input } = await context(),
-      key = crypto.randomUUID()
+      key = testUuid()
     await execute(ticket.publicRef, input, key)
     // Isolate the missing support permission from the independently enforced MFA gate.
     f.sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1 WHERE id=?').run(BUYER_CLAIMS.sessionId)
@@ -204,7 +205,7 @@ describe('SUP-006 governed internal human escalations', () => {
   it('returns explicit unknown without inferring absence and validates owner filters', async () => {
     const ticket = await f.ticket()
     expect(
-      await readSupportEscalationCommand(f.database, CLAIMS, ticket.publicRef, crypto.randomUUID(), 'a'.repeat(64))
+      await readSupportEscalationCommand(f.database, CLAIMS, ticket.publicRef, testUuid(), 'a'.repeat(64))
     ).toEqual({ source: 'cloudflare', outcome: 'unknown', receipt: null })
     await expect(listSupportEscalations(f.database, CLAIMS, { owner: 'not-an-identity' })).rejects.toMatchObject({
       code: 'invalid_input'
@@ -226,7 +227,7 @@ describe('SUP-006 governed internal human escalations', () => {
     })
     await expect(
       executeSupportEscalationCommand(database, CLAIMS, ticket.publicRef, input, {
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
     ).rejects.toMatchObject({ code: 'unauthenticated' })
     expect(
@@ -250,7 +251,7 @@ describe('SUP-006 governed internal human escalations', () => {
         get(target, property) {
           if (property === 'batch')
             return async (statements: D1PreparedStatement[]) => {
-              await new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(expires) - Date.now()) + 50))
+              vi.setSystemTime(new Date(Date.parse(expires) + 50))
               return target.batch(statements)
             }
           const value = Reflect.get(target, property)
@@ -259,7 +260,7 @@ describe('SUP-006 governed internal human escalations', () => {
       })
       await expect(
         executeSupportEscalationCommand(database, CLAIMS, ticket.publicRef, input, {
-          idempotencyKey: crypto.randomUUID()
+          idempotencyKey: testUuid()
         })
       ).rejects.toMatchObject({ code: 'write_unconfirmed' })
       expect(

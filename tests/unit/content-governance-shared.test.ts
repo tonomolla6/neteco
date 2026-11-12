@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { deterministicUuid, FIXED_TEST_INSTANT } from '../fixtures/deterministic'
 import {
   assetCommandSchema,
   buildTrustJsonLd,
@@ -9,7 +10,8 @@ import {
   safeRedirectPath
 } from '../../shared/content-governance'
 
-const day = (offset: number, base = Date.now()) => new Date(base + offset * 86_400_000).toISOString().slice(0, 10)
+const day = (offset: number, base = Date.parse(FIXED_TEST_INSTANT)) =>
+  new Date(base + offset * 86_400_000).toISOString().slice(0, 10)
 const source = {
   label: 'Ficha de datos de seguridad del fabricante',
   url: 'https://example.invalid/fds.pdf',
@@ -22,21 +24,27 @@ const base = {
   ownerName: 'Equipo técnico',
   sensitivity: 'regulation',
   nextReviewAt: day(90),
-  authorId: crypto.randomUUID(),
-  reviewerId: crypto.randomUUID(),
+  authorId: deterministicUuid('governance-author'),
+  reviewerId: deterministicUuid('governance-reviewer'),
   sources: [source],
   claims: [{ text: 'Eficaz frente a bacterias según el ensayo citado', category: 'health', sourceIndex: 0 }],
   retirement: null
 }
 
 describe('SEO-029/031 command schema', () => {
+  it('uses repeatable governance dates and distinct synthetic identities', () => {
+    expect(base.nextReviewAt).toBe('2026-11-11')
+    expect(base.authorId).toBe(deterministicUuid('governance-author'))
+    expect(base.reviewerId).toBe(deterministicUuid('governance-reviewer'))
+    expect(base.authorId).not.toBe(base.reviewerId)
+  })
   it('accepts a complete governance command', () => {
     expect(contentGovernanceCommandSchema.safeParse(base).success).toBe(true)
   })
   it.each([
     ['unknown key', { ...base, extra: 1 }],
     ['client-supplied time', { ...base, signedOffAt: '2026-01-01T00:00:00Z' }],
-    ['client-supplied identity', { ...base, actorId: crypto.randomUUID() }],
+    ['client-supplied identity', { ...base, actorId: deterministicUuid('governance-actor') }],
     ['bad slug', { ...base, slug: 'Not A Slug' }],
     ['non-https source', { ...base, sources: [{ ...source, url: 'http://example.invalid/x' }] }],
     ['javascript source', { ...base, sources: [{ ...source, url: 'javascript:alert(1)' }] }],

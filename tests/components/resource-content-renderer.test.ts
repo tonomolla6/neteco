@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import ContentPage from '../../app/pages/contenido/[slug].vue'
 import CmsContentBlocks from '../../app/components/CmsContentBlocks.vue'
 import '#app/nuxt-vitest-app-entry'
+import { testUuid } from '../support/deterministic'
 const { fetchMock, headMock } = vi.hoisted(() => ({ fetchMock: vi.fn(), headMock: vi.fn() }))
 mockNuxtImport('useFetch', () => fetchMock)
 mockNuxtImport('useHead', () => headMock)
@@ -53,8 +54,8 @@ describe('shared CMS renderer and resource canonical', () => {
         runtime: 'cloudflare',
         blocks: [
           image,
-          { id: crypto.randomUUID(), type: 'heading', level: 'h2', text: 'Título tipado' },
-          { id: crypto.randomUUID(), type: 'paragraph', text: '<script>no()</script>' }
+          { id: testUuid(), type: 'heading', level: 'h2', text: 'Título tipado' },
+          { id: testUuid(), type: 'paragraph', text: '<script>no()</script>' }
         ],
         media: { [ID]: approved }
       }

@@ -21,6 +21,7 @@ import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import worker from '../../workers/canary'
 import { createFakePayGoldService } from './paygold-fake-fixture'
+import { testUuid } from '../support/deterministic'
 
 it('links an approved quote to the real checkout intent and reconciles its signed callback through checkout', async () => {
   const f = await returnsFixture()
@@ -55,7 +56,7 @@ it('links an approved quote to the real checkout intent and reconciles its signe
       reason
     }
     const created = await executeD1SalesQuoteCommand(f.database, CLAIMS, 'create', null, definition, {
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     const reviewed = await executeD1SalesQuoteCommand(
       f.database,
@@ -63,7 +64,7 @@ it('links an approved quote to the real checkout intent and reconciles its signe
       'review',
       created.quoteId,
       { expectedVersion: created.version, reason },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const review = await readD1AdminSalesQuote(f.database, CLAIMS, created.quoteId)
     await executeD1SalesQuoteCommand(
@@ -72,7 +73,7 @@ it('links an approved quote to the real checkout intent and reconciles its signe
       'approve',
       created.quoteId,
       { expectedVersion: reviewed.version, reviewedHash: review.reviewedHash, reason },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const approved = await readD1AdminSalesQuote(f.database, CLAIMS, created.quoteId)
     if (!approved.approvedHash || !approved.total) throw new Error('missing quote approval')
@@ -84,18 +85,18 @@ it('links an approved quote to the real checkout intent and reconciles its signe
       expectedVersion: 1,
       variantId: 'v-1-1',
       quantity: 2,
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     const cartQuote = await quoteCart(f.database, {
       ...common,
       expectedVersion: 2,
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     const shipping = await requestShippingOptions(f.database, {
       ...common,
       expectedVersion: 2,
       destination: definition.destination,
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     if (cartQuote.outcome !== 'quoted' || shipping.outcome !== 'options') throw new Error('checkout fixture')
     const option = (
@@ -128,15 +129,15 @@ it('links an approved quote to the real checkout intent and reconciles its signe
           consentTos: true,
           consentPrivacy: true,
           ownerSession: BUYER_CLAIMS,
-          idempotencyKey: crypto.randomUUID()
+          idempotencyKey: testUuid()
         }
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const orderId = converted.orderId!,
       orderToken = await deriveOrderToken(cart.token, orderId),
       expiresAt = utc(120000),
-      commandId = crypto.randomUUID()
+      commandId = testUuid()
     const configuration = {
       environment: 'sandbox' as const,
       merchantCode: REDSYS_OFFICIAL_CONTRACT.sandbox.merchantCode,

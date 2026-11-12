@@ -2,9 +2,10 @@ import { readFile } from 'node:fs/promises'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { adminInvitationTokenHash } from '../../shared/admin-invitations'
+import { testUuid, testNow } from '../support/deterministic'
 
 export const ORIGIN = 'https://invitations.neteco.test'
-export const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+export const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 export const ADMIN = {
   identityId: '10000000-0000-4000-8000-000000000082',
   sessionId: '20000000-0000-4000-8000-000000000082',
@@ -31,7 +32,7 @@ export async function invitationFixture() {
     [RECIPIENT, 'recipient@example.invalid'],
     [FOREIGN, 'foreign@example.invalid']
   ] as const) {
-    const customerId = claims.identityId === ADMIN.identityId ? null : crypto.randomUUID()
+    const customerId = claims.identityId === ADMIN.identityId ? null : testUuid()
     if (customerId)
       sqlite
         .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")

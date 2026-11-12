@@ -8,9 +8,10 @@ import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleNativeCatalogImportHttp } from '../../workers/catalog/native-import-http'
 import { handleCatalogImportJobHttp } from '../../workers/catalog/import-job-http'
 import { handleD1AdminCatalogRequest } from '../../workers/catalog/admin-catalog-http'
+import { testUuid, testNow } from '../support/deterministic'
 
 const origin = 'https://shop-audit.neteco.test'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('disposable native catalog import HTTP proof', () => {
   it('runs sixteen counted scenarios including inert staging/review and atomic 601-row apply/compensation without external I/O', async () => {
@@ -26,9 +27,9 @@ describe('disposable native catalog import HTTP proof', () => {
       sqlite.limits.functionArg = 32
       sqlite.limits.compoundSelect = 5
       sqlite.limits.likePatternLength = 50
-      const identityId = crypto.randomUUID(),
-        adminSession = crypto.randomUUID(),
-        unprivilegedSession = crypto.randomUUID()
+      const identityId = testUuid(),
+        adminSession = testUuid(),
+        unprivilegedSession = testUuid()
       sqlite
         .prepare(
           "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES (?,'native-audit-helper@example.invalid','unusable-synthetic',?,'active',?,?)"

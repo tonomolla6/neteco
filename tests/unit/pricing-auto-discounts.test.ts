@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { deterministicTestData } from '../fixtures/deterministic'
 import {
   autoDiscountRuleInputSchema,
   evaluateAutoDiscounts,
@@ -6,7 +7,12 @@ import {
   type AutoDiscountRule
 } from '../../shared/auto-discounts'
 
-const at = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const data = deterministicTestData('pricing-auto-discounts')
+const at = (offsetMs = 0) =>
+  data
+    .date(offsetMs)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
 const now = at()
 
 function rule(over: Partial<AutoDiscountRule> & { id: string }): AutoDiscountRule {
@@ -52,6 +58,10 @@ const ctx = (lines: AutoDiscountLine[], over: Record<string, unknown> = {}) => (
 })
 
 describe('automatic discounts (PRI-014)', () => {
+  it('evaluates fixtures at a fixed instant with repeatable offsets', () => {
+    expect(now).toBe('2026-08-13T12:00:00Z')
+    expect(at(-3_600_000)).toBe('2026-08-13T11:00:00Z')
+  })
   it('applies a product percentage with explicit half-up rounding and explains it', () => {
     const r = evaluateAutoDiscounts(
       [rule({ id: 'a', benefit: { kind: 'percent', basisPoints: 1250 } })],

@@ -2,6 +2,7 @@ import { packingFixture, createPackingOrder, CLAIMS, REASON, utc } from './d1-or
 import { executeD1AdminPackingCommand } from '../../workers/fulfillment/packing'
 import { issueD1SessionCookie, type SessionCookieConfiguration } from '../../workers/auth/session-cookie'
 import { issueD1GuestOrderEmailLink, exchangeD1GuestOrderAccess } from '../../workers/catalog/guest-order-access'
+import { testUuid } from '../support/deterministic'
 
 export { CLAIMS, utc }
 export const BUYER = {
@@ -56,7 +57,7 @@ export async function recordTrackingPacking(database: D1Database, orderId: strin
         contents: [{ lineIndex: 0, quantity: 2 }]
       }))
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   await executeD1AdminPackingCommand(
     database,
@@ -77,7 +78,7 @@ export async function recordTrackingPacking(database: D1Database, orderId: strin
       actualNetCents: 700,
       taxBps: 2100
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
 }
 export async function trackingGuestCookie(

@@ -7,6 +7,7 @@ import {
   unassignD1CompanyB2BPriceList
 } from '../../workers/catalog/b2b-pricing'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
+import { testUuid } from '../support/deterministic'
 
 async function world() {
   const f = await returnsFixture()
@@ -17,7 +18,7 @@ async function world() {
     f.sqlite.exec(
       `INSERT INTO companies(id,customer_id,legal_name,status,created_at,updated_at) VALUES('company','${CUSTOMER}','Empresa','approved','${before}','${before}')`
     )
-    return { ...f, now, options: () => ({ idempotencyKey: crypto.randomUUID(), now: () => now }) }
+    return { ...f, now, options: () => ({ idempotencyKey: testUuid(), now: () => now }) }
   } catch (error) {
     f.sqlite.close()
     throw error
@@ -363,7 +364,7 @@ describe('audited contractual pricing commands', () => {
     try {
       const first = await upsertD1B2BPriceList(f.database, CLAIMS, list, f.options())
       const second = await upsertD1B2BPriceList(f.database, CLAIMS, { ...list, code: 'OTHER' }, f.options())
-      const key = crypto.randomUUID()
+      const key = testUuid()
       f.sqlite
         .prepare(
           'INSERT INTO b2b_pricing_commands(actor_id,command_id,session_id,session_version,action,payload_hash,input_json,receipt_json,created_at) VALUES(?,?,?,1,?,?,?,?,?)'

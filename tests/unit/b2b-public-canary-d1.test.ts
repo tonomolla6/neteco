@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import canary from '../../workers/canary'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 let now: string
 let expires: string
@@ -17,7 +18,7 @@ let cookie: string
 const ingress = { 'cf-connecting-ip': '203.0.113.9' }
 describe('montaje completo B2B con D1 sintético', () => {
   beforeEach(async () => {
-    const current = Date.now()
+    const current = testNow()
     now = new Date(current).toISOString().replace(/\.\d{3}Z$/, 'Z')
     expires = new Date(current + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     vi.useFakeTimers()

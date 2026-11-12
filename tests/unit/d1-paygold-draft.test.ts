@@ -5,6 +5,7 @@ import { BUYER_CLAIMS, CLAIMS, CUSTOMER } from './d1-returns-fixture'
 import { createFakePayGoldService } from './paygold-fake-fixture'
 import { configuredPayGoldDraftIssue } from '../../workers/payments/paygold-runtime'
 import { processRedsysNotification } from '../../workers/catalog/payments'
+import { testUuid } from '../support/deterministic'
 
 const PROVIDER = 'https://paygold.example.invalid'
 let f: Awaited<ReturnType<typeof payExtFixture>>
@@ -42,7 +43,7 @@ async function draftFor(
   const row = f.sqlite
     .prepare('SELECT total_gross_cents t, customer_id c FROM orders WHERE id=?')
     .get(order.orderId) as { t: number; c: string | null }
-  const draftId = crypto.randomUUID()
+  const draftId = testUuid()
   f.sqlite
     .prepare(
       `INSERT INTO draft_orders(id,draft_number,customer_id,company_name,contact_email,status,total_cents,subtotal_cents,items_json,expires_at,
@@ -51,7 +52,7 @@ async function draftFor(
     )
     .run(
       draftId,
-      `DRF-${draftId.slice(0, 8)}`,
+      `DRF-${draftId}`,
       over.draftCustomer ?? row.c ?? CUSTOMER,
       'Synthetic Co',
       'buyer@example.invalid',
@@ -71,7 +72,7 @@ const input = (d: { draftId: string; orderId: string; token: string }, over: Rec
   expectedVersion: 3,
   orderId: d.orderId,
   orderToken: d.token,
-  commandId: crypto.randomUUID(),
+  commandId: testUuid(),
   expiresAt: utc(20 * 60_000),
   ...over
 })
@@ -201,7 +202,7 @@ describe('PayGold link for a converted draft order', () => {
         `INSERT INTO payment_preauths(id,order_id,merchant_order,amount_cents,reason_code,justification,requested_by,status,version,redirect_expires_at,created_at,updated_at)
          VALUES(?,?,'7777ABCDEFGH',?,'made_to_order','Made to order item needs confirmation',?, 'requested',1,?,?,?)`
       )
-      .run(crypto.randomUUID(), held.orderId, held.total, CLAIMS.identityId, utc(60_000), utc(), utc())
+      .run(testUuid(), held.orderId, held.total, CLAIMS.identityId, utc(60_000), utc(), utc())
     await expect(issue()(BUYER_CLAIMS, input(held))).rejects.toMatchObject({ code: 'not_payable' })
     expect(calls).toBe(0)
   })

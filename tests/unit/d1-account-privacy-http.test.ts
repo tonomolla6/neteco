@@ -1,14 +1,41 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { returnsFixture, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleAccountPrivacyHttp } from '../../workers/auth/account-privacy-http'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
+import { testNow } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_privacy_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_privacy_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const exec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_privacy_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_privacy_clock()'))
+      return database
+    }
+  }
+})
 const origin = 'https://privacy.neteco.test',
   configuration = { password: 'synthetic-privacy-cookie-password-longer32', maxAgeSeconds: 3600 },
   key = '11111111-1111-4111-8111-111111111165'
 let f: Awaited<ReturnType<typeof returnsFixture>>, cookie: string
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await returnsFixture()
   f.sqlite.exec(await readFile('db/d1/migrations/0065_account_privacy.sql', 'utf8'))
   f.sqlite.exec(await readFile('db/d1/migrations/0066_account_preferences.sql', 'utf8'))
@@ -20,7 +47,10 @@ beforeEach(async () => {
   )
   cookie = (await issueD1SessionCookie(f.database, BUYER_CLAIMS, configuration))!.split(';')[0]!
 })
-afterEach(() => f?.sqlite.close())
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
 const deps = () => ({ database: f.database, origin, sessionCookieConfiguration: configuration, now: () => utc() })
 const request = (method = 'GET', suffix = '', body: unknown = { requestType: 'export', idempotencyKey: key }) =>
   new Request(`${origin}/api/account/privacy${suffix}`, {
@@ -86,7 +116,7 @@ it('enforces content and streaming bounds and durable owner quota', async () => 
     .prepare(
       "INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at) VALUES(?,'account-privacy-requests',10,?,?) ON CONFLICT(identity_id,scope) DO UPDATE SET used=10"
     )
-    .run(BUYER_CLAIMS.identityId, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + 3600)
+    .run(BUYER_CLAIMS.identityId, Math.floor(testNow() / 1000), Math.floor(testNow() / 1000) + 3600)
   expect((await handleAccountPrivacyHttp(request('POST'), deps()))?.status).toBe(429)
   expect(f.sqlite.prepare('SELECT count(*) n FROM account_privacy_requests').get()).toEqual({ n: 0 })
 })

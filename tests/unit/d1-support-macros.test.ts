@@ -1,8 +1,27 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { supportFixture, CLAIMS, utc } from './d1-support-fixture'
 import { executeSupportMacroCommand, listSupportMacros, previewSupportMacro } from '../../workers/support/macros'
 import { executeSupportAdminCommand } from '../../workers/support/operations'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_support_macro_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_macro_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_support_macro_clock()'))
+      return database
+    }
+  }
+})
 
 export const DRAFT = {
   action: 'draft',
@@ -26,22 +45,27 @@ export const REVIEW = () => ({
 describe('reviewed support macros: native immutable provenance', () => {
   let f: Awaited<ReturnType<typeof supportFixture>>
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await supportFixture()
     if (!f.sqlite.prepare("SELECT 1 FROM sqlite_schema WHERE name='support_macro_commands'").get())
       f.sqlite.exec(await readFile(new URL('../../db/d1/migrations/0060_support_macros.sql', import.meta.url), 'utf8'))
   })
-  afterEach(() => f.sqlite.close())
-  const command = (id: string, input: unknown, key = crypto.randomUUID()) =>
+  afterEach(() => {
+    f?.sqlite.close()
+    vi.useRealTimers()
+  })
+  const command = (id: string, input: unknown, key = testUuid()) =>
     executeSupportMacroCommand(f.database, CLAIMS, id, input, { idempotencyKey: key })
   async function approved(review = REVIEW()) {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     await command(id, DRAFT)
     const revision = await command(id, review)
     return { id, revision }
   }
   it('creates drafts, approves immutable snapshots and preserves history, CAS and exact replay', async () => {
-    const id = crypto.randomUUID(),
-      key = crypto.randomUUID()
+    const id = testUuid(),
+      key = testUuid()
     const draft = await command(id, DRAFT, key)
     expect(await command(id, DRAFT, key)).toEqual(draft)
     await expect(command(id, { ...DRAFT, title: 'Cambio' }, key)).rejects.toMatchObject({
@@ -64,9 +88,9 @@ describe('reviewed support macros: native immutable provenance', () => {
       'Hola {{personal.unknown}}',
       'Hola {{ticket.reference}'
     ]) {
-      await expect(command(crypto.randomUUID(), { ...DRAFT, body })).rejects.toMatchObject({ code: 'invalid_input' })
+      await expect(command(testUuid(), { ...DRAFT, body })).rejects.toMatchObject({ code: 'invalid_input' })
     }
-    const id = crypto.randomUUID()
+    const id = testUuid()
     await command(id, DRAFT)
     await expect(command(id, { ...REVIEW(), reviewedAt: utc(3600000) })).rejects.toMatchObject({
       code: 'invalid_input'
@@ -100,7 +124,7 @@ describe('reviewed support macros: native immutable provenance', () => {
         CLAIMS,
         ticket.publicRef,
         { ...reply, message: preview.message + ' Legal alterado' },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_input' })
     await expect(
@@ -109,11 +133,11 @@ describe('reviewed support macros: native immutable provenance', () => {
         CLAIMS,
         ticket.publicRef,
         { ...reply, macro: { ...selection, confirmed: false } },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_input' })
     await executeSupportAdminCommand(f.database, CLAIMS, ticket.publicRef, reply, {
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     const audit = f.sqlite.prepare("SELECT input FROM support_commands WHERE action='reply'").get() as { input: string }
     expect(JSON.parse(audit.input).macro.revisionId).toBe(revision.commandId)
@@ -135,7 +159,7 @@ describe('reviewed support macros: native immutable provenance', () => {
         message: preview.message,
         macro: { ...selection, confirmed: true }
       },
-      key = crypto.randomUUID()
+      key = testUuid()
     const receipt = await executeSupportAdminCommand(f.database, CLAIMS, ticket.publicRef, reply, {
       idempotencyKey: key
     })
@@ -191,7 +215,7 @@ describe('reviewed support macros: native immutable provenance', () => {
         nextActionAt: null,
         slaDueAt: null
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await expect(
       executeSupportAdminCommand(
@@ -205,7 +229,7 @@ describe('reviewed support macros: native immutable provenance', () => {
           message: preview.message,
           macro: { ...selection, confirmed: true }
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_input' })
     await command(id, { ...DRAFT, expectedVersion: 2 })
@@ -214,7 +238,7 @@ describe('reviewed support macros: native immutable provenance', () => {
     })
   })
   it('rejects oversized rendered replies as invalid_input before effects', async () => {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     await command(id, { ...DRAFT, body: Array(30).fill('{{personal.nextStep}}').join(' ') })
     const revision = await command(id, REVIEW()),
       ticket = await f.ticket()
@@ -267,13 +291,13 @@ describe('reviewed support macros: native immutable provenance', () => {
           message: preview.message,
           macro: { ...selection, confirmed: true }
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_transition' })
     expect(f.sqlite.prepare("SELECT count(*) AS n FROM support_commands WHERE action='reply'").get()).toEqual({ n: 0 })
   })
   it('paginates the library without hiding the 51st macro, and reads a specific macro outside the first page', async () => {
-    const ids = Array.from({ length: 51 }, () => crypto.randomUUID()).sort()
+    const ids = Array.from({ length: 51 }, () => testUuid()).sort()
     for (const id of ids) await command(id, DRAFT)
     const first = await listSupportMacros(f.database, CLAIMS)
     expect(first.macros.map((m) => m.macroId)).toEqual(ids.slice(0, 50))
@@ -287,7 +311,7 @@ describe('reviewed support macros: native immutable provenance', () => {
     expect(detail.macros[0]?.macroId).toBe(ids[50])
   })
   it('paginates immutable history in bounded windows without treating partial history as a missing ledger', async () => {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     for (let version = 0; version < 26; version++) await command(id, { ...DRAFT, expectedVersion: version })
     const first = (await listSupportMacros(f.database, CLAIMS, { macroId: id })).macros[0]!
     expect(first.history.map((h) => h.version)).toEqual(Array.from({ length: 20 }, (_, i) => 26 - i))

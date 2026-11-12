@@ -9,6 +9,7 @@ import {
 } from '../../workers/pricing/free-shipping'
 import { mapShippingOptions, type RateRow } from '../../workers/catalog/shipping'
 import { freeShippingGuard, type FreeShippingRule } from '../../shared/free-shipping-policy'
+import { testUuid } from '../support/deterministic'
 
 const rule = (over: Record<string, unknown> = {}) => ({
   code: 'PARCEL-PEN',
@@ -86,7 +87,7 @@ describe('free shipping rules (admin, PRI-017)', () => {
     expect(() =>
       f.sqlite
         .exec(`INSERT INTO free_shipping_rules(id,code,status,version,profile,zone,customer_profile,threshold_gross_cents,min_margin_basis_points,conscious_subsidy,created_at,updated_at,updated_by)
-        VALUES('${crypto.randomUUID()}','HACK-1','active',1,'pallet','peninsular','any',0,0,0,'${utc()}','${utc()}','${CLAIMS.identityId}')`)
+        VALUES('${testUuid()}','HACK-1','active',1,'pallet','peninsular','any',0,0,0,'${utc()}','${utc()}','${CLAIMS.identityId}')`)
     ).toThrow(/CHECK/)
   })
   it('update is compare-and-set and only one rule can be active per profile/zone/customer', async () => {

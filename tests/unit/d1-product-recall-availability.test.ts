@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { executeProductRecall } from '../../workers/catalog/product-recall'
 import { listAvailability } from '../../workers/catalog/inventory'
+import { testUuid } from '../support/deterministic'
 let f: Awaited<ReturnType<typeof returnsFixture>>, orderId: string, location: string
 const lotA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const lotB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -28,7 +29,7 @@ const allocate = (lot: string, quantity: number) =>
     .prepare(
       'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,?,?,?)'
     )
-    .run(crypto.randomUUID(), lot, orderId, CUSTOMER, quantity, 'synthetic', utc())
+    .run(testUuid(), lot, orderId, CUSTOMER, quantity, 'synthetic', utc())
 beforeEach(async () => {
   f = await returnsFixture()
   f.sqlite.exec(await readFile('db/d1/migrations/0106_inventory_lots_costing_forecast.sql', 'utf8'))

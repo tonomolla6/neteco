@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resourceHubFixture } from './resource-hub-fixture'
 import { CMS_CLAIMS } from './d1-cms-fixture'
 import {
@@ -10,9 +10,32 @@ import {
   readPublicAsset,
   readPublicTrust
 } from '../../workers/content/content-governance'
+import { testUuid, testNow } from '../support/deterministic'
 
-const day = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10)
-const instant = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_content_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_content_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_content_clock()'))
+      return database
+    }
+  }
+})
+
+const day = (offset: number) => new Date(testNow() + offset * 86_400_000).toISOString().slice(0, 10)
+const instant = (offsetMs = 0) => {
+  const clock = vi.getMockedSystemTime()
+  if (!clock) throw new Error('missing_synthetic_content_clock')
+  return new Date(clock.getTime() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
 const SECOND = {
   identityId: '10000000-0000-4000-8000-000000000151',
   sessionId: '20000000-0000-4000-8000-000000000151',
@@ -32,7 +55,7 @@ const source = {
 describe('content governance domain (SEO-029/030/031)', () => {
   let f: Awaited<ReturnType<typeof resourceHubFixture>>
   let slug: string, authorId: string, reviewerId: string
-  const run = (input: unknown, claims = CMS_CLAIMS, key = crypto.randomUUID(), now?: string) =>
+  const run = (input: unknown, claims = CMS_CLAIMS, key = testUuid(), now?: string) =>
     executeContentGovernanceCommand(f.database, claims, input, { idempotencyKey: key, ...(now ? { now } : {}) })
   const code = async (promise: Promise<unknown>) => {
     try {
@@ -79,6 +102,8 @@ describe('content governance domain (SEO-029/030/031)', () => {
   })
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await resourceHubFixture()
     f.sqlite.exec(
       await readFile(new URL('../../db/d1/migrations/0149_content_governance.sql', import.meta.url), 'utf8')
@@ -107,7 +132,10 @@ describe('content governance domain (SEO-029/030/031)', () => {
     authorId = (await run(person('Ana Autora'))).item.id
     reviewerId = (await run(person('Luis Revisor'))).item.id
   })
-  afterEach(() => f.sqlite.close())
+  afterEach(() => {
+    f?.sqlite.close()
+    vi.useRealTimers()
+  })
 
   describe('authors', () => {
     it('stores admin-entered profile data verbatim with server time', async () => {
@@ -115,7 +143,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
       expect(entity).toBe('author')
       expect(item).toMatchObject({ displayName: 'Marta Prueba', version: 1, status: 'active' })
       expect(item.credentials).toBe('Credencial de prueba introducida por administración')
-      expect(Date.parse(item.createdAt)).toBeGreaterThan(Date.now() - 60_000)
+      expect(Date.parse(item.createdAt)).toBeGreaterThan(testNow() - 60_000)
     })
     it('leaves credentials null when the admin did not enter any', async () => {
       const { credentials: _unused, ...bare } = person('Sin Credencial')
@@ -127,12 +155,12 @@ describe('content governance domain (SEO-029/030/031)', () => {
       expect(await code(run({ ...person('Otra'), id: authorId, expectedVersion: 1 }))).toBe('version_conflict')
     })
     it('rejects id on create, missing id on update and unknown id', async () => {
-      expect(await code(run({ ...person('X Y Z'), id: crypto.randomUUID() }))).toBe('invalid_input')
+      expect(await code(run({ ...person('X Y Z'), id: testUuid() }))).toBe('invalid_input')
       expect(await code(run({ ...person('X Y Z'), expectedVersion: 2 }))).toBe('invalid_input')
-      expect(await code(run({ ...person('X Y Z'), id: crypto.randomUUID(), expectedVersion: 1 }))).toBe('not_found')
+      expect(await code(run({ ...person('X Y Z'), id: testUuid(), expectedVersion: 1 }))).toBe('not_found')
     })
     it('replays identical idempotent commands and refuses a changed payload under the same key', async () => {
-      const key = crypto.randomUUID()
+      const key = testUuid()
       const first = await run(person('Idem Potente'), CMS_CLAIMS, key)
       expect(await run(person('Idem Potente'), CMS_CLAIMS, key)).toEqual(first)
       expect(await code(run(person('Idem Distinto'), CMS_CLAIMS, key))).toBe('idempotency_conflict')
@@ -141,9 +169,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
       ).toEqual({ n: 1 })
     })
     it('refuses unauthenticated, unauthorised and malformed callers', async () => {
-      expect(await code(run(person('A B C'), { ...CMS_CLAIMS, sessionId: crypto.randomUUID() }))).toBe(
-        'unauthenticated'
-      )
+      expect(await code(run(person('A B C'), { ...CMS_CLAIMS, sessionId: testUuid() }))).toBe('unauthenticated')
       expect(await code(run(person('A B C'), NOBODY))).toBe('forbidden')
       expect(await code(run({ action: 'save_author' }))).toBe('invalid_input')
       expect(await code(run(person('A B C'), CMS_CLAIMS, 'bad key with spaces'))).toBe('invalid_input')
@@ -162,7 +188,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
     })
     it.each([
       ['unknown page', { slug: 'no-existe' }, 'unknown_page'],
-      ['unknown author', { authorId: crypto.randomUUID() }, 'unknown_person'],
+      ['unknown author', { authorId: testUuid() }, 'unknown_person'],
       ['review in the past', { nextReviewAt: day(-1) }, 'date_out_of_range'],
       ['review today', { nextReviewAt: day(0) }, 'date_out_of_range'],
       ['regulation review beyond a year', { nextReviewAt: day(400) }, 'date_out_of_range'],
@@ -228,7 +254,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
     })
     it('signs off with server time and identity, making the trust verified', async () => {
       const at = instant()
-      const { item } = await run({ action: 'sign_off', slug, expectedVersion: 1 }, SECOND, crypto.randomUUID(), at)
+      const { item } = await run({ action: 'sign_off', slug, expectedVersion: 1 }, SECOND, testUuid(), at)
       expect(item).toMatchObject({ signedOffAt: at, signedOffBy: SECOND.identityId, version: 2 })
       expect(item.trust).toEqual({ state: 'verified', issues: [] })
     })
@@ -298,7 +324,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
     })
     it('stops claiming expertise once the review is overdue', async () => {
       await verify()
-      const later = new Date(Date.now() + 61 * 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const later = new Date(testNow() + 61 * 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       expect(await code(readPublicTrust(f.database, slug, { origin, now: later }))).toBe('not_found')
     })
     it('reports a planned retirement with its redirect once due', async () => {
@@ -306,7 +332,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
       await run({ action: 'sign_off', slug, expectedVersion: 1 }, SECOND)
       const before = await readPublicTrust(f.database, slug, { origin })
       expect(before.status).toBe('active')
-      const later = new Date(Date.now() + 31 * 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const later = new Date(testNow() + 31 * 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       expect(await readPublicTrust(f.database, slug, { origin, now: later })).toEqual({
         status: 'retired',
         slug,
@@ -331,7 +357,7 @@ describe('content governance domain (SEO-029/030/031)', () => {
       const { item } = await run(
         { action: 'publish_asset', slug: 'checklist-limpieza', expectedVersion: 1 },
         CMS_CLAIMS,
-        crypto.randomUUID(),
+        testUuid(),
         at
       )
       expect(item).toMatchObject({ status: 'published', publishedAt: at, version: 2 })

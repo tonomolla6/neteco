@@ -4,6 +4,25 @@ import { executeD1AdminFulfillmentCommand, readD1AdminFulfillment } from '../../
 import { fulfillmentTransitionInputSchema } from '../../shared/order-fulfillment'
 import { ACTOR, CLAIMS, REASON, fulfillmentFixture, utc } from './d1-fulfillment-fixture'
 import { expireExpiredReservations } from '../../workers/catalog/inventory'
+import { testNow } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_fulfillment_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_fulfillment_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_fulfillment_clock()'))
+      return database
+    }
+  }
+})
 
 describe('private single-warehouse post-payment fulfillment', () => {
   let sqlite: DatabaseSync,
@@ -11,11 +30,14 @@ describe('private single-warehouse post-payment fulfillment', () => {
     order: (method?: string, paid?: boolean) => Promise<string>,
     id: string
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     ;({ sqlite, database, order } = await fulfillmentFixture())
     id = await order()
   })
   afterEach(() => {
     sqlite.close()
+    vi.useRealTimers()
     vi.restoreAllMocks()
   })
   const command = (action = 'picking', version = 0, key = 'picking', db?: D1Database, extra = {}) =>

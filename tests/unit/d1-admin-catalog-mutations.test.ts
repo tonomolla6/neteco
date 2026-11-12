@@ -8,6 +8,7 @@ import {
 import { renderD1CategorySeed } from '../../scripts/lib/d1-category-seed'
 import { renderD1ProductSeed } from '../../scripts/lib/d1-product-seed'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const IDENTITY = '10000000-0000-4000-8000-000000000034'
 const SESSION = '20000000-0000-4000-8000-000000000034'
@@ -23,7 +24,7 @@ const ORIGINAL_ATTRIBUTES = {
   unknownNested: { values: [1, null, { preserved: true }] }
 }
 
-function utc(milliseconds = Date.now()) {
+function utc(milliseconds = testNow()) {
   return new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
@@ -36,7 +37,7 @@ describe('D1 draft metadata mutations against every real migration', () => {
     sqlite = await openMigratedDatabase()
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    const past = utc(Date.now() - 86400_000)
+    const past = utc(testNow() - 86400_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -63,7 +64,7 @@ describe('D1 draft metadata mutations against every real migration', () => {
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at)
       VALUES (?, ?, 1, 1, ?, ?)`
       )
-      .run(SESSION, IDENTITY, past, utc(Date.now() + 3600_000))
+      .run(SESSION, IDENTITY, past, utc(testNow() + 3600_000))
     sqlite
       .prepare(
         `UPDATE products SET status='draft', brand_id='b1', short_description='Original short description',
@@ -101,7 +102,7 @@ describe('D1 draft metadata mutations against every real migration', () => {
       options.id ?? '1',
       payload,
       {
-        idempotencyKey: options.key ?? crypto.randomUUID()
+        idempotencyKey: options.key ?? testUuid()
       }
     )
   }
@@ -388,7 +389,7 @@ describe('D1 draft metadata mutations against every real migration', () => {
     await rejected(payload)
   })
 
-  it.each([null, [], true, 1, 'title', new Date(), new String('title')])(
+  it.each([null, [], true, 1, 'title', new Date(testNow()), new String('title')])(
     'rejects non-object/plain payload %j',
     async (payload) => {
       await rejected(payload)
@@ -764,7 +765,7 @@ describe('D1 draft metadata mutations against every real migration', () => {
       async batch<T>(statements: D1PreparedStatement[]) {
         expect(capturedClaim).toBeDefined()
         const foreignParameters = [...capturedClaim!.parameters]
-        foreignParameters[12] = crypto.randomUUID()
+        foreignParameters[12] = testUuid()
         // This isolated adversarial partial claim is inserted OUTSIDE the API
         // batch; it must not acquire the fresh command's private nonce.
         sqlite.prepare(capturedClaim!.sql).run(...foreignParameters)
@@ -811,7 +812,7 @@ describe('D1 draft metadata mutations against every real migration', () => {
         `INSERT OR REPLACE INTO ${table}(${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')})`
       )
       expect(() => replace.run(...values)).toThrow()
-      values[fields.indexOf('id')] = crypto.randomUUID()
+      values[fields.indexOf('id')] = testUuid()
       expect(() => replace.run(...values)).toThrow()
       expect(sqlite.prepare(`SELECT * FROM ${table}`).all()).toEqual([row])
       expect(counts()).toEqual({ commands: 1, audits: 1, guards: 0 })

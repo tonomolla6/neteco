@@ -23,6 +23,7 @@ import {
   requestNewsletterConsent
 } from '../../workers/marketing/newsletter'
 import { NEWSLETTER_CONSENT_TEXT, NEWSLETTER_POLICY_VERSION } from '../../shared/newsletter'
+import { testUuid, testNow } from '../support/deterministic'
 
 const password = 'Synthetic-lifecycle-password-123'
 const nextPassword = 'Synthetic-rotated-password-456'
@@ -40,7 +41,7 @@ const registration = {
   termsAccepted: true as const,
   newsletter: false
 }
-function utc(value = Date.now()) {
+function utc(value = testNow()) {
   return new Date(value).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
@@ -224,7 +225,7 @@ describe('D1 identity lifecycle atomic primitives', () => {
         consentText: NEWSLETTER_CONSENT_TEXT,
         consentVersion: NEWSLETTER_POLICY_VERSION,
         consentSource: 'registration',
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       },
       configuration.newsletterSecrets
     )
@@ -324,12 +325,12 @@ describe('D1 identity lifecycle atomic primitives', () => {
       .prepare(
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES (?,?,1,0,?,?)`
       )
-      .run(crypto.randomUUID(), own.id, '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')
+      .run(testUuid(), own.id, '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')
     sqlite
       .prepare(
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES (?,?,1,0,?,?)`
       )
-      .run(crypto.randomUUID(), own.id, utc(), utc(Date.now() + 600_000))
+      .run(testUuid(), own.id, utc(), utc(testNow() + 600_000))
     await requestD1PasswordReset(database, { email: own.email }, configuration)
     const token = link('password_reset').token
     const results = await Promise.all([

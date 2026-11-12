@@ -22,6 +22,7 @@ import {
   COOKIE_CONFIG,
   NOW
 } from './support-insights-fixture'
+import { testUuid } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof insightsFixture>>
 let gate: 'allowed' | 'limited' | 'unavailable'
@@ -47,7 +48,7 @@ function req(path: string, init: Init = {}) {
   const headers: Record<string, string> = { ...init.headers }
   if (init.actor) headers.cookie = f.cookie(init.actor)
   if (method !== 'GET' && init.origin !== null) headers.origin = init.origin ?? ORIGIN
-  if (method !== 'GET' && init.key !== null) headers['idempotency-key'] = init.key ?? crypto.randomUUID()
+  if (method !== 'GET' && init.key !== null) headers['idempotency-key'] = init.key ?? testUuid()
   let body: string | undefined
   if (init.raw !== undefined) body = init.raw
   else if (init.body !== undefined) body = JSON.stringify(init.body)
@@ -155,7 +156,7 @@ describe('public assistant endpoints (SUP-012)', () => {
     expect(off).toMatchObject({ status: 503, body: { error: { code: 'knowledge_unavailable' } } })
   })
   it('replays an idempotent retry and flags key reuse with another question as 409', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const a = await ask('¿Cuánto tarda el envío por agencia?', { key })
     const b = await ask('¿Cuánto tarda el envío por agencia?', { key })
     expect(b.body.turnId).toBe(a.body.turnId)
@@ -189,7 +190,7 @@ describe('public assistant endpoints (SUP-012)', () => {
       (
         await assistant('/api/support/assistant/handoff', {
           method: 'POST',
-          body: { turnId: crypto.randomUUID(), contactEmail: 'a@b.es' }
+          body: { turnId: testUuid(), contactEmail: 'a@b.es' }
         })
       ).status
     ).toBe(404)
@@ -280,7 +281,7 @@ describe('administrative insight endpoints', () => {
     expect(moved).toMatchObject({ status: 200, body: { status: 'planned', version: 2 } })
   })
   it('requires same-origin JSON and an idempotency key for admin writes', async () => {
-    const body = { ticketId: crypto.randomUUID(), rootCause: 'other', expectedVersion: 0 }
+    const body = { ticketId: testUuid(), rootCause: 'other', expectedVersion: 0 }
     expect(
       (
         await admin('/api/admin/support/contact-analysis/classifications', {
@@ -442,7 +443,7 @@ describe('B2B customer portal endpoints (SUP-017)', () => {
     expect((await b2b('/api/account/b2b-requests')).status).toBe(429)
   })
   it('replays an idempotent creation', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const a = await b2b('/api/account/b2b-requests', { method: 'POST', body: quote, key })
     const b = await b2b('/api/account/b2b-requests', { method: 'POST', body: quote, key })
     expect(b.body.id).toBe(a.body.id)

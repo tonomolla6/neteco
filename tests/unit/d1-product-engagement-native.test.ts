@@ -1,7 +1,7 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -22,6 +22,7 @@ import {
   publicProductContributionListSchema,
   productContributionIntentHash
 } from '../../shared/product-contributions'
+import { testUuid } from '../support/deterministic'
 
 it('runs variant double opt-in and moderated unverified review through canary source on real workerd D1 without domain effects or outbound', async () => {
   const origin = 'https://product-engagement-native.neteco.test',
@@ -49,8 +50,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       name: 'product-engagement-native',
-      modules: true,
-      script: bundle.outputFiles[0]!.text,
+      ...bundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       cf: false,
@@ -72,7 +72,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
         CART_EDGE_LIMIT: { namespace_id: '908882', simple: { limit: 100, period: 60 } },
         ADMIN_EDGE_LIMIT: { namespace_id: '908883', simple: { limit: 100, period: 60 } }
       },
-      d1Databases: { DB: randomUUID() },
+      d1Databases: { DB: testUuid() },
       outboundService: outbound
     })
   )
@@ -100,8 +100,8 @@ it('runs variant double opt-in and moderated unverified review through canary so
     await db.batch(seed)
     const now = (await db.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') now").first<{ now: string }>())!.now
     await provisionPublicationValidityFixture(db, { productIds: ['p-1'], now })
-    const buyer = { identityId: randomUUID(), sessionId: randomUUID(), sessionVersion: 1 },
-      admin = { identityId: randomUUID(), sessionId: randomUUID(), sessionVersion: 1 }
+    const buyer = { identityId: testUuid(), sessionId: testUuid(), sessionVersion: 1 },
+      admin = { identityId: testUuid(), sessionId: testUuid(), sessionVersion: 1 }
     await db.batch([
       db.prepare("INSERT INTO roles VALUES('engagement-moderator','Synthetic moderator','Local native acceptance')"),
       db.prepare("INSERT OR IGNORE INTO permissions VALUES('support.manage','support','manage','Synthetic')"),
@@ -111,7 +111,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
       [buyer, 'engagement-buyer@example.invalid'],
       [admin, 'engagement-moderator@example.invalid']
     ] as const) {
-      const customerId = randomUUID()
+      const customerId = testUuid()
       await db.batch([
         db
           .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")
@@ -160,7 +160,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
         )
       )
     const before = await snapshot()
-    const call = (path: string, cookie = buyerCookie, body?: unknown, key = randomUUID(), hash?: string) =>
+    const call = (path: string, cookie = buyerCookie, body?: unknown, key = testUuid(), hash?: string) =>
       runtime.dispatchFetch(origin + path, {
         method: body === undefined ? 'GET' : 'POST',
         headers: {
@@ -179,7 +179,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
         consent: true,
         policyVersion: PRODUCT_WATCH_POLICY_VERSION
       },
-      createKey = randomUUID()
+      createKey = testUuid()
     const created = await call('/api/account/product-watches', buyerCookie, watchInput, createKey)
     expect(created.status).toBe(201)
     const createdReceipt = productWatchReceiptSchema.parse(await created.json())
@@ -228,7 +228,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
       version: 2
     })
     const cancelBody = { expectedVersion: 2 },
-      cancelKey = randomUUID(),
+      cancelKey = testUuid(),
       cancelPath = `/api/account/product-watches/${createdReceipt.watchId}/cancel`
     const cancelled = await call(cancelPath, buyerCookie, cancelBody, cancelKey)
     expect(cancelled.status).toBe(201)
@@ -239,7 +239,7 @@ it('runs variant double opt-in and moderated unverified review through canary so
       `/api/account/product-watches/commands/${cancelKey}`,
       buyerCookie,
       undefined,
-      randomUUID(),
+      testUuid(),
       cancelReceipt.payloadHash
     )
     expect(recovery.status).toBe(200)

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
+import { testUuid, testNow } from '../support/deterministic'
 
 const boundary = vi.hoisted(() => ({ consume: vi.fn(), dispatch: vi.fn() }))
 vi.mock('../../workers/fulfillment/bulk-runtime', async (importOriginal) => ({
@@ -9,7 +10,7 @@ vi.mock('../../workers/fulfillment/bulk-runtime', async (importOriginal) => ({
 }))
 const ORIGIN = 'https://bulk-ingress.neteco.invalid'
 const message = () => ({
-  body: { type: 'admin.order-bulk.requested', groupId: crypto.randomUUID(), dispatchId: crypto.randomUUID() },
+  body: { type: 'admin.order-bulk.requested', groupId: testUuid(), dispatchId: testUuid() },
   ack: vi.fn(),
   retry: vi.fn(),
   attempts: 1
@@ -134,7 +135,7 @@ describe('canary owns bulk routes and bounded continuation deliveries', () => {
     const env = environment(),
       first = message(),
       invalid = message()
-    Object.assign(invalid.body, { actorId: crypto.randomUUID() })
+    Object.assign(invalid.body, { actorId: testUuid() })
     await worker.queue({ messages: [first, invalid] } as unknown as MessageBatch, env)
     expect(boundary.consume).toHaveBeenCalledOnce()
     expect(env.ASYNC_JOBS.send).not.toHaveBeenCalled()
@@ -155,7 +156,7 @@ describe('canary owns bulk routes and bounded continuation deliveries', () => {
 
   it('gives pending durable bulk work a bounded Cron recovery opportunity even if unrelated stages fail', async () => {
     const env = environment()
-    await expect(worker.scheduled({ scheduledTime: Date.now() } as ScheduledController, env)).rejects.toBeInstanceOf(
+    await expect(worker.scheduled({ scheduledTime: testNow() } as ScheduledController, env)).rejects.toBeInstanceOf(
       AggregateError
     )
     expect(boundary.dispatch).toHaveBeenCalledOnce()

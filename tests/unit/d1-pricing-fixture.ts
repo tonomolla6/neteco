@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
+import { testUuid } from '../support/deterministic'
 
 export { CLAIMS, BUYER_CLAIMS, CUSTOMER, utc }
 export const OTHER_CLAIMS = {
@@ -7,7 +8,7 @@ export const OTHER_CLAIMS = {
   sessionId: '20000000-0000-4000-8000-000000000999',
   sessionVersion: 1
 }
-export const key = () => crypto.randomUUID()
+export const key = () => testUuid()
 
 /**
  * Migrated D1 with an MFA admin (CLAIMS), a verified buyer owning CUSTOMER (BUYER_CLAIMS, no MFA),

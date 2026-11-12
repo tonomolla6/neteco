@@ -9,6 +9,7 @@ import {
   parseBootstrapArguments,
   type BootstrapQuery
 } from '../../scripts/lib/d1-admin-bootstrap'
+import { testUuid } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000083'
 const sessionId = '20000000-0000-4000-8000-000000000083'
@@ -18,9 +19,11 @@ let query: BootstrapQuery
 const reason = 'Primer administrador revisado por el operador.'
 beforeEach(async () => {
   database = await openMigratedDatabase()
-  database.exec(await readFile(new URL('../../db/d1/migrations/0083_admin_bootstrap.sql', import.meta.url), 'utf8'))
-  const past = new Date(Date.now() - 60000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const future = new Date(Date.now() + 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  database.function('synthetic_bootstrap_clock', () => '2026-08-13T12:00:00Z')
+  const migration = await readFile(new URL('../../db/d1/migrations/0083_admin_bootstrap.sql', import.meta.url), 'utf8')
+  database.exec(migration.replaceAll("'now'", 'synthetic_bootstrap_clock()'))
+  const past = '2026-08-13T11:59:00Z'
+  const future = '2026-08-14T12:00:00Z'
   database
     .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")
     .run(identityId, past, past)
@@ -42,7 +45,8 @@ beforeEach(async () => {
   database.exec(
     "INSERT INTO roles VALUES('admin','Admin','Synthetic'); INSERT INTO permissions VALUES('administration.manage','administration','manage','Synthetic'),('support.manage','support','manage','Synthetic'); INSERT INTO role_permissions VALUES('admin','support.manage'),('admin','administration.manage')"
   )
-  query = async (sql) => database.prepare(sql).all() as Record<string, unknown>[]
+  query = async (sql) =>
+    database.prepare(sql.replaceAll("'now'", 'synthetic_bootstrap_clock()')).all() as Record<string, unknown>[]
 })
 afterEach(() => database.close())
 
@@ -69,7 +73,7 @@ describe('local-only explicit first D1 administrator bootstrap', () => {
       .prepare(
         'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) SELECT ?,identity_id,session_version,0,created_at,expires_at FROM auth_sessions WHERE id=?'
       )
-      .run(crypto.randomUUID(), sessionId)
+      .run(testUuid(), sessionId)
     const receipt = await apply()
     expect(receipt).toMatchObject({ commandId, identityId, roleCode: 'admin', sessionRevoked: true })
     expect(database.prepare('SELECT role_code FROM identity_roles').all()).toEqual([{ role_code: 'admin' }])

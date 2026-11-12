@@ -14,6 +14,7 @@ import {
   verifyCommercialConditionsConcurrent,
   assertSingleSiteAndNoHierarchyScope
 } from '../../workers/security/account-isolation'
+import { testUuid } from '../support/deterministic'
 
 export interface IsolationWorld {
   sqlite: DatabaseSync
@@ -147,7 +148,7 @@ export async function setupIsolationFixture(sqlite: DatabaseSync): Promise<Isola
       categoryRules: [],
       reason: 'Acuerdo comercial Empresa X'
     },
-    { idempotencyKey: crypto.randomUUID(), now: () => PAST }
+    { idempotencyKey: testUuid(), now: () => PAST }
   )
 
   await assignD1CompanyB2BPriceList(
@@ -161,7 +162,7 @@ export async function setupIsolationFixture(sqlite: DatabaseSync): Promise<Isola
       validUntil: null,
       reason: 'Asignación Empresa X'
     },
-    { idempotencyKey: crypto.randomUUID(), now: () => PAST }
+    { idempotencyKey: testUuid(), now: () => PAST }
   )
 
   await upsertD1B2BPriceList(
@@ -179,7 +180,7 @@ export async function setupIsolationFixture(sqlite: DatabaseSync): Promise<Isola
       categoryRules: [],
       reason: 'Acuerdo comercial Empresa Y'
     },
-    { idempotencyKey: crypto.randomUUID(), now: () => PAST }
+    { idempotencyKey: testUuid(), now: () => PAST }
   )
 
   await assignD1CompanyB2BPriceList(
@@ -193,7 +194,7 @@ export async function setupIsolationFixture(sqlite: DatabaseSync): Promise<Isola
       validUntil: null,
       reason: 'Asignación Empresa Y'
     },
-    { idempotencyKey: crypto.randomUUID(), now: () => PAST }
+    { idempotencyKey: testUuid(), now: () => PAST }
   )
 
   // Add B2B Credit Terms

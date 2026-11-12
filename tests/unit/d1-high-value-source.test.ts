@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { assertHighValueEventSource } from '../../workers/communications/high-value-source'
 import { executeProductRecall } from '../../workers/catalog/product-recall'
+import { testUuid } from '../support/deterministic'
 let f: Awaited<ReturnType<typeof returnsFixture>>
 const security = '11111111-1111-4111-8111-111111111111',
   recall = '22222222-2222-4222-8222-222222222222',
@@ -56,7 +57,7 @@ it('identifies a customer with an allocated line in an open recall', async () =>
     .prepare(
       'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,?,2,?,?)'
     )
-    .run(crypto.randomUUID(), lot, order, CUSTOMER, 'synthetic', utc())
+    .run(testUuid(), lot, order, CUSTOMER, 'synthetic', utc())
   await executeProductRecall(
     f.database,
     CLAIMS,

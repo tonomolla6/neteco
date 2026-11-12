@@ -20,10 +20,31 @@ import {
   OTHER_CATEGORY,
   categoryUtc
 } from '../support/category-command-fixture'
+import { testUuid, testNow } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_categories_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_categories_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_categories_clock()'))
+      return database
+    }
+  }
+})
 
 describe('D1 category editorial commands are atomic and never publish', () => {
   let sqlite: DatabaseSync, database: D1Database
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     ;({ sqlite, database } = await categoryCommandFixture())
   })
   afterEach(() => {
@@ -50,7 +71,7 @@ describe('D1 category editorial commands are atomic and never publish', () => {
       action,
       target,
       input,
-      { idempotencyKey: options.key ?? crypto.randomUUID(), ...(options.now === undefined ? {} : { now: options.now }) }
+      { idempotencyKey: options.key ?? testUuid(), ...(options.now === undefined ? {} : { now: options.now }) }
     )
   }
   const create = (body: unknown = createBody(), options: { key?: string; db?: D1Database } = {}) =>
@@ -381,10 +402,14 @@ describe('D1 category editorial commands are atomic and never publish', () => {
   })
   it('execution-time SQL clock rejects a session expiring before batch and rolls back every effect', async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date())
+    vi.setSystemTime(new Date(testNow()))
     const expiry = categoryUtc(1000)
     sqlite.prepare('UPDATE auth_sessions SET expires_at=? WHERE id=?').run(expiry, CATEGORY_SESSION)
-    sqlite.function('category_test_now', () => categoryUtc())
+    sqlite.function('category_test_now', () => {
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_categories_clock')
+      return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+    })
     const native = database.prepare.bind(database)
     const wrapped = proxy({
       prepare(sql) {

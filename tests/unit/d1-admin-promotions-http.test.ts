@@ -5,6 +5,7 @@ import { handleAdminPromotionsHttp, ownsAdminPromotionsNamespace } from '../../w
 import { d1OverSqlite, openAccountSecurityDatabase } from '../support/d1-sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { adminPromotionIntentHash, adminPromotionReceiptSchema } from '../../shared/admin-promotions'
+import { testUuid } from '../support/deterministic'
 
 // Behavioural RED against the existing worker, not an absent import or handler
 // stub. The outer authorization gate must own every promotion subroute.
@@ -99,7 +100,7 @@ describe('promotion HTTP boundaries, real D1 service and sealed sessions', () =>
     ))!
   }
   it('persists a governed POST201, replays201 and recovers exact hash without writing on GET', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       body = input(),
       first = await call(root, 'POST', body, { 'Idempotency-Key': key })
     expect(first.status).toBe(201)
@@ -133,7 +134,7 @@ describe('promotion HTTP boundaries, real D1 service and sealed sessions', () =>
   it.each([
     ['DELETE', root, 'GET, POST'],
     ['POST', root + '/' + ruleId, 'GET, PUT'],
-    ['POST', root + '/commands/' + crypto.randomUUID(), 'GET']
+    ['POST', root + '/commands/' + testUuid(), 'GET']
   ])('rejects method %s before D1', async (method, path, allow) => {
     const prepare = vi.fn(() => {
       throw Error('unexpected_D1')
@@ -174,14 +175,14 @@ describe('promotion HTTP boundaries, real D1 service and sealed sessions', () =>
   })
   it('limits streaming JSON and rejects missing idempotency without creating a rule', async () => {
     expect((await call(root, 'POST', input())).status).toBe(400)
-    expect(
-      (await call(root, 'POST', { padding: 'x'.repeat(65536) }, { 'Idempotency-Key': crypto.randomUUID() })).status
-    ).toBe(413)
+    expect((await call(root, 'POST', { padding: 'x'.repeat(65536) }, { 'Idempotency-Key': testUuid() })).status).toBe(
+      413
+    )
     expect(sqlite.prepare('SELECT count(*) n FROM promotion_rules').get()).toEqual({ n: 0 })
   })
   it('strict preview calls the pure engine without creating rules, uses or commands', async () => {
     const rule = input().rule,
-      id = crypto.randomUUID(),
+      id = testUuid(),
       response = await call(root + '/preview', 'POST', {
         rule,
         context: {

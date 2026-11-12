@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
 import { environment } from '../support/customer-operations-fixture'
 import { adminNavigationGroups, canNavigateAdmin } from '../../shared/admin-navigation'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://audit.neteco.test'
 describe('Cloudflare administrative audit boundary and navigation', () => {
@@ -36,8 +37,8 @@ describe('Cloudflare administrative audit boundary and navigation', () => {
   it('exposes only the exact audit screen to current administration authority', () => {
     const caps = {
       source: 'cloudflare' as const,
-      identityId: crypto.randomUUID(),
-      sessionId: crypto.randomUUID(),
+      identityId: testUuid(),
+      sessionId: testUuid(),
       sessionVersion: 1,
       state: 'ready' as const,
       permissions: ['administration.manage' as const]

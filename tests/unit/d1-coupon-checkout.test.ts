@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { provisionPromotionFixture } from '../support/promotion-fixture'
 import { createCart, quoteCart, setCartLine } from '../../workers/catalog/cart'
@@ -8,9 +8,39 @@ import type { PromotionRule } from '../../shared/promotions'
 import { handleCartCommand } from '../../workers/cart-coordinator'
 import { promotionRuleHash } from '../../workers/catalog/promotions'
 import { readD1AdminOrder } from '../../workers/catalog/admin-orders'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_coupon_checkout_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_coupon_checkout_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_coupon_checkout_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_coupon_checkout_clock()'))
+      return database
+    }
+  }
+})
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => vi.useRealTimers())
 
 const rule = (changes: Partial<PromotionRule> = {}): PromotionRule => ({
-  id: crypto.randomUUID(),
+  id: testUuid(),
   version: 1,
   code: 'TEST101',
   status: 'active',

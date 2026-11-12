@@ -8,6 +8,7 @@ import {
   ROOT_CATEGORY,
   CHILD_CATEGORY
 } from '../support/category-command-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('direct public category aliases never reveal an ineligible target', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -26,7 +27,7 @@ describe('direct public category aliases never reveal an ineligible target', () 
       'update_category',
       { categoryId: '11' },
       { name, expectedVersion, reason: 'Renombrado público sintético' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
   it.each(['GET', 'HEAD'])(
     'returns private301 internal canonical URL on %s, preserving only bounded catalog query',

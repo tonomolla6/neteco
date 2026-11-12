@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { newsletterEditorialFixture } from './d1-newsletter-editorial-fixture'
 import { dispatchNewsletterCampaigns } from '../../workers/marketing/newsletter-campaign-delivery'
 import { receiveNewsletterEditorialFeedback } from '../../workers/marketing/newsletter-campaign-feedback'
+import { testUuid } from '../support/deterministic'
 describe('known-receipt authenticated newsletter feedback D1', () => {
   let w: Awaited<ReturnType<typeof newsletterEditorialFixture>>
   beforeEach(async () => {
@@ -14,7 +15,7 @@ describe('known-receipt authenticated newsletter feedback D1', () => {
   afterEach(() => w.sqlite.close())
   async function feedback(
     type: 'delivered' | 'hard_bounce' | 'complaint',
-    eventId = crypto.randomUUID(),
+    eventId = testUuid(),
     messageId = `synthetic-${w.sent[0]!.deliveryId}`
   ) {
     const body = JSON.stringify({ eventId, messageId, type, occurredAt: w.getNow() }),
@@ -36,14 +37,14 @@ describe('known-receipt authenticated newsletter feedback D1', () => {
     await expect(receiveNewsletterEditorialFeedback(w.deps, f.body + ' ', f.signature)).rejects.toThrow(
       'feedback_unauthenticated'
     )
-    const unknown = await feedback('complaint', crypto.randomUUID(), 'not-known')
+    const unknown = await feedback('complaint', testUuid(), 'not-known')
     await expect(receiveNewsletterEditorialFeedback(w.deps, unknown.body, unknown.signature)).rejects.toThrow(
       'receipt_unknown'
     )
     expect(w.sqlite.prepare('SELECT count(*) AS n FROM newsletter_suppressions').get()).toEqual({ n: 0 })
   })
   it('deduplicates signed events and refuses changed payload under the same key', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       f = await feedback('delivered', key)
     expect(await receiveNewsletterEditorialFeedback(w.deps, f.body, f.signature)).toMatchObject({ replay: false })
     expect(await receiveNewsletterEditorialFeedback(w.deps, f.body, f.signature)).toMatchObject({ replay: true })

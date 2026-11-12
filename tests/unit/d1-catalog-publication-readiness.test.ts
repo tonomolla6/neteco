@@ -9,6 +9,7 @@ import { eligibleMediaEvidenceSql, eligibleMediaPublicationSql } from '../../wor
 import { readPublicProductMedia } from '../../workers/media/public-catalog'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T10:00:00Z'
 const NEXT = '2026-09-30T10:00:01Z'
@@ -58,10 +59,10 @@ describe('private advisory D1 publication completeness against real migrations',
   // Direct synthetic SQL evidence tests only the reader's attestation predicate.
   // This is neither an authentic AV verdict nor real licensed inventory.
   function media(options: { role?: 'main' | 'image' | 'sds'; product?: string; variant?: string; mime?: string } = {}) {
-    const upload = crypto.randomUUID()
-    const scan = crypto.randomUUID()
-    const rights = crypto.randomUUID()
-    const publication = crypto.randomUUID()
+    const upload = testUuid()
+    const scan = testUuid()
+    const rights = testUuid()
+    const publication = testUuid()
     const objectKey = `quarantine/${upload}/${CHECKSUM}`
     const role = options.role ?? 'main'
     const mime = options.mime ?? (role === 'sds' ? 'application/pdf' : 'image/png')
@@ -512,11 +513,11 @@ describe('private advisory D1 publication completeness against real migrations',
     update(
       `INSERT INTO product_media_publication_events(id,publication_id,event_type,reason,actor_id,created_at,idempotency_key,payload_hash)
       VALUES (?,?,'withdrawn','Synthetic withdrawal',?,?,?,?)`,
-      crypto.randomUUID(),
+      testUuid(),
       String(main.id),
       IDENTITY,
       NOW,
-      crypto.randomUUID(),
+      testUuid(),
       CHECKSUM
     )
     media({ role: 'image' })
@@ -551,7 +552,7 @@ describe('private advisory D1 publication completeness against real migrations',
     update(
       `INSERT INTO media_scan_receipts(id,upload_id,checksum,object_key,byte_size,verdict,scanner_version,
       scanned_at,expires_at,received_at,payload_hash) VALUES (?,?,?,?,100,'infected','Synthetic-not-antivirus',?,'2026-10-01T10:00:00Z',?,?)`,
-      crypto.randomUUID(),
+      testUuid(),
       String(original.upload_id),
       CHECKSUM,
       String(original.object_key),
@@ -563,7 +564,7 @@ describe('private advisory D1 publication completeness against real migrations',
   })
   it('invalidates even an approved pinned mapping when a later human rejection exists', async () => {
     const original = sqlite.prepare('SELECT * FROM media_rights_decisions').get()!
-    const decision = crypto.randomUUID()
+    const decision = testUuid()
     update(
       `INSERT INTO media_rights_decisions(id,upload_id,decision,reason,actor_id,rights_owner,rights_license,
         created_at,idempotency_key,payload_hash) VALUES (?,?,'rejected','Synthetic rejection',?,

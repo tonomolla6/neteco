@@ -4,6 +4,7 @@ import { resourceHubFixture, editorial } from './resource-hub-fixture'
 import { CMS_CLAIMS, cmsDocument, cmsUtc } from './d1-cms-fixture'
 import { executeD1CmsDraftCommand } from '../../workers/cms/drafts'
 import { executeCmsPublicationCommand } from '../../workers/cms/publication'
+import { testUuid } from '../support/deterministic'
 
 const ORIGIN = 'https://neteco.es'
 const indexed = {
@@ -39,7 +40,7 @@ describe('resource hub shares the canonical CMS sitemap authority', () => {
         ...cmsDocument({ slug: 'contenido-legacy', seo: indexed }),
         expectedVersion: 0
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await executeCmsPublicationCommand(
       f.deps,
@@ -52,7 +53,7 @@ describe('resource hub shares the canonical CMS sitemap authority', () => {
         versionId: legacy.versionId,
         reason: 'Publicación legacy sintética explícita para sitemap'
       },
-      crypto.randomUUID()
+      testUuid()
     )
     await f.resource({ slug: 'recurso-noindex', seo: { ...indexed, noindex: true } })
     await f.resource({ slug: 'recurso-borrador', seo: indexed }, false)
@@ -92,7 +93,7 @@ describe('resource hub shares the canonical CMS sitemap authority', () => {
         expectedVersion: 1,
         reason: 'Retirada editorial sintética explícita'
       },
-      crypto.randomUUID()
+      testUuid()
     )
     expect(locations(await (await handle()).text())).toEqual([])
   })

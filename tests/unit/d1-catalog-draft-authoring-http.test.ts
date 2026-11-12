@@ -13,6 +13,7 @@ import {
 import { readD1CatalogDraftAuthoringOptions } from '../../workers/catalog/admin-catalog-references'
 import { readD1AdminProduct } from '../../workers/catalog/admin-catalog'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const ORIGIN = 'https://draft-authoring.neteco.invalid'
 const IDENTITY = '10000000-0000-4000-8000-000000000038'
@@ -24,7 +25,7 @@ const SHIPPING = '60000000-0000-4000-8000-000000000038'
 const CLAIMS = { identityId: IDENTITY, sessionId: SESSION, sessionVersion: 1 }
 const PASSWORD = 'synthetic-draft-http-cookie-password-with-32-characters'
 const PRIVATE = 'SQL private_provider_token owner@example.invalid'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 function variant(sku = 'SYNTHETIC-DRAFT-ONE') {
   return {
     sku,
@@ -379,7 +380,7 @@ describe('draft authoring private HTTP and bounded reference reads', () => {
     const insertion = sqlite.prepare(
       "INSERT INTO shipping_profiles(id,code,name,kind) VALUES (?,?,'Synthetic shipping','parcel')"
     )
-    for (let index = 0; index < 500; index += 1) insertion.run(crypto.randomUUID(), `SYNTHETIC-${index}`)
+    for (let index = 0; index < 500; index += 1) insertion.run(testUuid(), `SYNTHETIC-${index}`)
     const response = await handle(request('/api/admin/products/authoring-options', 'GET', null))
     expect(response.status).toBe(503)
     expect(await response.text()).not.toContain(PRIVATE)

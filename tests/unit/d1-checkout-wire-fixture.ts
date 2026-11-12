@@ -1,16 +1,24 @@
 import { readFile } from 'node:fs/promises'
+import { vi } from 'vitest'
 import { pricingFixture, BUYER_CLAIMS, CLAIMS, CUSTOMER, utc } from './d1-pricing-fixture'
 import { createCart, quoteCart, setCartLine } from '../../workers/catalog/cart'
 import { placeOrder, requestShippingOptions, type PlaceOrderInput } from '../../workers/catalog/checkout'
 import { issueStoreCredit } from '../../workers/pricing/store-credit'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { d1OverSqlite } from '../support/d1-sqlite'
+import { testNow, testUuid } from '../support/deterministic'
 
 export { BUYER_CLAIMS, CLAIMS, CUSTOMER, utc }
 
 /** 0146 pricing fixture + 0152 wiring evidence + a parcel zone (peninsular) and priced costs. */
 export async function wireFixture() {
   const f = await pricingFixture()
+  f.sqlite.function('synthetic_checkout_wire_clock', () => {
+    const clock = vi.getMockedSystemTime() ?? new Date(testNow() + 1000)
+    return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+  })
+  const nativePrepare = f.database.prepare.bind(f.database)
+  f.database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_checkout_wire_clock()'))
   if (!f.sqlite.prepare("SELECT 1 FROM sqlite_schema WHERE name='promotion_rules'").get()) {
     const adapter = d1OverSqlite(f.sqlite)
     const coupons = await readFile(new URL('../../db/d1/migrations/0072_promotions.sql', import.meta.url), 'utf8')
@@ -31,7 +39,7 @@ export type WireFixture = Awaited<ReturnType<typeof wireFixture>>
 let ruleSeq = 0
 export function insertAutoRule(f: WireFixture, changes: Record<string, unknown> = {}) {
   const row = {
-    id: crypto.randomUUID(),
+    id: testUuid(),
     code: `AUTO${++ruleSeq}`,
     name: 'Automatic test discount',
     status: 'active',
@@ -73,7 +81,7 @@ export function updateAutoRule(f: WireFixture, id: string, changes: Record<strin
 let shippingSeq = 0
 export function insertFreeShippingRule(f: WireFixture, changes: Record<string, unknown> = {}) {
   const row = {
-    id: crypto.randomUUID(),
+    id: testUuid(),
     code: `FREE${++shippingSeq}`,
     status: 'active',
     version: 1,
@@ -114,12 +122,12 @@ export async function grantCredit(f: WireFixture, amountCents: number, expiresIn
     {
       customerId: CUSTOMER,
       kind: 'compensation_coupon',
-      sourceRef: `wire-credit-${++creditSeq}-${crypto.randomUUID().slice(0, 8)}`,
+      sourceRef: `wire-credit-${++creditSeq}-${testUuid().slice(-8)}`,
       amountCents,
       expiresInDays,
       reason: 'Compensacion de prueba para el checkout'
     },
-    crypto.randomUUID(),
+    testUuid(),
     utc()
   )
   return (receipt.result as { grantId: string }).grantId
@@ -157,7 +165,7 @@ export async function prepare(
     expectedTotalGrossCents?: number
   } = {}
 ): Promise<Prepared> {
-  const tag = options.tag ?? crypto.randomUUID().slice(0, 8)
+  const tag = options.tag ?? testUuid().slice(-8)
   const address = options.address ?? ADDRESS
   const owner = options.owner ?? true
   const created = await createCart(f.database, { correlationId: `wire-${tag}`, now: utc() })

@@ -17,6 +17,7 @@ import {
 } from '../../workers/marketing/newsletter-campaign-delivery'
 import { previewNewsletterCampaign, editorialSourcesCte } from '../../workers/marketing/newsletter-campaign-render'
 import { suppressNewsletterEmail } from '../../workers/marketing/newsletter'
+import { testUuid } from '../support/deterministic'
 
 describe('D1 newsletter editorial real SQLite', () => {
   let w: Awaited<ReturnType<typeof newsletterEditorialFixture>>
@@ -35,7 +36,7 @@ describe('D1 newsletter editorial real SQLite', () => {
   })
   it('saves explicit preferences with CAS, exact replay and irreversible unsubscribe', async () => {
     const sub = await w.subscriber(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       input = {
         action: 'save',
         expectedRevision: 1,
@@ -51,21 +52,16 @@ describe('D1 newsletter editorial real SQLite', () => {
         key
       )
     ).rejects.toThrow('idempotency_conflict')
-    await expect(saveNewsletterPreferences(w.deps, sub.authority, input, crypto.randomUUID())).rejects.toThrow(
+    await expect(saveNewsletterPreferences(w.deps, sub.authority, input, testUuid())).rejects.toThrow(
       'version_conflict'
     )
-    await saveNewsletterPreferences(
-      w.deps,
-      sub.authority,
-      { action: 'unsubscribe', expectedRevision: 2 },
-      crypto.randomUUID()
-    )
+    await saveNewsletterPreferences(w.deps, sub.authority, { action: 'unsubscribe', expectedRevision: 2 }, testUuid())
     expect(await readNewsletterPreferences(w.deps, sub.authority)).toMatchObject({
       status: 'unsubscribed',
       canSave: false
     })
     await expect(
-      saveNewsletterPreferences(w.deps, sub.authority, { ...input, expectedRevision: 3 }, crypto.randomUUID())
+      saveNewsletterPreferences(w.deps, sub.authority, { ...input, expectedRevision: 3 }, testUuid())
     ).rejects.toThrow('consent_unavailable')
     expect(await saveNewsletterPreferences(w.deps, sub.authority, input, key)).toEqual(receipt)
   })
@@ -86,7 +82,7 @@ describe('D1 newsletter editorial real SQLite', () => {
           document: newsletterCampaignDocument(),
           reason: 'Cambio posterior'
         },
-        crypto.randomUUID()
+        testUuid()
       )
     ).rejects.toThrow('not_editable')
     expect(w.sqlite.prepare('SELECT count(*) AS n FROM newsletter_editorial_audit').get()).toEqual({ n: 3 })

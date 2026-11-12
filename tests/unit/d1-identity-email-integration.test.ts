@@ -7,6 +7,7 @@ import { handleIdentityLifecycleHttp } from '../../workers/auth/lifecycle-http'
 import { dispatchIdentityEmailDeliveries } from '../../workers/communications/identity-email-delivery'
 import type { TransactionalEmailSender } from '../../workers/communications/transactional-email-delivery'
 import { d1OverSqlite, openAccountSecurityDatabase } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 const NOW = '2026-09-30T12:00:00Z'
 const EMAIL = 'integration@example.test'
@@ -41,7 +42,7 @@ type LifecycleToken = {
 type Message = Parameters<TransactionalEmailSender['send']>[0]
 
 function clockInstant() {
-  return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  return new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
 describe('D1 HTTP / durable identity-email integration', () => {

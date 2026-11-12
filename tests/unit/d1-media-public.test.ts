@@ -23,6 +23,7 @@ import { listPublishedProducts } from '../../workers/catalog/products'
 import { searchPublishedProducts } from '../../workers/catalog/search'
 import { getPublishedProductDetail } from '../../workers/catalog/product-detail'
 import worker from '../../workers/canary'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T10:00:00Z'
 const NEXT = '2026-09-30T10:00:01Z'
@@ -218,7 +219,7 @@ describe('authoritative D1 public media', () => {
       .prepare('SELECT checksum, object_key, byte_size FROM media_uploads WHERE id = ?')
       .get(uploadId)!
     const receipt: MediaScanReceipt = {
-      receiptId: crypto.randomUUID(),
+      receiptId: testUuid(),
       uploadId,
       checksum: String(upload.checksum),
       objectKey: String(upload.object_key),
@@ -238,7 +239,7 @@ describe('authoritative D1 public media', () => {
     const bytes = role === 'main' || role === 'image' ? headerOnlyPng() : PDF
     const upload = await quarantineMediaUpload(database, bucket, {
       actorId: CLAIMS.identityId,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       bytes,
       declaredType: role === 'main' || role === 'image' ? 'image/png' : 'application/pdf',
       filename: '../../original.pdf',
@@ -259,7 +260,7 @@ describe('authoritative D1 public media', () => {
       CLAIMS,
       upload.id,
       { decision: 'approve', reason: 'Revisión humana de evidencia de prueba' },
-      { idempotencyKey: crypto.randomUUID(), now: clock }
+      { idempotencyKey: testUuid(), now: clock }
     )
     const created = await createMediaPublication(
       database,
@@ -275,7 +276,7 @@ describe('authoritative D1 public media', () => {
         validFrom: NOW,
         ...overrides
       },
-      { idempotencyKey: crypto.randomUUID(), now: clock }
+      { idempotencyKey: testUuid(), now: clock }
     )
     return { id: created.publication.id, uploadId: upload.id, bytes }
   }
@@ -296,7 +297,7 @@ describe('authoritative D1 public media', () => {
       CLAIMS,
       id,
       { reason: 'Retirada documental de prueba' },
-      { idempotencyKey: crypto.randomUUID(), now: clock }
+      { idempotencyKey: testUuid(), now: clock }
     )
   }
 
@@ -473,7 +474,7 @@ describe('authoritative D1 public media', () => {
         version: 'v1',
         validFrom: NOW
       },
-      { idempotencyKey: crypto.randomUUID(), now: clock }
+      { idempotencyKey: testUuid(), now: clock }
     )
     expect((await deliver(pdf.id)).status).toBe(200)
     expect((await deliver(pdf.id, 'image?w=800&format=jpeg')).status).toBe(404)
@@ -562,7 +563,7 @@ describe('authoritative D1 public media', () => {
     const pdf = await publish()
     const image = await publish({ role: 'main' })
     for (const [id, suffix] of [
-      [crypto.randomUUID(), 'document'],
+      [testUuid(), 'document'],
       [pdf.uploadId, 'document'],
       [pdf.id, 'image?w=800&format=jpeg'],
       [image.id, 'document']
@@ -612,7 +613,7 @@ describe('authoritative D1 public media', () => {
       CLAIMS,
       approved.uploadId,
       { decision: 'reject', reason: 'Permiso retirado' },
-      { idempotencyKey: crypto.randomUUID(), now: clock }
+      { idempotencyKey: testUuid(), now: clock }
     )
     expect((await deliver(approved.id)).status).toBe(404)
     expect(bucket.get).not.toHaveBeenCalled()
@@ -645,7 +646,7 @@ describe('authoritative D1 public media', () => {
             CLAIMS,
             publication.uploadId,
             { decision: 'reject', reason: 'Cambio durante lectura' },
-            { idempotencyKey: crypto.randomUUID(), now: clock }
+            { idempotencyKey: testUuid(), now: clock }
           )
         return object
       })
@@ -937,7 +938,7 @@ describe('authoritative D1 public media', () => {
               decision: 'reject',
               reason: 'Permiso documental retirado para prueba de API'
             },
-            { idempotencyKey: crypto.randomUUID(), now: clock }
+            { idempotencyKey: testUuid(), now: clock }
           )
         if (revocation === 'infected receipt') {
           clock = NEXT

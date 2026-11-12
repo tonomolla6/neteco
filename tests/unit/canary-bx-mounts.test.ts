@@ -6,6 +6,7 @@ import { ownsPromotionsAutomationMatrixNamespace } from '../../workers/marketing
 import { ownsAccountIsolationNamespace } from '../../workers/security/account-isolation-http'
 import { ownsWarehouseRouteOfflineNamespace } from '../../workers/fulfillment/warehouse-route-offline-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testNow } from '../support/deterministic'
 
 const ACTOR = '10000000-0000-4000-8000-000000000043'
 const SESSION = '20000000-0000-4000-8000-000000000043'
@@ -19,8 +20,8 @@ describe('Canary routing for BX: TST-041, TST-042, and TST-043', () => {
   beforeEach(async () => {
     sqlite = await openMigratedDatabase()
     db = d1OverSqlite(sqlite)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-    const expires = new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const expires = new Date(testNow() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite.exec(`
       INSERT OR IGNORE INTO roles VALUES('operator','Operator','Synthetic');
       INSERT OR IGNORE INTO permissions VALUES('administration.manage','administration','manage','Synthetic');

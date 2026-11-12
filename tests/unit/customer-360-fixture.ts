@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { supportFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-support-fixture'
 import { executeSupportAdminCommand } from '../../workers/support/operations'
+import { testUuid } from '../support/deterministic'
 export { CLAIMS, BUYER_CLAIMS, utc }
 export async function customer360Fixture() {
   const f = await supportFixture()
@@ -38,7 +39,7 @@ export async function customer360Fixture() {
       slaDueAt: null,
       reason: 'Seguimiento sintético acordado explícitamente.'
     },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   function fullAccess() {
     f.sqlite.exec(

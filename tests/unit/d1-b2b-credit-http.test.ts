@@ -4,6 +4,7 @@ import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-return
 import { handleB2BHttp } from '../../workers/catalog/b2b-http'
 import worker from '../../workers/canary'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://b2b.neteco.test',
   companyId = '30000000-0000-4000-8000-000000000099'
@@ -42,7 +43,7 @@ function request(path: string, method = 'GET', body?: unknown) {
     headers: {
       origin,
       'Content-Type': 'application/json',
-      'Idempotency-Key': crypto.randomUUID(),
+      'Idempotency-Key': testUuid(),
       'CF-Connecting-IP': '192.0.2.1'
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) })

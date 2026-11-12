@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addOtherCustomer,
   fakeOneClickProvider,
@@ -24,6 +24,25 @@ import {
 import { decodeMerchantParameters } from '../../workers/payments/redsys'
 import { processRedsysNotification } from '../../workers/catalog/payments'
 import { requestPaymentTokenRemoval } from '../../workers/payments/token-removal'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_tokenization_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_tokenization_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_tokenization_clock()'))
+      return database
+    }
+  }
+})
 
 let f: Awaited<ReturnType<typeof payExtFixture>>
 let provider: ReturnType<typeof fakeOneClickProvider>
@@ -35,15 +54,20 @@ const deps = (): TokenizationDependencies => ({
   now: () => utc()
 })
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await payExtFixture()
   provider = fakeOneClickProvider()
 })
-afterEach(() => f?.sqlite.close())
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
 
 const TOKEN = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
 const consent = (orderId: string, over: Record<string, unknown> = {}) => ({
   orderId,
-  commandId: crypto.randomUUID(),
+  commandId: testUuid(),
   consent: true,
   consentVersion: ONE_CLICK_CONSENT_VERSION,
   ...over
@@ -70,7 +94,7 @@ async function savedToken() {
   const row = f.sqlite.prepare('SELECT id,version FROM payment_saved_tokens').get() as { id: string; version: number }
   return { ...paid, tokenId: row.id, version: row.version }
 }
-const oneClick = (tokenId: string, version: number, orderId: string, commandId = crypto.randomUUID()) => ({
+const oneClick = (tokenId: string, version: number, orderId: string, commandId = testUuid()) => ({
   tokenId,
   expectedVersion: version,
   orderId,
@@ -358,7 +382,7 @@ describe('one-click payment', () => {
     ).rejects.toMatchObject({ code: 'not_found' })
     expect(f.sqlite.prepare('SELECT count(*) n FROM payment_one_click_commands').get()).toMatchObject({ n: 0 })
     await expect(
-      payWithSavedToken(BUYER_CLAIMS, mine.token, oneClick(crypto.randomUUID(), 1, mine.orderId), deps())
+      payWithSavedToken(BUYER_CLAIMS, mine.token, oneClick(testUuid(), 1, mine.orderId), deps())
     ).rejects.toMatchObject({ code: 'not_found' })
     await expect(
       payWithSavedToken(BUYER_CLAIMS, mine.token, oneClick(tokenId, version + 1, mine.orderId), deps())
@@ -432,7 +456,7 @@ describe('revocation', () => {
     await requestPaymentTokenRemoval(
       f.database,
       BUYER_CLAIMS,
-      { tokenId, commandId: crypto.randomUUID(), expectedVersion: version },
+      { tokenId, commandId: testUuid(), expectedVersion: version },
       { now: () => utc() }
     )
     expect(

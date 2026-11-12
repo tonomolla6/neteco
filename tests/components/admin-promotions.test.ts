@@ -6,6 +6,7 @@ import Page from '../../app/pages/admin/promociones.vue'
 import BasketSimulator from '../../app/components/PromotionBasketSimulator.vue'
 import { adminPromotionIntentHash } from '../../shared/admin-promotions'
 import '#app/nuxt-vitest-app-entry'
+import { testUuid } from '../support/deterministic'
 
 // Acceptance matrix: live permission/session/email/MFA; CF-only; explicit query
 // and paging; private strict DTO/loading/error/empty; governed create/edit/pause
@@ -237,7 +238,7 @@ it('announces a saved rule only after correlated receipt and a successful fresh 
   await flushPromises()
   await w.get('[data-testid="promotion-confirm"]').trigger('click')
   await flushPromises()
-  expect(w.text()).toContain('Cambio registrado y regla vigente comprobada')
+  await vi.waitFor(() => expect(w.text()).toContain('Cambio registrado y regla vigente comprobada'))
   expect(w.find('[data-testid="promotion-check"]').exists()).toBe(false)
   expect(mocks.request.mock.calls.filter(([, o]) => o?.method === 'POST')).toHaveLength(1)
 })
@@ -246,7 +247,7 @@ it('keeps uncertainty when a POST receipt belongs to another command, never read
     options.method === 'POST'
       ? {
           source: 'cloudflare',
-          commandId: crypto.randomUUID(),
+          commandId: testUuid(),
           ruleId: (options.body!.rule as { id: string }).id,
           version: 1,
           ruleHash: 'a'.repeat(64),
@@ -285,8 +286,8 @@ it.each(['identity', 'session', 'version', 'email', 'mfa', 'grant'])(
   async (boundary) => {
     const w = await mount()
     await draft(w)
-    if (boundary === 'identity') owner.user.value = { ...owner.user.value, id: crypto.randomUUID() }
-    if (boundary === 'session') owner.session.value = { ...owner.session.value, sessionId: crypto.randomUUID() }
+    if (boundary === 'identity') owner.user.value = { ...owner.user.value, id: testUuid() }
+    if (boundary === 'session') owner.session.value = { ...owner.session.value, sessionId: testUuid() }
     if (boundary === 'version') owner.session.value = { ...owner.session.value, sessionVersion: 2 }
     if (boundary === 'email') owner.user.value = { ...owner.user.value, emailVerified: false }
     if (boundary === 'mfa') owner.user.value = { ...owner.user.value, mfaVerified: false }

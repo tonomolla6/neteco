@@ -1,18 +1,48 @@
 import type { DatabaseSync } from 'node:sqlite'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { refundsCreditFixture, CLAIMS, REASON, utc } from './d1-refunds-credit-fixture'
 import type { PromotionRule } from '../../shared/promotions'
 import { readRefundContract } from '../../workers/refunds/operations'
 import { capturedSource } from '../../workers/refunds/source'
 import { queueD1CreditNote, readCreditContract, dispatchD1CreditNotes } from '../../workers/fiscal/credit-notes'
 import { creditProviderRequest } from '../../shared/fiscal-credit'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_coupon_refund_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_coupon_refund_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_coupon_refund_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_coupon_refund_clock()'))
+      return database
+    }
+  }
+})
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
 const opened: DatabaseSync[] = []
 afterEach(() => {
   for (const database of opened.splice(0)) database.close()
+  vi.useRealTimers()
 })
 function rule(grossCents: number): PromotionRule {
   return {
-    id: crypto.randomUUID(),
+    id: testUuid(),
     version: 1,
     code: 'REFUND-COUPON',
     status: 'active',
@@ -42,7 +72,7 @@ it('refunds discounted captured cents deterministically across repeated partials
       )
       .get(f.orderId)
   ).toEqual({ unit_gross_cents: 500, discount_gross_cents: 3, net_cents: 824, tax_cents: 173, gross_cents: 997 })
-  const key = crypto.randomUUID(),
+  const key = testUuid(),
     first = await f.plan(1, key)
   expect(await f.plan(1, key)).toEqual(first)
   await f.confirm(first.id, first.generation, first.contractFingerprint)
@@ -61,7 +91,7 @@ it('credits only the actual discounted refund and preserves the original pre-dis
   const f = await world(),
     refund = await f.completed(2)
   const queued = await queueD1CreditNote(f.database, CLAIMS, refund.id, {
-    idempotencyKey: crypto.randomUUID(),
+    idempotencyKey: testUuid(),
     policyId: f.creditPolicy.id,
     reason: REASON,
     evidenceRef: 'synthetic-coupon-credit'

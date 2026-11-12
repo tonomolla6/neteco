@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
 import { categoryCommandFixture, categoryUtc as utc } from '../support/category-command-fixture'
 import { assessPromoFraud } from '../../workers/security/promo-fraud'
+import { testUuid, testNow } from '../support/deterministic'
 
 const DAY = 86_400_000
 const PEPPER = 'p'.repeat(40)
@@ -24,7 +25,7 @@ it('the scheduled worker applies the 90 day pseudonymised-signal retention and k
     const assess = (n: number, ref: string, at: string, signals: Record<string, string>) =>
       assessPromoFraud(
         database,
-        { commandId: crypto.randomUUID(), context: 'promotion', refId: ref, customerId: `c-${n}`, signals },
+        { commandId: testUuid(), context: 'promotion', refId: ref, customerId: `c-${n}`, signals },
         { now: at, pepper: PEPPER }
       )
     await assess(1, 'old-clear', utc(-100 * DAY), { identity: 'old@example.invalid' }) // closed case, expired signal
@@ -48,7 +49,7 @@ it('the scheduled worker applies the 90 day pseudonymised-signal retention and k
     } as unknown as CloudflareEnv
     // The small fixture omits unrelated scheduled subsystems; their failure is observable and isolated.
     const error = await worker
-      .scheduled({ scheduledTime: Date.now() } as ScheduledController, env)
+      .scheduled({ scheduledTime: testNow() } as ScheduledController, env)
       .catch((cause: unknown) => cause)
     if (error !== undefined) {
       expect(error).toBeInstanceOf(AggregateError)

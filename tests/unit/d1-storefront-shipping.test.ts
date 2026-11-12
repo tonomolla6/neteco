@@ -6,6 +6,7 @@ import { handleStorefrontCartHttp } from '../../workers/catalog/storefront-cart'
 import { handleStorefrontShippingHttp } from '../../workers/catalog/storefront-shipping'
 import { applyGeneratedSeed, d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-08-25T09:00:00Z'
 const ORIGIN = 'https://shop.neteco.test'
@@ -115,7 +116,7 @@ describe('Cloudflare storefront shipping bridge', () => {
     const before = counts()
     const cartBefore = sqlite.prepare('SELECT version FROM carts').get()
     // Explicit synthetic fixture withdrawal; production history is immutable.
-    const eventId = crypto.randomUUID()
+    const eventId = testUuid()
     sqlite
       .prepare(
         `INSERT INTO product_media_publication_events
@@ -228,7 +229,7 @@ describe('Cloudflare storefront shipping bridge', () => {
                  eta_min_days, eta_max_days, 2, 1, ?
           FROM shipping_rates WHERE method_code = 'own_delivery' AND service_profile = 'parcel' AND rate_version = 1`
       )
-      .run(crypto.randomUUID(), NOW)
+      .run(testUuid(), NOW)
     const response = await handleStorefrontShippingHttp(request('/api/shipping/rates', address, cookie), deps)
     expect(response?.status).toBe(200)
     const body = (await response!.json()) as { rates: Array<{ serviceCode: string; netCents: number }> }

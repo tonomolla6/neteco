@@ -21,6 +21,7 @@ import {
   salesQuoteConversionIntentHash,
   salesQuoteConvertInputSchema
 } from '../../shared/sales-quotes'
+import { testUuid } from '../support/deterministic'
 
 const REASON = 'Synthetic commercial review, no discount override'
 const VARIANT = '89000000-0000-4000-8000-000000000001'
@@ -95,7 +96,7 @@ async function fixture() {
         `INSERT INTO inventory_movements(id,variant_id,location_id,movement_type,physical_delta,reserved_delta,reference_type,
       idempotency_key,correlation_id,reason,created_at) VALUES(?,?,'loc-main','initial',25,0,'seed',?,'sales-quote-fixture','Synthetic initial stock',?)`
       )
-      .run(crypto.randomUUID(), VARIANT, crypto.randomUUID(), now)
+      .run(testUuid(), VARIANT, testUuid(), now)
     await provisionPublicationValidityFixture(f.database, { productIds: ['p-1'], now })
     f.sqlite.exec(
       "INSERT INTO permissions VALUES('catalog.write','catalog','write','Synthetic commercial costs permission'); INSERT INTO role_permissions VALUES('operator','catalog.write')"
@@ -122,7 +123,7 @@ async function fixture() {
         expectedLatestApprovedId: null,
         reason: REASON
       },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     return f
   } catch (error) {
@@ -163,17 +164,17 @@ async function checkout(
     expectedVersion: 1,
     variantId: VARIANT,
     quantity,
-    idempotencyKey: crypto.randomUUID()
+    idempotencyKey: testUuid()
   })
   if (added.outcome !== 'applied') throw new Error('sales_quote_fixture_add_failed')
-  const quote = await quoteCart(f.database, { ...common, expectedVersion: 2, idempotencyKey: crypto.randomUUID() })
+  const quote = await quoteCart(f.database, { ...common, expectedVersion: 2, idempotencyKey: testUuid() })
   const shipping = await requestShippingOptions(f.database, {
     ...common,
     ...shippingOptions,
     ...{ ownerSession: BUYER_CLAIMS },
     expectedVersion: 2,
     destination: { city: address.city, postalCode: address.postalCode },
-    idempotencyKey: crypto.randomUUID()
+    idempotencyKey: testUuid()
   })
   if (quote.outcome !== 'quoted' || shipping.outcome !== 'options') throw new Error('sales_quote_fixture_quote_failed')
   const option = (shipping.body.options as Array<{ methodCode: string; optionIndex: number; optionHash: string }>).find(
@@ -192,7 +193,7 @@ async function checkout(
     consentTos: true,
     consentPrivacy: true,
     ownerSession: BUYER_CLAIMS,
-    idempotencyKey: crypto.randomUUID()
+    idempotencyKey: testUuid()
   }
 }
 async function approved(
@@ -214,7 +215,7 @@ async function approved(
   const before = economic(f)
   const created = await executeD1SalesQuoteCommand(f.database, CLAIMS, 'create', null, input, {
     ...options,
-    idempotencyKey: crypto.randomUUID()
+    idempotencyKey: testUuid()
   })
   const reviewed = await executeD1SalesQuoteCommand(
     f.database,
@@ -222,7 +223,7 @@ async function approved(
     'review',
     created.quoteId,
     { expectedVersion: created.version, reason: REASON },
-    { ...options, idempotencyKey: crypto.randomUUID() }
+    { ...options, idempotencyKey: testUuid() }
   )
   const review = await readD1AdminSalesQuote(f.database, CLAIMS, created.quoteId)
   expect(review.status).toBe('reviewed')
@@ -233,7 +234,7 @@ async function approved(
     'approve',
     created.quoteId,
     { expectedVersion: reviewed.version, reviewedHash: review.reviewedHash, reason: REASON },
-    { ...options, idempotencyKey: crypto.randomUUID() }
+    { ...options, idempotencyKey: testUuid() }
   )
   const snapshot = await readD1AdminSalesQuote(f.database, CLAIMS, created.quoteId)
   expect(snapshot).toMatchObject({ status: 'approved', version: receipt.version })
@@ -292,8 +293,8 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
       approvedHash: 'a'.repeat(64),
       checkout: {
         expectedVersion: 2,
-        quoteId: crypto.randomUUID(),
-        shippingQuoteId: crypto.randomUUID(),
+        quoteId: testUuid(),
+        shippingQuoteId: testUuid(),
         selectedOptionIndex: 0,
         selectedOptionHash: 'b'.repeat(64),
         contactEmail: 'buyer@example.invalid',
@@ -319,7 +320,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
       const input = conversion(snapshot, await checkout(f))
       input.checkout.shippingAddress = { ...input.checkout.shippingAddress, phone: undefined }
       await expect(
-        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: crypto.randomUUID() })
+        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: testUuid() })
       ).rejects.toMatchObject({ code: 'invalid_input' })
       expect(f.sqlite.prepare('SELECT count(*) AS n FROM sales_quote_conversions').get()).toEqual({ n: 0 })
       expect(f.sqlite.prepare('SELECT count(*) AS n FROM checkout_attempts').get()).toEqual({ n: 0 })
@@ -373,14 +374,14 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
             expectedLatestApprovedId: latest.id,
             reason: REASON
           },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
         const input = await checkout(f, 2, {
           method: 'parcel',
           freeShippingThresholdCents: threshold,
           salesQuote: { quoteId: snapshot.id, version: snapshot.version, approvedHash: snapshot.approvedHash! }
         })
-        const key = crypto.randomUUID()
+        const key = testUuid()
         const receipt = await convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, conversion(snapshot, input), {
           idempotencyKey: key,
           freeShippingThresholdCents: threshold
@@ -411,7 +412,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
   it('rejects null claims as unauthenticated for direct administrative detail and list reads', async () => {
     const f = await fixture()
     try {
-      await expect(readD1AdminSalesQuote(f.database, null, crypto.randomUUID())).rejects.toMatchObject({
+      await expect(readD1AdminSalesQuote(f.database, null, testUuid())).rejects.toMatchObject({
         code: 'unauthenticated'
       })
       await expect(listD1SalesQuotes(f.database, null, 'admin')).rejects.toMatchObject({
@@ -433,7 +434,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
         approvedHash: input.approvedHash,
         checkout: body
       })
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         receipt = await convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: key })
       expect(receipt.payloadHash).toBe(expectedHash)
       expect(await readD1SalesQuoteCommand(f.database, BUYER_CLAIMS, key, expectedHash)).toEqual({
@@ -470,13 +471,13 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
           'revoke',
           snapshot.id,
           { expectedVersion: snapshot.version, reason: REASON },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
         return reserveInventory(f.database, value)
       })
       await expect(
         convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, {
-          idempotencyKey: crypto.randomUUID(),
+          idempotencyKey: testUuid(),
           inventory: { reserve, release: (value) => releaseReservation(f.database, value) }
         })
       ).rejects.toMatchObject({ code: 'quote_not_approved' })
@@ -511,7 +512,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
         })
         await expect(
           convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, {
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey: testUuid(),
             inventory: { reserve, release: (value) => releaseReservation(f.database, value) }
           })
         ).rejects.toBeDefined()
@@ -549,17 +550,17 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
           expectedLatestApprovedId: latest?.id ?? null,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       const input = await checkout(f),
-        key = crypto.randomUUID()
+        key = testUuid()
       const fresh = await quoteCart(f.database, {
         cartId: input.cartId,
         token: input.token,
         expectedVersion: 2,
         correlationId: 'new-price-proof',
         now: utc(),
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
       expect(fresh.outcome).toBe('quoted')
       if (fresh.outcome !== 'quoted') throw new Error('sales_quote_fresh_price_missing')
@@ -572,7 +573,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
       })
       const otherCart = await checkout(f)
       const third = await convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, conversion(snapshot, otherCart), {
-        idempotencyKey: crypto.randomUUID()
+        idempotencyKey: testUuid()
       })
       expect(second).toEqual(first)
       expect(third.orderId).toBe(first.orderId)
@@ -598,7 +599,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
         const before = economic(f)
         await expect(
           convertD1SalesQuote(f.database, mode === 'foreign' ? FOREIGN_CLAIMS : BUYER_CLAIMS, snapshot.id, input, {
-            idempotencyKey: crypto.randomUUID(),
+            idempotencyKey: testUuid(),
             ...(mode === 'expired' ? { now: snapshot.definition.validUntil } : {})
           })
         ).rejects.toMatchObject({
@@ -615,7 +616,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
     try {
       const snapshot = await approved(f),
         input = conversion(snapshot, await checkout(f)),
-        key = crypto.randomUUID()
+        key = testUuid()
       await convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: key })
       f.sqlite.prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?').run(utc(), BUYER_CLAIMS.sessionId)
       const before = economic(f)
@@ -634,8 +635,8 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
         first = conversion(snapshot, await checkout(f)),
         second = conversion(snapshot, await checkout(f))
       const results = await Promise.all([
-        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, first, { idempotencyKey: crypto.randomUUID() }),
-        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, second, { idempotencyKey: crypto.randomUUID() })
+        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, first, { idempotencyKey: testUuid() }),
+        convertD1SalesQuote(f.database, BUYER_CLAIMS, snapshot.id, second, { idempotencyKey: testUuid() })
       ])
       expect(results[0]!.orderId).toBeTruthy()
       expect(results[1]!.orderId).toBe(results[0]!.orderId)
@@ -657,11 +658,11 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
           'revoke',
           snapshot.id,
           { expectedVersion: snapshot.version, reason: REASON },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       })
       await expect(
-        convertD1SalesQuote(observed, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: crypto.randomUUID() })
+        convertD1SalesQuote(observed, BUYER_CLAIMS, snapshot.id, input, { idempotencyKey: testUuid() })
       ).rejects.toMatchObject({ code: 'quote_not_approved' })
       expect(counts(f)[0]).toBe(0)
       expect(
@@ -677,7 +678,7 @@ describe('commercial quote conversion through canonical D1 checkout', () => {
     try {
       const snapshot = await approved(f),
         input = conversion(snapshot, await checkout(f)),
-        key = crypto.randomUUID()
+        key = testUuid()
       f.sqlite.exec(
         "CREATE TRIGGER synthetic_sales_quote_email_failure BEFORE INSERT ON email_outbox_events BEGIN SELECT RAISE(ABORT,'synthetic_outbox_failure'); END"
       )

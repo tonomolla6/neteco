@@ -10,6 +10,7 @@ import {
   ADMIN_AUDIT_EXPORT_HEADERS,
   ADMIN_AUDIT_EXPORT_CONTENT_TYPE
 } from '../../shared/admin-audit'
+import { testUuid } from '../support/deterministic'
 
 const ORIGIN = 'https://audit.neteco.test'
 describe('ADM005 actual canary HTTP with real D1 administrative command evidence', () => {
@@ -87,7 +88,7 @@ describe('ADM005 actual canary HTTP with real D1 administrative command evidence
       disposition: 'reviewed',
       reason: 'Revisión administrativa sintética confirmada.'
     }
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       path = '/api/admin/audit/' + eventId + '/reviews'
     const response = await send(path, 'POST', input, { 'Idempotency-Key': key })
     expect(response.status).toBe(201)
@@ -109,7 +110,7 @@ describe('ADM005 actual canary HTTP with real D1 administrative command evidence
       filters: { family: 'admin_invitation' },
       reason: 'Exportación administrativa sintética confirmada.'
     }
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const response = await send('/api/admin/audit/exports', 'POST', input, { 'Idempotency-Key': key })
     expect(response.status).toBe(201)
     const receipt = adminAuditReceiptSchema.parse(await response.json())

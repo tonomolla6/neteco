@@ -4,10 +4,11 @@ import { categoryCommandFixture, CATEGORY_CLAIMS } from '../support/category-com
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleAdminActivityHttp } from '../../workers/auth/admin-activity-http'
 import { deterministicTestData } from '../fixtures/deterministic'
+import { testNow } from '../support/deterministic'
 const origin = 'https://neteco.invalid'
 const configuration = { password: 'synthetic-admin-activity-cookie-password-32', maxAgeSeconds: 3600 }
 let sqlite: DatabaseSync, database: D1Database, cookie: string
-const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const now = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 beforeEach(async () => {
   vi.useFakeTimers()
   vi.setSystemTime(deterministicTestData('activity-http', '2026-10-08T12:00:00.000Z').date())

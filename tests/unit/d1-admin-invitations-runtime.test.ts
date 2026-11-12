@@ -3,6 +3,7 @@ import worker from '../../workers/canary'
 import { environment } from '../support/customer-operations-fixture'
 import { invitationFixture, ORIGIN } from './d1-admin-invitations-fixture'
 import { adminNavigationGroups, canNavigateAdmin } from '../../shared/admin-navigation'
+import { testUuid } from '../support/deterministic'
 
 describe('Cloudflare invitation routing and team navigation', () => {
   it.each([
@@ -54,8 +55,8 @@ describe('Cloudflare invitation routing and team navigation', () => {
   it('shows the exact team route only with current administration.manage capability', () => {
     const caps = {
       source: 'cloudflare' as const,
-      identityId: crypto.randomUUID(),
-      sessionId: crypto.randomUUID(),
+      identityId: testUuid(),
+      sessionId: testUuid(),
       sessionVersion: 1,
       state: 'ready' as const,
       permissions: ['administration.manage' as const]

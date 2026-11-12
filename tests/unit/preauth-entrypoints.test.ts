@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://admin.example.invalid'
 const env = (extra: Record<string, unknown> = {}) =>
@@ -42,7 +43,7 @@ it('does not treat the ordinary notification route as a pre-authorisation', asyn
 })
 it('rejects an unauthenticated admin call even when enabled in configuration', async () => {
   const res = await worker.fetch(
-    new Request(`${origin}/api/admin/payments/preauthorizations?orderId=${crypto.randomUUID()}`),
+    new Request(`${origin}/api/admin/payments/preauthorizations?orderId=${testUuid()}`),
     env({ PAYMENT_PREAUTH_ENABLED: 'true' })
   )
   expect([401, 503]).toContain(res.status)

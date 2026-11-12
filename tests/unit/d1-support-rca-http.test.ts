@@ -8,6 +8,7 @@ import {
   ownsSupportRcaNamespace,
   type SupportRcaHttpDependencies
 } from '../../workers/support/rca-http'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-10-29T12:00:00Z'
 const ADMIN_ID = '10000000-0000-4000-8000-000000000001'
@@ -140,7 +141,7 @@ describe('SUP-018: Support RCA HTTP endpoints', () => {
         ],
         preventiveActions: [
           {
-            id: crypto.randomUUID(),
+            id: testUuid(),
             actionType: 'documentation_template',
             description: 'Implementar revisión periódica automatizada de FDS y anexos ADR',
             assignee: 'Responsable Reglamentario',

@@ -8,6 +8,7 @@ import {
 } from '../../workers/payments/preauth-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { createBoundPreauthProvider, configuredPreauth } from '../../workers/payments/preauth-runtime'
+import { testUuid } from '../support/deterministic'
 
 const cookieConfig = { password: 'synthetic-preauth-cookie-password-over-32-characters', maxAgeSeconds: 3600 }
 let f: Awaited<ReturnType<typeof payExtFixture>>
@@ -55,7 +56,7 @@ async function orderWithTotal() {
   const total = (f.sqlite.prepare('SELECT total_gross_cents t FROM orders WHERE id=?').get(orderId) as { t: number }).t
   return { orderId, total }
 }
-const body = (orderId: string, total: number, commandId = crypto.randomUUID()) => ({
+const body = (orderId: string, total: number, commandId = testUuid()) => ({
   orderId,
   commandId,
   reasonCode: 'made_to_order',
@@ -92,7 +93,7 @@ describe('admin preauthorisation API', () => {
     expect(read.status).toBe('authorized')
     const capture = (await call(`/api/admin/payments/preauthorizations/${view.id}/capture`, {
       method: 'POST',
-      body: { commandId: crypto.randomUUID(), expectedVersion: read.version }
+      body: { commandId: testUuid(), expectedVersion: read.version }
     }))!
     expect(capture.status).toBe(200)
     expect(await capture.json()).toMatchObject({ status: 'captured' })
@@ -147,7 +148,7 @@ describe('admin preauthorisation API', () => {
       (await call(path, {
         method: 'POST',
         body: body(orderId, total),
-        headers: { 'idempotency-key': crypto.randomUUID() }
+        headers: { 'idempotency-key': testUuid() }
       }))!.status
     ).toBe(400)
     expect((await call(`${path}?x=1`, { method: 'POST', body: body(orderId, total) }))!.status).toBe(400)
@@ -178,7 +179,7 @@ describe('admin preauthorisation API', () => {
     const dup = (await call('/api/admin/payments/preauthorizations', { method: 'POST', body: body(orderId, total) }))!
     expect(dup.status).toBe(409)
     expect(await dup.json()).toEqual({ error: { code: 'conflict' } })
-    const missing = (await call(`/api/admin/payments/preauthorizations/${crypto.randomUUID()}`))!
+    const missing = (await call(`/api/admin/payments/preauthorizations/${testUuid()}`))!
     expect(missing.status).toBe(404)
   })
 })

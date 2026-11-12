@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { applyDeliveryPreferencesMigration } from '../support/delivery-preferences-migration'
 import { returnsFixture, CUSTOMER, REQUEST } from './d1-returns-fixture'
@@ -18,10 +18,41 @@ import { refundProviderRequest } from '../../shared/order-refunds'
 import { receiveEmailDispatch, publishEmailOutbox } from '../../workers/communications/email-outbox'
 import { dispatchTransactionalEmails } from '../../workers/communications/transactional-email-delivery'
 import { refundSucceededEmailRenderer } from '../../workers/communications/refund-credit-email'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_store_credit_downstream_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_store_credit_downstream_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_store_credit_downstream_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) =>
+        nativePrepare(sql.replaceAll("'now'", 'synthetic_store_credit_downstream_clock()'))
+      return database
+    }
+  }
+})
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
 
 const opened: DatabaseSync[] = []
 afterEach(() => {
   for (const db of opened.splice(0)) db.close()
+  vi.useRealTimers()
 })
 const one = <T>(sqlite: DatabaseSync, sql: string, ...args: Array<string | number>) =>
   sqlite.prepare(sql).get(...args) as T
@@ -103,7 +134,7 @@ describe('PRI-018 downstream: an order partly paid with store credit is paid, fu
         CLAIMS,
         {
           orderId: id,
-          commandId: crypto.randomUUID(),
+          commandId: testUuid(),
           reasonCode: 'made_to_order',
           justification: 'Made-to-order dilution needs a hold until the batch is confirmed',
           expectedAmountCents
@@ -115,7 +146,7 @@ describe('PRI-018 downstream: an order partly paid with store credit is paid, fu
     expect(view).toMatchObject({ orderId: id, amountCents: 600 })
     expect(decodeMerchantParameters(view.redirect!.fields.Ds_MerchantParameters).DS_MERCHANT_AMOUNT).toBe('600')
     await expect(
-      redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId: id, amountCents: 50 }, crypto.randomUUID(), utc())
+      redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId: id, amountCents: 50 }, testUuid(), utc())
     ).rejects.toMatchObject({ code: 'invalid_transition' })
     expect(balance(f.sqlite)).toBe(100)
   })
@@ -123,7 +154,7 @@ describe('PRI-018 downstream: an order partly paid with store credit is paid, fu
   it('refuses post-order credit on orders paid by bank transfer (credit terms) or through a market checkout', async () => {
     const f = await creditWorld()
     const redeem = (orderId: string) =>
-      redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId, amountCents: 100 }, crypto.randomUUID(), utc())
+      redeemStoreCredit(f.database, BUYER_CLAIMS, { orderId, amountCents: 100 }, testUuid(), utc())
     // Credit-terms order: its order.created evidence carries the bank-transfer instructions for the full total.
     const terms = await f.order({ paid: false })
     f.sqlite.exec('DROP TRIGGER order_events_no_update')
@@ -242,7 +273,7 @@ describe('PRI-018 downstream: invoice and refunds of an order partly paid with s
     ])
     // The corrective invoice (credit note) rectifies the full refunded value, whatever the tender.
     const credit = await queueD1CreditNote(f.database, CLAIMS, first.id, {
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       policyId: f.creditPolicy.id,
       reason: REASON,
       evidenceRef: 'approved-corrective-case'
@@ -292,7 +323,7 @@ describe('PRI-018 downstream: invoice and refunds of an order partly paid with s
 
   it('is idempotent: re-dispatching and replaying never restores credit or refunds the card twice', async () => {
     const f = await refundWorld()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const planned = await f.plan(1, key)
     expect(await f.plan(1, key)).toEqual(planned)
     await f.confirm(planned.id, planned.generation, planned.contractFingerprint)
@@ -306,7 +337,7 @@ describe('PRI-018 downstream: invoice and refunds of an order partly paid with s
   it('completes a refund whose card share rounds to zero as store credit only, without calling the provider', async () => {
     const f = await refundWorld()
     const planned = await planD1Refund(f.database, CLAIMS, {
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       policyId: f.policy.id,
       returnPublicRef: f.returnRef,
       expectedReturnVersion: 5,
@@ -319,7 +350,7 @@ describe('PRI-018 downstream: invoice and refunds of an order partly paid with s
       storeCreditCents: 1
     })
     await confirmD1Refund(f.database, CLAIMS, planned.id, {
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       expectedGeneration: planned.generation,
       contractFingerprint: planned.contractFingerprint,
       reason: REASON,
@@ -347,7 +378,7 @@ describe('PRI-018 downstream: invoice and refunds of an order partly paid with s
     const planned = await f.plan(1)
     const row = one<Record<string, string | number>>(f.sqlite, 'SELECT * FROM refund_contracts WHERE id=?', planned.id)
     const forge = (changes: Record<string, unknown>, drop?: string) => {
-      const id = crypto.randomUUID(),
+      const id = testUuid(),
         json = Object.fromEntries(
           Object.entries({
             ...JSON.parse(String(row.contract_json)),
@@ -393,7 +424,7 @@ describe('PRI-018 downstream: invoice and refunds of an order partly paid with s
         .prepare(
           "INSERT INTO refund_store_credit_restitutions(refund_id,order_id,customer_id,grant_id,command_id,amount_cents,created_at) VALUES(?,?,?,?,?,?,'2026-01-01T00:00:00Z')"
         )
-        .run(planned.id, f.orderId, CUSTOMER, crypto.randomUUID(), crypto.randomUUID(), 200)
+        .run(planned.id, f.orderId, CUSTOMER, testUuid(), testUuid(), 200)
     ).toThrow()
   })
 })

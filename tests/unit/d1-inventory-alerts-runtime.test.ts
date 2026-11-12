@@ -8,12 +8,37 @@ import {
   INVENTORY_FIXTURE_SESSION
 } from '../support/admin-inventory-fixture'
 import { applyScheduledAuthStageSchema } from '../support/scheduled-auth-stages'
+import { testNow } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_inventory_alerts_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_inventory_alerts_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_inventory_alerts_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_inventory_alerts_clock()'))
+      return database
+    }
+  }
+})
 
 const origin = 'https://inventory-alerts-runtime.neteco.test'
 const password = 'synthetic-alerts-runtime-session-password-more-than-32'
 // Actual entrypoints use D1's authoritative clock for the final grant check.
 // Relative fixtures must use that clock too, not a JS-only historical fake.
-const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 let fixture: Awaited<ReturnType<typeof openAdminInventoryFixture>>
 let cookie: string
 
@@ -50,6 +75,8 @@ function stockSnapshot() {
 }
 
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(instant))
   fixture = await openAdminInventoryFixture()
   // The shared fixture deliberately applies 0001–0062. Only this feature's
   // incremental schema is added here; native tests apply all 67 migrations.
@@ -69,6 +96,7 @@ beforeEach(async () => {
 afterEach(() => {
   fixture?.sqlite.close()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('inventory alerts actual Worker entrypoints', () => {

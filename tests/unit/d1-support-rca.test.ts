@@ -15,6 +15,7 @@ import {
   readD1SupportRca,
   listD1SupportRcas
 } from '../../workers/support/rca'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-10-29T12:00:00Z'
 const ADMIN_ID = '10000000-0000-4000-8000-000000000001'
@@ -75,7 +76,7 @@ describe('SUP-018: Systematic Root Cause Analysis (RCA) for operational incident
         ],
         preventiveActions: [
           {
-            id: crypto.randomUUID(),
+            id: testUuid(),
             actionType: 'process_change',
             description: `Actualizar protocolo operativo para ${cat}`,
             assignee: 'Responsable de Calidad',
@@ -137,7 +138,7 @@ describe('SUP-018: Systematic Root Cause Analysis (RCA) for operational incident
       ],
       preventiveActions: [
         {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           actionType: 'packaging_update',
           description: 'Incorporar cantoneras reforzadas de cartón kraft en todos los palés químicos',
           assignee: 'Jefe de Almacén',
@@ -201,7 +202,7 @@ describe('SUP-018: Systematic Root Cause Analysis (RCA) for operational incident
       ],
       preventiveActions: [
         {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           actionType: 'training',
           description: 'Recolocación física en pasillos distintos y reetiquetado reflectante',
           assignee: 'Supervisor Logística',

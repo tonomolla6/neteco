@@ -3,6 +3,7 @@ import { cmsPublicationFixture } from './d1-cms-publication-fixture'
 import { CMS_CLAIMS, CMS_SESSION } from './d1-cms-fixture'
 import { handleCmsDraftHttp } from '../../workers/cms/http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 const origin = 'https://cms.neteco.invalid',
   password = 'synthetic-cms-session-password-independent'
 describe('CMS publication HTTP exact owned routes, CSRF and live capabilities', () => {
@@ -20,7 +21,7 @@ describe('CMS publication HTTP exact owned routes, CSRF and live capabilities', 
         cookie,
         origin,
         'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID(),
+        'idempotency-key': testUuid(),
         ...headers
       },
       body: body === undefined ? undefined : JSON.stringify(body)

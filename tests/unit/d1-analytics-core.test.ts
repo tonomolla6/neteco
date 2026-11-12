@@ -13,6 +13,7 @@ import {
   projectAnalyticsCommerceFacts
 } from '../../workers/analytics/commerce-projection'
 import { readAnalyticsSnapshot } from '../../workers/analytics/read-model'
+import { testUuid } from '../support/deterministic'
 
 const connections: DatabaseSync[] = []
 afterEach(() => {
@@ -481,7 +482,7 @@ describe('authoritative commerce projection and read model', () => {
         "INSERT INTO order_events(id,order_id,event_type,payload_json,correlation_id,created_at) VALUES(?,?,'payment_provider_authorised',?,'synthetic-contradiction',?)"
       )
       .run(
-        `order-event:${crypto.randomUUID()}`,
+        `order-event:${testUuid()}`,
         String(original.order_id),
         String(original.payload_json),
         String(original.created_at)
@@ -525,7 +526,7 @@ describe('authoritative commerce projection and read model', () => {
           .prepare(
             'INSERT INTO analytics_projection_runs(id,environment,policy_fingerprint,examined,projected,created_at) VALUES(?,?,?,0,0,?)'
           )
-          .run(crypto.randomUUID(), 'local', 'a'.repeat(64), instant)
+          .run(testUuid(), 'local', 'a'.repeat(64), instant)
       ).toThrow()
     }
   )
@@ -538,7 +539,7 @@ describe('authoritative commerce projection and read model', () => {
           .prepare(
             'INSERT INTO analytics_projection_runs(id,environment,policy_fingerprint,examined,projected,created_at) VALUES(?,?,?,0,0,?)'
           )
-          .run(crypto.randomUUID(), 'local', fingerprint, utc())
+          .run(testUuid(), 'local', fingerprint, utc())
       ).toThrow()
     }
   )
@@ -563,7 +564,7 @@ describe('authoritative commerce projection and read model', () => {
           .prepare(
             `INSERT INTO analytics_client_events(${columns}) SELECT ?,name,session_hash,environment,policy_reference,policy_version,policy_fingerprint,?,payload_hash,occurred_at,received_at,expires_at FROM analytics_client_events LIMIT 1`
           )
-          .run(crypto.randomUUID(), properties)
+          .run(testUuid(), properties)
       ).toThrow()
   })
   it('direct fact insertion cannot claim a foreign ID or production population from a synthetic source', async () => {
@@ -579,7 +580,7 @@ describe('authoritative commerce projection and read model', () => {
         .prepare(
           'INSERT INTO analytics_commerce_facts SELECT environment,source_kind,?,order_id,population,currency,gross_cents,net_cents,tax_cents,shipping_gross_cents,source_fingerprint,policy_fingerprint,occurred_at,projected_at,expires_at FROM analytics_commerce_facts LIMIT 1'
         )
-        .run(crypto.randomUUID())
+        .run(testUuid())
     ).toThrow('analytics_source_unconfirmed')
   })
   it('a longer new policy cannot revive expired append-only facts or claim a complete projection', async () => {
@@ -680,7 +681,7 @@ describe('authoritative commerce projection and read model', () => {
         "INSERT INTO order_events(id,order_id,event_type,payload_json,correlation_id,created_at) VALUES(?,?,'payment_provider_authorised',?,'synthetic-unknown-authority',?)"
       )
       .run(
-        `order-event:${crypto.randomUUID()}`,
+        `order-event:${testUuid()}`,
         String(original.order_id),
         String(original.payload_json),
         String(original.created_at)

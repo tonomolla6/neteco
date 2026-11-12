@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fakePreauthProvider, payExtFixture, redsysConfig, signedEnvelope, utc } from './pay-ext-fixture'
 import { BUYER_CLAIMS, CLAIMS } from './d1-returns-fixture'
 import {
@@ -11,6 +11,25 @@ import {
 } from '../../workers/payments/preauth'
 import { decodeMerchantParameters } from '../../workers/payments/redsys'
 import { initiateRedsysPayment } from '../../workers/catalog/payments'
+import { testUuid, testNow } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_preauth_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_preauth_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_preauth_clock()'))
+      return database
+    }
+  }
+})
 
 let f: Awaited<ReturnType<typeof payExtFixture>>
 let provider: ReturnType<typeof fakePreauthProvider>
@@ -24,12 +43,17 @@ const deps = (): PreauthDependencies => ({
 })
 const JUSTIFICATION = 'Made-to-order dilution needs a hold until the batch is confirmed'
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await payExtFixture()
   provider = fakePreauthProvider()
   clockOffset = 0
   f.sqlite.exec(`UPDATE auth_sessions SET expires_at='${utc(40 * 86_400_000)}'`)
 })
-afterEach(() => f?.sqlite.close())
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
 
 async function requested(over: Record<string, unknown> = {}) {
   const { orderId, token } = await f.unpaid()
@@ -38,7 +62,7 @@ async function requested(over: Record<string, unknown> = {}) {
     CLAIMS,
     {
       orderId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       reasonCode: 'made_to_order',
       justification: JUSTIFICATION,
       expectedAmountCents: total,
@@ -65,7 +89,7 @@ async function authorized() {
 }
 const status = (id: string) =>
   (f.sqlite.prepare('SELECT status FROM payment_preauths WHERE id=?').get(id) as { status: string }).status
-const op = (version: number) => ({ commandId: crypto.randomUUID(), expectedVersion: version })
+const op = (version: number) => ({ commandId: testUuid(), expectedVersion: version })
 
 describe('request', () => {
   it('creates a justified type-1 redirect for the server amount and audits it', async () => {
@@ -86,7 +110,7 @@ describe('request', () => {
     void token
     const input = {
       orderId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       reasonCode: 'credit_review' as const,
       justification: JUSTIFICATION,
       expectedAmountCents: total
@@ -109,7 +133,7 @@ describe('request', () => {
     })()
     const input = {
       orderId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       reasonCode: 'made_to_order',
       justification: JUSTIFICATION,
       expectedAmountCents: total
@@ -133,7 +157,7 @@ describe('request', () => {
     })()
     const base = {
       orderId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       reasonCode: 'made_to_order',
       justification: JUSTIFICATION,
       expectedAmountCents: total
@@ -172,23 +196,23 @@ describe('request', () => {
     )
     const input = {
       orderId: live.orderId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       reasonCode: 'made_to_order',
       justification: JUSTIFICATION,
       expectedAmountCents: total
     }
     await expect(requestPreauthorization(CLAIMS, input, deps())).rejects.toMatchObject({ code: 'not_payable' })
-    const unknown = { ...input, orderId: crypto.randomUUID(), commandId: crypto.randomUUID() }
+    const unknown = { ...input, orderId: testUuid(), commandId: testUuid() }
     await expect(requestPreauthorization(CLAIMS, unknown, deps())).rejects.toMatchObject({ code: 'not_payable' })
     f.sqlite.exec(`UPDATE inventory_reservations SET status='expired',expired_at='${utc()}'`)
-    const fresh = { ...input, commandId: crypto.randomUUID() }
+    const fresh = { ...input, commandId: testUuid() }
     await expect(requestPreauthorization(CLAIMS, fresh, deps())).rejects.toMatchObject({ code: 'not_payable' })
   })
   it('allows only one live pre-authorisation per order and blocks an ordinary payment meanwhile', async () => {
     const { orderId, token, total } = await requested()
     const input = {
       orderId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       reasonCode: 'made_to_order',
       justification: JUSTIFICATION,
       expectedAmountCents: total
@@ -212,7 +236,7 @@ describe('authorisation notification', () => {
       .prepare('SELECT status,authorized_until,provider_reference FROM payment_preauths WHERE id=?')
       .get(view.id) as Record<string, string>
     expect(row.status).toBe('authorized')
-    expect(Date.parse(row.authorized_until!)).toBeGreaterThan(Date.now() + 6 * 86_400_000)
+    expect(Date.parse(row.authorized_until!)).toBeGreaterThan(testNow() + 6 * 86_400_000)
     const reservation = f.sqlite.prepare('SELECT status,expires_at FROM inventory_reservations').get() as Record<
       string,
       string
@@ -275,7 +299,7 @@ describe('authorisation notification', () => {
       CLAIMS,
       {
         orderId,
-        commandId: crypto.randomUUID(),
+        commandId: testUuid(),
         reasonCode: 'made_to_order',
         justification: JUSTIFICATION,
         expectedAmountCents: total
@@ -424,7 +448,7 @@ describe('capture', () => {
   it('does not capture a request that was never authorised', async () => {
     const { view } = await requested()
     await expect(capturePreauthorization(CLAIMS, view.id, op(1), deps())).rejects.toMatchObject({ code: 'conflict' })
-    await expect(capturePreauthorization(CLAIMS, crypto.randomUUID(), op(1), deps())).rejects.toMatchObject({
+    await expect(capturePreauthorization(CLAIMS, testUuid(), op(1), deps())).rejects.toMatchObject({
       code: 'not_found'
     })
   })

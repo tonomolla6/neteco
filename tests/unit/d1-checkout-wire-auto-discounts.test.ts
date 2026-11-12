@@ -1,12 +1,19 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { quoteCart } from '../../workers/catalog/cart'
 import { placeOrder } from '../../workers/catalog/checkout'
 import { provisionPromotionFixture } from '../support/promotion-fixture'
 import type { PromotionRule } from '../../shared/promotions'
 import { CLAIMS, insertAutoRule, order, prepare, updateAutoRule, utc, wireFixture } from './d1-checkout-wire-fixture'
+import { testNow, testUuid } from '../support/deterministic'
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => vi.useRealTimers())
 
 const couponRule = (): PromotionRule => ({
-  id: crypto.randomUUID(),
+  id: testUuid(),
   version: 1,
   code: 'TEST101',
   status: 'active',
@@ -31,6 +38,16 @@ async function quote(f: Awaited<ReturnType<typeof wireFixture>>, owner = true, c
 }
 
 describe('PRI-014 automatic discounts wired into the checkout quote', () => {
+  it('generates distinct command keys for independently prepared carts', async () => {
+    const f = await wireFixture()
+    try {
+      const first = await prepare(f)
+      const second = await prepare(f)
+      expect(first.base.idempotencyKey).not.toBe(second.base.idempotencyKey)
+    } finally {
+      f.sqlite.close()
+    }
+  })
   it('leaves quotes untouched when no automatic rule is active (legacy behaviour)', async () => {
     const f = await wireFixture()
     try {

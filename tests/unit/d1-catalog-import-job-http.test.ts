@@ -5,6 +5,7 @@ import { catalogRecord, catalogFixtureIds as ids } from '../support/catalog-tabu
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleCatalogImportJobHttp, ownsCatalogImportJobNamespace } from '../../workers/catalog/import-job-http'
+import { testNow } from '../support/deterministic'
 
 const actor = '00550000-0000-4000-8000-000000000001',
   session = '00550000-0000-4000-8000-000000000002',
@@ -12,7 +13,7 @@ const actor = '00550000-0000-4000-8000-000000000001',
 const origin = 'https://jobs.example.invalid',
   prefix = '/api/admin/catalog/import-jobs'
 const password = 'synthetic-job-http-session-password'.repeat(2)
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 type Environment = Parameters<typeof handleCatalogImportJobHttp>[1]
 describe('private full catalog job HTTP staging boundary', () => {
   let sqlite: DatabaseSync, database: D1Database, env: Environment, cookie: string
@@ -324,7 +325,7 @@ describe('private full catalog job HTTP staging boundary', () => {
       body: stream,
       duplex: 'half'
     } as RequestInit)
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     const result = call(req)
     await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0))
     await vi.advanceTimersByTimeAsync(8001)

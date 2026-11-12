@@ -9,6 +9,7 @@ import {
   type ShippingCalendarInput
 } from '../../shared/shipping-calendar'
 import '#app/nuxt-vitest-app-entry'
+import { testUuid } from '../support/deterministic'
 const mocks = vi.hoisted(() => ({ request: vi.fn(), session: vi.fn(), navigation: vi.fn() }))
 mockNuxtImport('useRequestFetch', () => () => mocks.request)
 mockNuxtImport('useUserSession', () => mocks.session)
@@ -182,7 +183,7 @@ it('does not confirm a receipt for another command even when it is structurally 
   const original = mocks.request.getMockImplementation()!
   mocks.request.mockImplementation(async (path: string, options: Options) => {
     const value = await original(path, options)
-    return options.method === 'POST' ? { ...value, commandId: crypto.randomUUID() } : value
+    return options.method === 'POST' ? { ...value, commandId: testUuid() } : value
   })
   const w = await render()
   await review(w)

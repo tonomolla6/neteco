@@ -1,6 +1,5 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -58,22 +57,39 @@ describe('private Docker endpoint (real hook function and own UNIX socket; simul
   const directory = mkdtempSync(join(tmpdir(), 'neteco-hook-socket-owned-'))
   const socket = join(directory, 'docker.sock')
   const executable = join(directory, 'operator-executable')
-  const server = createServer()
+  let server: ChildProcessWithoutNullStreams
+  let serverExit: Promise<number | null>
   beforeAll(async () => {
     writeFileSync(executable, '', { mode: 0o700 })
+    server = spawn('/usr/bin/python3', [
+      '-c',
+      "import socket, sys\ns = socket.socket(socket.AF_UNIX)\ns.bind(sys.argv[1])\ns.listen(1)\nprint('ready', flush=True)\nsys.stdin.read()\ns.close()",
+      socket
+    ])
+    serverExit = new Promise((done) => {
+      server.once('error', () => done(null))
+      server.once('exit', (code) => done(code))
+    })
     await new Promise<void>((done, reject) => {
       server.once('error', reject)
-      server.listen(socket, done)
+      server.once('exit', (code) => reject(new Error(`Unix socket fixture exited before readiness: ${code}`)))
+      server.stdout.once('data', () => done())
     })
     symlinkSync(socket, join(directory, 'socket-link'))
     symlinkSync(directory, join(directory, 'directory-link'))
   })
   afterAll(async () => {
-    await new Promise<void>((done, reject) => server.close((error) => (error ? reject(error) : done())))
-    rmSync(directory, { recursive: true, force: true })
+    try {
+      if (server.exitCode === null && server.signalCode === null && !server.stdin.destroyed) server.stdin.end()
+      expect(await serverExit).toBe(0)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   function verify(overrides: Record<string, string | undefined> = {}) {
+    expect(server.exitCode).toBeNull()
+    expect(server.signalCode).toBeNull()
     const source = readFileSync(hook, 'utf8')
     const definition = source.match(/^verify_private_docker\(\) \{\n[\s\S]*?^\}/m)?.[0]
     expect(definition).toBeDefined()

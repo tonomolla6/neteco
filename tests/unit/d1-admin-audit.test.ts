@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { adminAuditFixture, ADMIN, RECIPIENT, utc } from './d1-admin-audit-fixture'
 import { ADMIN_AUDIT_FAMILIES, adminAuditIntentHash, adminAuditListSchema } from '../../shared/admin-audit'
 import {
@@ -9,6 +9,36 @@ import {
   readD1AdminAuditCommand,
   downloadD1AdminAuditExport
 } from '../../workers/auth/admin-audit'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_admin_audit_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_admin_audit_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_admin_audit_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_admin_audit_clock()'))
+      return database
+    }
+  }
+})
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => vi.useRealTimers())
 
 const review = {
   expectedVersion: 0,
@@ -107,7 +137,7 @@ describe('D1 central sensitive admin audit', () => {
     const f = await adminAuditFixture()
     try {
       const { id } = await f.source(),
-        key = crypto.randomUUID()
+        key = testUuid()
       const before = f.sqlite.prepare('SELECT * FROM admin_invitation_commands').all()
       const receipt = await reviewD1AdminAudit(f.database, ADMIN, id, review, {
         idempotencyKey: key,
@@ -127,13 +157,13 @@ describe('D1 central sensitive admin audit', () => {
     const f = await adminAuditFixture()
     try {
       const { id } = await f.source(),
-        key = crypto.randomUUID()
+        key = testUuid()
       await reviewD1AdminAudit(f.database, ADMIN, id, review, { idempotencyKey: key })
       await expect(
         reviewD1AdminAudit(f.database, ADMIN, id, { ...review, disposition: 'follow_up' }, { idempotencyKey: key })
       ).rejects.toMatchObject({ code: 'idempotency_conflict' })
       await expect(
-        reviewD1AdminAudit(f.database, ADMIN, id, review, { idempotencyKey: crypto.randomUUID() })
+        reviewD1AdminAudit(f.database, ADMIN, id, review, { idempotencyKey: testUuid() })
       ).rejects.toMatchObject({ code: 'version_conflict' })
       expect((await readD1AdminAuditDetail(f.database, ADMIN, id)).reviews).toHaveLength(1)
     } finally {
@@ -144,7 +174,7 @@ describe('D1 central sensitive admin audit', () => {
     const f = await adminAuditFixture()
     try {
       const { id } = await f.source(),
-        key = crypto.randomUUID(),
+        key = testUuid(),
         hash = await adminAuditIntentHash('review', id, review)
       const receipt = await reviewD1AdminAudit(f.database, ADMIN, id, review, { idempotencyKey: key })
       expect(await readD1AdminAuditCommand(f.database, ADMIN, key, hash)).toMatchObject({ outcome: 'applied', receipt })
@@ -164,7 +194,7 @@ describe('D1 central sensitive admin audit', () => {
     try {
       await f.source()
       const input = { filters: { family: 'admin_invitation' }, reason: 'Exportación explícita para revisión interna.' }
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         receipt = await exportD1AdminAudit(f.database, ADMIN, input, { idempotencyKey: key })
       expect(receipt).toMatchObject({ action: 'export', rows: 1 })
       expect(await exportD1AdminAudit(f.database, ADMIN, input, { idempotencyKey: key })).toEqual(receipt)
@@ -185,7 +215,7 @@ describe('D1 central sensitive admin audit', () => {
     const f = await adminAuditFixture()
     try {
       const input = { filters: {}, reason: 'Exportación con conservación operativa acotada.' },
-        key = crypto.randomUUID()
+        key = testUuid()
       const receipt = await exportD1AdminAudit(f.database, ADMIN, input, { idempotencyKey: key })
       if (receipt.action !== 'export') throw new Error('wrong receipt')
       await expect(
@@ -201,7 +231,7 @@ describe('D1 central sensitive admin audit', () => {
   it('returns unknown only for an authorized absent exact command', async () => {
     const f = await adminAuditFixture()
     try {
-      expect(await readD1AdminAuditCommand(f.database, ADMIN, crypto.randomUUID(), 'a'.repeat(64))).toEqual({
+      expect(await readD1AdminAuditCommand(f.database, ADMIN, testUuid(), 'a'.repeat(64))).toEqual({
         source: 'cloudflare',
         outcome: 'unknown',
         receipt: null

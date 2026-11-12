@@ -16,6 +16,7 @@ import {
   type DraftVariantInput
 } from '../../shared/catalog-draft-authoring'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const IDENTITY = '10000000-0000-4000-8000-000000000038'
 const SESSION = '20000000-0000-4000-8000-000000000038'
@@ -25,7 +26,7 @@ const TAX = '50000000-0000-4000-8000-000000000038'
 const SHIPPING = '60000000-0000-4000-8000-000000000038'
 const CLAIMS = { identityId: IDENTITY, sessionId: SESSION, sessionVersion: 1 }
 const REASON = 'Synthetic local draft authoring decision'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const variant = (overrides: Partial<DraftVariantInput> = {}): DraftVariantInput => ({
   sku: 'DRAFT-INITIAL',
   format: 'Botella 1 L',
@@ -137,7 +138,7 @@ describe('D1 draft authoring atomic engine', () => {
       action,
       target,
       input,
-      { idempotencyKey: opts.key ?? crypto.randomUUID(), ...(opts.now === undefined ? {} : { now: opts.now }) }
+      { idempotencyKey: opts.key ?? testUuid(), ...(opts.now === undefined ? {} : { now: opts.now }) }
     )
   }
   const create = (input = draft(), opts: { key?: string; db?: D1Database } = {}) =>
@@ -204,7 +205,7 @@ describe('D1 draft authoring atomic engine', () => {
       VALUES (?,?,500,?,?,?,'approved',?,?)`
       )
       .run(
-        crypto.randomUUID(),
+        testUuid(),
         variantUuid,
         JSON.stringify(tiers),
         utc(window === 'future' ? 3600_000 : -7200_000),
@@ -214,7 +215,7 @@ describe('D1 draft authoring atomic engine', () => {
       )
   }
   function reservation(variantUuid: string, status: 'reserved' | 'released' = 'reserved') {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     sqlite
       .prepare(
         `INSERT INTO inventory_reservations(id,idempotency_key,payload_hash,status,correlation_id,expires_at,created_at,updated_at,released_at)
@@ -277,12 +278,12 @@ describe('D1 draft authoring atomic engine', () => {
     if (condition === 'retired_category')
       sqlite.prepare("UPDATE categories SET status='discontinued' WHERE id=?").run(CATEGORY)
     if (condition === 'archived_brand') sqlite.prepare("UPDATE brands SET status='archived' WHERE id=?").run(BRAND)
-    if (condition === 'missing_tax') input.initialVariant.taxClassId = crypto.randomUUID()
+    if (condition === 'missing_tax') input.initialVariant.taxClassId = testUuid()
     if (condition === 'expired_tax')
       sqlite.prepare('UPDATE tax_classes SET valid_until=? WHERE id=?').run(utc(-1000), TAX)
     if (condition === 'future_tax')
       sqlite.prepare('UPDATE tax_classes SET valid_from=? WHERE id=?').run(utc(3600_000), TAX)
-    if (condition === 'missing_shipping') input.initialVariant.shippingProfileId = crypto.randomUUID()
+    if (condition === 'missing_shipping') input.initialVariant.shippingProfileId = testUuid()
     if (condition === 'no_warehouse') sqlite.exec('UPDATE inventory_locations SET active=0')
     if (condition === 'two_warehouses')
       sqlite
@@ -526,7 +527,7 @@ describe('D1 draft authoring atomic engine', () => {
   })
   it('exact completed replay survives later version/status/reference changes, but not current authorization loss', async () => {
     const input = draft(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       first = await create(input, { key })
     sqlite.prepare("UPDATE products SET status='hidden' WHERE id=?").run(first.productUuid)
     sqlite.prepare("UPDATE brands SET status='archived' WHERE id=?").run(BRAND)
@@ -543,7 +544,7 @@ describe('D1 draft authoring atomic engine', () => {
   })
   it('same key races return one exact immutable receipt', async () => {
     const db = serialized(),
-      key = crypto.randomUUID()
+      key = testUuid()
     const [left, right] = await Promise.all([create(draft(), { key, db }), create(draft(), { key, db })])
     expect(JSON.stringify(left)).toBe(JSON.stringify(right))
     expect(rows().commands).toHaveLength(1)
@@ -613,7 +614,7 @@ describe('D1 draft authoring atomic engine', () => {
               parameters = bound.get(statements[0]!)
             if (typeof sql !== 'string' || !parameters) throw new Error('fixture_capture_missing')
             const foreign = [...parameters]
-            foreign[12] = crypto.randomUUID()
+            foreign[12] = testUuid()
             // Execute only the foreign immutable claim; the engine must neither
             // adopt its nonce nor treat its unaudited response as completion.
             await database
@@ -692,8 +693,8 @@ describe('D1 draft authoring atomic engine', () => {
     }
   )
   it('resolves imported high-water IDs without reusing a legacy identity', async () => {
-    const importedProduct = crypto.randomUUID(),
-      importedVariant = crypto.randomUUID()
+    const importedProduct = testUuid(),
+      importedVariant = testUuid()
     sqlite
       .prepare(
         "INSERT INTO products(id,legacy_id,category_id,brand_id,name,slug,status) VALUES (?,9000,?,?,'Imported draft','imported-draft','draft')"
@@ -748,11 +749,11 @@ describe('D1 draft authoring atomic engine', () => {
       "INSERT INTO variants(id,legacy_id,product_id,tax_class_id,shipping_profile_id,sku,format,status,price_gross_cents) VALUES (?,?,?,?,?,?,'Unit','discontinued',0)"
     )
     for (let index = 2; index <= 500; index++)
-      insert.run(crypto.randomUUID(), index, initial.productUuid, TAX, SHIPPING, `RETIRED-${index}`)
+      insert.run(testUuid(), index, initial.productUuid, TAX, SHIPPING, `RETIRED-${index}`)
     const before = rows()
     await expect(add(1, 1)).rejects.toMatchObject({ code: 'variant_limit' })
     expect(rows()).toEqual(before)
-    insert.run(crypto.randomUUID(), 501, initial.productUuid, TAX, SHIPPING, 'RETIRED-501')
+    insert.run(testUuid(), 501, initial.productUuid, TAX, SHIPPING, 'RETIRED-501')
     await expect(
       execute('assign_brand', { productId: '1' }, { expectedVersion: 1, reason: REASON, brandId: BRAND })
     ).rejects.toMatchObject({ code: 'variant_limit' })

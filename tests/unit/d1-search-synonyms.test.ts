@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import {
   categoryCommandFixture,
@@ -14,15 +14,40 @@ import {
   readSearchSynonymReceipt
 } from '../../workers/catalog/search-synonyms'
 import { searchSynonymDraftSchema } from '../../shared/search-synonyms'
+import { testNow, testUuid } from '../support/deterministic'
 
 describe('governed D1 synonym lifecycle acceptance', () => {
   let sqlite: DatabaseSync, database: D1Database
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     ;({ sqlite, database } = await categoryCommandFixture())
+    sqlite.function('synthetic_synonym_clock', () =>
+      vi
+        .getMockedSystemTime()!
+        .toISOString()
+        .replace(/\.\d{3}Z$/, 'Z')
+    )
+    const exec = sqlite.exec.bind(sqlite),
+      prepare = database.prepare.bind(database)
+    sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_synonym_clock()'))
+    database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_synonym_clock()'))
+    const triggers = sqlite
+      .prepare(
+        "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND name LIKE 'search_synonym_%' AND sql LIKE '%strftime%'"
+      )
+      .all() as Array<{ name: string; sql: string }>
+    for (const trigger of triggers) {
+      sqlite.exec(`DROP TRIGGER "${trigger.name}"`)
+      sqlite.exec(trigger.sql)
+    }
     if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='search_synonym_commands'").get())
       sqlite.exec(await readFile(new URL('../../db/d1/migrations/0061_search_synonyms.sql', import.meta.url), 'utf8'))
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
   const draft = (extra: Record<string, unknown> = {}) => ({
     id: null,
     expectedVersion: 0,
@@ -35,7 +60,7 @@ describe('governed D1 synonym lifecycle acceptance', () => {
   })
   const preview = (extra: Record<string, unknown> = {}) =>
     createSearchSynonymPreview(database, CATEGORY_CLAIMS, { draft: draft(extra), query: 'LEJÍA' })
-  const commit = async (p: Awaited<ReturnType<typeof preview>>, key = crypto.randomUUID()) =>
+  const commit = async (p: Awaited<ReturnType<typeof preview>>, key = testUuid()) =>
     executeSearchSynonymCommand(
       database,
       CATEGORY_CLAIMS,

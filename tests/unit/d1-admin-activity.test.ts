@@ -4,9 +4,10 @@ import { categoryCommandFixture, CATEGORY_CLAIMS } from '../support/category-com
 import { executeD1CatalogCategoryCommand } from '../../workers/catalog/admin-categories'
 import { deterministicTestData } from '../fixtures/deterministic'
 import { readD1AdminActivity } from '../../workers/auth/admin-activity'
+import { testNow } from '../support/deterministic'
 
 const data = deterministicTestData('admin-activity', '2026-10-08T12:00:00.000Z')
-const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const now = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 let sqlite: DatabaseSync, database: D1Database
 beforeEach(async () => {
   vi.useFakeTimers()

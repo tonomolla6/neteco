@@ -26,6 +26,7 @@ import {
   creditIssuedEmailRenderer
 } from '../../workers/communications/refund-credit-email'
 import { creditProviderRequest } from '../../shared/fiscal-credit'
+import { testUuid } from '../support/deterministic'
 
 const opened: DatabaseSync[] = []
 afterEach(() => {
@@ -39,20 +40,20 @@ async function world(options: Parameters<typeof refundsCreditFixture>[0] = {}) {
   return fixture
 }
 const reconcileInput = (generation: number) => ({
-  idempotencyKey: crypto.randomUUID(),
+  idempotencyKey: testUuid(),
   expectedGeneration: generation,
   reason: REASON,
   evidenceRef: 'authoritative-local-evidence'
 })
 const creditInput = (policyId: string) => ({
-  idempotencyKey: crypto.randomUUID(),
+  idempotencyKey: testUuid(),
   policyId,
   reason: REASON,
   evidenceRef: 'approved-corrective-case'
 })
 describe('D1 captured refund budgets and linked corrective documents', () => {
   const planInput = (f: Awaited<ReturnType<typeof world>>, overrides: Record<string, unknown> = {}) => ({
-    idempotencyKey: crypto.randomUUID(),
+    idempotencyKey: testUuid(),
     policyId: f.policy.id,
     returnPublicRef: f.returnRef,
     expectedReturnVersion: 5,
@@ -419,7 +420,7 @@ describe('D1 captured refund budgets and linked corrective documents', () => {
   })
   it('rejects owned getters/sparse DTO and malformed D1 envelopes without executing getter or converting to missing', async () => {
     const f = await world(),
-      getter = vi.fn(() => crypto.randomUUID()),
+      getter = vi.fn(() => testUuid()),
       input = planInput(f)
     Object.defineProperty(input, 'idempotencyKey', { get: getter, enumerable: true })
     await expect(planD1Refund(f.database, CLAIMS, input as never)).rejects.toMatchObject({ code: 'invalid_input' })

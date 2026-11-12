@@ -13,6 +13,7 @@ import {
   InvalidCompareRequestError,
   CompareProductNotFoundError
 } from '../../workers/catalog/product-compare'
+import { testUuid } from '../support/deterministic'
 
 const INSTANT = '2026-08-20T00:00:00Z'
 const REASON = 'Definición para comparador de productos'
@@ -74,7 +75,7 @@ describe('D1 Product Compare Engine', () => {
           expectedVersion: 0,
           reason: REASON
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
   }

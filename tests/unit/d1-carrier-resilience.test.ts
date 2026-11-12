@@ -14,13 +14,14 @@ import {
   resilientCreateCarrierLabel,
   getCarrierShipmentLabel
 } from '../../workers/fulfillment/carrier-resilience'
+import { testNow } from '../support/deterministic'
 
 const connections: DatabaseSync[] = []
 afterEach(() => {
   for (const db of connections.splice(0)) db.close()
 })
 
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 async function createResilienceFixture() {
   const { sqlite, database } = await fulfillmentFixture()

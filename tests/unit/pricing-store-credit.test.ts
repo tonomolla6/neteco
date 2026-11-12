@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { allocateRedemption, evaluateIssuance, STORE_CREDIT_POLICY } from '../../shared/store-credit'
+import { testNow } from '../support/deterministic'
 
-const at = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const at = (offsetMs = 0) => new Date(testNow() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const now = at()
 const grant = (id: string, remainingCents: number, expiresAt: string) => ({ id, remainingCents, expiresAt })
 

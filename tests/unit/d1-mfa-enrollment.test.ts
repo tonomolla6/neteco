@@ -7,6 +7,7 @@ import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { hashWorkerPassword } from '../../workers/auth/password'
 import { decryptSecret } from '../../server/utils/secrets'
 import { pruneD1MfaEnrollments } from '../../workers/auth/mfa-enrollment'
+import { testNow } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000073'
 const customerId = '30000000-0000-4000-8000-000000000073'
@@ -76,7 +77,7 @@ describe('D1 MFA enrollment', () => {
     limiter.limit.mockReset().mockResolvedValue({ success: true })
     sqlite = await openAccountSecurityDatabase()
     database = d1OverSqlite(sqlite)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare('INSERT INTO customers(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run(customerId, 'Cliente', now, now)
@@ -204,7 +205,7 @@ describe('D1 MFA enrollment', () => {
     sqlite
       .prepare('UPDATE mfa_enrollments SET created_at = ?, expires_at = ? WHERE id = ?')
       .run('2026-01-01T00:00:00Z', '2026-01-01T00:10:00Z', pending.setupId)
-    await pruneD1MfaEnrollments(database, new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'))
+    await pruneD1MfaEnrollments(database, new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'))
     expect(sqlite.prepare('SELECT count(*) AS n FROM mfa_enrollments').get()).toEqual({ n: 0 })
   })
 })

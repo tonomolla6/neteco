@@ -4,8 +4,13 @@ import { createD1AdminInvitation } from '../../workers/auth/admin-invitations'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { adminInvitationTokenHash } from '../../shared/admin-invitations'
+import { testUuid } from '../support/deterministic'
 
 export { ADMIN, RECIPIENT, utc }
+export const ADMIN_AUDIT_CONFIGURATION = {
+  password: 'synthetic-invitations-cookie-password-0123456789abcdef',
+  maxAgeSeconds: 3600
+}
 export async function adminAuditFixture() {
   const sqlite = await openMigratedDatabase(),
     database = d1OverSqlite(sqlite)
@@ -24,7 +29,7 @@ export async function adminAuditFixture() {
     [ADMIN, 'issuer@example.invalid'],
     [RECIPIENT, 'recipient@example.invalid']
   ] as const) {
-    const customerId = claims.identityId === ADMIN.identityId ? null : crypto.randomUUID()
+    const customerId = claims.identityId === ADMIN.identityId ? null : testUuid()
     if (customerId)
       sqlite
         .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")
@@ -57,7 +62,7 @@ export async function adminAuditFixture() {
     expiresInHours: 24,
     reason: 'Aprobación humana explícita de soporte.'
   }
-  const configuration = { password: 'synthetic-invitations-cookie-password-0123456789abcdef', maxAgeSeconds: 3600 }
+  const configuration = { ...ADMIN_AUDIT_CONFIGURATION }
   const cookie = async (claims = ADMIN) => (await issueD1SessionCookie(database, claims, configuration))!.split(';')[0]!
   const fixture = {
     sqlite,
@@ -77,7 +82,7 @@ export async function adminAuditFixture() {
     const uniqueToken = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url')
     const uniqueInput = { ...fixture.input, tokenHash: await adminInvitationTokenHash(uniqueToken) }
     const receipt = await createD1AdminInvitation(fixture.database, ADMIN, uniqueInput, {
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     return { receipt, id: `admin_invitation:${receipt.commandId}` }
   }

@@ -2,6 +2,29 @@ import { readFile, readdir } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
+import { currentTestInstant, hasTestRuntimeClock } from './deterministic'
+
+// Keep SQLite's own formatting, parsing and CHECK semantics; only its "now"
+// input follows the explicit JS fixture clock. Native/compiled D1 is untouched.
+let clockFormatter: DatabaseSync | undefined
+const clockStatements = new Map<number, ReturnType<DatabaseSync['prepare']>>()
+function alignFixtureSqlClock(database: DatabaseSync) {
+  if (!hasTestRuntimeClock()) return
+  database.function('strftime', { varargs: true, deterministic: true }, (...values) => {
+    const args = [...values]
+    const instant = currentTestInstant()
+    if (instant !== null && typeof args[1] === 'string' && args[1].toLowerCase() === 'now')
+      args[1] = new Date(instant).toISOString()
+    let statement = clockStatements.get(args.length)
+    if (!statement) {
+      clockFormatter ??= new DatabaseSync(':memory:')
+      statement = clockFormatter.prepare(`SELECT strftime(${args.map(() => '?').join(',')}) AS value`)
+      clockStatements.set(args.length, statement)
+    }
+    const value = statement.get(...args)?.value
+    return typeof value === 'string' ? value : null
+  })
+}
 
 const MIGRATIONS = [
   '0001_platform.sql',
@@ -80,6 +103,7 @@ export async function openMigratedDatabase() {
   const database = new DatabaseSync(':memory:')
   database.exec('PRAGMA foreign_keys = ON')
   for (const source of sources) database.exec(source)
+  alignFixtureSqlClock(database)
   return database
 }
 

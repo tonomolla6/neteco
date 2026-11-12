@@ -12,6 +12,7 @@ import { encryptSecret, hashOpaqueToken } from '../../server/utils/secrets'
 import { recoveryCodeHashes } from '../../server/domain/mfa'
 import { planD1Refund, confirmD1Refund } from '../../workers/refunds/operations'
 import { refundsCreditFixture, CLAIMS, REASON } from './d1-refunds-credit-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 /** Same schema as openAccountSecurityDatabase minus migrations the base fixture already applied (0091). */
 async function openAccountSecurityDatabase() {
@@ -56,7 +57,7 @@ describe('SEC-035 emission hooks: MFA completion (new device and recovery code)'
         `INSERT INTO mfa_challenges(id, identity_id, session_version, token_hash, created_at, expires_at)
          VALUES (?, ?, 1, ?, '2026-09-08T11:59:00Z', '2026-09-08T12:04:00Z')`
       )
-      .run(crypto.randomUUID(), IDENTITY, hashOpaqueToken(token, PEPPER))
+      .run(testUuid(), IDENTITY, hashOpaqueToken(token, PEPPER))
     return token
   }
   const code = () => new TOTP({ secret: SECRET }).generate({ timestamp: Date.parse(NOW) })
@@ -223,7 +224,7 @@ describe('SEC-035 emission hook: MFA enrollment over HTTP', () => {
   beforeEach(async () => {
     sqlite = await openAccountSecurityDatabase()
     database = d1OverSqlite(sqlite)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare('INSERT INTO customers(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run(CUSTOMER, 'Cliente', now, now)
@@ -278,7 +279,7 @@ describe('SEC-035 emission hook: refunds (plan and confirm)', () => {
       )
     opened.push(fixture.sqlite)
     const input = (quantity = 1) => ({
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: testUuid(),
       policyId: fixture.policy.id,
       returnPublicRef: fixture.returnRef,
       expectedReturnVersion: 5,
@@ -338,7 +339,7 @@ describe('SEC-035 emission hook: refunds (plan and confirm)', () => {
       CLAIMS,
       second.id,
       {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         expectedGeneration: second.generation,
         contractFingerprint: second.contractFingerprint,
         reason: REASON,
@@ -380,7 +381,7 @@ describe('SEC-035 emission hook: refunds (plan and confirm)', () => {
       CLAIMS,
       second.id,
       {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         expectedGeneration: work.generation,
         contractFingerprint: fingerprint,
         reason: REASON,

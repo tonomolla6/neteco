@@ -141,6 +141,7 @@ const stubs = {
   OrderAnnotationsPanel: Notes,
   OrderFulfillmentSection: Fulfillment,
   OrderFiscalSection: true,
+  BeplyOrderPanel: true,
   OrderRefundPanel: true,
   AdminRefundActions: true,
   OrderLineThumb: true,

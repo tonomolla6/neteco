@@ -27,6 +27,7 @@ import {
   recordD1MarketingModalInteraction,
   updateD1MarketingModalPolicy
 } from '../../workers/marketing/marketing-modals'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-10-15T10:00:00Z'
 const ADMIN_ID = '10000000-0000-4000-8000-000000000094'
@@ -324,7 +325,7 @@ describe('D1 marketing modals engine and anti-annoyance rules (MKT-009 + MKT-010
           definition: sampleDefinition({ version: 4, status: 'published' }),
           reason: 'Intento de reactivar modal retirado'
         },
-        { now: '2026-10-15T10:15:00Z', idempotencyKey: crypto.randomUUID() }
+        { now: '2026-10-15T10:15:00Z', idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject<Partial<MarketingModalError>>({ code: 'modal_retired' })
 
@@ -855,7 +856,7 @@ describe('D1 marketing modals engine and anti-annoyance rules (MKT-009 + MKT-010
     await recordD1MarketingModalInteraction(
       db,
       {
-        eventId: crypto.randomUUID(),
+        eventId: testUuid(),
         modalId: MODAL_2,
         modalVersion: 1,
         variant: 'A',
@@ -1079,7 +1080,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
         definition,
         reason: 'Publicación para prueba de reglas anti-molestia'
       },
-      { now, idempotencyKey: crypto.randomUUID() }
+      { now, idempotencyKey: testUuid() }
     )
   }
 
@@ -1191,7 +1192,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
       db,
       ADMIN_CLAIMS,
       { expectedVersion: 0, globalCooldownSeconds: 7200, reason: 'Pausa global ampliada a dos horas' },
-      { now: NOW, idempotencyKey: crypto.randomUUID() }
+      { now: NOW, idempotencyKey: testUuid() }
     )
     const result = await ask({ lastDismissedAt: '2026-10-15T08:00:01Z' }, { now: '2026-10-15T10:00:00Z' })
     expect(result.reason).toBe('global_cooldown_active')
@@ -1315,7 +1316,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
           definition: sampleDefinition({ id: override.id, version: 1, code: override.code }),
           reason: 'Creación con conflicto de identidad'
         },
-        { now: NOW, idempotencyKey: crypto.randomUUID() }
+        { now: NOW, idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: expected })
   })
@@ -1330,7 +1331,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
           definition: sampleDefinition({ version: 2 }),
           reason: 'Actualización de modal inexistente'
         },
-        { now: NOW, idempotencyKey: crypto.randomUUID() }
+        { now: NOW, idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'not_found' })
 
@@ -1344,7 +1345,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
           definition: sampleDefinition({ version: 2, code: 'codigo-cambiado' }),
           reason: 'Intento de cambiar el código'
         },
-        { now: NOW, idempotencyKey: crypto.randomUUID() }
+        { now: NOW, idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'code_immutable' })
   })
@@ -1361,7 +1362,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
           definition: sampleDefinition({ version: 2, title: 'Edición obsoleta del título' }),
           reason: 'Edición con versión obsoleta'
         },
-        { now: NOW, idempotencyKey: crypto.randomUUID() }
+        { now: NOW, idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'version_conflict' })
     await expect(
@@ -1373,7 +1374,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
           definition: sampleDefinition({ version: 5 }),
           reason: 'Versión que no es expectedVersion más uno'
         },
-        { now: NOW, idempotencyKey: crypto.randomUUID() }
+        { now: NOW, idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'invalid_input' })
   })
@@ -1410,7 +1411,7 @@ describe('marketing modal engine: anti-annoyance matrix (MKT-010)', () => {
       db,
       ADMIN_CLAIMS,
       { expectedVersion: 0, globalCooldownSeconds: seconds, reason: 'Ajuste de pausa global para prueba' },
-      { now: NOW, idempotencyKey: crypto.randomUUID() }
+      { now: NOW, idempotencyKey: testUuid() }
     )
     if (expected === 'ok') {
       await expect(attempt).resolves.toMatchObject({ policy: { globalCooldownSeconds: seconds } })

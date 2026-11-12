@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { invitationFixture, ADMIN, RECIPIENT, FOREIGN, utc } from './d1-admin-invitations-fixture'
 import {
   createD1AdminInvitation as create,
@@ -9,14 +9,44 @@ import {
   readD1AdminInvitationCommand as command
 } from '../../workers/auth/admin-invitations'
 import { adminInvitationIntentHash } from '../../shared/admin-invitations'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_invitation_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_invitation_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_invitation_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_invitation_clock()'))
+      return database
+    }
+  }
+})
 
 describe('ADM-004 D1 invitations with live delegation and atomic grants', () => {
   let f: Awaited<ReturnType<typeof invitationFixture>>
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await invitationFixture()
   })
-  afterEach(() => f.sqlite.close())
-  const issue = (input?: unknown, key = crypto.randomUUID(), db?: D1Database) =>
+  afterEach(() => {
+    f?.sqlite.close()
+    vi.useRealTimers()
+  })
+  const issue = (input?: unknown, key = testUuid(), db?: D1Database) =>
     create(db ?? f.database, ADMIN, input ?? f.input, { idempotencyKey: key })
   it('lists only existing roles within the live issuer permission set, without provisioning anything', async () => {
     const result = await list(f.database, ADMIN, {})
@@ -25,7 +55,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
     expect(f.sqlite.prepare('SELECT count(*) n FROM identity_roles').get()?.n).toBe(1)
   })
   it('creates metadata only, replays exactly and manually recovers the original receipt', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       receipt = await issue(undefined, key)
     expect(receipt).toMatchObject({ action: 'create', version: 1, sessionRevoked: false, commandId: key })
     expect(await issue(undefined, key)).toEqual(receipt)
@@ -51,7 +81,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
     expect(
       f.sqlite.prepare('SELECT count(*) n FROM identity_roles WHERE identity_id=?').get(RECIPIENT.identityId)?.n
     ).toBe(0)
-    const receipt = await accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
+    const receipt = await accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })
     expect(receipt).toMatchObject({ action: 'accept', version: 2, sessionRevoked: true })
     expect(
       f.sqlite.prepare('SELECT session_version FROM identities WHERE id=?').get(RECIPIENT.identityId)?.session_version
@@ -65,14 +95,14 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
   })
   it('recovers accepted intent only through a newly authenticated MFA session of the same identity', async () => {
     await issue()
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       body = { token: f.token },
       receipt = await accept(f.database, RECIPIENT, body, { idempotencyKey: key })
     const hash = await adminInvitationIntentHash('accept', null, body)
     await expect(command(f.database, RECIPIENT, key, hash, { audience: 'account' })).rejects.toMatchObject({
       code: 'unauthenticated'
     })
-    const fresh = { ...RECIPIENT, sessionId: crypto.randomUUID(), sessionVersion: 2 }
+    const fresh = { ...RECIPIENT, sessionId: testUuid(), sessionVersion: 2 }
     f.sqlite
       .prepare(
         'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,2,1,?,?)'
@@ -101,10 +131,10 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
       ADMIN,
       receipt.invitationId,
       { expectedVersion: 1, reason: 'Invitación retirada por el emisor.' },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     await expect(
-      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
+      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'invitation_unavailable' })
   })
   it('requires a real verified MFA enrollment, not merely the session flag', async () => {
@@ -119,7 +149,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
     await issue()
     f.sqlite.exec("INSERT INTO role_permissions VALUES('support','finance.manage')")
     await expect(
-      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
+      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'invitation_unavailable' })
   })
   it('rejects issuer session-version revocation and changed verified recipient email', async () => {
@@ -141,7 +171,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
       .run(RECIPIENT.identityId, utc(-1000), utc(3600000))
     const before = f.sqlite.prepare('SELECT * FROM identity_roles WHERE identity_id=?').get(RECIPIENT.identityId)
     await expect(
-      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
+      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'role_already_granted' })
     expect(f.sqlite.prepare('SELECT * FROM identity_roles WHERE identity_id=?').get(RECIPIENT.identityId)).toEqual(
       before
@@ -156,9 +186,9 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
         return f.database.batch(statements)
       }
     } as D1Database
-    await expect(
-      accept(db, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
-    ).rejects.toMatchObject({ code: 'invitation_unavailable' })
+    await expect(accept(db, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })).rejects.toMatchObject({
+      code: 'invitation_unavailable'
+    })
     expect(
       f.sqlite.prepare('SELECT count(*) n FROM identity_roles WHERE identity_id=?').get(RECIPIENT.identityId)?.n
     ).toBe(0)
@@ -172,7 +202,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
       "CREATE TRIGGER synthetic_audit_failure BEFORE INSERT ON admin_invitation_commands WHEN NEW.action='accept' BEGIN SELECT RAISE(ABORT,'synthetic_audit_failure'); END"
     )
     await expect(
-      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
+      accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'service_unavailable' })
     expect(f.sqlite.prepare('SELECT status FROM admin_invitations').get()?.status).toBe('pending')
     expect(
@@ -185,7 +215,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
   it('allows only one of two concurrent acceptance intentions', async () => {
     await issue()
     const results = await Promise.allSettled(
-      [1, 2].map(() => accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() }))
+      [1, 2].map(() => accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() }))
     )
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
     expect(f.sqlite.prepare("SELECT count(*) n FROM admin_invitation_commands WHERE action='accept'").get()?.n).toBe(1)
@@ -201,7 +231,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
         code: 'unauthenticated'
       })
       await expect(
-        accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
+        accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })
       ).rejects.toMatchObject({ code: 'unauthenticated' })
       expect(
         f.sqlite.prepare('SELECT count(*) n FROM identity_roles WHERE identity_id=?').get(RECIPIENT.identityId)?.n
@@ -216,7 +246,7 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
           `INSERT INTO admin_invitations(id,issuer_id,issuer_session_id,issuer_session_version,recipient_id,recipient_email,role_code,permissions_json,permissions_hash,token_hash,version,status,created_at,expires_at,accepted_at,revoked_at,command_id)
       SELECT ?,issuer_id,issuer_session_id,issuer_session_version,recipient_id,recipient_email,role_code,permissions_json,permissions_hash,?,2,'accepted',created_at,expires_at,NULL,NULL,? FROM admin_invitations LIMIT 1`
         )
-        .run(crypto.randomUUID(), 'd'.repeat(64), crypto.randomUUID())
+        .run(testUuid(), 'd'.repeat(64), testUuid())
     ).toThrow()
   })
   it.each(['logout', 'expiry'])('preserves invitation TTL after the issuer original session %s', async (event) => {
@@ -228,8 +258,10 @@ describe('ADM-004 D1 invitations with live delegation and atomic grants', () => 
       invitationId: invitation.invitationId,
       roleCode: 'support'
     })
-    expect(
-      await accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: crypto.randomUUID() })
-    ).toMatchObject({ invitationId: invitation.invitationId, action: 'accept', sessionRevoked: true })
+    expect(await accept(f.database, RECIPIENT, { token: f.token }, { idempotencyKey: testUuid() })).toMatchObject({
+      invitationId: invitation.invitationId,
+      action: 'accept',
+      sessionRevoked: true
+    })
   })
 })

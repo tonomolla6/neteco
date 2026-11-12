@@ -9,6 +9,7 @@ import {
 import { captureTokenAfterPayment, ONE_CLICK_CONSENT_VERSION } from '../../workers/payments/tokenization'
 import { handlePaymentHttp } from '../../workers/payments/http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testUuid } from '../support/deterministic'
 
 const cookieConfig = { password: 'synthetic-saved-card-cookie-password-over-32-chars', maxAgeSeconds: 3600 }
 const TOKEN = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678'
@@ -65,7 +66,7 @@ async function call(
 }
 const consent = (orderId: string, over: Record<string, unknown> = {}) => ({
   orderId,
-  commandId: crypto.randomUUID(),
+  commandId: testUuid(),
   consent: true,
   consentVersion: ONE_CLICK_CONSENT_VERSION,
   ...over
@@ -114,7 +115,7 @@ describe('saved-card API', () => {
         tokenId: saved.id,
         expectedVersion: saved.version,
         orderId: second.orderId,
-        commandId: crypto.randomUUID()
+        commandId: testUuid()
       }
     }))!
     expect(paid.status).toBe(200)
@@ -194,7 +195,7 @@ describe('saved-card API', () => {
       (await call(path, { token, body: consent(orderId), headers: { 'content-type': 'text/plain' } }))!.status
     ).toBe(415)
     expect(
-      (await call(path, { token, body: consent(orderId), headers: { 'idempotency-key': crypto.randomUUID() } }))!.status
+      (await call(path, { token, body: consent(orderId), headers: { 'idempotency-key': testUuid() } }))!.status
     ).toBe(400)
     expect((await call(path, { token, body: consent(orderId, { consent: false }) }))!.status).toBe(400)
     expect((await call(`${path}?x=1`, { token, body: consent(orderId) }))!.status).toBe(403)

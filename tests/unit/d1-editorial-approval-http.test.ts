@@ -5,6 +5,7 @@ import { CMS_IDENTITY, CMS_SESSION, cmsUtc } from './d1-cms-fixture'
 import { handleEditorialApprovalHttp } from '../../workers/cms/editorial-approval-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import type { CmsDraftHttpEnvironment } from '../../workers/cms/http'
+import { testUuid } from '../support/deterministic'
 
 const PUBLISHER_IDENTITY = '10000000-0000-4000-8000-000000000099'
 const PUBLISHER_SESSION = '20000000-0000-4000-8000-000000000099'
@@ -52,13 +53,7 @@ async function setupHttpFixture() {
     NUXT_SESSION_PASSWORD: SESSION_PASSWORD
   }
 
-  function req(
-    path: string,
-    method = 'GET',
-    body?: unknown,
-    cookie = authorCookie,
-    idempotencyKey = crypto.randomUUID()
-  ) {
+  function req(path: string, method = 'GET', body?: unknown, cookie = authorCookie, idempotencyKey = testUuid()) {
     const headers: Record<string, string> = {
       Origin: ORIGIN,
       Cookie: cookie ?? ''
@@ -277,7 +272,7 @@ describe('Editorial Approval HTTP API', () => {
         Origin: 'https://attacker.invalid',
         Cookie: f.authorCookie,
         'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID()
+        'idempotency-key': testUuid()
       },
       body: JSON.stringify({ pageId: f.created.pageId, versionId: f.created.versionId })
     })

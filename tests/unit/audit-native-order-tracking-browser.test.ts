@@ -3,6 +3,7 @@ import worker from '../../workers/canary'
 import { trackingFixture, configuration } from './d1-order-tracking-http-fixture'
 import { createOrderTrackingBrowserBridge } from '../../scripts/lib/audit-native-order-tracking-browser'
 import { orderTrackingSchema } from '../../shared/order-tracking'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://shop-audit.neteco.test'
 let fixture: Awaited<ReturnType<typeof trackingFixture>>, dispatch: (request: Request) => Promise<Response>
@@ -63,7 +64,7 @@ it('rejects a transport DTO from another order after the actual server GET, not 
   const send = vi.fn(async (req: Request) => {
     const response = await dispatch(req)
     expect(response.status).toBe(200)
-    return Response.json({ ...((await response.json()) as object), orderId: crypto.randomUUID() }, { status: 200 })
+    return Response.json({ ...((await response.json()) as object), orderId: testUuid() }, { status: 200 })
   })
   await expect(bridge(send).forward(request())).rejects.toThrow()
   expect(send).toHaveBeenCalledTimes(1)
@@ -75,7 +76,7 @@ it('blocks external, all business writes and unrelated private reads before disp
     new Request('https://external.invalid/'),
     request(`/api/orders/${fixture.ownedOrderId}/tracking`, 'POST'),
     request('/api/admin/orders'),
-    request(`/api/orders/${crypto.randomUUID()}/tracking`)
+    request(`/api/orders/${testUuid()}/tracking`)
   ])
     expect((await forward.forward(req)).action).toBe('abort')
   expect(send).not.toHaveBeenCalled()

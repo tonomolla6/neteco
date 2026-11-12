@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { pricingFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, OTHER_CLAIMS, key, utc } from './d1-pricing-fixture'
 import {
   expireDueStoreCredit,
@@ -11,11 +11,18 @@ import {
   voidStoreCreditGrant
 } from '../../workers/pricing/store-credit'
 import { STORE_CREDIT_POLICY } from '../../shared/store-credit'
+import { testNow, testUuid } from '../support/deterministic'
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => vi.useRealTimers())
 
 const issue = (over: Record<string, unknown> = {}) => ({
   customerId: CUSTOMER,
   kind: 'compensation_coupon',
-  sourceRef: `case-${crypto.randomUUID().slice(0, 8)}`,
+  sourceRef: `case-${testUuid().slice(-8)}`,
   amountCents: 1000,
   expiresInDays: 90,
   reason: 'Compensacion por retraso en entrega',
@@ -39,6 +46,9 @@ const balance = (f: World) =>
   )?.b
 
 describe('store credit issuance (admin)', () => {
+  it('uses distinct source references for separate synthetic grants', () => {
+    expect(issue().sourceRef).not.toBe(issue().sourceRef)
+  })
   it('issues a grant with expiry, ledger entry, balance, audit and idempotent replay', async () => {
     const f = await world()
     const k = key()
@@ -84,7 +94,7 @@ describe('store credit issuance (admin)', () => {
         code: 'invalid_input'
       })
     await expect(
-      issueStoreCredit(f.database, CLAIMS, issue({ customerId: crypto.randomUUID() }), key(), utc())
+      issueStoreCredit(f.database, CLAIMS, issue({ customerId: testUuid() }), key(), utc())
     ).rejects.toMatchObject({ code: 'not_found' })
   })
   it('blocks and audits fraud patterns: single cap, rolling cap, velocity', async () => {

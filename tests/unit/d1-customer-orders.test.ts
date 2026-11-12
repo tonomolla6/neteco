@@ -23,6 +23,7 @@ import type { VerifiedSessionClaims } from '../../workers/catalog/authorization'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { afterPublicMediaRead, publishMediaFixture } from '../support/media-publication-fixture'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 const NOW = '2026-08-25T09:00:00Z'
 const A = '10000000-0000-4000-8000-000000000001'
@@ -55,7 +56,7 @@ describe('D1 customer order ownership and read model', () => {
     // Keep production reads on their execution-time SQL clock. Only this local
     // SQLite instance substitutes the test's live Date clock, never captured NOW.
     sqlite.function('synthetic_customer_order_clock', () => {
-      const milliseconds = Date.now(),
+      const milliseconds = testNow(),
         instant = new Date(milliseconds).toISOString()
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(instant) || Date.parse(instant) !== milliseconds)
         throw new Error('invalid_synthetic_customer_order_clock')
@@ -835,7 +836,7 @@ describe('D1 customer order ownership and read model', () => {
     expect(await getCustomerOwnedOrderView(database, { orderId, claims: claimsA, now: later })).toMatchObject({
       id: orderId
     })
-    expect(await readD1CustomerOrderLines(database, claimsA, crypto.randomUUID(), NOW)).toEqual({
+    expect(await readD1CustomerOrderLines(database, claimsA, testUuid(), NOW)).toEqual({
       outcome: 'not_found'
     })
     expect(() => sqlite.prepare('UPDATE orders SET customer_id = ? WHERE id = ?').run(CB, orderId)).toThrow()
@@ -934,7 +935,7 @@ describe('D1 customer order ownership and read model', () => {
       email: 'same@example.invalid'
     })
     const deniedDetail = await get(`/api/orders/${orderId}`, strangerCookie)
-    const unknownDetail = await get(`/api/orders/${crypto.randomUUID()}`, strangerCookie)
+    const unknownDetail = await get(`/api/orders/${testUuid()}`, strangerCookie)
     expect(deniedDetail.status).toBe(404)
     expect(await deniedDetail.text()).toBe(await unknownDetail.text())
 
@@ -942,7 +943,7 @@ describe('D1 customer order ownership and read model', () => {
     expect((await get(`/api/orders/${orderId}`, ownerCookie)).status).toBe(401)
 
     const denied = await get(`/api/orders/${orderId}/lines`, strangerCookie)
-    const unknown = await get(`/api/orders/${crypto.randomUUID()}/lines`, strangerCookie)
+    const unknown = await get(`/api/orders/${testUuid()}/lines`, strangerCookie)
     expect(denied.status).toBe(404)
     expect(denied.headers.get('cache-control')).toBe('no-store')
     expect(await denied.text()).toBe(await unknown.text())

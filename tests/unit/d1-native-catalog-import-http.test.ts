@@ -8,6 +8,7 @@ import {
   handleNativeCatalogImportHttp,
   ownsNativeCatalogImportNamespace
 } from '../../workers/catalog/native-import-http'
+import { testNow } from '../support/deterministic'
 
 const actor = '00540000-0000-4000-8000-000000000001'
 const session = '00540000-0000-4000-8000-000000000002'
@@ -15,7 +16,7 @@ const warehouse = '00540000-0000-4000-8000-000000000003'
 const origin = 'https://native-import.example.invalid'
 const prefix = '/api/admin/catalog/native-import'
 const password = 'synthetic-native-import-http-session-secret'.repeat(2)
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 type Environment = Parameters<typeof handleNativeCatalogImportHttp>[1]
 describe('private native catalog intake HTTP boundary', () => {
   let sqlite: DatabaseSync, database: D1Database, env: Environment, cookie: string
@@ -309,7 +310,7 @@ describe('private native catalog intake HTTP boundary', () => {
       body: stream,
       duplex: 'half'
     } as RequestInit)
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     const result = call(req)
     await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0))
     await vi.advanceTimersByTimeAsync(8001)

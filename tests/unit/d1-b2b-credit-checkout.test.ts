@@ -15,6 +15,7 @@ import { approveRefundPolicy } from '../../workers/refunds/policies'
 import { planD1Refund, confirmD1Refund, dispatchD1Refunds } from '../../workers/refunds/operations'
 import { PersistentLocalRefundProvider } from '../../workers/refunds/local-provider'
 import { hash } from '../../workers/refunds/authority'
+import { testUuid } from '../support/deterministic'
 
 describe('credit checkout', () => {
   it.each([-1, 0, 1])('enforces limit at total plus %i cent', async (delta) => {
@@ -155,7 +156,7 @@ describe('credit checkout', () => {
     try {
       const input = await f.input()
       f.terms(input.expectedTotalGrossCents)
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         origin = 'https://shop.neteco.test'
       const address = {
         recipientName: 'Buyer',
@@ -310,7 +311,7 @@ describe('credit checkout', () => {
         f.database,
         BUYER_CLAIMS,
         result.body.id as string,
-        crypto.randomUUID(),
+        testUuid(),
         { expectedStatus: 'awaiting_payment', reason: 'Cancelación solicitada por el cliente' },
         { audience: 'customer', now: () => f.now }
       )
@@ -382,14 +383,14 @@ describe('credit checkout', () => {
           CLAIMS,
           orderId,
           { action, expectedVersion: version, reason, ...(action === 'delivered' ? { evidence: reason } : {}) },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       const returned = await requestD1CustomerReturn(
         f.database,
         BUYER_CLAIMS,
         orderId,
         { expectedVersion: 0, reason, lines: [{ lineIndex: 0, quantity: 1 }] },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       for (const input of [
         {
@@ -422,11 +423,11 @@ describe('credit checkout', () => {
           CLAIMS,
           returned.publicRef,
           { reason, publicMessage: reason, evidence: reason, ...input },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       const mappings = { merchantCode: config.merchantCode, terminal: config.terminal, currencyCode: '978' as const }
       const policy = await approveRefundPolicy(f.database, CLAIMS, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         provider: 'local_fake',
         environment: 'local_validation',
         mappings,
@@ -437,7 +438,7 @@ describe('credit checkout', () => {
         reason
       })
       const planned = await planD1Refund(f.database, CLAIMS, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         policyId: policy.id,
         returnPublicRef: returned.publicRef,
         expectedReturnVersion: 5,
@@ -446,7 +447,7 @@ describe('credit checkout', () => {
         lines: [{ lineIndex: 0, quantity: 1 }]
       })
       await confirmD1Refund(f.database, CLAIMS, planned.id, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         expectedGeneration: planned.generation,
         contractFingerprint: planned.contractFingerprint,
         reason,

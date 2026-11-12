@@ -4,7 +4,7 @@ import { defineComponent, h } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CmsDraftEditor from '../../app/components/CmsDraftEditor.vue'
 import { cmsPublicationFixture } from '../unit/d1-cms-publication-fixture'
-import { CMS_CLAIMS } from '../unit/d1-cms-fixture'
+import { CMS_CLAIMS, cmsUtc } from '../unit/d1-cms-fixture'
 import { executeD1CmsDraftCommand, getD1CmsPage, listD1CmsPages } from '../../workers/cms/drafts'
 import { readCmsPublicationState } from '../../workers/cms/publication'
 import '#app/nuxt-vitest-app-entry'
@@ -94,8 +94,8 @@ describe('resource metadata uses canonical CMS editor', () => {
         'category-label': 'Limpieza',
         author: 'Autora sintética',
         experience: 'Experiencia profesional sintética para pruebas.',
-        reviewed: '2026-10-01T00:00:00Z',
-        'review-due': '2027-10-01T00:00:00Z'
+        reviewed: cmsUtc(-86400000),
+        'review-due': cmsUtc(365 * 86400000)
       }))
         await wrapper.get(`[data-cms-resource-${field}]`).setValue(value)
       await wrapper.get('[data-cms-reason]').setValue('Revisión editorial sintética explícita')

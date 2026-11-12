@@ -5,6 +5,7 @@ import {
   auditNativeSupportMacros,
   type NativeSupportMacrosAuditInput
 } from '../../scripts/lib/audit-native-support-macros'
+import { testUuid } from '../support/deterministic'
 
 describe('native support macro acceptance over real HTTP and SQLite', () => {
   let f: Awaited<ReturnType<typeof supportFixture>>
@@ -115,7 +116,7 @@ describe('native support macro acceptance over real HTTP and SQLite', () => {
             response.status === 200
           ) {
             const raw = (await response.json()) as Record<string, unknown>
-            return new Response(JSON.stringify({ ...raw, commandId: crypto.randomUUID() }), {
+            return new Response(JSON.stringify({ ...raw, commandId: testUuid() }), {
               status: 200,
               headers: response.headers
             })

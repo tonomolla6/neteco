@@ -6,6 +6,7 @@ import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleCatalogImportJobHttp } from '../../workers/catalog/import-job-http'
 import type { CatalogImportJob } from '../../shared/catalog-import-job'
 import { catalogImportJobReceiptSchema } from '../../shared/catalog-import-job-commands'
+import { testUuid, testNow } from '../support/deterministic'
 
 const actor = '00570000-0000-4000-8000-000000000101',
   session = '00570000-0000-4000-8000-000000000102',
@@ -14,7 +15,7 @@ const origin = 'https://command-jobs.example.invalid',
   prefix = '/api/admin/catalog/import-jobs'
 const password = 'synthetic-command-job-http-cookie-password'.repeat(2)
 const reason = 'Synthetic whole catalog job authorization'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const uuid = (kind: number, index: number) =>
   `0057${String(kind).padStart(4, '0')}-1000-4000-8000-${String(index).padStart(12, '0')}`
 type Environment = Parameters<typeof handleCatalogImportJobHttp>[1]
@@ -134,7 +135,7 @@ describe('private whole-job HTTP apply/revert boundary', () => {
         origin,
         cookie,
         'content-type': 'application/json',
-        'idempotency-key': crypto.randomUUID(),
+        'idempotency-key': testUuid(),
         ...headers
       },
       ...(method === 'GET' || method === 'HEAD' ? {} : { body: JSON.stringify(body) })
@@ -184,7 +185,7 @@ describe('private whole-job HTTP apply/revert boundary', () => {
   const commandRequest = (
     job: CatalogImportJob,
     action: 'apply' | 'revert' = 'apply',
-    key = crypto.randomUUID(),
+    key = testUuid(),
     headers: Record<string, string> = {}
   ) =>
     request(`/${job.id}/${action}`, 'POST', { previewHash: job.hash, reason }, { 'idempotency-key': key, ...headers })
@@ -204,7 +205,7 @@ describe('private whole-job HTTP apply/revert boundary', () => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('No external network permitted')),
       job = await sealed(601)
     expect(table('products')).toHaveLength(0)
-    const applyKey = crypto.randomUUID(),
+    const applyKey = testUuid(),
       apply = await call(commandRequest(job, 'apply', applyKey))
     expect(apply.status).toBe(200)
     privateHeaders(apply)
@@ -246,7 +247,7 @@ describe('private whole-job HTTP apply/revert boundary', () => {
         (row) => row.created_by === actor && row.reason === reason && row.gross_cents === 1599
       )
     ).toBe(true)
-    const revertKey = crypto.randomUUID(),
+    const revertKey = testUuid(),
       revert = await call(commandRequest(job, 'revert', revertKey))
     expect(revert.status).toBe(200)
     privateHeaders(revert)
@@ -311,8 +312,8 @@ describe('private whole-job HTTP apply/revert boundary', () => {
     'requires same canonical origin and rejects cross-site or missing-origin %s even on replay',
     async (action) => {
       const job = await sealed(),
-        applyKey = crypto.randomUUID(),
-        revertKey = crypto.randomUUID()
+        applyKey = testUuid(),
+        revertKey = testUuid()
       expect((await call(commandRequest(job, 'apply', applyKey))).status).toBe(200)
       if (action === 'revert') expect((await call(commandRequest(job, 'revert', revertKey))).status).toBe(200)
       const key = action === 'apply' ? applyKey : revertKey,
@@ -360,8 +361,8 @@ describe('private whole-job HTTP apply/revert boundary', () => {
     'checks current %s before cached apply/revert responses',
     async (authority) => {
       const job = await sealed(),
-        applyKey = crypto.randomUUID(),
-        revertKey = crypto.randomUUID()
+        applyKey = testUuid(),
+        revertKey = testUuid()
       expect((await call(commandRequest(job, 'apply', applyKey))).status).toBe(200)
       expect((await call(commandRequest(job, 'revert', revertKey))).status).toBe(200)
       let code = 'forbidden',
@@ -393,19 +394,19 @@ describe('private whole-job HTTP apply/revert boundary', () => {
       before = snapshot()
     for (const action of ['apply', 'revert'] as const) {
       for (const value of ['', 'neteco-session=forged'])
-        await fail(commandRequest(job, action, crypto.randomUUID(), { cookie: value }), 'unauthenticated', 401)
+        await fail(commandRequest(job, action, testUuid(), { cookie: value }), 'unauthenticated', 401)
       await fail(commandRequest(job, action), 'service_unavailable', 503, { ...env, AUTH_ENABLED: 'false' })
     }
     expect(snapshot()).toEqual(before)
   })
   it('keeps cached receipts and GET status private to the original owner', async () => {
     const job = await sealed(),
-      key = crypto.randomUUID()
+      key = testUuid()
     expect((await call(commandRequest(job, 'apply', key))).status).toBe(200)
     const otherCookie = await seedCookie(uuid(9, 1), uuid(9, 2), 'other-command-job@example.invalid'),
       before = snapshot()
     await fail(commandRequest(job, 'apply', key, { cookie: otherCookie }), 'not_found', 404)
-    await fail(commandRequest(job, 'revert', crypto.randomUUID(), { cookie: otherCookie }), 'not_found', 404)
+    await fail(commandRequest(job, 'revert', testUuid(), { cookie: otherCookie }), 'not_found', 404)
     await fail(request('/' + job.id, 'GET', undefined, { cookie: otherCookie }), 'not_found', 404)
     expect(snapshot()).toEqual(before)
   })
@@ -442,26 +443,22 @@ describe('private whole-job HTTP apply/revert boundary', () => {
         headers: {
           origin,
           cookie,
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           'content-type': 'application/json',
           ...headers
         },
         body
       })
-    await fail(
-      commandRequest(job, 'apply', crypto.randomUUID(), { 'content-type': 'text/plain' }),
-      'json_required',
-      415
-    )
+    await fail(commandRequest(job, 'apply', testUuid(), { 'content-type': 'text/plain' }), 'json_required', 415)
     for (const value of ['4097', '-1', 'not-a-size'])
-      await fail(commandRequest(job, 'apply', crypto.randomUUID(), { 'content-length': value }), 'body_too_large', 413)
+      await fail(commandRequest(job, 'apply', testUuid(), { 'content-length': value }), 'body_too_large', 413)
     await fail(raw(new Uint8Array([0xff])), 'invalid_json', 400)
     await fail(raw(new TextEncoder().encode('{')), 'invalid_json', 400)
     await fail(raw(new Uint8Array(4097)), 'body_too_large', 413)
     await fail(raw(new Uint8Array(4097), { 'content-length': '1' }), 'body_too_large', 413)
     const noBody = new Request(origin + prefix + path, {
       method: 'POST',
-      headers: { origin, cookie, 'idempotency-key': crypto.randomUUID(), 'content-type': 'application/json' }
+      headers: { origin, cookie, 'idempotency-key': testUuid(), 'content-type': 'application/json' }
     })
     await fail(noBody, 'missing_body', 400)
     expect(snapshot()).toEqual(before)
@@ -476,7 +473,7 @@ describe('private whole-job HTTP apply/revert boundary', () => {
       body: stream,
       duplex: 'half'
     } as RequestInit)
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     const pending = call(req)
     await vi.waitFor(() => expect(vi.getTimerCount()).toBeGreaterThan(0))
     await vi.advanceTimersByTimeAsync(8001)

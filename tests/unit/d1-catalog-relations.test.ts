@@ -15,6 +15,7 @@ import {
   readD1CatalogRelationsCommand,
   readD1ProductRelations
 } from '../../workers/catalog/catalog-relations'
+import { testUuid, testNow } from '../support/deterministic'
 
 const actor = '10000000-0000-4000-8000-000000000076'
 const session = '20000000-0000-4000-8000-000000000076'
@@ -31,16 +32,26 @@ describe('Directed catalog relations on actual D1 SQLite adapter', () => {
   let sqlite: DatabaseSync
   let database: D1Database
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     sqlite = await openMigratedDatabase()
-    database = d1OverSqlite(sqlite)
+    sqlite.function('synthetic_catalog_relations_clock', () => {
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_catalog_relations_clock')
+      return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+    })
+    const nativeDatabase = d1OverSqlite(sqlite),
+      nativePrepare = nativeDatabase.prepare.bind(nativeDatabase)
+    database = new Proxy(nativeDatabase, {})
+    database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_catalog_relations_clock()'))
     const migration = await readFile(
       new URL('../../db/d1/migrations/0076_catalog_relations.sql', import.meta.url),
       'utf8'
     )
     await database.batch(splitDemoSql(migration).map((sql) => database.prepare(sql)))
     seedInventoryFixture(sqlite)
-    const past = new Date(Date.now() - 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-    const future = new Date(Date.now() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const past = new Date(testNow() - 86400000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const future = new Date(testNow() + 3600000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -64,6 +75,7 @@ describe('Directed catalog relations on actual D1 SQLite adapter', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     sqlite.close()
+    vi.useRealTimers()
   })
 
   it('returns version zero for an existing product without curated relations', async () => {
@@ -156,7 +168,7 @@ describe('Directed catalog relations on actual D1 SQLite adapter', () => {
     ).rejects.toMatchObject({ code: 'not_found' })
     await updateD1CatalogRelations(database, claims, 1, body(), { idempotencyKey: key })
     await expect(
-      updateD1CatalogRelations(database, claims, 1, body(), { idempotencyKey: crypto.randomUUID() })
+      updateD1CatalogRelations(database, claims, 1, body(), { idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'version_conflict' })
     expect(await readD1AdminCatalogRelations(database, claims, 1)).toMatchObject({
       version: 1,
@@ -165,13 +177,7 @@ describe('Directed catalog relations on actual D1 SQLite adapter', () => {
   })
   it('allows an explicit empty revision while preserving the original command receipt', async () => {
     const original = await updateD1CatalogRelations(database, claims, 1, body(), { idempotencyKey: key })
-    await updateD1CatalogRelations(
-      database,
-      claims,
-      1,
-      { ...body(1), relations: [] },
-      { idempotencyKey: crypto.randomUUID() }
-    )
+    await updateD1CatalogRelations(database, claims, 1, { ...body(1), relations: [] }, { idempotencyKey: testUuid() })
     expect(await readD1AdminCatalogRelations(database, claims, 1)).toMatchObject({ version: 2, items: [] })
     expect(await readD1CatalogRelationsCommand(database, claims, 1, key, original.payloadHash)).toEqual({
       source: 'cloudflare',

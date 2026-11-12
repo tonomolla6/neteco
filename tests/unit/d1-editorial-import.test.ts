@@ -11,12 +11,13 @@ import {
 } from '../../workers/catalog/editorial-import'
 import { handleEditorialImportHttp, ownsEditorialImportNamespace } from '../../workers/catalog/editorial-import-http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testNow } from '../support/deterministic'
 
 const actor = '00530000-0000-4000-8000-000000000001'
 const session = '00530000-0000-4000-8000-000000000002'
 const productIds = ['00530000-0000-4000-8000-000000000011', '00530000-0000-4000-8000-000000000012']
 const claims = { identityId: actor, sessionId: session, sessionVersion: 1 }
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const password = 'editorial-test-only-session-secret-53'.repeat(2)
 describe('bounded editorial CSV D1 operations', () => {
   let sqlite: DatabaseSync, database: D1Database

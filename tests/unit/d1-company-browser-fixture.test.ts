@@ -5,6 +5,7 @@ import { deterministicUuid } from '../fixtures/deterministic'
 import { customerTaxIdIsValid } from '../../shared/customer-tax-validation'
 import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { testNow } from '../support/deterministic'
 
 const origin = 'https://company-browser-fixture.neteco.test'
 const password = 'Synthetic-browser-company-123'
@@ -34,7 +35,7 @@ describe('compiled company browser fixture uses canonical synthetic fiscal IDs',
   ])(
     '%s rejects the old checksum and submits a distinct valid synthetic company through real HTTP',
     async (viewport, oldTaxId, taxId) => {
-      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
       const identityId = deterministicUuid('browser-company-owner-' + viewport)
       const customerId = deterministicUuid('browser-company-customer-' + viewport)
       const sessionId = deterministicUuid('browser-company-session-' + viewport)

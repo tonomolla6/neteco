@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import worker from '../../workers/canary'
 import { CartCoordinator, cartDoName } from '../../workers/cart-coordinator'
 import { issueD1SessionCookie, verifySessionCookie } from '../../workers/auth/session-cookie'
@@ -6,6 +6,16 @@ import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { createCart as createD1Cart } from '../../workers/catalog/cart'
+import { testUuid, testNow } from '../support/deterministic'
+
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.useRealTimers()
+})
 
 class FakeStorage {
   private readonly values = new Map<string, unknown>()
@@ -209,11 +219,11 @@ async function authenticatedStorefrontWorld() {
   const fixture = await world()
   const origin = 'https://shop.neteco.test'
   const password = 'synthetic-coordinator-session-password-0123456789abcdef'
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const expires = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
-  const customerId = crypto.randomUUID(),
-    identityId = crypto.randomUUID(),
-    sessionId = crypto.randomUUID()
+  const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const expires = new Date(testNow() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const customerId = testUuid(),
+    identityId = testUuid(),
+    sessionId = testUuid()
   fixture.sqlite
     .prepare('INSERT INTO customers(id,name,status,created_at,updated_at) VALUES (?, ?, ?, ?, ?)')
     .run(customerId, 'Synthetic verified buyer', 'active', now, now)
@@ -247,7 +257,7 @@ async function authenticatedStorefrontWorld() {
     REDSYS_SECRET_KEY: REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey,
     PAYMENT_PUBLIC_BASE_URL: origin
   }
-  const request = (path: string, method = 'GET', body?: unknown, cookie = sessionCookie, key = crypto.randomUUID()) =>
+  const request = (path: string, method = 'GET', body?: unknown, cookie = sessionCookie, key = testUuid()) =>
     worker.fetch!(
       new Request(`${origin}${path}`, {
         method,
@@ -269,7 +279,7 @@ async function authenticatedStorefrontWorld() {
   const added = await request(
     '/api/cart/items',
     'POST',
-    { variantId: 2001, quantity: 2, expectedVersion: cart.version, idempotencyKey: crypto.randomUUID() },
+    { variantId: 2001, quantity: 2, expectedVersion: cart.version, idempotencyKey: testUuid() },
     cookie
   )
   expect(added.status).toBe(200)
@@ -331,7 +341,7 @@ describe('authenticated storefront checkout through CartCoordinator', () => {
   it('accepts real sealed-session UUIDs and establishes current D1 ownership with exact replay', async () => {
     const fixture = await authenticatedStorefrontWorld()
     try {
-      const key = crypto.randomUUID()
+      const key = testUuid()
       const first = await fixture.request('/api/orders', 'POST', fixture.body, fixture.cookie, key)
       expect(first.status).toBe(201)
       const receipt = await first.text()
@@ -375,13 +385,13 @@ describe('authenticated storefront checkout through CartCoordinator', () => {
             body: JSON.stringify({
               type: 'checkout',
               cartId: fixture.body.cartId,
-              commandId: crypto.randomUUID(),
+              commandId: testUuid(),
               payload: {
                 cartId: fixture.body.cartId,
                 token: cartToken,
-                idempotencyKey: crypto.randomUUID(),
+                idempotencyKey: testUuid(),
                 correlationId: 'synthetic-invalid-session-contract',
-                now: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+                now: new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'),
                 contactEmail: fixture.body.customer.email,
                 expectedVersion: fixture.body.cartVersion,
                 quoteId: fixture.body.quoteId,
@@ -413,7 +423,7 @@ describe('authenticated storefront checkout through CartCoordinator', () => {
       const before = fixture.effects()
       fixture.sqlite
         .prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?')
-        .run(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), fixture.sessionId)
+        .run(new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'), fixture.sessionId)
       const response = await fixture.request('/api/orders', 'POST', fixture.body, fixture.cookie)
       expect(response.status).toBe(401)
       await expect(response.json()).resolves.toEqual({ error: { code: 'unauthorized' } })
@@ -446,7 +456,7 @@ describe('CartCoordinator partitioning and serialization', () => {
   it('expires its due cart when getAlarm is null inside the real alarm-handler contract, leaving other carts intact', async () => {
     const fixture = await world()
     try {
-      const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+      const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
       const historical = new Date(Date.parse(instant) - 4 * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       const due = await createD1Cart(fixture.database, { now: historical, correlationId: 'alarm-due' })
       const other = await createD1Cart(fixture.database, { now: instant, correlationId: 'alarm-other' })
@@ -483,7 +493,7 @@ describe('CartCoordinator partitioning and serialization', () => {
     async (kind) => {
       const fixture = await world()
       try {
-        const instant = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+        const instant = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
         const historical = new Date(Date.parse(instant) - 4 * 24 * 60 * 60 * 1000)
           .toISOString()
           .replace(/\.\d{3}Z$/, 'Z')
@@ -564,7 +574,9 @@ describe('CartCoordinator partitioning and serialization', () => {
     const { env } = await world()
     const cart = await createCart(env)
     const name = cartDoName(cart.cartId)
-    const commandNow = new Date(Math.floor(Date.now() / 1000) * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const clock = vi.getMockedSystemTime()
+    if (!clock) throw new Error('missing_synthetic_cart_clock')
+    const commandNow = clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
 
     const directCall = (variantId: string, quantity: number) => {
       const stub = (

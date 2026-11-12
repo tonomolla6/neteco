@@ -1,6 +1,6 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -16,10 +16,12 @@ import {
   salesQuoteConversionIntentHash
 } from '../../shared/sales-quotes'
 import { customer360Schema } from '../../shared/customer-360'
+import { testUuid } from '../support/deterministic'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 
 // SOURCE/workerd acceptance, not Nuxt SSR, Chromium, deployment or provider acceptance.
 it('converts a price-locked parcel quote through actual canary and InventoryCoordinator, and redacts live customer context', async () => {
-  const fixture = await returnsFixture()
+  let fixture: Awaited<ReturnType<typeof returnsFixture>> | undefined
   const outbound = vi.fn(() => {
     throw new Error('unexpected_outbound')
   })
@@ -51,8 +53,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         name: 'commercial-context-native',
-        modules: true,
-        script: bundle.outputFiles[0]!.text,
+        ...bundle.nativeSource,
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         cf: false,
@@ -80,11 +81,13 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
           CART_EDGE_LIMIT: { namespace_id: '910089', simple: { limit: 100, period: 60 } },
           AUTH_EDGE_LIMIT: { namespace_id: '920089', simple: { limit: 100, period: 60 } }
         },
-        d1Databases: { DB: randomUUID() },
+        d1Databases: { DB: testUuid() },
         outboundService: outbound
       })
     )
     const db = (await runtime.getD1Database('DB')) as unknown as D1Database
+    await syncNativeTestClock(db)
+    fixture = await returnsFixture()
     const migrations = (await readdir('db/d1/migrations'))
       .filter((name) => /^\d{4}_.*\.sql$/.test(name) && Number(name.slice(0, 4)) <= 89)
       .sort()
@@ -145,7 +148,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
         .prepare(
           "INSERT INTO inventory_movements(id,variant_id,location_id,movement_type,physical_delta,reserved_delta,reference_type,idempotency_key,correlation_id,reason,created_at) VALUES(?,?,'loc-main','initial',25,0,'seed',?,'commercial-native','Synthetic initial stock',?)"
         )
-        .bind(randomUUID(), variantId, randomUUID(), now),
+        .bind(testUuid(), variantId, testUuid(), now),
       db
         .prepare(
           "INSERT INTO shipping_zones(id,code,name,kind,postal_prefixes,active,created_at) VALUES('native-quote-zone','native-quote','Synthetic parcel','parcel_peninsular','[\"peninsular\"]',1,?)"
@@ -197,7 +200,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
     const adminCookie = (await issueD1SessionCookie(db, CLAIMS, configuration))!.split(';')[0]!
     const buyerCookie = (await issueD1SessionCookie(db, BUYER_CLAIMS, configuration))!.split(';')[0]!
     const supportCookie = (await issueD1SessionCookie(db, support, configuration))!.split(';')[0]!
-    async function send(path: string, body?: unknown, cookie = adminCookie, key = randomUUID(), hash?: string) {
+    async function send(path: string, body?: unknown, cookie = adminCookie, key = testUuid(), hash?: string) {
       const response = await runtime!.dispatchFetch(origin + path, {
         method: body === undefined ? 'GET' : 'POST',
         headers: {
@@ -257,7 +260,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
         expectedLatestApprovedId: null,
         reason
       },
-      { idempotencyKey: randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     const cart = await createCart(db, { now: utc(), correlationId: 'commercial-native' })
     expect(
@@ -269,7 +272,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
           expectedVersion: 1,
           variantId,
           quantity: 2,
-          idempotencyKey: randomUUID()
+          idempotencyKey: testUuid()
         })
       ).outcome
     ).toBe('applied')
@@ -311,7 +314,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
         consentPrivacy: true
       }
     }
-    const key = randomUUID(),
+    const key = testUuid(),
       hash = await salesQuoteConversionIntentHash(approved.id, cart.cartId, input)
     const converted = await send(customerPath + '/convert', input, cookie, key)
     expect(converted.status).toBe(201)
@@ -403,7 +406,7 @@ it('converts a price-locked parcel quote through actual canary and InventoryCoor
     expect(await snapshot()).toEqual(beforeReads)
     expect(outbound).not.toHaveBeenCalled()
   } finally {
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
     await runtime?.dispose()
   }
 }, 60000)

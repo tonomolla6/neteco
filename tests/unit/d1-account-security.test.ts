@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1OverSqlite, openAccountSecurityDatabase } from '../support/d1-sqlite'
 import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { hashWorkerPassword, verifyWorkerPassword } from '../../workers/auth/password'
+import { testUuid, testNow } from '../support/deterministic'
 
 const identityId = '10000000-0000-4000-8000-000000000061'
 const customerId = '30000000-0000-4000-8000-000000000061'
@@ -46,9 +47,9 @@ describe('D1 account sessions and password rotation', () => {
     expect(response.status).toBe(200)
     return response.headers.get('set-cookie')!.split(';')[0]!
   }
-  function addSession(id = crypto.randomUUID(), overrides: Record<string, unknown> = {}) {
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
-    const expires = new Date(Date.now() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  function addSession(id = testUuid(), overrides: Record<string, unknown> = {}) {
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const expires = new Date(testNow() + 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare(
         `INSERT INTO auth_sessions(id, identity_id, session_version, mfa_verified,
@@ -69,10 +70,12 @@ describe('D1 account sessions and password rotation', () => {
   }
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     limiter.limit.mockReset().mockResolvedValue({ success: true })
     sqlite = await openAccountSecurityDatabase()
     database = d1OverSqlite(sqlite)
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare('INSERT INTO customers(id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
       .run(customerId, 'Cliente', now, now)
@@ -83,25 +86,28 @@ describe('D1 account sessions and password rotation', () => {
       )
       .run(identityId, await hashWorkerPassword(password), now, customerId, now, now)
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
 
   it('lists only live own sessions and revokes another device without revealing foreign IDs', async () => {
     const currentCookie = await cookie()
     const other = addSession()
-    const expired = addSession(crypto.randomUUID(), {
+    const expired = addSession(testUuid(), {
       created: '2026-01-01T00:00:00Z',
       expires: '2026-01-02T00:00:00Z',
       lastSeen: '2026-01-01T00:00:00Z'
     })
-    const stranger = crypto.randomUUID()
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const stranger = testUuid()
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare(
         `INSERT INTO identities(id, email, password_hash, status, created_at, updated_at)
         VALUES (?, 'stranger@example.invalid', 'fixture-hash', 'active', ?, ?)`
       )
       .run(stranger, now, now)
-    const strangerSession = addSession(crypto.randomUUID(), { identityId: stranger })
+    const strangerSession = addSession(testUuid(), { identityId: stranger })
     const listed = (await handle(api('GET', '/api/account/sessions', currentCookie)))!
     expect(listed.status).toBe(200)
     expect(listed.headers.get('cache-control')).toBe('no-store')
@@ -236,7 +242,7 @@ describe('D1 account sessions and password rotation', () => {
 
   it('requires MFA before password rotation when MFA is enrolled', async () => {
     const currentCookie = await cookie()
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
     sqlite
       .prepare(
         `INSERT INTO identity_mfa(identity_id, encrypted_secret, recovery_code_hashes, verified_at, updated_at)
@@ -276,7 +282,9 @@ describe('D1 account sessions and password rotation', () => {
     const real = database
     const racing = Object.create(real) as D1Database
     racing.batch = async (statements) => {
-      sqlite.prepare('UPDATE auth_sessions SET revoked_at = ?').run(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'))
+      sqlite
+        .prepare('UPDATE auth_sessions SET revoked_at = ?')
+        .run(new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'))
       return real.batch(statements)
     }
     database = racing

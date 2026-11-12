@@ -11,6 +11,7 @@ import {
 } from '../../workers/catalog/catalog-lot-recall'
 import { executeProductRecall } from '../../workers/catalog/product-recall'
 import { CatalogLotRecallError } from '../../shared/catalog-markets'
+import { testUuid } from '../support/deterministic'
 
 const MIGRATION_PATH_106 = 'db/d1/migrations/0106_inventory_lots_costing_forecast.sql'
 const MIGRATION_PATH_118 = 'db/d1/migrations/0118_recall_market_messaging.sql'
@@ -60,7 +61,7 @@ describe('CAT-020: Lotes, caducidad y recall cuando el surtido lo exija', () => 
         `INSERT INTO inventory_lot_allocations(id, lot_id, order_id, order_line_index, customer_id, quantity, correlation_id, created_at)
          VALUES(?, ?, ?, 0, ?, 2, 'seed-alloc', ?)`
       )
-      .run(crypto.randomUUID(), lotId1, orderId, CUSTOMER, utc())
+      .run(testUuid(), lotId1, orderId, CUSTOMER, utc())
   })
 
   afterEach(() => {
@@ -249,7 +250,7 @@ describe('CAT-020: Lotes, caducidad y recall cuando el surtido lo exija', () => 
         `INSERT INTO inventory_lot_allocations(id, lot_id, order_id, order_line_index, customer_id, quantity, correlation_id, created_at)
          VALUES(?, ?, ?, 1, ?, 1, 'seed-alloc-2', ?)`
       )
-      .run(crypto.randomUUID(), lotId2, orderId, CUSTOMER, utc())
+      .run(testUuid(), lotId2, orderId, CUSTOMER, utc())
 
     const eligibility = await evaluateOrderExpeditionEligibility(f.database, orderId, options)
     expect(eligibility.eligible).toBe(false)
@@ -320,7 +321,7 @@ describe('CAT-020: Lotes, caducidad y recall cuando el surtido lo exija', () => 
         `INSERT INTO inventory_lot_allocations(id, lot_id, order_id, order_line_index, customer_id, quantity, correlation_id, created_at)
          VALUES(?, ?, ?, 0, ?, 1, 'fresh-alloc', ?)`
       )
-      .run(crypto.randomUUID(), lotId1, freshOrderId, CUSTOMER, utc())
+      .run(testUuid(), lotId1, freshOrderId, CUSTOMER, utc())
 
     const eligibility = await evaluateOrderExpeditionEligibility(f.database, freshOrderId, options)
     expect(eligibility.eligible).toBe(true)

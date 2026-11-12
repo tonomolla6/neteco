@@ -18,6 +18,7 @@ import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../sup
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { afterPublicMediaRead, publishMediaFixture, type JsonTestResponse } from '../support/media-publication-fixture'
 import { createSupportTicket, executeSupportAdminCommand } from '../../workers/support/operations'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-08-25T09:00:00Z'
 const IDENTITY = '10000000-0000-4000-8000-000000000001'
@@ -127,7 +128,7 @@ describe('D1 administrative order reads and frontend contract', () => {
   }
 
   function payment(orderId: string, status: 'paid' | 'stock_exception', merchantOrder: string) {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     const total = (
       sqlite.prepare('SELECT total_gross_cents AS total FROM orders WHERE id = ?').get(orderId) as { total: number }
     ).total
@@ -161,7 +162,7 @@ describe('D1 administrative order reads and frontend contract', () => {
       VALUES (?, ?, ?, ?, ?, ?, '0000', 'SAFE-REFERENCE', 'private-correlation', ?)`
       )
       .run(
-        crypto.randomUUID(),
+        testUuid(),
         id,
         orderId,
         `private-provider-event-${merchantOrder}`,
@@ -181,7 +182,9 @@ describe('D1 administrative order reads and frontend contract', () => {
     // This local SQL clock reads the current fake Date for each statement; no
     // captured instant or scanner lifetime extension enters production code.
     sqlite.function('synthetic_admin_order_clock', () => {
-      const milliseconds = Date.now(),
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_admin_order_clock')
+      const milliseconds = clock.getTime(),
         instant = new Date(milliseconds).toISOString()
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(instant) || Date.parse(instant) !== milliseconds)
         throw new Error('invalid_synthetic_admin_order_clock')
@@ -798,7 +801,7 @@ describe('D1 administrative order reads and frontend contract', () => {
     ]) {
       expect((await request('/api/admin/orders', headers)).status).toBe(401)
     }
-    const other = { ...CLAIMS, identityId: crypto.randomUUID() }
+    const other = { ...CLAIMS, identityId: testUuid() }
     expect(await readD1AdminOrder(database, other, NOW, paid)).toEqual({ outcome: 'denied', code: 'unauthenticated' })
     expect(await listD1AdminOrders(database, null, NOW, parseAdminOrderQuery(new URLSearchParams())!)).toEqual({
       outcome: 'denied',
@@ -849,8 +852,7 @@ describe('D1 administrative order reads and frontend contract', () => {
     ]) {
       expect((await request(`/api/admin/orders?${query}`)).status, query).toBe(400)
     }
-    for (const id of ['invalid', crypto.randomUUID()])
-      expect((await request(`/api/admin/orders/${id}/detail`)).status).toBe(404)
+    for (const id of ['invalid', testUuid()]) expect((await request(`/api/admin/orders/${id}/detail`)).status).toBe(404)
     const mutation = await request('/api/admin/orders', { cookie }, 'POST')
     expect(mutation.status).toBe(405)
     expect(mutation.headers.get('allow')).toBe('GET')

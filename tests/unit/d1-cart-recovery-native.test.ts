@@ -1,6 +1,6 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -25,19 +25,20 @@ import {
 import { preferencesFixture, CLAIMS } from './d1-account-preferences-fixture'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid, testNow } from '../support/deterministic'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 
 // Actual canary source + D1 + CartCoordinator. Provider delivery alone is fake.
 // This does not establish browser, deployment or external-delivery acceptance.
 it('resumes through actual CartDO with only an HttpOnly grant, exact replay and live revocation, without economic effects', async () => {
-  const fixture = await preferencesFixture()
+  let fixture: Awaited<ReturnType<typeof preferencesFixture>> | undefined
   const outbound = vi.fn(() => {
     throw new Error('unexpected_outbound')
   })
   const origin = 'https://cart-recovery-native.neteco.test'
-  const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
   let runtime: Miniflare | undefined
   try {
-    seedInventoryFixture(fixture.sqlite)
     const bundled = await build({
       stdin: {
         contents: "export { default, CartCoordinator } from './workers/canary'",
@@ -57,8 +58,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         name: 'cart-recovery-native',
-        modules: true,
-        script: bundled.outputFiles[0]!.text,
+        ...bundled.nativeSource,
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         cf: false,
@@ -80,11 +80,14 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
           CART_EDGE_LIMIT: { namespace_id: '910090', simple: { limit: 100, period: 60 } },
           AUTH_EDGE_LIMIT: { namespace_id: '920090', simple: { limit: 100, period: 60 } }
         },
-        d1Databases: { DB: randomUUID() },
+        d1Databases: { DB: testUuid() },
         outboundService: outbound
       })
     )
     const db = (await runtime.getD1Database('DB')) as unknown as D1Database
+    await syncNativeTestClock(db)
+    fixture = await preferencesFixture()
+    seedInventoryFixture(fixture.sqlite)
     const files = (await readdir('db/d1/migrations'))
       .filter((name) => /^\d{4}_.*\.sql$/.test(name) && Number(name.slice(0, 4)) <= 90)
       .sort()
@@ -135,7 +138,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
           variantId: 'v-1-1',
           quantity: 2,
           expectedVersion: 1,
-          idempotencyKey: randomUUID(),
+          idempotencyKey: testUuid(),
           correlationId: 'native-recovery'
         })
       ).outcome
@@ -143,7 +146,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
     await updateD1AccountPreferences(
       db,
       CLAIMS,
-      randomUUID(),
+      testUuid(),
       {
         expectedVersion: 0,
         preferences: { product_updates: true, replenishment: false },
@@ -161,7 +164,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
       body?: unknown,
       method = body === undefined ? 'GET' : 'POST',
       cookie = sessionCookie,
-      key = randomUUID(),
+      key = testUuid(),
       extra: Record<string, string> = {}
     ) {
       const response = await runtime!.dispatchFetch(origin + path, {
@@ -197,7 +200,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
       { expectedCartVersion: 2, stage: 'checkout', policyVersion: CART_RECOVERY_POLICY_VERSION },
       'POST',
       oldCookie,
-      randomUUID(),
+      testUuid(),
       { 'X-Neteco-Cart-Id': cart.cartId }
     )
     expect(associated.status).toBe(201)
@@ -206,7 +209,10 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
       .prepare('SELECT activity_at FROM cart_recovery_associations WHERE id=?')
       .bind(association.associationId)
       .first<{ activity_at: string }>()
-    expect(Date.parse(activity!.activity_at)).toBeLessThan(Date.now() - 3600000)
+    expect(Date.parse(activity!.activity_at)).toBeLessThan(testNow() - 3600000)
+    // HTTP consent/association receipts use the real workerd clock. Refresh
+    // the internal evaluator's cutoff from D1 before checking those receipts.
+    await syncNativeTestClock(db)
     const policy = { enabled: true, waitSeconds: 3600, frequencyCapSeconds: 86400, tokenTtlSeconds: 86400 }
     expect(await evaluateD1CartRecoveries(db, { ...options, policy })).toMatchObject({ created: 1 })
     let message = ''
@@ -239,7 +245,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
       )
     const before = await snapshot(),
       input = { id: association.associationId!, token: token!, expectedCartVersion: 2 },
-      command = randomUUID()
+      command = testUuid()
     const resolved = await send(root + '/resolve', { id: input.id, token: input.token })
     expect(resolved.status).toBe(200)
     expect(cartRecoveryResolvedSchema.parse(resolved.body)).toMatchObject({
@@ -275,7 +281,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
     const replay = await send(root + '/resume', input, 'POST', sessionCookie, command)
     expect(replay.body).toEqual(receipt)
     expect(replay.cookie!.split(';')[0]).toBe(newCookie)
-    const recovered = await send(root + '/commands/' + command, undefined, 'GET', sessionCookie, randomUUID(), {
+    const recovered = await send(root + '/commands/' + command, undefined, 'GET', sessionCookie, testUuid(), {
       'X-Neteco-Command-Payload-Hash': receipt.payloadHash
     })
     expect(recovered.status).toBe(200)
@@ -309,7 +315,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
         consent: true,
         policyVersion: PRODUCT_WATCH_POLICY_VERSION
       },
-      randomUUID(),
+      testUuid(),
       watchOptions
     )
     expect(await dispatchD1ProductWatchDeliveries(db, watchSender, { ...watchOptions, origin })).toMatchObject({
@@ -325,7 +331,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
         expectedVersion: 1,
         token: confirmation!
       },
-      randomUUID(),
+      testUuid(),
       watchOptions
     )
     await db
@@ -333,7 +339,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
         `INSERT INTO variant_price_versions(id,variant_id,gross_cents,volume_tiers,valid_from,status,reason,created_at)
       VALUES(?,'v-1-1',400,'[]',?,'approved','Synthetic native price-drop control',?)`
       )
-      .bind(randomUUID(), watchInstant, watchInstant)
+      .bind(testUuid(), watchInstant, watchInstant)
       .run()
     // Canonical catalog publication also serves ordinary real-clock reads;
     // do not create a future-only approval merely to advance marketing time.
@@ -355,7 +361,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
     expect(denied.cookie).toBeNull()
     expect(
       (
-        await send(root + '/commands/' + command, undefined, 'GET', sessionCookie, randomUUID(), {
+        await send(root + '/commands/' + command, undefined, 'GET', sessionCookie, testUuid(), {
           'X-Neteco-Command-Payload-Hash': receipt.payloadHash
         })
       ).status
@@ -363,7 +369,7 @@ it('resumes through actual CartDO with only an HttpOnly grant, exact replay and 
     expect(await snapshot()).toEqual(before)
     expect(outbound).not.toHaveBeenCalled()
   } finally {
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
     await runtime?.dispose()
   }
 }, 60000)

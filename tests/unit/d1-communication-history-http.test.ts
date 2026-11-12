@@ -3,6 +3,7 @@ import { communicationHistoryFixture } from './d1-communication-history-fixture'
 import { handleCommunicationHistoryHttp } from '../../workers/communications/history-http'
 import { communicationRetryIntentHash } from '../../shared/communication-history'
 import { ORIGIN } from './d1-support-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('COM-011 private operator HTTP boundary', () => {
   let f: Awaited<ReturnType<typeof communicationHistoryFixture>>
@@ -18,7 +19,7 @@ describe('COM-011 private operator HTTP boundary', () => {
           cookie: f.adminCookie,
           origin: ORIGIN,
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           ...headers
         },
         body: body === undefined ? undefined : JSON.stringify(body)
@@ -34,7 +35,7 @@ describe('COM-011 private operator HTTP boundary', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
   })
   it('confirms one command and manually recovers its exact hash', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       response = await request('/' + encodeURIComponent(f.eventId) + '/commands', 'POST', f.input, {
         'idempotency-key': key
       })

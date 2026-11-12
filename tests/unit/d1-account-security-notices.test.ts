@@ -7,6 +7,7 @@ import { handleAuthenticationHttp } from '../../workers/auth/http'
 import { hashWorkerPassword, verifyWorkerPassword } from '../../workers/auth/password'
 import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communications/email-outbox'
 import { dispatchTransactionalEmails } from '../../workers/communications/transactional-email-delivery'
+import { testNow } from '../support/deterministic'
 
 const ID = '10000000-0000-4000-8000-000000000071',
   CUSTOMER = '30000000-0000-4000-8000-000000000071'
@@ -39,7 +40,7 @@ const api = (method: string, path: string, body?: unknown) =>
 beforeEach(async () => {
   sqlite = await openAccountSecurityDatabase()
   database = d1OverSqlite(sqlite)
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
   sqlite
     .prepare('INSERT INTO customers(id,name,created_at,updated_at) VALUES(?,?,?,?)')
     .run(CUSTOMER, 'Synthetic Customer', now, now)
@@ -79,7 +80,7 @@ const rejectOutbox = () =>
     "CREATE TRIGGER synthetic_account_notice_failure BEFORE INSERT ON email_outbox_events BEGIN SELECT RAISE(ABORT,'synthetic_account_notice_failure'); END"
   )
 async function deliver(secrets: string[] = []) {
-  const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+  const now = new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     messages: unknown[] = []
   await publishEmailOutbox(
     database,

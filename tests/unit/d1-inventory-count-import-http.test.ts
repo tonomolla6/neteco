@@ -13,6 +13,7 @@ import {
   INVENTORY_FIXTURE_ACTOR,
   INVENTORY_FIXTURE_SESSION
 } from '../support/admin-inventory-fixture'
+import { testNow } from '../support/deterministic'
 
 const origin = 'https://inventory-import.neteco.test'
 const password = 'synthetic-inventory-import-cookie-more-than-32'
@@ -197,7 +198,7 @@ describe('inventory count import HTTP behavioral boundary', () => {
       if (boundary === 'session')
         fixture.sqlite
           .prepare('UPDATE auth_sessions SET revoked_at=? WHERE id=?')
-          .run(new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), claims.sessionId)
+          .run(new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z'), claims.sessionId)
       const response = await dispatch(request())
       expect(response?.status).toBe(boundary === 'session' ? 401 : 403)
       privateHeaders(response)

@@ -4,6 +4,7 @@ import { listPublishedProducts } from '../../workers/catalog/products'
 import { categoryCommandFixture } from '../support/category-command-fixture'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('bounded fixed product facet aggregates', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -73,8 +74,8 @@ describe('bounded fixed product facet aggregates', () => {
       const id = `fixed-contributor-${i}`
       product.run(id, 10000 + i, `ZZ contributor ${i}`, id)
       variant.run(`${id}-variant`, 20000 + i, id, id)
-      policy.run(crypto.randomUUID(), id)
-      media.run(crypto.randomUUID(), id, crypto.randomUUID())
+      policy.run(testUuid(), id)
+      media.run(testUuid(), id, testUuid())
     }
   }
 
@@ -126,10 +127,13 @@ describe('bounded fixed product facet aggregates', () => {
     expect(response!.total).toBeGreaterThan(1000)
     expect(response!.facets!.brands.reduce((sum, item) => sum + item.n, 0)).toBe(response!.total)
     const facets = batches.at(-1)!
-    expect(facets).toHaveLength(13)
+    expect(facets).toHaveLength(14)
     expect(batches).toHaveLength(1)
     expect(facets.slice(2, 12).every((statement) => statement.rows < 100)).toBe(true)
     expect(facets.slice(2, 12).every((statement) => /GROUP BY|MIN\(/i.test(statement.sql))).toBe(true)
+    // The added stock projection is one scalar aggregate, never contributor IDs.
+    expect(facets[12]!.rows).toBe(1)
+    expect(facets[12]!.sql).toMatch(/SELECT count\(\*\) AS n FROM facet_products/)
     expect(facets.every((statement) => !/json_group_array\(DISTINCT p\.id\)/.test(statement.sql))).toBe(true)
   })
 

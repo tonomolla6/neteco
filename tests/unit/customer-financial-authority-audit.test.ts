@@ -23,6 +23,7 @@ import { queueD1CreditNote } from '../../workers/fiscal/credit-notes'
 import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communications/email-outbox'
 import { dispatchTransactionalEmails } from '../../workers/communications/transactional-email-delivery'
 import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
+import { testUuid } from '../support/deterministic'
 
 type World = Awaited<ReturnType<typeof refundsCreditFixture>>
 const ORIGIN = 'https://financial-authority.neteco.test'
@@ -172,7 +173,7 @@ describe('independent mounted financial authority audit — synthetic SQLite onl
       .prepare(
         "UPDATE refund_work SET status='submitting',generation=generation+1,lease_token=?,lease_until=?,submitted_at=? WHERE refund_id=?"
       )
-      .run(crypto.randomUUID(), at, at, refund.id)
+      .run(testUuid(), at, at, refund.id)
     const before = w.sqlite.prepare('SELECT * FROM refund_work').all(),
       prepare = vi.spyOn(w.database, 'prepare'),
       provider = vi.spyOn(PersistentLocalRefundProvider.prototype, 'refund'),

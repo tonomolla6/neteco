@@ -3,6 +3,7 @@ import { creditWorld } from './d1-b2b-credit-fixture'
 import { CLAIMS, BUYER_CLAIMS } from './d1-returns-fixture'
 import { placeOrder } from '../../workers/catalog/checkout'
 import { listD1B2BTransferSimulations, reconcileD1B2BTransfer } from '../../workers/catalog/b2b-transfer-reconciliation'
+import { testUuid } from '../support/deterministic'
 
 async function world() {
   const f = await creditWorld(),
@@ -12,7 +13,7 @@ async function world() {
   if (result.outcome !== 'order_created') throw new Error(result.outcome)
   const orderId = result.body.id as string,
     total = input.expectedTotalGrossCents
-  const options = { environment: 'local', idempotencyKey: crypto.randomUUID(), now: () => f.now }
+  const options = { environment: 'local', idempotencyKey: testUuid(), now: () => f.now }
   const command = {
     expectedOutstandingCents: total,
     amountCents: total,
@@ -63,7 +64,7 @@ describe('local transfer reconciliation', () => {
           CLAIMS,
           f.orderId,
           { ...command, bankReference: 'FAKE-EXAMPLE-2' },
-          { ...f.options, idempotencyKey: crypto.randomUUID() }
+          { ...f.options, idempotencyKey: testUuid() }
         )
       ])
       expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
@@ -105,7 +106,7 @@ describe('local transfer reconciliation', () => {
           CLAIMS,
           f.orderId,
           { ...f.command, expectedOutstandingCents: f.total - 1, amountCents: 1 },
-          { ...f.options, idempotencyKey: crypto.randomUUID() }
+          { ...f.options, idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'conflict' })
     } finally {

@@ -6,9 +6,10 @@ import { createCart, quoteCart, setCartLine } from '../../workers/catalog/cart'
 import { requestShippingOptions, placeOrder } from '../../workers/catalog/checkout'
 import type { PromotionRule } from '../../shared/promotions'
 import { assessPromoFraud, decidePromoFraudCase } from '../../workers/security/promo-fraud'
+import { testUuid } from '../support/deterministic'
 
 const rule = (changes: Partial<PromotionRule> = {}): PromotionRule => ({
-  id: crypto.randomUUID(),
+  id: testUuid(),
   version: 1,
   code: 'TEST101',
   status: 'active',
@@ -115,7 +116,7 @@ async function seedSharedFootprint(f: Awaited<ReturnType<typeof fixture>>, withI
     await assessPromoFraud(
       f.database,
       {
-        commandId: crypto.randomUUID(),
+        commandId: testUuid(),
         context: 'promotion',
         refId: `seed-${n}`,
         customerId: id,

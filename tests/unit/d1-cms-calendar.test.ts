@@ -6,6 +6,7 @@ import { cmsCalendarRange, cmsEditorialCalendarSchema } from '../../shared/cms-c
 import { handleCmsDraftHttp } from '../../workers/cms/http'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { executeD1CmsDraftCommand } from '../../workers/cms/drafts'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://cms.neteco.invalid',
   password = 'synthetic-calendar-cookie-password-independent'
@@ -17,7 +18,7 @@ describe('D1 editorial calendar: approved history, Madrid boundaries and private
   })
   afterEach(() => f.sqlite.close())
   function schedule(publishAt: string | null, unpublishAt: string | null = null, active = true) {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     f.sqlite
       .prepare(
         `INSERT INTO content_schedules(id,page_id,version_id,actor_id,reason,publish_at,unpublish_at,created_at)
@@ -38,7 +39,7 @@ describe('D1 editorial calendar: approved history, Madrid boundaries and private
       .prepare(
         `INSERT INTO content_schedule_events(id,schedule_id,phase,outcome,code,created_at) VALUES (?,?,?,'blocked',?,'2026-09-01T00:01:00Z')`
       )
-      .run(crypto.randomUUID(), id, phase, code)
+      .run(testUuid(), id, phase, code)
   }
   const read = (input: unknown = { month: '2026-10' }) =>
     readCmsEditorialCalendar({ ...f.deps, now: () => '2026-10-03T12:00:00Z' }, CMS_CLAIMS, input)
@@ -98,7 +99,7 @@ describe('D1 editorial calendar: approved history, Madrid boundaries and private
       'update_draft',
       { pageId: f.created.pageId },
       { ...cmsDocument({ title: 'Nuevo borrador privado', slug: 'nuevo-borrador' }), expectedVersion: 1 },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
     expect((await read()).events[0]).toMatchObject({
       title: 'Guía editorial',
@@ -126,7 +127,7 @@ describe('D1 editorial calendar: approved history, Madrid boundaries and private
   })
   it('applied history remains applied after cancellation, but unexecuted phase is cancelled', async () => {
     const id = schedule('2026-09-01T00:00:00Z', '2026-10-20T08:00:00Z'),
-      publication = crypto.randomUUID()
+      publication = testUuid()
     f.sqlite
       .prepare(
         `INSERT INTO content_publications VALUES (?,?,?,?,?,'Synthetic approved publication','2026-09-01T00:00:00Z')`
@@ -136,12 +137,12 @@ describe('D1 editorial calendar: approved history, Madrid boundaries and private
       .prepare(
         `INSERT INTO content_schedule_events(id,schedule_id,phase,outcome,publication_id,created_at) VALUES (?,?,'publish','applied',?,'2026-09-01T00:00:00Z')`
       )
-      .run(crypto.randomUUID(), id, publication)
+      .run(testUuid(), id, publication)
     f.sqlite
       .prepare(
         `INSERT INTO content_schedule_events(id,schedule_id,phase,outcome,created_at) VALUES (?,?,'cancel','cancelled','2026-09-02T00:00:00Z')`
       )
-      .run(crypto.randomUUID(), id)
+      .run(testUuid(), id)
     f.sqlite
       .prepare(`UPDATE content_publication_states SET revision=revision+1,schedule_id=NULL WHERE page_id=?`)
       .run(f.created.pageId)

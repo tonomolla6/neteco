@@ -10,6 +10,7 @@ import {
 import { inventoryReceiptInputSchema, inventoryCountProposalInputSchema } from '../../shared/inventory-commands'
 import { assignReservation, releaseReservation, reserveInventory } from '../../workers/catalog/inventory'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const ID = '10000000-0000-4000-8000-000000000041',
   OTHER = '10000000-0000-4000-8000-000000000042',
@@ -19,12 +20,14 @@ const PRODUCT = '30000000-0000-4000-8000-000000000041',
   VARIANT = '40000000-0000-4000-8000-000000000041'
 const CLAIMS = { identityId: ID, sessionId: SESSION, sessionVersion: 1 },
   APPROVER = { identityId: OTHER, sessionId: OTHER_SESSION, sessionVersion: 1 }
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const reason = 'Synthetic physical inventory decision',
   reference = 'SYNTHETIC-DELIVERY-041'
 describe('private single-warehouse D1 manual inventory', () => {
   let sqlite: DatabaseSync, database: D1Database
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     sqlite = await openMigratedDatabase()
     if (!sqlite.prepare("SELECT 1 FROM sqlite_schema WHERE name='inventory_admin_commands'").get())
       sqlite.exec(
@@ -33,7 +36,15 @@ describe('private single-warehouse D1 manual inventory', () => {
     sqlite.limits.exprDepth = 100
     sqlite.limits.variableNumber = 100
     sqlite.limits.functionArg = 32
-    database = d1OverSqlite(sqlite)
+    sqlite.function('synthetic_admin_inventory_clock', () => {
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_admin_inventory_clock')
+      return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+    })
+    const nativeDatabase = d1OverSqlite(sqlite),
+      nativePrepare = nativeDatabase.prepare.bind(nativeDatabase)
+    database = new Proxy(nativeDatabase, {})
+    database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_admin_inventory_clock()'))
     sqlite.exec(`INSERT INTO categories(id,legacy_id,name,slug,status) VALUES('category',1,'Synthetic category','synthetic-category','draft');
       INSERT INTO tax_classes(id,code,name,rate_basis_points,valid_from) VALUES('tax','SYNTHETIC','Synthetic',2100,'2020-01-01T00:00:00Z');
       INSERT INTO shipping_profiles(id,code,name,kind) VALUES('ship','SYNTHETIC','Synthetic','parcel');
@@ -68,7 +79,10 @@ describe('private single-warehouse D1 manual inventory', () => {
         .run(id, utc(-3600000))
     }
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
   const body = (extra: Record<string, unknown> = {}) => ({
     expectedBalanceVersion: 1,
     quantity: 5,
@@ -621,7 +635,7 @@ describe('private single-warehouse D1 manual inventory', () => {
     expect(counts()).toEqual([0, 0, 0, 0, 0])
   })
   it('rechecks late read authority, including fractional-second live expiry', async () => {
-    const base = Date.now(),
+    const base = testNow(),
       next = Math.floor(base / 1000) * 1000 + 900
     vi.useFakeTimers()
     vi.setSystemTime(next)
@@ -718,11 +732,11 @@ describe('private single-warehouse D1 manual inventory', () => {
           return async (statements: D1PreparedStatement[]) => {
             const first = prepared.get(statements[0]!)!
             const parameters = first.parameters.map((value, index) => {
-              if (index === 12) return crypto.randomUUID()
+              if (index === 12) return testUuid()
               if (value === null || typeof value === 'number' || typeof value === 'string') return value
               throw new Error('invalid_fixture_parameter')
             })
-            sqlite.prepare(first.sql).run(...parameters)
+            sqlite.prepare(first.sql.replaceAll("'now'", 'synthetic_admin_inventory_clock()')).run(...parameters)
             return target.batch(statements)
           }
         return Reflect.get(target, key, receiver)
@@ -767,13 +781,13 @@ describe('private single-warehouse D1 manual inventory', () => {
       sqlite.prepare(`INSERT INTO ${table}(${keys.join(',')}) VALUES(${keys.map(() => '?').join(',')})`).run(...values)
     }
     for (let i = 0; i < 50; i++) {
-      const id = crypto.randomUUID(),
-        proposalId = crypto.randomUUID(),
+      const id = testUuid(),
+        proposalId = testUuid(),
         response = JSON.stringify({ ...JSON.parse(String(command.response)), commandId: id, proposalId })
       append('inventory_admin_commands', {
         ...command,
         id,
-        claim_nonce: crypto.randomUUID(),
+        claim_nonce: testUuid(),
         idempotency_key: `fixture-count-${i}`,
         proposal_id: proposalId,
         response
@@ -781,7 +795,7 @@ describe('private single-warehouse D1 manual inventory', () => {
       append('inventory_count_proposals', { ...proposal, id: proposalId, command_id: id })
       append('inventory_admin_audit', {
         ...audit,
-        id: crypto.randomUUID(),
+        id: testUuid(),
         command_id: id,
         proposal_id: proposalId,
         response

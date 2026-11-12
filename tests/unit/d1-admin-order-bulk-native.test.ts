@@ -2,10 +2,10 @@ import { readFile, readdir } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { expect, it, vi } from 'vitest'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { seedInventoryFixture } from '../support/d1-sqlite'
-import { adminAuditFixture, ADMIN, utc } from './d1-admin-audit-fixture'
+import { adminAuditFixture, ADMIN_AUDIT_CONFIGURATION, ADMIN, utc } from './d1-admin-audit-fixture'
 import { createPackingOrder, REASON } from './d1-order-packing-fixture'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
@@ -15,12 +15,15 @@ import {
   adminOrderBulkGroupSchema,
   adminOrderBulkIntentHash
 } from '../../shared/admin-order-bulk'
+import { testUuid } from '../support/deterministic'
+
+const FIXED_CLOCK = '2026-01-15T09:00:01Z'
 
 it('runs bounded bulk preparation and cursor pages through actual canary SOURCE with workerd D1/all86 and no outbound', async () => {
-  const fixture = await adminAuditFixture(),
-    outbound = vi.fn(() => {
-      throw new Error('outbound_forbidden')
-    })
+  let fixture: Awaited<ReturnType<typeof adminAuditFixture>> | undefined
+  const outbound = vi.fn(() => {
+    throw new Error('outbound_forbidden')
+  })
   let runtime: Miniflare | undefined
   try {
     const origin = 'https://bulk-native.neteco.test'
@@ -29,10 +32,18 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
     const bundle = await build({
       stdin: {
         contents: `import worker from './workers/canary';
+    const RealDate=globalThis.Date,fixed=RealDate.parse('${FIXED_CLOCK}');
+    class FixedDate extends RealDate {constructor(...args){super(...(args.length?args:[fixed]))} static now(){return fixed}}
+    globalThis.Date=FixedDate;
+    function withClock(db){return new Proxy(db,{get(target,key){
+      if(key==='prepare')return (sql)=>target.prepare(sql.replaceAll("'now'", "'${FIXED_CLOCK}'"));
+      const value=Reflect.get(target,key,target);return typeof value==='function'?value.bind(target):value;
+    }})}
     export default {async fetch(request,env,ctx){
+      env={...env,DB:withClock(env.DB)};
       if(new URL(request.url).pathname!=='/__test_bulk_queue')return worker.fetch(request,env,ctx);
       const body=await request.json(),sent=[];let acks=0,retries=0;
-      await worker.queue({queue:'synthetic-bulk',messages:[{id:crypto.randomUUID(),timestamp:new Date(),body,attempts:1,ack(){acks++},retry(){retries++}}],ackAll(){throw new Error('unexpected_ackAll')},retryAll(){throw new Error('unexpected_retryAll')}},{...env,ASYNC_JOBS:{async send(value){sent.push(value)}}},ctx);
+      await worker.queue({queue:'synthetic-bulk',messages:[{id:'10000000-0000-4000-8000-000000000086',timestamp:new Date('${FIXED_CLOCK}'),body,attempts:1,ack(){acks++},retry(){retries++}}],ackAll(){throw new Error('unexpected_ackAll')},retryAll(){throw new Error('unexpected_retryAll')}},{...env,ASYNC_JOBS:{async send(value){sent.push(value)}}},ctx);
       return Response.json({acks,retries,sent});
     }};`,
         resolveDir: process.cwd(),
@@ -49,8 +60,7 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         name: 'bulk-native',
-        modules: true,
-        script: bundle.outputFiles[0]!.text,
+        ...bundle.nativeSource,
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         cf: false,
@@ -60,7 +70,7 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
           APP_ENV: 'local',
           AUTH_ENABLED: 'true',
           AUTH_ORIGIN: origin,
-          NUXT_SESSION_PASSWORD: fixture.configuration.password,
+          NUXT_SESSION_PASSWORD: ADMIN_AUDIT_CONFIGURATION.password,
           AUTH_RATE_LIMIT_PEPPER: 'synthetic-bulk-native-rate-pepper-0123456789'
         },
         ratelimits: { ADMIN_EDGE_LIMIT: { namespace_id: '900086', simple: { limit: 100, period: 60 } } },
@@ -68,10 +78,20 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
         outboundService: outbound
       })
     )
-    const database = (await runtime.getD1Database('DB')) as unknown as D1Database
+    const nativeDatabase = (await runtime.getD1Database('DB')) as unknown as D1Database
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(FIXED_CLOCK))
+    fixture = await adminAuditFixture()
+    const database = new Proxy(nativeDatabase, {
+      get(target, key) {
+        if (key === 'prepare') return (sql: string) => target.prepare(sql.replaceAll("'now'", `'${FIXED_CLOCK}'`))
+        const value: unknown = Reflect.get(target, key, target)
+        return typeof value === 'function' ? value.bind(target) : value
+      }
+    })
     const files = (await readdir('db/d1/migrations')).filter((file) => /^\d{4}_.*\.sql$/.test(file)).sort()
-    expect(files).toHaveLength(154)
-    expect(files.map((file) => Number(file.slice(0, 4)))).toEqual(Array.from({ length: 154 }, (_, index) => index + 1))
+    expect(files).toHaveLength(155)
+    expect(files.map((file) => Number(file.slice(0, 4)))).toEqual(Array.from({ length: 155 }, (_, index) => index + 1))
     for (const file of files)
       await database.batch(
         splitDemoSql(await readFile('db/d1/migrations/' + file, 'utf8')).map((sql) => database.prepare(sql))
@@ -126,6 +146,8 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
     ])
     const first = await createPackingOrder(database, { method: 'pickup', stage: 'pending' }),
       second = await createPackingOrder(database, { method: 'pickup', stage: 'pending' })
+    // The compiled worker uses this exact instant, including cookie creation time.
+    vi.setSystemTime(FIXED_CLOCK)
     const cookie = (await issueD1SessionCookie(database, ADMIN, fixture.configuration))!.split(';')[0]!
     const send = (path: string, method = 'GET', body?: unknown, key?: string) =>
       runtime!.dispatchFetch(origin + path, {
@@ -174,7 +196,7 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
       base = '/api/admin/orders/bulk-fulfillment'
     const previewResponse = await send(base + '/preview', 'POST', {
       action: 'picking',
-      orderIds: [first, second, crypto.randomUUID()],
+      orderIds: [first, second, testUuid()],
       reason: REASON
     })
     expect(previewResponse.status).toBe(200)
@@ -186,7 +208,7 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
         reason: REASON,
         previewHash: preview.previewHash
       },
-      key = crypto.randomUUID()
+      key = testUuid()
     const created = await send(base + '/commands', 'POST', input, key)
     expect(created.status).toBe(201)
     const receipt = adminOrderBulkReceiptSchema.parse(await created.json())
@@ -228,6 +250,7 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
     expect(outbound).not.toHaveBeenCalled()
   } finally {
     await runtime?.dispose()
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
+    vi.useRealTimers()
   }
 }, 120000)

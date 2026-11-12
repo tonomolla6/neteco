@@ -5,6 +5,7 @@ import { analyticsMeasurementPolicySchema } from '../../shared/analytics-measure
 import type { AnalyticsMeasurementDependencies } from '../../workers/analytics/authority'
 import { PersistentLocalRefundProvider } from '../../workers/refunds/local-provider'
 import { dispatchD1Refunds } from '../../workers/refunds/operations'
+import { testUuid } from '../support/deterministic'
 
 export { CLAIMS, BUYER_CLAIMS, utc }
 export async function analyticsFixture(options: { commerce?: boolean; refund?: boolean; promotional?: boolean } = {}) {
@@ -103,5 +104,5 @@ export async function analyticsFixture(options: { commerce?: boolean; refund?: b
 }
 export const ANALYTICS_CONSENT = JSON.stringify({ version: 'v1', analytics: true })
 export function pageEvent(properties: { path: string } = { path: '/catalogo' }) {
-  return { eventId: crypto.randomUUID(), taxonomyVersion: 'v1', name: 'page_view', properties, occurredAt: utc() }
+  return { eventId: testUuid(), taxonomyVersion: 'v1', name: 'page_view', properties, occurredAt: utc() }
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { listPublishedProducts } from '../../workers/catalog/products'
 import { getPublishedProductDetail } from '../../workers/catalog/product-detail'
 import { returnsFixture, CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
+import { testUuid } from '../support/deterministic'
 
 async function world() {
   const f = await returnsFixture()
@@ -29,14 +30,14 @@ async function world() {
         categoryRules: [],
         reason: 'Acuerdo comercial'
       },
-      { idempotencyKey: crypto.randomUUID(), now: () => now }
+      { idempotencyKey: testUuid(), now: () => now }
     )
     await assignD1CompanyB2BPriceList(
       f.database,
       CLAIMS,
       'company',
       { priceListId: 'list', expectedVersion: 0, validFrom: before, validUntil: null, reason: 'Acuerdo comercial' },
-      { idempotencyKey: crypto.randomUUID(), now: () => now }
+      { idempotencyKey: testUuid(), now: () => now }
     )
     return { ...f, now }
   } catch (error) {
@@ -278,7 +279,7 @@ it('computes net catalog cents exactly at large safe-integer prices', async () =
         categoryRules: [],
         reason: 'Prueba de precisión'
       },
-      { idempotencyKey: crypto.randomUUID(), now: () => f.now }
+      { idempotencyKey: testUuid(), now: () => f.now }
     )
     const result = await listPublishedProducts(f.database, query, { instant: f.now, customerId: CUSTOMER })
     expect(result?.items.find((p) => p.slug === 'producto-1')?.minNetPrice).toBe(7443966326232221)
@@ -334,7 +335,7 @@ it('uses the verified session for the storefront shipping quote without a coupon
           cookie,
           origin: 'https://shop.invalid',
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           'cf-connecting-ip': '192.0.2.1'
         },
         body: JSON.stringify(body)

@@ -13,6 +13,7 @@ import {
   handleCategoryMerchandisingHttp,
   ownsCategoryMerchandisingNamespace
 } from '../../workers/catalog/category-merchandising-http'
+import { testUuid } from '../support/deterministic'
 
 const DAY = 86_400_000
 const origin = 'https://catmerch.neteco.invalid'
@@ -140,14 +141,11 @@ describe('SEA-015 category merchandising private HTTP contract', () => {
     ])
     expect(rows()).toBe(0)
     expect(
-      (await handle(
-        request('/preview', 'POST', { ...draft, ruleId: crypto.randomUUID() }, { 'idempotency-key': null })
-      ))!.status
+      (await handle(request('/preview', 'POST', { ...draft, ruleId: testUuid() }, { 'idempotency-key': null })))!.status
     ).toBe(422)
     expect(
-      (await handle(
-        request('/preview', 'POST', { ...draft, categoryId: crypto.randomUUID() }, { 'idempotency-key': null })
-      ))!.status
+      (await handle(request('/preview', 'POST', { ...draft, categoryId: testUuid() }, { 'idempotency-key': null })))!
+        .status
     ).toBe(409)
     expect((await handle(request('/preview', 'GET')))!.status).toBe(405)
   })
@@ -182,11 +180,11 @@ describe('SEA-015 category merchandising private HTTP contract', () => {
     expect(rows()).toBe(0)
   })
   it('maps domain errors to stable codes', async () => {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     const conflict = (await handle(request('/' + id, 'PUT', body({ id, expectedVersion: 1 }))))!
     expect(conflict.status).toBe(409)
     expect(await conflict.json()).toEqual({ error: { code: 'version_conflict' } })
-    const missing = (await handle(request('', 'POST', body({ categoryId: crypto.randomUUID() }))))!
+    const missing = (await handle(request('', 'POST', body({ categoryId: testUuid() }))))!
     expect(await missing.json()).toEqual({ error: { code: 'category_unavailable' } })
     await handle(request('', 'POST', body()))
     const overlap = (await handle(request('', 'POST', body(), { 'idempotency-key': 'second' })))!

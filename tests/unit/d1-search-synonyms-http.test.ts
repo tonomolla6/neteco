@@ -1,21 +1,46 @@
 import { readFile } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseSync } from 'node:sqlite'
 import { categoryCommandFixture, CATEGORY_CLAIMS, CATEGORY_IDENTITY } from '../support/category-command-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleSearchSynonymsHttp } from '../../workers/catalog/search-synonyms-http'
+import { testNow } from '../support/deterministic'
 
 describe('synonym private HTTP contract', () => {
   let sqlite: DatabaseSync, database: D1Database, cookie: string
   const origin = 'https://synonyms.neteco.invalid',
     password = 'synthetic-only-cookie-password-32-characters'
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     ;({ sqlite, database } = await categoryCommandFixture())
+    sqlite.function('synthetic_synonym_clock', () =>
+      vi
+        .getMockedSystemTime()!
+        .toISOString()
+        .replace(/\.\d{3}Z$/, 'Z')
+    )
+    const exec = sqlite.exec.bind(sqlite),
+      prepare = database.prepare.bind(database)
+    sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_synonym_clock()'))
+    database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_synonym_clock()'))
+    const triggers = sqlite
+      .prepare(
+        "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND name LIKE 'search_synonym_%' AND sql LIKE '%strftime%'"
+      )
+      .all() as Array<{ name: string; sql: string }>
+    for (const trigger of triggers) {
+      sqlite.exec(`DROP TRIGGER "${trigger.name}"`)
+      sqlite.exec(trigger.sql)
+    }
     if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='search_synonym_commands'").get())
       sqlite.exec(await readFile(new URL('../../db/d1/migrations/0061_search_synonyms.sql', import.meta.url), 'utf8'))
     cookie = (await issueD1SessionCookie(database, CATEGORY_CLAIMS, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
   const draft = {
     id: null,
     expectedVersion: 0,
@@ -78,7 +103,7 @@ describe('synonym private HTTP contract', () => {
   it('never intercepts another namespace', async () =>
     expect(await handle(new Request(origin + '/api/admin/search-synonyms-extra'))).toBeNull())
   it('enforces the shared command/preview quota and keeps read-only receipt recovery available', async () => {
-    const instant = Math.floor(Date.now() / 1000)
+    const instant = Math.floor(testNow() / 1000)
     sqlite
       .prepare(
         'INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at) VALUES (?, ?, 60, ?, ?)'

@@ -16,6 +16,7 @@ import {
   adminInvitationReceiptSchema,
   adminInvitationTokenHash
 } from '../../shared/admin-invitations'
+import { testUuid } from '../support/deterministic'
 
 it('bootstraps once and accepts a delegated invitation through canary/workerd D1, then recovers only with a fresh MFA session', async () => {
   const outbound = vi.fn(() => {
@@ -52,8 +53,8 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
       .now
     const past = new Date(Date.parse(now) - 60000).toISOString().replace('.000Z', 'Z')
     const future = new Date(Date.parse(now) + 86400000).toISOString().replace('.000Z', 'Z')
-    const issuer = { identityId: crypto.randomUUID(), sessionId: crypto.randomUUID(), sessionVersion: 1 }
-    const recipient = { identityId: crypto.randomUUID(), sessionId: crypto.randomUUID(), sessionVersion: 1 }
+    const issuer = { identityId: testUuid(), sessionId: testUuid(), sessionVersion: 1 }
+    const recipient = { identityId: testUuid(), sessionId: testUuid(), sessionVersion: 1 }
     await database.batch([
       database.prepare(
         "INSERT INTO roles VALUES('admin','Synthetic administrator','Local native fixture'),('support','Synthetic support','Local native fixture')"
@@ -71,7 +72,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
       [issuer, 'issuer-native@example.invalid'],
       [recipient, 'recipient-native@example.invalid']
     ] as const) {
-      const customerId = crypto.randomUUID()
+      const customerId = testUuid()
       await database.batch([
         database
           .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")
@@ -98,7 +99,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
     const plan = await inspectD1AdminBootstrap(issuer.identityId, queryD1)
     const bootstrapInput = {
       identityId: issuer.identityId,
-      commandId: crypto.randomUUID(),
+      commandId: testUuid(),
       expectedPlanHash: plan.planHash,
       reason: 'Aprobación explícita del primer administrador sintético.'
     }
@@ -108,7 +109,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
     expect(
       await database.prepare('SELECT session_version FROM identities WHERE id=?').bind(issuer.identityId).first()
     ).toEqual({ session_version: 2 })
-    const administrator = { ...issuer, sessionId: crypto.randomUUID(), sessionVersion: 2 }
+    const administrator = { ...issuer, sessionId: testUuid(), sessionVersion: 2 }
     await database
       .prepare(
         'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,2,1,?,?)'
@@ -132,7 +133,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
       ADMIN_EDGE_LIMIT: { limit: async () => ({ success: true }) },
       AUTH_EDGE_LIMIT: { limit: async () => ({ success: true }) }
     } as unknown as CloudflareEnv
-    const send = (path: string, cookie: string, body?: unknown, key = crypto.randomUUID()) =>
+    const send = (path: string, cookie: string, body?: unknown, key = testUuid()) =>
       worker.fetch(
         new Request(origin + path, {
           method: body === undefined ? 'GET' : 'POST',
@@ -155,7 +156,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
       expiresInHours: 24,
       reason: 'Delegación revisada de soporte en entorno local.'
     }
-    const createKey = crypto.randomUUID()
+    const createKey = testUuid()
     const created = await send('/api/admin/invitations', adminCookie, createInput, createKey)
     expect(created.status).toBe(201)
     const createdReceipt = adminInvitationReceiptSchema.parse(await created.json())
@@ -184,7 +185,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
       roleCode: 'support',
       permissions: ['support.manage']
     })
-    const acceptKey = crypto.randomUUID(),
+    const acceptKey = testUuid(),
       acceptInput = { token }
     const accepted = await send('/api/account/invitations/accept', recipientCookie, acceptInput, acceptKey)
     expect(accepted.status).toBe(201)
@@ -200,7 +201,7 @@ it('bootstraps once and accepts a delegated invitation through canary/workerd D1
     const acceptHash = await adminInvitationIntentHash('accept', null, acceptInput)
     const recoveryPath = '/api/account/invitations/commands/' + acceptKey + '?payloadHash=' + acceptHash
     expect((await send(recoveryPath, recipientCookie)).status).toBe(401)
-    const freshRecipient = { ...recipient, sessionId: crypto.randomUUID(), sessionVersion: 2 }
+    const freshRecipient = { ...recipient, sessionId: testUuid(), sessionVersion: 2 }
     await database
       .prepare(
         'INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at) VALUES(?,?,2,1,?,?)'

@@ -19,6 +19,7 @@ import {
   resolveEditorialSender
 } from '../../workers/marketing/newsletter-campaign-transport'
 import { newsletterAdminInputSchema } from '../../shared/newsletter-editorial'
+import { testUuid } from '../support/deterministic'
 describe('newsletter editorial adversarial actual D1', () => {
   let w: Awaited<ReturnType<typeof newsletterEditorialFixture>>
   beforeEach(async () => {
@@ -33,9 +34,9 @@ describe('newsletter editorial adversarial actual D1', () => {
       reason: 'No inherited fields'
     })
     expect(newsletterAdminInputSchema.safeParse(inherited).success).toBe(false)
-    await expect(
-      executeNewsletterEditorialAdmin(w.deps, w.claims, null, inherited, crypto.randomUUID())
-    ).rejects.toThrow('invalid_input')
+    await expect(executeNewsletterEditorialAdmin(w.deps, w.claims, null, inherited, testUuid())).rejects.toThrow(
+      'invalid_input'
+    )
   })
   it('rolls all metadata back if live MFA is revoked at the atomic batch boundary', async () => {
     const original = w.database.batch.bind(w.database)
@@ -80,7 +81,7 @@ describe('newsletter editorial adversarial actual D1', () => {
         expectedRevision: 1,
         preference: { frequency: 'weekly', topics: [], locale: 'es', quietHours: null }
       },
-      crypto.randomUUID()
+      testUuid()
     )
     expect(await dispatchNewsletterCampaigns(w.deps, { campaignId: id })).toMatchObject({
       acceptedLocal: 0,
@@ -120,7 +121,7 @@ describe('newsletter editorial adversarial actual D1', () => {
       .prepare(
         "UPDATE newsletter_editorial_deliveries SET status='sending',sending_at=?,lease_token=?,lease_until=?,provider='local-fake'"
       )
-      .run(past, crypto.randomUUID(), future)
+      .run(past, testUuid(), future)
     w.setNow(future)
     w.deps.transport!.mode = 'disabled'
     expect(await dispatchNewsletterCampaigns(w.deps)).toMatchObject({ disabled: true, manualReview: 1 })
@@ -137,7 +138,7 @@ describe('newsletter editorial adversarial actual D1', () => {
       w.claims,
       null,
       { action: 'retire_policy', expectedRevision: snapshot.policyRevision, reason: 'Retirada explícita' },
-      crypto.randomUUID()
+      testUuid()
     )
     expect(await dispatchNewsletterCampaigns(w.deps)).toMatchObject({ skipped: 1, acceptedLocal: 0 })
     expect(w.sent).toHaveLength(0)
@@ -224,7 +225,7 @@ describe('newsletter editorial adversarial actual D1', () => {
         ...newsletterCampaignDocument(),
         blocks: [
           {
-            id: crypto.randomUUID(),
+            id: testUuid(),
             type: 'link' as const,
             kind: 'editorial' as const,
             label: 'Fuente inexistente',
@@ -245,7 +246,7 @@ describe('newsletter editorial adversarial actual D1', () => {
       ...newsletterCampaignDocument(),
       blocks: [
         {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           type: 'link' as const,
           kind: 'editorial' as const,
           label: 'Consultar catálogo',

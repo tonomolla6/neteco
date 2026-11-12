@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleD1AdminCatalogRequest } from '../../workers/catalog/admin-catalog-http'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 const ORIGIN = 'https://neteco.invalid'
 const IDENTITY = 'a1000000-0000-4000-8000-000000000001'
@@ -21,8 +22,8 @@ describe('private draft-metadata HTTP boundary with migrated D1 SQLite', () => {
     sqlite = await openMigratedDatabase()
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    const now = utc(Date.now() - 60_000)
-    const expires = utc(Date.now() + 3_600_000)
+    const now = utc(testNow() - 60_000)
+    const expires = utc(testNow() + 3_600_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -287,7 +288,7 @@ describe('private draft-metadata HTTP boundary with migrated D1 SQLite', () => {
   })
 
   it('checks a durable identity write quota and never consumes the body of an over-limit write', async () => {
-    const now = Math.floor(Date.now() / 1000)
+    const now = Math.floor(testNow() / 1000)
     sqlite
       .prepare(
         `INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at)
@@ -401,7 +402,7 @@ describe('private draft-metadata HTTP boundary with migrated D1 SQLite', () => {
     sqlite.prepare('UPDATE auth_sessions SET mfa_verified=1 WHERE id=?').run(SESSION)
     sqlite.prepare('UPDATE identities SET email_verified_at=NULL WHERE id=?').run(IDENTITY)
     expect((await handle(readinessRequest())).status).toBe(403)
-    sqlite.prepare('UPDATE identities SET email_verified_at=? WHERE id=?').run(utc(Date.now() - 60_000), IDENTITY)
+    sqlite.prepare('UPDATE identities SET email_verified_at=? WHERE id=?').run(utc(testNow() - 60_000), IDENTITY)
     sqlite.prepare('DELETE FROM identity_roles WHERE identity_id=?').run(IDENTITY)
     expect((await handle(readinessRequest())).status).toBe(403)
     untouched()

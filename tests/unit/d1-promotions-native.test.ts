@@ -1,7 +1,7 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -14,12 +14,14 @@ import { promotionBasketPreviewResponseSchema } from '../../shared/promotion-bas
 import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 import { returnsFixture, BUYER_CLAIMS, REQUEST } from './d1-returns-fixture'
 import { requestD1CustomerReturn } from '../../workers/returns/operations'
+import { testUuid } from '../support/deterministic'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 
 it('preserves a real pre-coupon order and RMA when SQLite upgrades the contractual line tables', async () => {
   const fixture = await returnsFixture()
   try {
     const orderId = await fixture.order()
-    await requestD1CustomerReturn(fixture.database, BUYER_CLAIMS, orderId, REQUEST, { idempotencyKey: randomUUID() })
+    await requestD1CustomerReturn(fixture.database, BUYER_CLAIMS, orderId, REQUEST, { idempotencyKey: testUuid() })
     const tables = [
       'orders',
       'order_lines',
@@ -73,6 +75,7 @@ it('preserves a real pre-coupon order and RMA when SQLite upgrades the contractu
 })
 
 it('executes governed promotions, buyer PO and coupon checkout through actual canary, workerd D1/all74 and the real cart DO', async () => {
+  vi.useRealTimers()
   const origin = 'https://promotions-native.neteco.test',
     password = randomBytes(32).toString('hex')
   const outbound = vi.fn(() => {
@@ -95,8 +98,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       name: 'promotions-native',
-      modules: true,
-      script: bundle.outputFiles[0]!.text,
+      ...bundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       cf: false,
@@ -134,7 +136,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 154 }, (_, index) => index + 1)
+      Array.from({ length: 155 }, (_, index) => index + 1)
     )
     for (const name of migrations)
       await database.batch(
@@ -158,11 +160,11 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
     const now = (await database.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS now").first<{ now: string }>())!
       .now
     await provisionPublicationValidityFixture(database, { productIds: ['p-1'], now })
-    const adminId = randomUUID(),
-      adminSession = randomUUID(),
-      buyerId = randomUUID(),
-      buyerSession = randomUUID(),
-      customerId = randomUUID()
+    const adminId = testUuid(),
+      adminSession = testUuid(),
+      buyerId = testUuid(),
+      buyerSession = testUuid(),
+      customerId = testUuid()
     await database.batch([
       database
         .prepare(
@@ -219,6 +221,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
         .prepare("INSERT INTO identity_roles(identity_id,role_code,granted_at) VALUES(?,'native_promotions',?)")
         .bind(adminId, now)
     ])
+    await syncNativeTestClock(database)
     const sessionCookie = async (identityId: string, sessionId: string) =>
       (await issueD1SessionCookie(
         database,
@@ -232,7 +235,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
       method = 'GET',
       body?: unknown,
       cookie = adminCookie,
-      key = randomUUID(),
+      key = testUuid(),
       requestOrigin = origin
     ) =>
       runtime.dispatchFetch(origin + path, {
@@ -247,7 +250,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
         ...(body === undefined ? {} : { body: JSON.stringify(body) })
       })
     const rule = {
-      id: randomUUID(),
+      id: testUuid(),
       version: 1,
       code: 'NATIVE101',
       status: 'paused',
@@ -298,7 +301,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
           'POST',
           basketInput,
           adminCookie,
-          randomUUID(),
+          testUuid(),
           'https://foreign.invalid'
         )
       ).status
@@ -325,10 +328,10 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
     })
     expect(await simulationSnapshot()).toEqual(beforeSimulation)
     expect(
-      (await call('/api/admin/promotions', 'POST', input, adminCookie, randomUUID(), 'https://foreign.invalid')).status
+      (await call('/api/admin/promotions', 'POST', input, adminCookie, testUuid(), 'https://foreign.invalid')).status
     ).toBe(403)
     expect((await database.prepare('SELECT count(*) AS n FROM promotion_rules').first<{ n: number }>())!.n).toBe(0)
-    const creationKey = randomUUID(),
+    const creationKey = testUuid(),
       created = await call('/api/admin/promotions', 'POST', input, adminCookie, creationKey)
     expect(created.status).toBe(201)
     const receipt = adminPromotionReceiptSchema.parse(await created.json())
@@ -347,7 +350,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
         variantId: 'v-1-1',
         quantity: 2,
         expectedVersion: 1,
-        idempotencyKey: randomUUID(),
+        idempotencyKey: testUuid(),
         now,
         correlationId: 'native-promotions'
       })
@@ -385,7 +388,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
       }
       return {
         cookie,
-        key: randomUUID(),
+        key: testUuid(),
         body: {
           cartId: cart.cartId,
           cartVersion: body.cartVersion,

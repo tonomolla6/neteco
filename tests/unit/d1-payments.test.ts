@@ -30,6 +30,7 @@ import {
   receiveFiscalEvaluation,
   type FiscalEvaluationMessage
 } from '../../workers/catalog/fiscal-outbox'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-08T10:00:00Z'
 const config = {
@@ -137,7 +138,7 @@ function withdrawPolicy(sqlite: DatabaseSync, policyId: string) {
       `INSERT INTO catalog_publication_policy_withdrawals(id,policy_id,actor_id,reason,created_at)
     SELECT ?,id,actor_id,'Synthetic selected payment policy withdrawal',? FROM catalog_publication_policies WHERE id=?`
     )
-    .run(crypto.randomUUID(), NOW, policyId)
+    .run(testUuid(), NOW, policyId)
   expect(result.changes).toBe(1)
 }
 

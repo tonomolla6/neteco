@@ -1,13 +1,15 @@
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
-import { adminAuditFixture, ADMIN, RECIPIENT, utc } from './d1-admin-audit-fixture'
+import { adminAuditFixture, ADMIN_AUDIT_CONFIGURATION, ADMIN, RECIPIENT, utc } from './d1-admin-audit-fixture'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
+import { testUuid } from '../support/deterministic'
 
 it('persists private saved views through canary SOURCE and workerd D1, with atomic CAS/replays, live revocation and zero outbound', async () => {
-  const fixture = await adminAuditFixture()
+  let fixture: Awaited<ReturnType<typeof adminAuditFixture>> | undefined
   const outbound = vi.fn(() => {
     throw new Error('unexpected_outbound')
   })
@@ -31,8 +33,7 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
     runtime = new Miniflare(
       convertV4MiniflareOptions({
         name: 'order-views-native',
-        modules: true,
-        script: bundle.outputFiles[0]!.text,
+        ...bundle.nativeSource,
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         cf: false,
@@ -43,7 +44,7 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
           AUTH_ENABLED: 'true',
           EMAIL_ENABLED: 'false',
           AUTH_ORIGIN: origin,
-          NUXT_SESSION_PASSWORD: fixture.configuration.password,
+          NUXT_SESSION_PASSWORD: ADMIN_AUDIT_CONFIGURATION.password,
           AUTH_TOKEN_PEPPER: 'synthetic-order-views-native-token-pepper-32',
           AUTH_RATE_LIMIT_PEPPER: 'synthetic-order-views-native-rate-pepper-32',
           AUTH_ENCRYPTION_KEY: Buffer.alloc(32, 1).toString('base64')
@@ -54,6 +55,8 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
       })
     )
     const db = (await runtime.getD1Database('DB')) as unknown as D1Database
+    await syncNativeTestClock(db)
+    fixture = await adminAuditFixture()
     const files = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(files).toContain('0085_admin_order_views.sql')
     expect(files.map((name) => Number(name.slice(0, 4)))).toEqual(
@@ -109,7 +112,7 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
       return result.map((item) => item.results)
     }
     const economicBefore = await unchanged()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const definition = {
       bucket: 'por_cobrar',
       sortKey: 'createdAt',
@@ -145,7 +148,7 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
       items: []
     })
     expect(await db.prepare('SELECT count(*) AS n FROM admin_order_view_commands').first()).toEqual(readOnlyBefore)
-    const changedKey = crypto.randomUUID()
+    const changedKey = testUuid()
     const changed = await send(
       '/' + receipt.viewId,
       'PUT',
@@ -160,16 +163,10 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
       commandId: changedKey
     })
     expect(
-      (
-        await send(
-          '/' + receipt.viewId,
-          'PUT',
-          { expectedVersion: 1, name: 'Versión antigua', definition },
-          crypto.randomUUID()
-        )
-      ).status
+      (await send('/' + receipt.viewId, 'PUT', { expectedVersion: 1, name: 'Versión antigua', definition }, testUuid()))
+        .status
     ).toBe(409)
-    const archivedKey = crypto.randomUUID()
+    const archivedKey = testUuid()
     const archived = await send('/' + receipt.viewId + '/archive', 'POST', { expectedVersion: 2 }, archivedKey)
     expect(archived.status).toBe(200)
     const archivedReceipt = await archived.json()
@@ -197,6 +194,6 @@ it('persists private saved views through canary SOURCE and workerd D1, with atom
     expect(outbound).not.toHaveBeenCalled()
   } finally {
     await runtime?.dispose()
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
   }
 }, 60_000)

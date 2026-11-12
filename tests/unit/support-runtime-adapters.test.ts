@@ -4,6 +4,7 @@ import {
   createSupportChallengeVerifier,
   SUPPORT_SCAN_AUDIENCE
 } from '../../workers/runtime/support-adapters'
+import { testNow } from '../support/deterministic'
 
 const SECRET = 'synthetic-private-support-scanner-secret-0123456789abcdef'
 const RECEIPT = {
@@ -81,7 +82,7 @@ const proof = () => ({
   success: true,
   hostname: 'preprod.neteco.es',
   action: 'neteco_support',
-  challenge_ts: new Date().toISOString()
+  challenge_ts: new Date(testNow()).toISOString()
 })
 describe('explicit official Siteverify support port (offline transport tests)', () => {
   it('never constructs on missing/testing/unsafe configuration or contacts network at construction', () => {

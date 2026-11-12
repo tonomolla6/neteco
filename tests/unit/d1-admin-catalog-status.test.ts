@@ -9,6 +9,7 @@ import {
 } from '../../workers/catalog/admin-catalog-status'
 import { ADMIN_CATALOG_STATUSES, type AdminCatalogStatus } from '../../workers/catalog/admin-catalog'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const IDENTITY = '10000000-0000-4000-8000-000000000035'
 const SESSION = '20000000-0000-4000-8000-000000000035'
@@ -21,7 +22,7 @@ const GRAPH: Record<AdminCatalogStatus, readonly AdminCatalogStatus[]> = {
   hidden: ['draft', 'review', 'published', 'discontinued'],
   discontinued: ['draft']
 }
-function utc(milliseconds = Date.now()) {
+function utc(milliseconds = testNow()) {
   return new Date(milliseconds).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 function inputValues(values: unknown[]): SQLInputValue[] {
@@ -45,7 +46,7 @@ describe('D1 product state commands with immutable audit and authoritative gate 
     sqlite.limits.exprDepth = 100
     database = d1OverSqlite(sqlite)
     seedInventoryFixture(sqlite)
-    const past = utc(Date.now() - 86400_000)
+    const past = utc(testNow() - 86400_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -71,7 +72,7 @@ describe('D1 product state commands with immutable audit and authoritative gate 
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at)
         VALUES (?, ?, 1, 1, ?, ?)`
       )
-      .run(SESSION, IDENTITY, past, utc(Date.now() + 3600_000))
+      .run(SESSION, IDENTITY, past, utc(testNow() + 3600_000))
   })
   afterEach(() => {
     sqlite.close()
@@ -139,7 +140,7 @@ describe('D1 product state commands with immutable audit and authoritative gate 
       options.claims === undefined ? CLAIMS : options.claims,
       options.id ?? '1',
       input,
-      { idempotencyKey: options.key ?? crypto.randomUUID(), publicationGate: options.gate }
+      { idempotencyKey: options.key ?? testUuid(), publicationGate: options.gate }
     )
   }
   function databaseWith(overrides: Partial<Pick<D1Database, 'prepare' | 'batch'>>): D1Database {
@@ -752,7 +753,7 @@ describe('D1 product state commands with immutable audit and authoritative gate 
       async batch<T>(statements: D1PreparedStatement[]) {
         expect(captured).toBeDefined()
         const parameters = [...captured!.parameters]
-        parameters[12] = crypto.randomUUID()
+        parameters[12] = testUuid()
         sqlite.prepare(captured!.sql).run(...parameters)
         foreign = sqlite.prepare('SELECT * FROM catalog_product_status_commands').get()
         return batch<T>(statements)
@@ -790,7 +791,7 @@ describe('D1 product state commands with immutable audit and authoritative gate 
         `INSERT OR REPLACE INTO ${table}(${fields.join(',')}) VALUES (${fields.map(() => '?').join(',')})`
       )
       expect(() => replace.run(...values)).toThrow()
-      values[fields.indexOf('id')] = crypto.randomUUID()
+      values[fields.indexOf('id')] = testUuid()
       expect(() => replace.run(...values)).toThrow()
       expect(sqlite.prepare(`SELECT * FROM ${table}`).all()).toEqual([row])
     }

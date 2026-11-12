@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
@@ -18,6 +17,7 @@ import {
   CATALOG_RELATIONS_BROWSER_SCENARIOS,
   type CatalogRelationsBrowserFixture
 } from '../../scripts/lib/audit-native-catalog-relations-browser'
+import { testUuid } from '../support/deterministic'
 
 const connect = vi.hoisted(() => vi.fn())
 vi.mock('../../scripts/lib/remote-test-browser', () => ({
@@ -77,7 +77,7 @@ const request = (
   url = path + '/commands',
   method = 'POST',
   value: unknown = body(),
-  key = randomUUID(),
+  key = testUuid(),
   hash?: string,
   cookie = adminCookie
 ) =>
@@ -127,7 +127,7 @@ it('required rejects missing private endpoint before fixtures or database reads'
 })
 it('loses a real201 only after immutable D1 proof then recovers exact receipt and fresh private snapshot', async () => {
   const transport = bridge(),
-    key = randomUUID()
+    key = testUuid()
   expect(await transport.forward(request(undefined, undefined, undefined, key))).toMatchObject({
     action: 'abort',
     reason: 'proven_catalog_relations_response_lost'
@@ -152,7 +152,7 @@ it('loses a real201 only after immutable D1 proof then recovers exact receipt an
 })
 it('rejects an automatic or manual repost before dispatch after the injected loss', async () => {
   const transport = bridge(),
-    key = randomUUID()
+    key = testUuid()
   await transport.forward(request(undefined, undefined, undefined, key))
   const calls = dispatch.mock.calls.length
   await expect(transport.forward(request(undefined, undefined, undefined, key))).rejects.toThrow(

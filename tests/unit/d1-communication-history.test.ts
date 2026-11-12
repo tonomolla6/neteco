@@ -7,6 +7,7 @@ import {
   readCommunicationRetryCommand
 } from '../../workers/communications/history'
 import { communicationHistorySchema, communicationRetryIntentHash } from '../../shared/communication-history'
+import { testUuid } from '../support/deterministic'
 
 describe('COM-011 metadata and explicit pre-send preparation recovery', () => {
   let f: Awaited<ReturnType<typeof communicationHistoryFixture>>
@@ -14,7 +15,7 @@ describe('COM-011 metadata and explicit pre-send preparation recovery', () => {
     f = await communicationHistoryFixture()
   })
   afterEach(() => f.sqlite.close())
-  const retry = (key = crypto.randomUUID(), input = f.input) =>
+  const retry = (key = testUuid(), input = f.input) =>
     retryCommunicationPreparation(f.database, CLAIMS, f.eventId, input, { idempotencyKey: key })
   it('reads bounded real work metadata without recipient, body, source identity or provider identifiers', async () => {
     const before = f.economic(),
@@ -31,7 +32,7 @@ describe('COM-011 metadata and explicit pre-send preparation recovery', () => {
   })
   it('rearms only preparation timing with immutable exact receipt, no reset or new event', async () => {
     const before = f.economic(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       count = f.sqlite.prepare('SELECT count(*) AS n FROM email_outbox_events').get()
     const receipt = await retry(key)
     expect(receipt).toMatchObject({
@@ -93,7 +94,7 @@ describe('COM-011 metadata and explicit pre-send preparation recovery', () => {
     }
   })
   it('denies support-only and customer grants and reauthorizes an applied receipt', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     await retry(key)
     f.sqlite.exec("DELETE FROM role_permissions WHERE role_code='operator' AND permission_code='administration.manage'")
     await expect(readCommunicationHistory(f.database, CLAIMS, {})).rejects.toMatchObject({ code: 'forbidden' })

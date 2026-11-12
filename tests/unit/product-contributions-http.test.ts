@@ -6,6 +6,7 @@ import {
   handleProductContributionsHttp,
   type ProductContributionsHttpDependencies
 } from '../../workers/support/product-contributions-http'
+import { testUuid } from '../support/deterministic'
 
 describe('MKT024/025 HTTP real D1 moderation boundary', () => {
   let f: Awaited<ReturnType<typeof returnsFixture>>
@@ -34,9 +35,7 @@ describe('MKT024/025 HTTP real D1 moderation boundary', () => {
         headers: {
           origin,
           cookie,
-          ...(value === undefined
-            ? {}
-            : { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() }),
+          ...(value === undefined ? {} : { 'content-type': 'application/json', 'idempotency-key': testUuid() }),
           ...extra
         },
         ...(value === undefined ? {} : { body: JSON.stringify(value) })

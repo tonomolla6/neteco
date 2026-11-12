@@ -4,6 +4,7 @@ import { catalogPolicyReceiptSchema } from '../../shared/catalog-publication-pol
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleCatalogPolicyHttp, type CatalogPolicyHttpEnvironment } from '../../workers/catalog/catalog-policy-http'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 const ORIGIN = 'https://neteco.invalid'
 const COLLECTION = '/api/admin/catalog/policies'
@@ -29,10 +30,22 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
   let before: ReturnType<typeof state>
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow())
     sqlite = await openMigratedDatabase()
-    database = d1OverSqlite(sqlite)
+    sqlite.function('synthetic_catalog_policy_http_clock', () => {
+      const clock = vi.getMockedSystemTime()
+      if (!clock) throw new Error('missing_synthetic_catalog_policy_http_clock')
+      return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+    })
+    const nativeExec = sqlite.exec.bind(sqlite)
+    sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_catalog_policy_http_clock()'))
+    const nativeDatabase = d1OverSqlite(sqlite),
+      nativePrepare = nativeDatabase.prepare.bind(nativeDatabase)
+    database = new Proxy(nativeDatabase, {})
+    database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_catalog_policy_http_clock()'))
     seedInventoryFixture(sqlite)
-    const past = utc(Date.now() - 60_000)
+    const past = utc(testNow() - 60_000)
     sqlite
       .prepare(
         `INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -44,7 +57,7 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
         `INSERT INTO auth_sessions(id,identity_id,session_version,mfa_verified,created_at,expires_at)
       VALUES (?,?,1,1,?,?)`
       )
-      .run(SESSION, IDENTITY, past, utc(Date.now() + 3600_000))
+      .run(SESSION, IDENTITY, past, utc(testNow() + 3600_000))
     sqlite.exec(`INSERT INTO roles VALUES ('policy_publisher','Publisher','Synthetic fixture'),
       ('policy_writer','Writer','Synthetic fixture'),('policy_customer','Customer','Synthetic fixture');
       INSERT INTO permissions VALUES ('catalog.publish','catalog','publish','Synthetic fixture'),
@@ -76,13 +89,14 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
   afterEach(() => {
     sqlite.close()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   function assignRole(role: 'policy_publisher' | 'policy_writer' | 'policy_customer') {
     sqlite.prepare('DELETE FROM identity_roles WHERE identity_id=?').run(IDENTITY)
     sqlite
       .prepare('INSERT INTO identity_roles(identity_id,role_code,granted_at) VALUES (?,?,?)')
-      .run(IDENTITY, role, utc(Date.now() - 60_000))
+      .run(IDENTITY, role, utc(testNow() - 60_000))
   }
   function version() {
     const value = sqlite.prepare('SELECT catalog_version FROM products WHERE id=?').get(PRODUCT)!.catalog_version
@@ -211,7 +225,7 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
   }
 
   it('creates a reviewed policy with a pure publisher grant and exact persisted receipt', async () => {
-    const started = utc(Date.now())
+    const started = utc(testNow())
     const response = await handle(request())
     expect(response.status).toBe(200)
     const receipt = catalogPolicyReceiptSchema.parse(await response.json())
@@ -231,7 +245,7 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
     const command = sqlite.prepare('SELECT response,created_at FROM catalog_policy_commands').get()!
     expect(command.response).toBe(JSON.stringify(receipt))
     expect(String(command.created_at) >= started).toBe(true)
-    expect(String(command.created_at) <= utc(Date.now())).toBe(true)
+    expect(String(command.created_at) <= utc(testNow())).toBe(true)
     expect(sqlite.prepare('SELECT count(*) AS n FROM catalog_policy_audit').get()!.n).toBe(1)
     expect(sqlite.prepare('SELECT count(*) AS n FROM catalog_policy_guards').get()!.n).toBe(0)
     expect(state().product).toEqual(before.product)
@@ -731,7 +745,7 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
   })
 
   it('enforces the separate durable admin-catalog-policy quota before consuming a command', async () => {
-    const now = Math.floor(Date.now() / 1000)
+    const now = Math.floor(testNow() / 1000)
     sqlite
       .prepare(
         `INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at)
@@ -961,7 +975,7 @@ describe('private publication-policy HTTP boundary against real D1 SQLite migrat
       identifier_exceptions_allowed,actor_id,reason,valid_from,created_at)
       VALUES (?,'corrupt_type',1,'Corrupt synthetic policy','["not_supported"]','[]',0,?,?,?,?)`
       )
-      .run(UNKNOWN, IDENTITY, REASON, PAST, utc(Date.now() - 60_000))
+      .run(UNKNOWN, IDENTITY, REASON, PAST, utc(testNow() - 60_000))
     const result = await handle(read())
     expect(result.status).toBe(503)
     expect(await result.json()).toEqual({ error: { code: 'service_unavailable' } })

@@ -17,10 +17,31 @@ import {
   CUSTOMER,
   utc
 } from './d1-returns-fixture'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_returns_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_returns_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_returns_clock()'))
+      return database
+    }
+  }
+})
 
 describe('D1 single-warehouse custody returns', () => {
   let sqlite: DatabaseSync, database: D1Database, id: string
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     const fixture = await returnsFixture()
     sqlite = fixture.sqlite
     database = fixture.database
@@ -29,8 +50,9 @@ describe('D1 single-warehouse custody returns', () => {
   afterEach(() => {
     sqlite.close()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
-  const key = () => crypto.randomUUID()
+  const key = () => testUuid()
   function create(input: unknown = REQUEST, idempotencyKey = key()) {
     return requestD1CustomerReturn(database, BUYER_CLAIMS, id, input, { idempotencyKey })
   }

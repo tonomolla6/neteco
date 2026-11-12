@@ -9,6 +9,7 @@ import CatalogNativeImport from '../../app/components/CatalogNativeImport.vue'
 import { catalogTabularColumns } from '../../shared/catalog-tabular-core'
 import type { CatalogImportJob } from '../../shared/catalog-import-job'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { request, session, decode, fetchPage } = vi.hoisted(() => ({
   request: vi.fn(),
@@ -29,7 +30,7 @@ const ID = '20000000-0000-4000-8000-000000000081',
   HASH = 'b'.repeat(64),
   ACTOR = '10000000-0000-4000-8000-000000000081',
   ROOT = '/api/admin/catalog/import-jobs/' + ID
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 function job(status: CatalogImportJob['status'] = 'ready', expired = false): CatalogImportJob {
   return {
     source: 'cloudflare',
@@ -91,6 +92,8 @@ async function confirm(
   await wrapper.get('[data-command-confirm]').setValue(true)
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   vi.clearAllMocks()
   actor = identity()
   session.mockReturnValue(actor)
@@ -347,6 +350,7 @@ afterEach(() => {
   for (const wrapper of wrappers) wrapper.unmount()
   wrappers = []
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 describe('prepared job commands require explicit current authority and durable receipts', () => {

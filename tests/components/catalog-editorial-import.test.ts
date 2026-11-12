@@ -7,6 +7,7 @@ import ProductsPage from '../../app/pages/admin/productos/index.vue'
 import { EDITORIAL_CSV_COLUMNS, MAX_BYTES } from '../../shared/catalog-editorial-csv'
 import type { EditorialPreview } from '../../shared/catalog-editorial-import'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { requestMock, rawMock, sessionMock, pageFetchMock } = vi.hoisted(() => ({
   requestMock: vi.fn(),
@@ -37,8 +38,8 @@ function fixture(status: EditorialPreview['status'] = 'pending'): EditorialPrevi
     outcome: 'preview',
     id: PREVIEW,
     hash: HASH,
-    createdAt: new Date(Date.now() - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    expiresAt: new Date(Date.now() + 29 * 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    createdAt: new Date(testNow() - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    expiresAt: new Date(testNow() + 29 * 60000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
     status,
     products: [
       {

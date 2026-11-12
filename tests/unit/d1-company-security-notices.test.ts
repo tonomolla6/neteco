@@ -16,6 +16,7 @@ import {
 } from '../../workers/communications/transactional-email-delivery'
 import { updateD1DeliveryPreferences } from '../../workers/auth/delivery-preferences'
 import { DELIVERY_PREFERENCES_POLICY_VERSION } from '../../shared/delivery-preferences'
+import { testNow } from '../support/deterministic'
 
 const identityId = deterministicUuid('company-security-owner')
 const customerId = deterministicUuid('company-security-customer')
@@ -74,13 +75,7 @@ describe('fiscal submission security notices share the actual owner transaction'
   const submit = (input = details, db = database, credential = cookie) =>
     submitD1CompanyDetails(db, request(credential), configuration, input)
   const count = (table: string) => Number(sqlite.prepare(`SELECT count(*) n FROM ${table}`).get()!.n)
-  async function useRealClock() {
-    vi.useRealTimers()
-    cookie = (await issueD1SessionCookie(database, { identityId, sessionId, sessionVersion: 1 }, configuration))!.split(
-      ';'
-    )[0]!
-  }
-  const instant = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const instant = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
   const sender = () => ({
     send: vi.fn<TransactionalEmailSender['send']>(async () => ({ messageId: 'synthetic-fiscal-notice' }))
   })
@@ -237,7 +232,6 @@ describe('fiscal submission security notices share the actual owner transaction'
   })
 
   it('renders and sends once despite delivery opt-out, with presentation-not-approval wording and no fiscal payload', async () => {
-    await useRealClock()
     await updateD1DeliveryPreferences(
       database,
       { identityId, sessionId, sessionVersion: 1 },
@@ -268,7 +262,6 @@ describe('fiscal submission security notices share the actual owner transaction'
   })
 
   it('keeps the durable notice pending without invoking the sender when sending is disabled', async () => {
-    await useRealClock()
     expect(await submit()).toMatchObject({ ok: true })
     const config = await transport(),
       adapter = sender()
@@ -281,7 +274,6 @@ describe('fiscal submission security notices share the actual owner transaction'
   })
 
   it('does not send a fiscal notice whose immutable domain proof was corrupted', async () => {
-    await useRealClock()
     expect(await submit()).toMatchObject({ ok: true })
     const config = await transport(),
       adapter = sender()
@@ -291,7 +283,6 @@ describe('fiscal submission security notices share the actual owner transaction'
   })
 
   it('retries a source-read D1 outage before sending without losing or duplicating the durable notice', async () => {
-    await useRealClock()
     expect(await submit()).toMatchObject({ ok: true })
     const config = await transport(),
       adapter = sender(),

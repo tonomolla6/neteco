@@ -6,13 +6,35 @@ import {
   supportOptionsSchema,
   supportReceiptSchema
 } from '../../shared/support-operations'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_support_http_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_http_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_support_http_clock()'))
+      return database
+    }
+  }
+})
 
 let f: Awaited<ReturnType<typeof supportFixture>>
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await supportFixture()
 })
 afterEach(() => {
-  f.sqlite.close()
+  f?.sqlite.close()
+  vi.useRealTimers()
 })
 async function anonymousCookie() {
   const response = await f.request('/api/support/options', 'GET', undefined, '')
@@ -144,7 +166,7 @@ describe('native support HTTP boundaries', () => {
   })
   it('exact confirmed contact replay bypasses quota without replaying challenge', async () => {
     const cookie = await anonymousCookie(),
-      key = crypto.randomUUID(),
+      key = testUuid(),
       response = await f.request('/api/support/tickets', 'POST', CONTACT, cookie, key)
     const first = await response.json()
     f.sqlite.exec('UPDATE support_intake_limits SET used=6')

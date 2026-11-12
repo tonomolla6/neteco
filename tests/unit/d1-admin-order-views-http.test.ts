@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { orderViewsFixture, ADMIN, OTHER, ORIGIN } from './d1-admin-order-views-fixture'
 import { handleAdminOrderViewsHttp } from '../../workers/catalog/admin-order-views-http'
 import { adminOrderViewIntentHash } from '../../shared/admin-order-views'
+import { testUuid } from '../support/deterministic'
 
 describe('private saved order views real D1 HTTP boundary', () => {
   let f: Awaited<ReturnType<typeof orderViewsFixture>>
@@ -23,7 +24,7 @@ describe('private saved order views real D1 HTTP boundary', () => {
           cookie: await f.cookie(claims),
           origin: ORIGIN,
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           ...headers
         },
         body: body === undefined ? undefined : JSON.stringify(body)
@@ -39,7 +40,7 @@ describe('private saved order views real D1 HTTP boundary', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
   })
   it('creates, updates and archives with exact detail and actor-bound manual recovery', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const response = await request(undefined, 'POST', f.input, { 'idempotency-key': key })
     expect(response.status).toBe(201)
     const receipt = (await response.json()) as { viewId: string }

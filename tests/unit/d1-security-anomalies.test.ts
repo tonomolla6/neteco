@@ -1,5 +1,5 @@
 import { readFile, readdir } from 'node:fs/promises'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { ADMIN, RECIPIENT, FOREIGN, utc } from './d1-admin-invitations-fixture'
 import {
@@ -33,6 +33,31 @@ import {
   resolveD1SecurityAnomaly,
   readD1SecurityAnomalyCommand
 } from '../../workers/auth/security-anomalies'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_security_anomaly_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_security_anomaly_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_security_anomaly_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_security_anomaly_clock()'))
+      return database
+    }
+  }
+})
 
 const SECURITY_AUDITOR = {
   identityId: '11111111-1111-4111-8111-111111111191',
@@ -74,7 +99,7 @@ async function createSecurityAnomalyFixture() {
     [RECIPIENT, 'recipient@example.invalid', true],
     [FOREIGN, 'foreign@example.invalid', true]
   ] as const) {
-    const customerId = isCustomer ? crypto.randomUUID() : null
+    const customerId = isCustomer ? testUuid() : null
     if (customerId) {
       sqlite
         .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")
@@ -141,11 +166,14 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
   let f: Awaited<ReturnType<typeof createSecurityAnomalyFixture>>
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await createSecurityAnomalyFixture()
   })
 
   afterEach(() => {
     f?.sqlite.close()
+    vi.useRealTimers()
   })
 
   describe('1. Taxonomy, network hashing and PII minimization', () => {
@@ -233,7 +261,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
             ) VALUES (?,?,?,?,?,'open',?,?,?,?,'203.0.113.99',NULL,NULL,'{}',1,?,?,?)`
           )
           .run(
-            crypto.randomUUID(),
+            testUuid(),
             'raw_ip_violation',
             'mfa_change',
             'high',
@@ -292,7 +320,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       expect(replay.signal?.id).toBe(first.signal?.id)
 
       // Subsequent login from the SAME device fingerprint (new session) does NOT emit an anomaly
-      const secondSessionSameDevice = crypto.randomUUID()
+      const secondSessionSameDevice = testUuid()
       const sameDevice = await recordAdminSessionDeviceSignal(f.database, {
         identityId: ADMIN.identityId,
         sessionId: secondSessionSameDevice,
@@ -305,7 +333,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       expect(sameDevice.signal).toBeNull()
 
       // Login from a NEW device fingerprint for the same admin emits a HIGH severity signal
-      const thirdSessionNewDevice = crypto.randomUUID()
+      const thirdSessionNewDevice = testUuid()
       const newDevice = await recordAdminSessionDeviceSignal(f.database, {
         identityId: ADMIN.identityId,
         sessionId: thirdSessionNewDevice,
@@ -533,8 +561,8 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
     ] as const)(
       'emits and deduplicates %s for role %s with severity %s without leaking recipient email or tokens',
       async (changeKind, roleCode, expectedSeverity) => {
-        const cmdId = crypto.randomUUID()
-        const invId = crypto.randomUUID()
+        const cmdId = testUuid()
+        const invId = testUuid()
         const first = await recordRolePermissionChangeSignal(f.database, {
           actorId: ADMIN.identityId,
           sessionId: ADMIN.sessionId,
@@ -581,14 +609,14 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
     ])(
       'evaluates refundAmountThresholdCents=10000 boundary accurately for grossCents=%i (shouldEmit=%s)',
       async (grossCents, shouldEmit) => {
-        const refundId = crypto.randomUUID()
+        const refundId = testUuid()
         const result = await recordRefundAnomalySignal(f.database, {
           actorId: ADMIN.identityId,
           sessionId: ADMIN.sessionId,
           refundId,
-          orderId: crypto.randomUUID(),
+          orderId: testUuid(),
           stage: 'confirm',
-          sourceCommandId: crypto.randomUUID(),
+          sourceCommandId: testUuid(),
           grossCents,
           currency: 'EUR',
           thresholds: {
@@ -627,10 +655,10 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const outside = await recordRefundAnomalySignal(f.database, {
         actorId: ADMIN.identityId,
         sessionId: ADMIN.sessionId,
-        refundId: crypto.randomUUID(),
-        orderId: crypto.randomUUID(),
+        refundId: testUuid(),
+        orderId: testUuid(),
         stage: 'confirm',
-        sourceCommandId: crypto.randomUUID(),
+        sourceCommandId: testUuid(),
         grossCents: 1500,
         occurredAt: utc(-1_500_000),
         thresholds
@@ -641,10 +669,10 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const r1 = await recordRefundAnomalySignal(f.database, {
         actorId: ADMIN.identityId,
         sessionId: ADMIN.sessionId,
-        refundId: crypto.randomUUID(),
-        orderId: crypto.randomUUID(),
+        refundId: testUuid(),
+        orderId: testUuid(),
         stage: 'confirm',
-        sourceCommandId: crypto.randomUUID(),
+        sourceCommandId: testUuid(),
         grossCents: 1500,
         occurredAt: utc(-300_000),
         thresholds
@@ -656,10 +684,10 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const r2 = await recordRefundAnomalySignal(f.database, {
         actorId: ADMIN.identityId,
         sessionId: ADMIN.sessionId,
-        refundId: crypto.randomUUID(),
-        orderId: crypto.randomUUID(),
+        refundId: testUuid(),
+        orderId: testUuid(),
         stage: 'confirm',
-        sourceCommandId: crypto.randomUUID(),
+        sourceCommandId: testUuid(),
         grossCents: 1500,
         occurredAt: utc(-200_000),
         thresholds
@@ -671,10 +699,10 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const r3 = await recordRefundAnomalySignal(f.database, {
         actorId: ADMIN.identityId,
         sessionId: ADMIN.sessionId,
-        refundId: crypto.randomUUID(),
-        orderId: crypto.randomUUID(),
+        refundId: testUuid(),
+        orderId: testUuid(),
         stage: 'confirm',
-        sourceCommandId: crypto.randomUUID(),
+        sourceCommandId: testUuid(),
         grossCents: 1500,
         occurredAt: utc(-100_000),
         thresholds
@@ -691,10 +719,10 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const r4 = await recordRefundAnomalySignal(f.database, {
         actorId: ADMIN.identityId,
         sessionId: ADMIN.sessionId,
-        refundId: crypto.randomUUID(),
-        orderId: crypto.randomUUID(),
+        refundId: testUuid(),
+        orderId: testUuid(),
         stage: 'confirm',
-        sourceCommandId: crypto.randomUUID(),
+        sourceCommandId: testUuid(),
         grossCents: 1500,
         occurredAt: utc(-50_000),
         thresholds
@@ -706,10 +734,10 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const r5 = await recordRefundAnomalySignal(f.database, {
         actorId: ADMIN.identityId,
         sessionId: ADMIN.sessionId,
-        refundId: crypto.randomUUID(),
-        orderId: crypto.randomUUID(),
+        refundId: testUuid(),
+        orderId: testUuid(),
         stage: 'confirm',
-        sourceCommandId: crypto.randomUUID(),
+        sourceCommandId: testUuid(),
         grossCents: 50000,
         occurredAt: utc(-10_000),
         thresholds
@@ -803,7 +831,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       expect(signal.status).toBe('open')
 
       // 1. Acknowledge (version 1 -> 2)
-      const ackKey = crypto.randomUUID()
+      const ackKey = testUuid()
       const ackInput = { expectedVersion: 1, note: 'Revisando inicio de sesión desde nuevo dispositivo.' }
       const ackReceipt = await acknowledgeD1SecurityAnomaly(f.database, ADMIN, signal.id, ackInput, {
         idempotencyKey: ackKey,
@@ -846,7 +874,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           ADMIN,
           signal.id,
           { expectedVersion: 1, note: 'Intento con versión obsoleta.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'version_conflict' })
 
@@ -857,12 +885,12 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           ADMIN,
           signal.id,
           { expectedVersion: 2, note: 'Doble reconocimiento no permitido.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'invalid_transition' })
 
       // 2. Resolve with note (version 2 -> 3)
-      const resolveKey = crypto.randomUUID()
+      const resolveKey = testUuid()
       const resolveInput = {
         expectedVersion: 2,
         note: 'Verificado con el administrador por canal secundario; dispositivo corporativo legítimo.'
@@ -894,7 +922,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           ADMIN,
           signal.id,
           { expectedVersion: 3, note: 'Intento de reabrir como reconocido.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'invalid_transition' })
 
@@ -904,7 +932,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           ADMIN,
           signal.id,
           { expectedVersion: 3, note: 'Intento de resolver dos veces.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'invalid_transition' })
 
@@ -951,7 +979,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
         outcome: 'applied',
         receipt: ackReceipt
       })
-      const unknownCmd = await readD1SecurityAnomalyCommand(f.database, ADMIN, crypto.randomUUID(), 'a'.repeat(64))
+      const unknownCmd = await readD1SecurityAnomalyCommand(f.database, ADMIN, testUuid(), 'a'.repeat(64))
       expect(unknownCmd).toEqual({
         source: 'cloudflare',
         outcome: 'unknown',
@@ -969,7 +997,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
         objectType: 'identity_mfa',
         objectId: ADMIN.identityId
       })
-      const cmdId = crypto.randomUUID()
+      const cmdId = testUuid()
       await resolveD1SecurityAnomaly(
         f.database,
         ADMIN,
@@ -1009,7 +1037,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           SECURITY_AUDITOR,
           signal.id,
           { expectedVersion: 1, note: 'Auditor intentando reconocer.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'forbidden' })
 
@@ -1019,12 +1047,12 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           SECURITY_AUDITOR,
           signal.id,
           { expectedVersion: 1, note: 'Auditor intentando resolver.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'forbidden' })
 
       await expect(
-        readD1SecurityAnomalyCommand(f.database, SECURITY_AUDITOR, crypto.randomUUID(), 'a'.repeat(64))
+        readD1SecurityAnomalyCommand(f.database, SECURITY_AUDITOR, testUuid(), 'a'.repeat(64))
       ).rejects.toMatchObject({ code: 'forbidden' })
     })
 
@@ -1067,7 +1095,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
           ADMIN,
           signal.id,
           { expectedVersion: 1, note: 'Intento con revocación en vuelo.' },
-          { idempotencyKey: crypto.randomUUID() }
+          { idempotencyKey: testUuid() }
         )
       ).rejects.toMatchObject({ code: 'forbidden' })
 
@@ -1091,14 +1119,14 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       }
 
       await createD1AdminInvitation(f.database, ADMIN, input, {
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: testUuid(),
         ipHash: IP_HASH_A
       })
       const accepted = await acceptD1AdminInvitation(
         f.database,
         RECIPIENT,
         { token },
-        { idempotencyKey: crypto.randomUUID(), ipHash: IP_HASH_B }
+        { idempotencyKey: testUuid(), ipHash: IP_HASH_B }
       )
       expect(accepted.action).toBe('accept')
 
@@ -1119,7 +1147,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
         f.database,
         ADMIN,
         { ...input, tokenHash: await adminInvitationTokenHash(token2) },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       expect(created2.action).toBe('create')
 
@@ -1128,7 +1156,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
         ADMIN,
         created2.invitationId,
         { expectedVersion: 1, reason: 'Revocación de prueba con fallo de señal.' },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       expect(revoked2.action).toBe('revoke')
     })
@@ -1137,7 +1165,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
       const thresholds = { exportRowThreshold: 100_000, exportWindowCountThreshold: 3, exportWindowSeconds: 600 }
       const keys: string[] = []
       for (let i = 1; i <= 3; i++) {
-        keys.push(crypto.randomUUID())
+        keys.push(testUuid())
         const receipt = await exportD1AdminAudit(
           f.database,
           ADMIN,
@@ -1172,7 +1200,7 @@ describe('SEC-035 D1 security anomaly signals, thresholds, deduplication and inb
         f.database,
         ADMIN,
         { filters: {}, reason: 'Exportación con almacén de señales caído.' },
-        { idempotencyKey: crypto.randomUUID(), anomalyThresholds: thresholds }
+        { idempotencyKey: testUuid(), anomalyThresholds: thresholds }
       )
       expect(survived.action).toBe('export')
     })

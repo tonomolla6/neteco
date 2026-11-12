@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { SQLInputValue } from 'node:sqlite'
 import { newsletterEditorialFixture, newsletterPolicyDocument } from './d1-newsletter-editorial-fixture'
 import { expandNewsletterCampaign } from '../../workers/marketing/newsletter-campaign-delivery'
+import { testUuid } from '../support/deterministic'
 describe('newsletter editorial D1 constraints and immutable authority', () => {
   let w: Awaited<ReturnType<typeof newsletterEditorialFixture>>
   beforeEach(async () => {
@@ -21,7 +22,7 @@ describe('newsletter editorial D1 constraints and immutable authority', () => {
     (created_at) => {
       expect(() =>
         insert('newsletter_editorial_policies', {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           document: JSON.stringify(newsletterPolicyDocument()),
           actor_id: w.claims.identityId,
           created_at
@@ -34,7 +35,7 @@ describe('newsletter editorial D1 constraints and immutable authority', () => {
     (document) => {
       expect(() =>
         insert('newsletter_editorial_policies', {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           document,
           actor_id: w.claims.identityId,
           created_at: w.getNow()
@@ -59,7 +60,7 @@ describe('newsletter editorial D1 constraints and immutable authority', () => {
   it.each(['2start', '-start', 'Topic', 'topic with spaces'])('rejects incompatible topic code %s', (code) => {
     expect(() =>
       insert('newsletter_editorial_topics', {
-        id: crypto.randomUUID(),
+        id: testUuid(),
         code,
         label: 'Tema sintético',
         active: 1,
@@ -107,9 +108,7 @@ describe('newsletter editorial D1 constraints and immutable authority', () => {
     await w.policy()
     const id = await w.campaign()
     await expandNewsletterCampaign(w.deps, id)
-    expect(() =>
-      w.sqlite.prepare('UPDATE newsletter_editorial_deliveries SET lease_token=?').run(crypto.randomUUID())
-    ).toThrow()
+    expect(() => w.sqlite.prepare('UPDATE newsletter_editorial_deliveries SET lease_token=?').run(testUuid())).toThrow()
     expect(() =>
       w.sqlite.exec("UPDATE newsletter_editorial_deliveries SET status='accepted',finished_at=created_at")
     ).toThrow()
@@ -143,8 +142,8 @@ describe('newsletter editorial D1 constraints and immutable authority', () => {
       expect(() =>
         insert('newsletter_editorial_commands', {
           ...original,
-          id: crypto.randomUUID(),
-          idempotency_key: crypto.randomUUID(),
+          id: testUuid(),
+          idempotency_key: testUuid(),
           ...change
         })
       ).toThrow()

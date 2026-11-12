@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, writeFile, lstat, realpath, rename, unlink } from 'node:fs/promises'
 import { resolve, join, relative, dirname } from 'node:path'
+import { testUuid } from '../support/deterministic'
 
 const owner = 'neteco-ui013-components-v1'
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -95,7 +96,7 @@ export async function captureUiStateMarkup(id: string, component: string, markup
   })
   // Exclusive own staging files plus rename never follow a target symlink.
   // Refuse to replace anything except an unchanged previous owned pair.
-  const suffix = '.ui013-' + randomUUID(),
+  const suffix = '.ui013-' + testUuid(),
     htmlTemporary = htmlPath + suffix,
     metadataTemporary = metadataPath + suffix
   const created: string[] = []

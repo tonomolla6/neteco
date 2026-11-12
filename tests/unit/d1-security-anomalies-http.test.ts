@@ -5,6 +5,31 @@ import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { ADMIN, RECIPIENT, utc } from './d1-admin-invitations-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { emitSecurityAnomalySignal, securityAnomalyIntentHash } from '../../workers/auth/security-anomalies'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_security_anomaly_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_security_anomaly_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const exec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_security_anomaly_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_security_anomaly_clock()'))
+      return database
+    }
+  }
+})
 
 const ORIGIN = 'https://security.neteco.test'
 
@@ -42,7 +67,7 @@ async function securityAnomaliesHttpFixture() {
     [NON_SECURITY_ADMIN, 'non-sec-admin@example.invalid', false],
     [RECIPIENT, 'customer@example.invalid', true]
   ] as const) {
-    const customerId = isCustomer ? crypto.randomUUID() : null
+    const customerId = isCustomer ? testUuid() : null
     if (customerId) {
       sqlite
         .prepare("INSERT INTO customers(id,status,created_at,updated_at) VALUES(?,'active',?,?)")
@@ -105,6 +130,8 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
   let env: CloudflareEnv
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await securityAnomaliesHttpFixture()
     const emitted = await emitSecurityAnomalySignal(f.database, {
       sourceKey: 'http-seed-signal-1',
@@ -143,6 +170,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
   afterEach(() => {
     f?.sqlite.close()
     vi.restoreAllMocks()
+    vi.useRealTimers()
   })
 
   async function send(
@@ -210,7 +238,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
   })
 
   it('acknowledges once, replays the exact receipt on retry, and recovers the command via GET without re-writing', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     const input = {
       expectedVersion: 1,
       note: 'Señal reconocida por el equipo de seguridad en turno.'
@@ -268,7 +296,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
       `/api/admin/security/anomalies/${signalId}/resolve`,
       'POST',
       { expectedVersion: 1, note: 'ab' },
-      { 'Idempotency-Key': crypto.randomUUID() }
+      { 'Idempotency-Key': testUuid() }
     )
     expect(badNote.status).toBe(400)
     expect(await badNote.json()).toEqual({ error: { code: 'invalid_input' } })
@@ -278,13 +306,13 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
       `/api/admin/security/anomalies/${signalId}/resolve`,
       'POST',
       { expectedVersion: 99, note: 'Intento con versión errónea.' },
-      { 'Idempotency-Key': crypto.randomUUID() }
+      { 'Idempotency-Key': testUuid() }
     )
     expect(staleVersion.status).toBe(409)
     expect(await staleVersion.json()).toEqual({ error: { code: 'version_conflict' } })
 
     // Valid resolve from open (version 1 -> 2)
-    const resolveKey = crypto.randomUUID()
+    const resolveKey = testUuid()
     const resolveInput = {
       expectedVersion: 1,
       note: 'Resuelta tras comprobar con el usuario la huella del navegador.'
@@ -311,7 +339,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
       `/api/admin/security/anomalies/${signalId}/acknowledge`,
       'POST',
       { expectedVersion: 2, note: 'Intentando reconocer tras resolver.' },
-      { 'Idempotency-Key': crypto.randomUUID() }
+      { 'Idempotency-Key': testUuid() }
     )
     expect(invalidTransition.status).toBe(409)
     expect(await invalidTransition.json()).toEqual({ error: { code: 'invalid_transition' } })
@@ -329,7 +357,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
       `/api/admin/security/anomalies/${signalId}/acknowledge`,
       'POST',
       { expectedVersion: 1, note: 'Lectura intentando escribir.' },
-      { 'Idempotency-Key': crypto.randomUUID() },
+      { 'Idempotency-Key': testUuid() },
       SECURITY_READER
     )
     expect(readerAck.status).toBe(403)
@@ -365,7 +393,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
           `/api/admin/security/anomalies/${signalId}/acknowledge`,
           'POST',
           { expectedVersion: 1 },
-          { origin: 'https://evil.example', 'Idempotency-Key': crypto.randomUUID() }
+          { origin: 'https://evil.example', 'Idempotency-Key': testUuid() }
         ),
       403,
       'invalid_origin'
@@ -377,7 +405,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
           `/api/admin/security/anomalies/${signalId}/acknowledge`,
           'POST',
           { expectedVersion: 1 },
-          { 'content-type': 'text/plain', 'Idempotency-Key': crypto.randomUUID() }
+          { 'content-type': 'text/plain', 'Idempotency-Key': testUuid() }
         ),
       415,
       'unsupported_media_type'
@@ -392,7 +420,7 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
       'malformed JSON body on POST',
       () =>
         send(`/api/admin/security/anomalies/${signalId}/acknowledge`, 'POST', '{bad-json', {
-          'Idempotency-Key': crypto.randomUUID()
+          'Idempotency-Key': testUuid()
         }),
       400,
       'invalid_json'
@@ -404,17 +432,12 @@ describe('SEC-035 HTTP admin security anomaly inbox mounted on workers/canary.ts
           `/api/admin/security/anomalies/${signalId}/acknowledge`,
           'POST',
           { expectedVersion: 1, note: 'x'.repeat(5000) },
-          { 'Idempotency-Key': crypto.randomUUID() }
+          { 'Idempotency-Key': testUuid() }
         ),
       413,
       'payload_too_large'
     ],
-    [
-      'unknown signal UUID on GET detail',
-      () => send(`/api/admin/security/anomalies/${crypto.randomUUID()}`),
-      404,
-      'not_found'
-    ],
+    ['unknown signal UUID on GET detail', () => send(`/api/admin/security/anomalies/${testUuid()}`), 404, 'not_found'],
     [
       'invalid signal ID format on GET detail',
       () => send('/api/admin/security/anomalies/not-a-uuid'),

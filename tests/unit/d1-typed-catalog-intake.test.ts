@@ -21,12 +21,13 @@ import type {
   CatalogTypedAttributeValues
 } from '../../shared/catalog-typed-attributes'
 import type { CatalogTabularRecord } from '../../shared/catalog-tabular-core'
+import { testUuid, testNow } from '../support/deterministic'
 
 const REFERENCE = '60000000-0000-4000-8000-000000000061'
 const CONSUMER = '60000000-0000-4000-8000-000000000062'
 const WAREHOUSE = '60000000-0000-4000-8000-000000000063'
 const reason = 'Synthetic typed intake review, not production authority'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 type Kind = 'native' | 'job'
 interface Ready {
   kind: Kind
@@ -99,14 +100,14 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
         {},
         {
           categoryId,
-          code: `intake_${crypto.randomUUID().replaceAll('-', '')}`,
+          code: `intake_${testUuid().replaceAll('-', '')}`,
           kind,
           config,
           label: 'Synthetic attribute',
           expectedVersion: 0,
           reason
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     ).definition
   }
@@ -117,7 +118,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
       'retire',
       { definitionId: d.id },
       { expectedVersion: d.revision, reason },
-      { idempotencyKey: crypto.randomUUID() }
+      { idempotencyKey: testUuid() }
     )
   function record(typed?: CatalogTypedAttributeValues, index = 1): CatalogTabularRecord {
     const product = index === 1 ? ids.product : '60000000-0000-4000-8000-000000000002'
@@ -171,7 +172,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
   const command = (
     ready: Ready,
     action: 'apply' | 'revert' = 'apply',
-    key = crypto.randomUUID(),
+    key = testUuid(),
     db = database,
     now?: string
   ) =>
@@ -264,7 +265,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
       const records = [record(namespace)],
         source = JSON.stringify(records),
         prepared = await ready(kind, records),
-        key = crypto.randomUUID()
+        key = testUuid()
       const statements: string[] = [],
         plans: string[] = []
       const traced = new Proxy(database, {
@@ -300,7 +301,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
       ).toEqual(JSON.parse(records[0]!.product_attributes_json))
       await retire(definitions[0]!)
       expect(await command(prepared, 'apply', key, database, utc(2 * 3600_000))).toEqual(applied)
-      const revertKey = crypto.randomUUID(),
+      const revertKey = testUuid(),
         reverted = await command(prepared, 'revert', revertKey, traced)
       expect(await command(prepared, 'revert', revertKey, database, utc(2 * 3600_000))).toEqual(reverted)
       expect(sqlite.prepare('SELECT status FROM products WHERE id=?').get(ids.product)).toEqual({
@@ -321,7 +322,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
       const d = await definition('number', { precision: 1 }),
         other = await definition('text', { maxLength: 500 }, 12)
       await invalid(kind, [record(values(d, 0.30000000000000004))])
-      await invalid(kind, [record(values({ ...d, id: crypto.randomUUID() }, 1))])
+      await invalid(kind, [record(values({ ...d, id: testUuid() }, 1))])
       await invalid(kind, [record(values({ ...d, revision: 2 }, 1))])
       await invalid(kind, [record(values(other, 'Wrong category'))])
       await retire(d)
@@ -329,7 +330,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
     })
     it('rejects missing/hidden references and references to new drafts in the same batch', async () => {
       const d = await definition('reference', {})
-      await invalid(kind, [record(values(d, crypto.randomUUID()))])
+      await invalid(kind, [record(values(d, testUuid()))])
       sqlite.prepare("UPDATE products SET status='hidden' WHERE id=?").run(REFERENCE)
       await invalid(kind, [record(values(d, REFERENCE))])
       const next = record(undefined, 2)
@@ -344,7 +345,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
         'update',
         { definitionId: d.id },
         { label: 'Revised', config: { maxLength: 500 }, expectedVersion: 1, reason },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       const before = state()
       await expect(command(prepared)).rejects.toMatchObject({ code: 'version_conflict' })
@@ -358,7 +359,7 @@ describe('typed attributes throughout native and whole-job catalog intake', () =
         command(
           prepared,
           'apply',
-          crypto.randomUUID(),
+          testUuid(),
           beforeBatch(async () => {
             await retire(d)
           })

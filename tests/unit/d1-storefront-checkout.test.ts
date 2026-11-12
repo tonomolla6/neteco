@@ -16,6 +16,7 @@ import { REDSYS_OFFICIAL_CONTRACT } from '../fixtures/redsys-official'
 import { applyGeneratedSeed, d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { executeD1AdminFulfillmentCommand } from '../../workers/fulfillment/admin'
+import { testUuid } from '../support/deterministic'
 
 const OWNER = '10000000-0000-4000-8000-000000000043'
 const CUSTOMER = '30000000-0000-4000-8000-000000000043'
@@ -310,7 +311,7 @@ describe('Cloudflare storefront checkout bridge', () => {
           reason: 'Private synthetic warehouse reason',
           ...(['in_transit', 'delivered'].includes(action) ? { evidence: 'Private synthetic handover evidence' } : {})
         },
-        { idempotencyKey: crypto.randomUUID(), now: NOW }
+        { idempotencyKey: testUuid(), now: NOW }
       )
     return { ...w, orderId, guestCookie, read, advance }
   }

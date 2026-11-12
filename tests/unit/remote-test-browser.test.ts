@@ -7,11 +7,12 @@ import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../sup
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleCatalogExportHttp } from '../../workers/catalog/catalog-export-http'
+import { testUuid, testNow } from '../support/deterministic'
 
 const browser = vi.hoisted(() => ({ connect: vi.fn(), launch: vi.fn() }))
 vi.mock('@playwright/test', () => ({ chromium: browser }))
 const origin = 'https://shop-audit.neteco.test'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('dedicated private SSH test browser: fail closed without shared-host fallback', () => {
   beforeEach(() => {
@@ -135,9 +136,9 @@ describe('dedicated private SSH test browser: fail closed without shared-host fa
     try {
       seedInventoryFixture(sqlite)
       await provisionPublicationValidityFixture(database, { productIds: ['p-1'], now: utc(-3600_000) })
-      const identityId = crypto.randomUUID(),
-        adminSession = crypto.randomUUID(),
-        unprivilegedSession = crypto.randomUUID()
+      const identityId = testUuid(),
+        adminSession = testUuid(),
+        unprivilegedSession = testUuid()
       sqlite
         .prepare(
           "INSERT INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at) VALUES (?,'remote-helper@example.invalid','synthetic-unusable',?,'active',?,?)"

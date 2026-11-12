@@ -4,6 +4,7 @@ import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { BUYER_CLAIMS, returnsFixture } from './d1-returns-fixture'
 import { utc } from './pay-ext-fixture'
 import worker from '../../workers/canary'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://account.example.invalid'
 const configuration = { password: 'synthetic-draft-link-cookie-password-over-32-chars', maxAgeSeconds: 3600 }
@@ -20,13 +21,13 @@ beforeEach(async () => {
   issue.mockImplementation(async (_c: unknown, input: { draftId: string; orderId: string; expiresAt: string }) => ({
     draftId: input.draftId,
     orderId: input.orderId,
-    paymentIntentId: crypto.randomUUID(),
+    paymentIntentId: testUuid(),
     amountCents: 1234,
     expiresAt: input.expiresAt,
     url: 'https://paygold.example.invalid/link/abc'
   }))
 })
-const body = () => ({ draftId, expectedVersion: 3, orderId, commandId: crypto.randomUUID(), expiresAt: utc(600_000) })
+const body = () => ({ draftId, expectedVersion: 3, orderId, commandId: testUuid(), expiresAt: utc(600_000) })
 const make = (
   over: { b?: unknown; headers?: Record<string, string>; method?: string; order?: string | null; path?: string } = {}
 ) => {
@@ -74,9 +75,9 @@ describe('draft PayGold HTTP', () => {
     expect((await handlePayGoldDraftHttp(make({ headers: { 'content-type': 'text/plain' } }), deps()))!.status).toBe(
       415
     )
-    expect(
-      (await handlePayGoldDraftHttp(make({ headers: { 'idempotency-key': crypto.randomUUID() } }), deps()))!.status
-    ).toBe(400)
+    expect((await handlePayGoldDraftHttp(make({ headers: { 'idempotency-key': testUuid() } }), deps()))!.status).toBe(
+      400
+    )
     expect((await handlePayGoldDraftHttp(make({ b: { ...body(), amountCents: 1 } }), deps()))!.status).toBe(400)
     expect((await handlePayGoldDraftHttp(make({ b: { ...body(), pad: 'x'.repeat(5000) } }), deps()))!.status).toBe(413)
     expect((await handlePayGoldDraftHttp(make({ method: 'GET' }), deps()))!.status).toBe(405)

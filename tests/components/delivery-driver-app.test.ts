@@ -4,11 +4,12 @@ import { flushPromises } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import DeliveryDriverApp from '../../app/components/DeliveryDriverApp.vue'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }))
 mockNuxtImport('useRequestFetch', () => () => mocks.request)
 
-const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const now = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const stop = (id: string, extra = {}) => ({
   id,
   sequenceIndex: id === 's-1' ? 0 : 1,

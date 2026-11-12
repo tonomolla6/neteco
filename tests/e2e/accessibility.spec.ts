@@ -297,7 +297,7 @@ const ACCOUNT_ROUTES = [
   ['/cuenta/datos', 'account-profile'],
   ['/cuenta/seguridad', 'account-security'],
   ['/cuenta/comunicaciones', 'account-communications'],
-  ['/cuenta/favoritos', 'account-lists']
+  ['/cuenta/listas', 'account-lists']
 ] as const
 
 const ADMIN_ROUTES = [

@@ -33,7 +33,9 @@ async function world() {
   // Local SQLite seam follows the live fake Date at SQL execution, preserving
   // production's 'now' clock and the scanner's original finite lifetime.
   sqlite.function('synthetic_storefront_cart_clock', () => {
-    const milliseconds = Date.now(),
+    const clock = vi.getMockedSystemTime()
+    if (!clock) throw new Error('missing_synthetic_storefront_cart_clock')
+    const milliseconds = clock.getTime(),
       instant = new Date(milliseconds).toISOString()
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(instant) || Date.parse(instant) !== milliseconds)
       throw new Error('invalid_synthetic_storefront_cart_clock')

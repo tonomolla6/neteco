@@ -1,11 +1,12 @@
 import { readFile } from 'node:fs/promises'
 import { d1OverSqlite, openMigratedDatabase } from './d1-sqlite'
+import { testNow } from './deterministic'
 
 export const INVENTORY_FIXTURE_ACTOR = '10000000-0000-4000-8000-000000000041'
 export const INVENTORY_FIXTURE_SESSION = '20000000-0000-4000-8000-000000000041'
 export const INVENTORY_FIXTURE_PRODUCT = '30000000-0000-4000-8000-000000000041'
 export const INVENTORY_FIXTURE_VARIANT = '40000000-0000-4000-8000-000000000041'
-export const inventoryFixtureUtc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+export const inventoryFixtureUtc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 /** Explicit ephemeral test data only. Never imported by runtime or real seed.
  * No publication policy, rights, scanner approval or approved price is created. */
 export async function openAdminInventoryFixture() {

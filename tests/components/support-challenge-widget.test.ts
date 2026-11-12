@@ -8,6 +8,7 @@ import SupportContactPanel from '../../app/components/SupportContactPanel.vue'
 import SupportContactSection from '../../app/components/SupportContactSection.vue'
 import { options, receipt, deferred } from './support-operations-fixture'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const { read, post, sessionMock } = vi.hoisted(() => ({ read: vi.fn(), post: vi.fn(), sessionMock: vi.fn() }))
 mockNuxtImport('useRequestFetch', () => () => read)
@@ -78,6 +79,8 @@ function interceptScripts() {
   return scripts
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   originalSdk = Object.getOwnPropertyDescriptor(window, 'turnstile')
   fake = fakeSdk()
   installSdk(fake.sdk)
@@ -94,6 +97,7 @@ afterEach(async () => {
   }
   await flushPromises()
   vi.restoreAllMocks()
+  vi.useRealTimers()
   if (originalSdk) Object.defineProperty(window, 'turnstile', originalSdk)
   else Reflect.deleteProperty(window, 'turnstile')
 })
@@ -376,7 +380,7 @@ describe('support contact renewable challenge, immutable business intent', () =>
   })
   it('local token age blocks dispatch even without an SDK expiry callback', async () => {
     const { wrapper } = await contact(),
-      now = Date.now()
+      now = testNow()
     await wrapper.get('[data-testid="fixture-token"]').trigger('click')
     await prepareContact(wrapper)
     vi.spyOn(Date, 'now').mockReturnValue(now + 240001)
@@ -388,7 +392,7 @@ describe('support contact renewable challenge, immutable business intent', () =>
   it('expiry while fresh GET is pending cannot send an old captured token', async () => {
     const { wrapper, reload } = await contact(),
       hold = deferred<unknown>(),
-      now = Date.now()
+      now = testNow()
     await wrapper.get('[data-testid="fixture-token"]').trigger('click')
     await prepareContact(wrapper)
     reload.mockImplementationOnce(() => hold.promise as Promise<ReturnType<typeof challengeOptions>>)

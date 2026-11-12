@@ -11,6 +11,7 @@ import {
 import { supportFixture, CLAIMS, POLICY, utc, ORIGIN } from './d1-support-fixture'
 import { shippingCalendarIntentHash } from '../../shared/shipping-calendar'
 import { supportEscalationIntentHash } from '../../shared/support-escalations'
+import { testUuid } from '../support/deterministic'
 
 const origin = 'https://operations-batch.neteco.test'
 const calendars = '/api/admin/shipping/calendars'
@@ -21,7 +22,7 @@ function dispatch(
   path: string,
   cookie: string,
   input?: unknown,
-  key = crypto.randomUUID(),
+  key = testUuid(),
   hash?: string
 ) {
   return worker.fetch(
@@ -143,7 +144,7 @@ describe('root integration for shipping calendars and support escalation', () =>
           ]
         }
       }
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         result = await send(calendars + '/commands', input, key)
       expect(result.status).toBe(201)
       const receipt = await result.json()
@@ -183,7 +184,7 @@ describe('root integration for shipping calendars and support escalation', () =>
       }) as unknown as CloudflareEnv
       const send = (path: string, input?: unknown, key?: string, hash?: string) =>
         dispatch(env, ORIGIN, path, fixture.adminCookie, input, key, hash)
-      const runbookId = crypto.randomUUID(),
+      const runbookId = testUuid(),
         runbookPath = '/api/admin/support/escalations/runbooks/' + runbookId + '/commands'
       const draft = await send(runbookPath, {
         action: 'draft',
@@ -219,7 +220,7 @@ describe('root integration for shipping calendars and support escalation', () =>
         nextActionAt: utc(3600000),
         reason: 'Synthetic internal payment escalation'
       }
-      const key = crypto.randomUUID(),
+      const key = testUuid(),
         result = await send(path + '/commands', input, key)
       expect(result.status).toBe(201)
       expect(result.headers.get('cache-control')).toBe('private, no-store')

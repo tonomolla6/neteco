@@ -8,6 +8,7 @@ import {
   listD1AdminPromotions
 } from '../../workers/catalog/admin-promotions'
 import { adminPromotionIntentHash } from '../../shared/admin-promotions'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2030-01-02T12:00:00Z'
 const actor = '10000000-0000-4000-8000-000000000073'
@@ -78,21 +79,21 @@ describe('governed promotion administration, no checkout/cart mutation', () => {
   it('requires explicit next version, preserves historical rule and pauses/resumes without code changes', async () => {
     await executeD1AdminPromotion(db, claims, create(), options())
     const next = { ...create(), expectedVersion: 1, rule: { ...rule, version: 2, status: 'active' } }
-    expect(
-      await executeD1AdminPromotion(db, claims, next, { ...options(), idempotencyKey: crypto.randomUUID() })
-    ).toMatchObject({ version: 2 })
+    expect(await executeD1AdminPromotion(db, claims, next, { ...options(), idempotencyKey: testUuid() })).toMatchObject(
+      { version: 2 }
+    )
     expect(
       (await readD1AdminPromotion(db, claims, ruleId, {}, { now: NOW })).history.map((v) => v.rule.version)
     ).toEqual([2, 1])
     await expect(
-      executeD1AdminPromotion(db, claims, create(), { ...options(), idempotencyKey: crypto.randomUUID() })
+      executeD1AdminPromotion(db, claims, create(), { ...options(), idempotencyKey: testUuid() })
     ).rejects.toMatchObject({ code: 'version_conflict' })
     await expect(
       executeD1AdminPromotion(
         db,
         claims,
         { ...next, expectedVersion: 2, rule: { ...next.rule, version: 3, code: 'CHANGED' } },
-        { ...options(), idempotencyKey: crypto.randomUUID() }
+        { ...options(), idempotencyKey: testUuid() }
       )
     ).rejects.toMatchObject({ code: 'code_immutable' })
   })
@@ -102,7 +103,7 @@ describe('governed promotion administration, no checkout/cart mutation', () => {
       executeD1AdminPromotion(db, claims, { ...create(), reason: 'Different governed reason' }, options())
     ).rejects.toMatchObject({ code: 'idempotency_conflict' })
     expect(
-      await readD1AdminPromotionCommand(db, claims, crypto.randomUUID(), await adminPromotionIntentHash(create()), {
+      await readD1AdminPromotionCommand(db, claims, testUuid(), await adminPromotionIntentHash(create()), {
         now: NOW
       })
     ).toEqual({ source: 'cloudflare', outcome: 'unknown' })

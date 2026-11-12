@@ -4,6 +4,7 @@ import { MER_CLAIMS, MER_ROOT, merUtc as at, merchandisingWorld } from '../suppo
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { listPublishedProducts, type ProductQuery } from '../../workers/catalog/products'
 import { executeCategoryMerchandisingCommand } from '../../workers/catalog/category-merchandising'
+import { testUuid } from '../support/deterministic'
 
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
@@ -26,7 +27,7 @@ const rule = (extra: Record<string, unknown> = {}) => ({
   ...extra
 })
 const save = (input: unknown) =>
-  executeCategoryMerchandisingCommand(database, MER_CLAIMS, input, { idempotencyKey: crypto.randomUUID() })
+  executeCategoryMerchandisingCommand(database, MER_CLAIMS, input, { idempotencyKey: testUuid() })
 const query = (extra: Partial<ProductQuery> = {}): ProductQuery => ({
   category: 'limpieza',
   page: 1,

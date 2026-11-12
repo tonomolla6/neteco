@@ -1,8 +1,9 @@
 import type { REQUIRED_PUBLICATION_FIELDS, PUBLICATION_DOCUMENT_ROLES } from '../../shared/catalog-publication-policy'
+import { testUuid, testNow } from './deterministic'
 
 const ACTOR = '70000000-0000-4000-8000-000000000038'
 const checksum = 'f'.repeat(64)
-const utc = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 /** Explicitly selected SYNTHETIC test products only. These D1 rows are not real
  * legal/antivirus approvals, stored R2 originals or production migration/seed.
@@ -22,7 +23,7 @@ export async function provisionPublicationValidityFixture(
 ) {
   const now = options.now ?? utc(),
     validUntil = options.validUntil === undefined ? null : options.validUntil
-  const policyId = crypto.randomUUID()
+  const policyId = testUuid()
   await database
     .prepare(
       `INSERT OR IGNORE INTO identities(id,email,password_hash,email_verified_at,status,created_at,updated_at)
@@ -56,7 +57,7 @@ export async function provisionPublicationValidityFixture(
       .bind(productId)
       .first<{ id: string; brandId: string | null }>()
     if (!product) throw new Error('missing_synthetic_validity_product')
-    const assignment = crypto.randomUUID()
+    const assignment = testUuid()
     await database
       .prepare(
         `INSERT INTO catalog_product_publication_policies(id,product_id,policy_id,actor_id,reason,created_at)
@@ -87,10 +88,10 @@ export async function provisionPublicationValidityFixture(
       .bind(productId)
       .first<{ id: string }>()
     if (existing) continue
-    const uploadId = crypto.randomUUID(),
-      scanId = crypto.randomUUID(),
-      rightsId = crypto.randomUUID(),
-      id = crypto.randomUUID()
+    const uploadId = testUuid(),
+      scanId = testUuid(),
+      rightsId = testUuid(),
+      id = testUuid()
     const key = `quarantine/${uploadId}/${checksum}`
     await database.batch([
       database

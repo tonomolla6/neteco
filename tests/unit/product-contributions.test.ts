@@ -11,12 +11,13 @@ import {
   readD1ProductContributionCommand,
   readD1PublicProductContributions
 } from '../../workers/support/product-contributions'
+import { testUuid } from '../support/deterministic'
 
 describe('MKT024/025 authoritative moderated product contributions', () => {
   let f: Awaited<ReturnType<typeof returnsFixture>>
   let productId: number
   const options = () => ({ now: utc() })
-  const command = () => ({ ...options(), idempotencyKey: crypto.randomUUID() })
+  const command = () => ({ ...options(), idempotencyKey: testUuid() })
   const review = (orderId?: string) => ({
     kind: 'review' as const,
     productId,

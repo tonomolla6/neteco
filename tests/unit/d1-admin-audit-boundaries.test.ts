@@ -8,13 +8,14 @@ import {
   readD1AdminAudit,
   reviewD1AdminAudit
 } from '../../workers/auth/admin-audit'
+import { testUuid } from '../support/deterministic'
 
 it('exports exactly 1000 real invitation commands and rejects the 1001st without truncation or a receipt', async () => {
   const f = await adminAuditFixture()
   try {
     for (let index = 0; index < 1000; index++) await f.source()
     const input = { filters: { family: 'admin_invitation' }, reason: 'Exportación explícita del límite autorizado.' }
-    const receipt = await exportD1AdminAudit(f.database, ADMIN, input, { idempotencyKey: crypto.randomUUID() })
+    const receipt = await exportD1AdminAudit(f.database, ADMIN, input, { idempotencyKey: testUuid() })
     expect(receipt).toMatchObject({ action: 'export', rows: 1000 })
     if (receipt.action !== 'export') throw new Error('wrong receipt')
     const download = await downloadD1AdminAuditExport(f.database, ADMIN, receipt.commandId)
@@ -29,7 +30,7 @@ it('exports exactly 1000 real invitation commands and rejects the 1001st without
     expect(await adminAuditHash(download.csv)).toBe(receipt.digest)
     await f.source()
     const count = f.sqlite.prepare('SELECT count(*) n FROM admin_audit_commands').get()
-    const key = crypto.randomUUID()
+    const key = testUuid()
     await expect(exportD1AdminAudit(f.database, ADMIN, input, { idempotencyKey: key })).rejects.toMatchObject({
       code: 'export_too_large'
     })
@@ -48,7 +49,7 @@ it('rechecks live authority at the review transaction and rolls back every audit
   const f = await adminAuditFixture()
   try {
     const { id } = await f.source(),
-      key = crypto.randomUUID()
+      key = testUuid()
     let revoked = false
     const database = {
       prepare: f.database.prepare.bind(f.database),

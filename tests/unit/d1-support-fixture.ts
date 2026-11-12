@@ -7,6 +7,7 @@ import { handleCustomerSupportHttp } from '../../workers/support/customer-http'
 import { createSupportTicket, supportActor, supportClock } from '../../workers/support/operations'
 import type { SupportHttpDependencies } from '../../workers/support/http'
 import type { SupportPolicy } from '../../shared/support-operations'
+import { testUuid } from '../support/deterministic'
 export { CLAIMS, BUYER_CLAIMS, utc }
 export const ORIGIN = 'https://support.neteco.test'
 export const CONTACT = {
@@ -53,7 +54,7 @@ export async function supportFixture() {
     (await handleAdminSupportHttp(request, deps)) ??
     (await handleCustomerSupportHttp(request, deps)) ??
     new Response(null, { status: 404 })
-  const request = (path: string, method = 'GET', body?: unknown, cookie = adminCookie, key = crypto.randomUUID()) =>
+  const request = (path: string, method = 'GET', body?: unknown, cookie = adminCookie, key = testUuid()) =>
     dispatch(
       new Request(ORIGIN + path, {
         method,
@@ -66,7 +67,7 @@ export async function supportFixture() {
         body: body === undefined ? undefined : JSON.stringify(body)
       })
     )
-  const ticket = async (input: unknown = { ...CONTACT, orderId: order }, key = crypto.randomUUID()) =>
+  const ticket = async (input: unknown = { ...CONTACT, orderId: order }, key = testUuid()) =>
     createSupportTicket(database, await supportActor(database, BUYER_CLAIMS, 'customer', supportClock()), input, {
       idempotencyKey: key,
       policy: POLICY

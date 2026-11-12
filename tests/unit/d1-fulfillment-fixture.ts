@@ -5,11 +5,12 @@ import { createCart, setCartLine, quoteCart } from '../../workers/catalog/cart'
 import { requestShippingOptions, placeOrder } from '../../workers/catalog/checkout'
 import { assignReservation } from '../../workers/catalog/inventory'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 export const ACTOR = '10000000-0000-4000-8000-000000000043'
 export const SESSION = '20000000-0000-4000-8000-000000000043'
 export const CLAIMS = { identityId: ACTOR, sessionId: SESSION, sessionVersion: 1 }
-export const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+export const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 export const REASON = 'Synthetic verified warehouse operation'
 
 export async function fulfillmentFixture(options: { stock?: number } = {}) {
@@ -125,24 +126,14 @@ async function capture(sqlite: DatabaseSync, database: D1Database, orderId: stri
     now: utc(),
     reason: 'Synthetic payment capture'
   })
-  const id = crypto.randomUUID(),
+  const id = testUuid(),
     now = utc()
   sqlite
     .prepare(
       `INSERT INTO payment_intents(id,order_id,provider,merchant_order,method,status,amount_gross_cents,currency,request_hash,redirect_envelope_hash,response_code,expires_at,correlation_id,created_at,updated_at)
     VALUES(?,?,'redsys',?,'card','captured',?,'EUR',?,?,'0000',?,'synthetic',?,?)`
     )
-    .run(
-      id,
-      orderId,
-      `1234${crypto.randomUUID().slice(0, 8)}`,
-      row.total,
-      'a'.repeat(64),
-      'b'.repeat(64),
-      utc(3600000),
-      now,
-      now
-    )
+    .run(id, orderId, `1234${testUuid().slice(-8)}`, row.total, 'a'.repeat(64), 'b'.repeat(64), utc(3600000), now, now)
   sqlite
     .prepare(
       `INSERT INTO order_payment_states(order_id,status,active_intent_id,paid_gross_cents,updated_at) VALUES(?,'paid',?,?,?)`
@@ -159,5 +150,5 @@ async function capture(sqlite: DatabaseSync, database: D1Database, orderId: stri
       `INSERT INTO payment_events(id,payment_intent_id,order_id,provider_event_id,event_type,payload_hash,response_code,correlation_id,created_at)
     VALUES(?,?,?,?,'captured',?,'0000','synthetic',?)`
     )
-    .run(crypto.randomUUID(), id, orderId, crypto.randomUUID(), 'c'.repeat(64), now)
+    .run(testUuid(), id, orderId, testUuid(), 'c'.repeat(64), now)
 }

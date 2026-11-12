@@ -12,6 +12,7 @@ import {
   INVENTORY_FIXTURE_SESSION,
   inventoryFixtureUtc
 } from '../support/admin-inventory-fixture'
+import { testNow } from '../support/deterministic'
 
 const claims = { identityId: INVENTORY_FIXTURE_ACTOR, sessionId: INVENTORY_FIXTURE_SESSION, sessionVersion: 1 }
 const origin = 'https://neteco.invalid',
@@ -225,7 +226,7 @@ describe('private inventory HTTP boundary and existing coordinator contract', ()
       .prepare(
         "INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at) VALUES(?,'admin-inventory',60,?,?)"
       )
-      .run(claims.identityId, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000) + 3600)
+      .run(claims.identityId, Math.floor(testNow() / 1000), Math.floor(testNow() / 1000) + 3600)
     const response = await request()
     expect(response?.status).toBe(429)
     expect(response?.headers.get('x-ratelimit-limit')).toBe('60')

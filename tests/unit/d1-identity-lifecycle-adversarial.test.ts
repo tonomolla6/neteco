@@ -21,11 +21,12 @@ import {
   suppressNewsletterEmail
 } from '../../workers/marketing/newsletter'
 import { d1OverSqlite, openAccountSecurityDatabase } from '../support/d1-sqlite'
+import { testNow } from '../support/deterministic'
 
 const PASSWORD = 'Original-password-123'
 const NEW_PASSWORD = 'Replacement-password-456'
 const EMAIL = 'adversarial@example.invalid'
-const NOW = () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const NOW = () => new Date(testNow()).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 describe('D1 identity lifecycle adversarial atomicity and existing newsletter compatibility', () => {
   let sqlite: DatabaseSync

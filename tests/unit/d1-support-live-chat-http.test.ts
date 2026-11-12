@@ -3,6 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { supportFixture, CLAIMS, BUYER_CLAIMS, ORIGIN } from './d1-support-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleSupportLiveChatHttp, ownsSupportLiveChatNamespace } from '../../workers/support/live-chat-http'
+import { testNow } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      sqlite.function('synthetic_support_http_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_support_http_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_support_http_clock()'))
+      return database
+    }
+  }
+})
 
 interface AvailabilityResponse {
   disclaimer: string
@@ -35,13 +54,11 @@ interface TranscriptResponse {
   }
 }
 
-// Next weekday 10:00 UTC at or after the real clock. The HTTP handler reads the clock itself and the
-// support chat is only open in business hours, so only `Date` is pinned (real timers), and only after
-// the fixture rows exist so they never lie in the pinned clock's future.
+// Next weekday 10:00 UTC at or after the deterministic fixture clock.
 function nextBusinessInstant(): Date {
-  const d = new Date()
+  const d = new Date(testNow())
   d.setUTCHours(10, 0, 0, 0)
-  if (d.getTime() < Date.now()) d.setUTCDate(d.getUTCDate() + 1)
+  if (d.getTime() < testNow()) d.setUTCDate(d.getUTCDate() + 1)
   while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1)
   return d
 }
@@ -54,10 +71,11 @@ describe('SUP-011 Live chat HTTP routing and authorization', () => {
   const sessionConfig = { password: 'synthetic-support-session-cookie-password-0123456789abcdef', maxAgeSeconds: 3600 }
 
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     f = await supportFixture()
     // Fixture sessions stay valid for the pinned instant; cookies are issued after pinning.
     f.sqlite.exec("UPDATE auth_sessions SET expires_at='2099-12-31T23:59:59Z'")
-    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(nextBusinessInstant())
     const migration = await readFile(
       new URL('../../db/d1/migrations/0102_support_live_chat_and_account_managers.sql', import.meta.url),
@@ -69,7 +87,7 @@ describe('SUP-011 Live chat HTTP routing and authorization', () => {
   })
 
   afterEach(() => {
-    f.sqlite.close()
+    f?.sqlite.close()
     vi.useRealTimers()
   })
 

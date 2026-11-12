@@ -9,6 +9,7 @@ import { renderD1ProductSeed } from '../../scripts/lib/d1-product-seed'
 import { renderD1InventorySeed } from '../../scripts/lib/d1-inventory-seed'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid, testNow } from '../support/deterministic'
 
 // Actual canary dispatcher + native workerd D1, not fabricated public DTOs.
 // Fixture writes below are deliberately outside every measured read interval.
@@ -120,12 +121,12 @@ describe('quick order against real public HTTP contracts and workerd D1', () => 
       .prepare('UPDATE variants SET sku=?,ean=?,minimum_quantity=2,quantity_increment=2,maximum_quantity=10 WHERE id=?')
       .bind(sku, ean, variantId)
       .run()
-    const instant = new Date(Date.now() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+    const instant = new Date(testNow() - 60_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
     await database
       .prepare(
         "INSERT INTO variant_price_versions(id,variant_id,gross_cents,volume_tiers,valid_from,status,reason,created_at) VALUES (?,?,1210,'[{\"minimumQuantity\":6,\"unitGrossCents\":1089}]',?,'approved','Synthetic native quick order price',?)"
       )
-      .bind(crypto.randomUUID(), variantId, instant, instant)
+      .bind(testUuid(), variantId, instant, instant)
       .run()
     await provisionPublicationValidityFixture(database, {
       productIds: [productId],

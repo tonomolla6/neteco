@@ -9,6 +9,7 @@ import {
 } from '../../workers/communications/identity-email-delivery'
 import { renderIdentityEmail, type IdentityEmailPurpose } from '../../workers/communications/identity-email'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-29T10:00:00Z'
 const EXPIRES = '2026-09-29T12:00:00Z'
@@ -85,7 +86,7 @@ async function world(purpose: IdentityEmailPurpose = 'verify_email') {
     )
     .run(NOW, '2026-10-01T10:00:00Z')
   const token = randomOpaqueToken()
-  const tokenId = crypto.randomUUID()
+  const tokenId = testUuid()
   const recipient = purpose === 'email_change' ? NEW_EMAIL : EMAIL
   sqlite
     .prepare(

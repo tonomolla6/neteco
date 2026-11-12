@@ -88,6 +88,8 @@ function csv() {
   )
 }
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date(now))
   auth = session()
   permission.value = true
   receipt = null
@@ -163,8 +165,7 @@ beforeEach(() => {
         bytes: new TextEncoder().encode(text).byteLength,
         digest: await adminAuditHash(text),
         filterHash: await adminAuditFilterHash(input.filters),
-        // Relative to the real clock: download() rejects receipts whose expiry already passed.
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+        expiresAt: new Date(Date.parse(now) + 86_400_000).toISOString().replace(/\.\d{3}Z$/, 'Z')
       })
       return receipt
     }
@@ -200,6 +201,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   mounted.splice(0).forEach((w) => w.unmount())
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })

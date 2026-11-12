@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { auditWorkerManifest, type WorkerBundleManifest } from '../../scripts/lib/worker-bundle-policy'
+import { testNow } from '../support/deterministic'
 
 // The installed esbuild Metafile contract, including optional Node-compatible imports.
 function validManifest(): WorkerBundleManifest {
@@ -260,14 +261,17 @@ describe('Cloudflare Worker bundle policy', () => {
       }
     )
 
-    it.each([null, [], false, 'not a map', new Date(), new Map()])('rejects malformed record maps %j', (value) => {
-      const manifest = validManifest()
-      for (const section of ['inputs', 'outputs']) {
-        expect(auditWorkerManifest({ ...manifest, [section]: value }).violations).toContain(
-          `invalid_manifest:${section}`
-        )
+    it.each([null, [], false, 'not a map', new Date(testNow()), new Map()])(
+      'rejects malformed record maps %j',
+      (value) => {
+        const manifest = validManifest()
+        for (const section of ['inputs', 'outputs']) {
+          expect(auditWorkerManifest({ ...manifest, [section]: value }).violations).toContain(
+            `invalid_manifest:${section}`
+          )
+        }
       }
-    })
+    )
 
     it('does not accept inherited metadata evidence', () => {
       expect(auditWorkerManifest(Object.create(validManifest())).violations).toEqual(['invalid_manifest:$'])

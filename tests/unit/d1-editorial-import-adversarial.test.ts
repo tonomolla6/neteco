@@ -9,6 +9,7 @@ import {
   readEditorialPreview
 } from '../../workers/catalog/editorial-import'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
+import { testUuid, testNow } from '../support/deterministic'
 
 const owner = {
   identityId: '0053ad00-0000-4000-8000-000000000001',
@@ -23,7 +24,7 @@ const other = {
 const role = 'editorial-adversarial53'
 const productId = (index: number) => '0053ad10-0000-4000-8000-' + String(index + 1).padStart(12, '0')
 const reason = 'Synthetic local editorial approval, no publication authority'
-const utc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const utc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 
 // Every query and batch still executes against SQLite with all 53 migrations.
 // These wrappers observe or interpose a real competing transaction; they never
@@ -185,7 +186,7 @@ describe('D1 editorial import adversarial authority and atomicity', () => {
   }
 
   function historicalPreview(p: EditorialPreview, expires: 'now' | '-1 minute') {
-    const id = crypto.randomUUID()
+    const id = testUuid()
     // Represent an already stored historical preview, without UPDATE/DELETE of
     // the immutable ledger or changing SQLite's/server's clocks or triggers.
     sqlite

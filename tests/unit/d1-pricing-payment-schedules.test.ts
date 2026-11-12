@@ -7,11 +7,12 @@ import {
   getScheduleReconciliation,
   recordScheduleEntry
 } from '../../workers/pricing/payment-schedules'
+import { testUuid } from '../support/deterministic'
 
 const TOTAL = 100001
 async function world(status = 'approved') {
   const f = await pricingFixture()
-  const quoteId = crypto.randomUUID()
+  const quoteId = testUuid()
   const at = utc(-30000)
   f.sqlite
     .prepare(
@@ -52,7 +53,7 @@ const entry = (f: World, id: string, body: Record<string, unknown>, version: num
     f.database,
     CLAIMS,
     id,
-    { externalRef: `ref-${crypto.randomUUID().slice(0, 8)}`, ...body },
+    { externalRef: `ref-${testUuid().slice(-8)}`, ...body },
     version,
     k,
     utc()
@@ -89,7 +90,7 @@ describe('payment schedule creation (admin)', () => {
     await expect(create(draft)).rejects.toMatchObject({ code: 'invalid_transition' })
     const f = await world()
     await expect(
-      createPaymentSchedule(f.database, CLAIMS, { quoteId: crypto.randomUUID(), ...plan() }, key(), utc())
+      createPaymentSchedule(f.database, CLAIMS, { quoteId: testUuid(), ...plan() }, key(), utc())
     ).rejects.toMatchObject({ code: 'not_found' })
     await create(f)
     await expect(create(f)).rejects.toMatchObject({ code: 'conflict' })
@@ -224,9 +225,9 @@ describe('payment schedule ledger', () => {
         utc()
       )
     ).rejects.toMatchObject({ code: 'forbidden' })
-    await expect(
-      entry(f, crypto.randomUUID(), { entryType: 'capture', seq: 1, amountCents: 1 }, 1)
-    ).rejects.toMatchObject({ code: 'not_found' })
+    await expect(entry(f, testUuid(), { entryType: 'capture', seq: 1, amountCents: 1 }, 1)).rejects.toMatchObject({
+      code: 'not_found'
+    })
   })
   it('the database enforces caps and immutability even for raw writes', async () => {
     const { f, id } = await started()
@@ -236,7 +237,7 @@ describe('payment schedule ledger', () => {
         .prepare(
           'INSERT INTO payment_schedule_ledger(schedule_id,seq,entry_type,amount_cents,external_ref,command_id,created_at) VALUES(?,?,?,?,?,?,?)'
         )
-        .run(id, seq, type, cents, `raw-${crypto.randomUUID()}`, cmd.commandId, utc())
+        .run(id, seq, type, cents, `raw-${testUuid()}`, cmd.commandId, utc())
     expect(() => raw('capture', 1, 30000)).toThrow(/pricing_overpayment/)
     expect(() => raw('refund', null, 101)).toThrow(/pricing_overrefund/)
     expect(() => raw('invoice', null, TOTAL + 1)).toThrow(/pricing_overinvoice/)
@@ -274,8 +275,8 @@ describe('payment schedule cancellation and customer view', () => {
     await expect(getCustomerPaymentSchedule(f.database, OTHER_CLAIMS, f.quoteId, utc())).rejects.toMatchObject({
       code: 'unauthenticated'
     })
-    await expect(
-      getCustomerPaymentSchedule(f.database, BUYER_CLAIMS, crypto.randomUUID(), utc())
-    ).rejects.toMatchObject({ code: 'not_found' })
+    await expect(getCustomerPaymentSchedule(f.database, BUYER_CLAIMS, testUuid(), utc())).rejects.toMatchObject({
+      code: 'not_found'
+    })
   })
 })

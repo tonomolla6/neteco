@@ -10,6 +10,7 @@ import {
   recordD1CatalogQualityReview,
   type CatalogQualityError
 } from '../../workers/catalog/catalog-quality'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T10:00:00Z'
 const REVIEWER_ID = '10000000-0000-4000-8000-000000000092'
@@ -49,10 +50,10 @@ describe('D1 catalog quality score and review queue (CAT-017)', () => {
     mime?: string
     alt?: string
   }) {
-    const upload = crypto.randomUUID()
-    const scan = crypto.randomUUID()
-    const rights = crypto.randomUUID()
-    const publication = crypto.randomUUID()
+    const upload = testUuid()
+    const scan = testUuid()
+    const rights = testUuid()
+    const publication = testUuid()
     const objectKey = `quarantine/${upload}/${CHECKSUM}`
     const mime =
       options.mime ?? (options.role === 'sds' || options.role === 'datasheet' ? 'application/pdf' : 'image/png')
@@ -123,10 +124,10 @@ describe('D1 catalog quality score and review queue (CAT-017)', () => {
   }
 
   function seedActiveTypedDefinition(categoryId: string, code: string): string {
-    const commandId = crypto.randomUUID()
-    const claimNonce = crypto.randomUUID()
-    const definitionId = crypto.randomUUID()
-    const auditId = crypto.randomUUID()
+    const commandId = testUuid()
+    const claimNonce = testUuid()
+    const definitionId = testUuid()
+    const auditId = testUuid()
     const configObj = { precision: 1, min: 0, max: 14 }
     const config = JSON.stringify(configObj)
     const input = JSON.stringify({

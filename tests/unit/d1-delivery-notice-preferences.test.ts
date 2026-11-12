@@ -11,6 +11,7 @@ import {
   dispatchTransactionalEmails,
   type TransactionalEmailSender
 } from '../../workers/communications/transactional-email-delivery'
+import { testUuid, testNow } from '../support/deterministic'
 
 let f: Awaited<ReturnType<typeof returnsFixture>>, orderId: string, eventId: string, queueMessage: unknown
 beforeEach(async () => {
@@ -22,7 +23,7 @@ beforeEach(async () => {
     CLAIMS,
     orderId,
     { action: 'picking', expectedVersion: 0, reason: REASON },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   eventId = String(
     f.sqlite
@@ -65,7 +66,7 @@ async function preference(deliveryUpdates: boolean, at?: string) {
   return updateD1DeliveryPreferences(
     f.database,
     BUYER_CLAIMS,
-    crypto.randomUUID(),
+    testUuid(),
     {
       expectedVersion: Number(row?.version ?? 0),
       deliveryUpdates,
@@ -163,7 +164,7 @@ it('a guest order defaults enabled independently of another customer opting out'
     CLAIMS,
     guest,
     { action: 'picking', expectedVersion: 0, reason: REASON },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   await publishEmailOutbox(
     f.database,
@@ -215,7 +216,7 @@ it('enabling during a suppression transaction cannot record a false terminal sup
         changed = true
         // The race may span a whole second; a stale marker clock must not
         // misclassify the newly confirmed enable as a corrupt source.
-        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000)
+        vi.spyOn(Date, 'now').mockReturnValue(testNow() + 2000)
         await preference(true, utc())
       }
     }),
@@ -246,7 +247,7 @@ it('opt-out does not suppress cancellation or the original order receipt', async
     f.database,
     BUYER_CLAIMS,
     unpaid,
-    crypto.randomUUID(),
+    testUuid(),
     { expectedStatus: 'awaiting_payment', reason: REASON },
     { audience: 'customer' }
   )

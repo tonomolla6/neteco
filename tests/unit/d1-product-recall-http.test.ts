@@ -1,14 +1,41 @@
 import { readFile } from 'node:fs/promises'
-import { beforeEach, afterEach, expect, it } from 'vitest'
+import { beforeEach, afterEach, expect, it, vi } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleProductRecallHttp } from '../../workers/catalog/product-recall-http'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_product_recall_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_product_recall_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const exec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_product_recall_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        prepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_product_recall_clock()'))
+      return database
+    }
+  }
+})
 const origin = 'https://recall.neteco.test'
 const config = { password: 'synthetic-recall-cookie-password-32-long', maxAgeSeconds: 3600 }
 const lot = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
   key = '11111111-1111-4111-8111-111111111111'
 let f: Awaited<ReturnType<typeof returnsFixture>>, cookie: string
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await returnsFixture()
   f.sqlite.exec(await readFile('db/d1/migrations/0106_inventory_lots_costing_forecast.sql', 'utf8'))
   f.sqlite.exec(await readFile('db/d1/migrations/0118_recall_market_messaging.sql', 'utf8'))
@@ -24,7 +51,10 @@ beforeEach(async () => {
     .run(lot, 'v-1-1', location, utc(86400000), utc(), utc())
   cookie = (await issueD1SessionCookie(f.database, CLAIMS, config))!.split(';')[0]!
 })
-afterEach(() => f?.sqlite.close())
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
 const deps = () => ({
   database: f.database,
   origin,
@@ -94,7 +124,7 @@ it('validates and records a communication for a specific allocated line', async 
     .prepare(
       'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,NULL,1,?,?)'
     )
-    .run(crypto.randomUUID(), lot, orderId, 'synthetic', utc())
+    .run(testUuid(), lot, orderId, 'synthetic', utc())
   expect((await handleProductRecallHttp(request('POST'), deps()))?.status).toBe(200)
   const req = request('POST', '', {
     action: 'communicate',
@@ -114,7 +144,7 @@ it('supports bounded cursor pagination on affected lines', async () => {
       .prepare(
         'INSERT INTO inventory_lot_allocations(id,lot_id,order_id,order_line_index,customer_id,quantity,correlation_id,created_at) VALUES(?,?,?,0,NULL,2,?,?)'
       )
-      .run(crypto.randomUUID(), lot, id, 'synthetic', utc())
+      .run(testUuid(), lot, id, 'synthetic', utc())
   const page = (await (await handleProductRecallHttp(request('GET', '?limit=1'), deps()))!.json()) as {
     affected: unknown[]
     nextCursor: string

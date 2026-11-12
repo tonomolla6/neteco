@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminSearchMerchandisingRules from '../../app/components/AdminSearchMerchandisingRules.vue'
 import AdminBusquedaPage from '../../app/pages/admin/busqueda.vue'
 import '#app/nuxt-vitest-app-entry'
+import { testNow } from '../support/deterministic'
 
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -176,6 +177,8 @@ let session: {
 let capabilities: Ref<Record<string, unknown>>
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow())
   mocks.runtime.value = 'cloudflare'
   session = {
     ready: ref(true),
@@ -244,6 +247,7 @@ afterEach(() => {
   mounted.splice(0).forEach((wrapper) => wrapper.unmount())
   hosts.splice(0).forEach((host) => host.remove())
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 async function render(runtime: unknown = 'cloudflare', attached = false) {
@@ -261,7 +265,7 @@ async function render(runtime: unknown = 'cloudflare', attached = false) {
 
 /** UTC instant in the server's `YYYY-MM-DDTHH:MM:SSZ` shape, relative to the real clock. */
 function isoFromNow(days: number) {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
+  return new Date(testNow() + days * 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z')
 }
 
 function deferred<T>() {

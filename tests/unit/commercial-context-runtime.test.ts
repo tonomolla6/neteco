@@ -5,6 +5,7 @@ import worker from '../../workers/canary'
 import { customer360Fixture, utc } from './customer-360-fixture'
 import { salesQuoteReceiptSchema } from '../../shared/sales-quotes'
 import { customer360Schema } from '../../shared/customer-360'
+import { testUuid } from '../support/deterministic'
 
 const paths = [
   '/api/admin/sales-quotes',
@@ -41,7 +42,7 @@ describe('configured commercial and customer context authorities', () => {
             origin: env.AUTH_ORIGIN,
             'cf-connecting-ip': '192.0.2.90',
             'content-type': 'application/json',
-            'idempotency-key': crypto.randomUUID()
+            'idempotency-key': testUuid()
           },
           ...(body === undefined ? {} : { body: JSON.stringify(body) })
         })

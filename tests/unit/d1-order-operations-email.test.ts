@@ -12,6 +12,7 @@ import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communic
 import { dispatchTransactionalEmails } from '../../workers/communications/transactional-email-delivery'
 import type { TransactionalEmailSender } from '../../workers/communications/transactional-email-delivery'
 import * as checkout from '../../workers/catalog/checkout'
+import { testUuid } from '../support/deterministic'
 
 let f: Pick<Awaited<ReturnType<typeof fulfillmentFixture>>, 'sqlite' | 'database'>, orderId: string
 let fixtureOrder: Awaited<ReturnType<typeof fulfillmentFixture>>['order']
@@ -162,7 +163,7 @@ it('immutable recipient and superseded source cannot pass the final atomic sendi
     f.database.batch(
       orderOperationsEmailRenderers[0]!.authorityStatements(
         f.database,
-        { eventId: id, leaseToken: crypto.randomUUID(), sendingAt: utc(), leaseUntil: utc(60000) },
+        { eventId: id, leaseToken: testUuid(), sendingAt: utc(), leaseUntil: utc(60000) },
         prepared
       )
     )
@@ -217,7 +218,7 @@ it('cancellation enqueues only after the real atomic command and renders no refu
   f = cancelled
   await applyDeliveryPreferencesMigration(f.sqlite)
   orderId = await cancelled.order({ paid: false, delivered: false })
-  const key = crypto.randomUUID(),
+  const key = testUuid(),
     input = { expectedStatus: 'awaiting_payment' as const, reason: 'Synthetic private cancellation reason' }
   await cancelD1UnpaidOrder(f.database, BUYER_CLAIMS, orderId, key, input, { audience: 'customer', now: () => utc() })
   await cancelD1UnpaidOrder(f.database, BUYER_CLAIMS, orderId, key, input, { audience: 'customer', now: () => utc() })
@@ -253,7 +254,7 @@ it('rolls back cancellation and release when its outbox insert fails', async () 
       f.database,
       BUYER_CLAIMS,
       orderId,
-      crypto.randomUUID(),
+      testUuid(),
       { expectedStatus: 'awaiting_payment', reason: 'Synthetic private cancellation reason' },
       { audience: 'customer', now: () => utc() }
     )
@@ -279,7 +280,7 @@ it('validates the contractual mailbox and fences altered recipient proof', async
     f.database.batch(
       orderOperationsEmailRenderers[0]!.authorityStatements(
         f.database,
-        { eventId: id, leaseToken: crypto.randomUUID(), sendingAt: utc(), leaseUntil: utc(60000) },
+        { eventId: id, leaseToken: testUuid(), sendingAt: utc(), leaseUntil: utc(60000) },
         changed
       )
     )
@@ -295,7 +296,7 @@ it('rejects corrupted cancellation command content even when the receipt and has
     f.database,
     BUYER_CLAIMS,
     orderId,
-    crypto.randomUUID(),
+    testUuid(),
     { expectedStatus: 'awaiting_payment', reason: 'Synthetic private cancellation reason' },
     { audience: 'customer', now: () => utc() }
   )

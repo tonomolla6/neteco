@@ -4,6 +4,7 @@ import { returnsFixture, CLAIMS, BUYER_CLAIMS, utc } from './d1-returns-fixture'
 import { cancelD1UnpaidOrder } from '../../workers/catalog/order-cancellation'
 import { readD1AdminAudit } from '../../workers/auth/admin-audit'
 import { BASE_MIGRATION_NAMES } from '../support/d1-sqlite'
+import { testUuid } from '../support/deterministic'
 
 it('projects a proven administrative cancellation and excludes customer cancellations without inferring roles', async () => {
   const f = await returnsFixture()
@@ -30,13 +31,13 @@ it('projects a proven administrative cancellation and excludes customer cancella
       reason: 'Cancelación administrativa explícita para auditoría.'
     }
     const adminOrder = await f.order({ paid: false, delivered: false })
-    const adminKey = crypto.randomUUID()
+    const adminKey = testUuid()
     await cancelD1UnpaidOrder(f.database, CLAIMS, adminOrder, adminKey, input, {
       audience: 'admin',
       ipHash: 'a'.repeat(64)
     })
     const customerOrder = await f.order({ paid: false, delivered: false })
-    await cancelD1UnpaidOrder(f.database, BUYER_CLAIMS, customerOrder, crypto.randomUUID(), input, {
+    await cancelD1UnpaidOrder(f.database, BUYER_CLAIMS, customerOrder, testUuid(), input, {
       audience: 'customer'
     })
     const audit = await readD1AdminAudit(f.database, CLAIMS, { family: 'cancellation' })

@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { TOTP, Secret } from 'otpauth'
 import { expect, it, vi } from 'vitest'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { decryptSecret } from '../../server/utils/secrets'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { accountPrivacyExportSchema, accountPrivacyRequestSchema } from '../../shared/account-privacy'
+import { testUuid } from '../support/deterministic'
 
 it('accepts all five account-security notices through compiled canary HTTP and dispatcher on workerd D1/all71, never a real provider', async () => {
   const origin = 'https://account-security-native.neteco.test',
@@ -40,7 +41,9 @@ it('accepts all five account-security notices through compiled canary HTTP and d
     let sends=0;
     export default {async fetch(request,env,context){
       if(new URL(request.url).pathname!='/__native/deliver')return worker.fetch(request,env,context);
-      const input=await request.json(),now=new Date().toISOString().replace(/\\.\\d{3}Z$/,'Z');
+      const input=await request.json();
+      const {now}=await env.DB.prepare("SELECT MAX(available_at) AS now FROM email_outbox_delivery WHERE status='ready'").first();
+      if(!now)throw Error('native_queue_not_ready');
       const messages=[],receipts=[];
       await publishEmailOutbox(env.DB,{send:async message=>messages.push(message)},{now});
       if(messages.length!==input.expected)throw Error('native_queue_count');
@@ -74,8 +77,7 @@ it('accepts all five account-security notices through compiled canary HTTP and d
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       name: 'account-security-native',
-      modules: true,
-      script: bundle.outputFiles[0]!.text,
+      ...bundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       cf: false,
@@ -99,7 +101,7 @@ it('accepts all five account-security notices through compiled canary HTTP and d
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 154 }, (_, index) => index + 1)
+      Array.from({ length: 155 }, (_, index) => index + 1)
     )
     for (const name of migrations) {
       // Rebuild 0071 and its deferred foreign-key check MUST be one atomic D1
@@ -169,7 +171,7 @@ it('accepts all five account-security notices through compiled canary HTTP and d
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expected, forbidden })
       })
-      expect(response.status).toBe(200)
+      expect(response.status, await response.clone().text()).toBe(200)
       const result = (await response.json()) as {
         receipts: string[][]
         applied: { sent: number }
@@ -324,7 +326,7 @@ it('accepts all five account-security notices through compiled canary HTTP and d
     const ownerCookie = cookie
     const requested = await api('POST', '/api/account/privacy', {
       requestType: 'export',
-      idempotencyKey: crypto.randomUUID()
+      idempotencyKey: testUuid()
     })
     expect(requested.status).toBe(202)
     const request = accountPrivacyRequestSchema.parse(await requested.json())

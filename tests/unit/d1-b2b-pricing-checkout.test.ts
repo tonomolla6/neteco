@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { createCart, quoteCart, setCartLine } from '../../workers/catalog/cart'
 import { placeOrder, requestShippingOptions } from '../../workers/catalog/checkout'
+import { testUuid } from '../support/deterministic'
 
 async function world() {
   const f = await returnsFixture()
@@ -29,14 +30,14 @@ async function world() {
         categoryRules: [],
         reason: 'Acuerdo comercial'
       },
-      { idempotencyKey: crypto.randomUUID(), now: () => now }
+      { idempotencyKey: testUuid(), now: () => now }
     )
     await assignD1CompanyB2BPriceList(
       f.database,
       CLAIMS,
       'company',
       { priceListId: 'list', expectedVersion: 0, validFrom: before, validUntil: null, reason: 'Acuerdo comercial' },
-      { idempotencyKey: crypto.randomUUID(), now: () => now }
+      { idempotencyKey: testUuid(), now: () => now }
     )
     const cart = await createCart(f.database, { correlationId: 'b2b-test', now })
     await setCartLine(f.database, {
@@ -123,7 +124,7 @@ describe('contractual checkout', () => {
           categoryRules: [{ categoryId: 'c1', discountBps: 9500 }],
           reason: 'Acuerdo comercial'
         },
-        { idempotencyKey: crypto.randomUUID(), now: () => f.input.now }
+        { idempotencyKey: testUuid(), now: () => f.input.now }
       )
       const q = await quoteCart(f.database, { ...f.input, idempotencyKey: 'minimum-quote' })
       expect(q.outcome).toBe('quoted')
@@ -209,7 +210,7 @@ describe('contractual checkout', () => {
                     categoryRules: [],
                     reason: 'Cambio comercial'
                   },
-                  { idempotencyKey: crypto.randomUUID(), now: () => f.input.now }
+                  { idempotencyKey: testUuid(), now: () => f.input.now }
                 )
               }
               return target.batch(statements)
@@ -262,7 +263,7 @@ describe('contractual checkout', () => {
                     categoryRules: [],
                     reason: 'Cambio comercial'
                   },
-                  { idempotencyKey: crypto.randomUUID(), now: () => f.input.now }
+                  { idempotencyKey: testUuid(), now: () => f.input.now }
                 )
               }
               return target.batch(statements)

@@ -7,6 +7,7 @@ import {
   setAutoDiscountRuleStatus,
   updateAutoDiscountRule
 } from '../../workers/pricing/auto-discounts'
+import { testUuid } from '../support/deterministic'
 
 const input = (over: Record<string, unknown> = {}) => ({
   code: 'CAT-10',
@@ -93,7 +94,7 @@ describe('auto discount rules (admin, PRI-014)', () => {
       updateAutoDiscountRule(f.database, CLAIMS, r.targetId, input({ code: 'OTHER-1' }), 2, key(), utc())
     ).rejects.toMatchObject({ code: 'invalid_input' })
     await expect(
-      updateAutoDiscountRule(f.database, CLAIMS, crypto.randomUUID(), input(), 1, key(), utc())
+      updateAutoDiscountRule(f.database, CLAIMS, testUuid(), input(), 1, key(), utc())
     ).rejects.toMatchObject({ code: 'not_found' })
   })
   it('concurrent updates with the same expected version: exactly one wins', async () => {

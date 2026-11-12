@@ -21,6 +21,7 @@ import { listPublishedProducts } from '../../workers/catalog/products'
 import { listAvailability } from '../../workers/catalog/inventory'
 import { d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-09-30T09:00:00Z'
 const ORIGIN = 'https://neteco.invalid'
@@ -588,8 +589,8 @@ describe('D1 editorial catalog read adapter against migrated SQLite', () => {
     const forged = await seal(
       ironCrypto,
       {
-        id: crypto.randomUUID(),
-        createdAt: Date.now(),
+        id: testUuid(),
+        createdAt: Date.parse(NOW),
         data: {
           sessionId: SESSION,
           sessionVersion: 1,

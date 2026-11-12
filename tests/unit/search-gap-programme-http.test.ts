@@ -4,6 +4,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { categoryCommandFixture, CATEGORY_CLAIMS } from '../support/category-command-fixture'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { handleSearchGapHttp, ownsSearchGapNamespace } from '../../workers/catalog/search-gap-programme-http'
+import { testUuid, testNow } from '../support/deterministic'
 
 describe('SEO-025 private HTTP contract', () => {
   let sqlite: DatabaseSync, database: D1Database, cookie: string
@@ -20,7 +21,7 @@ describe('SEO-025 private HTTP contract', () => {
       if (!sqlite.prepare('SELECT 1 FROM sqlite_master WHERE name=?').get(table))
         sqlite.exec(await readFile(new URL(`../../db/d1/migrations/${file}`, import.meta.url), 'utf8'))
     cookie = (await issueD1SessionCookie(database, CATEGORY_CLAIMS, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!
-    const today = new Date()
+    const today = new Date(testNow())
     for (let d = 1; d <= 10; d++)
       sqlite
         .prepare(
@@ -65,9 +66,8 @@ describe('SEO-025 private HTTP contract', () => {
       (await handle(req('', 'POST', { action: 'open', environment: 'production', term: 'inexistente' })))!.status
     ).toBe(422)
     expect(
-      (await handle(
-        req('', 'POST', { action: 'dismiss', id: crypto.randomUUID(), expectedVersion: 1, note: 'No existe' })
-      ))!.status
+      (await handle(req('', 'POST', { action: 'dismiss', id: testUuid(), expectedVersion: 1, note: 'No existe' })))!
+        .status
     ).toBe(404)
     expect((await handle(req('', 'POST', { unexpected: true })))!.status).toBe(422)
   })

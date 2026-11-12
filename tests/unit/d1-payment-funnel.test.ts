@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { analyticsFixture, CLAIMS } from './d1-analytics-fixture'
@@ -11,10 +11,12 @@ import {
   type PaymentFunnelMethod
 } from '../../workers/payments/funnel-analytics'
 import { handlePaymentFunnelHttp, ownsPaymentFunnelNamespace } from '../../workers/payments/funnel-http'
+import { testUuid } from '../support/deterministic'
 
 const connections: DatabaseSync[] = []
 afterEach(() => {
   for (const db of connections.splice(0)) db.close()
+  vi.useRealTimers()
 })
 
 const NOW = '2026-10-29T10:00:00Z'
@@ -32,6 +34,7 @@ async function setupPaymentFunnelFixture(options: { now?: string } = {}) {
   world.sqlite.exec(migrationSql)
 
   const currentNow = options.now ?? NOW
+  vi.setSystemTime(new Date(currentNow))
   world.setNow(currentNow)
 
   // Configure admin session claims in database for auth checks
@@ -167,7 +170,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
              ) VALUES (?, ?, ?, 'declined', 'card', 'desktop', ?, '0190', 'issuer_declined', 5000, 'EUR', ?)`
           )
           .run(
-            crypto.randomUUID(),
+            testUuid(),
             intent.id,
             order.id,
             'BBVA-4532015112830366', // Prohibited PAN inside bank
@@ -182,7 +185,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
       const intent = fixture.sqlite.prepare('SELECT id FROM payment_intents WHERE order_id = ?').get(order.id) as {
         id: string
       }
-      const eventId = crypto.randomUUID()
+      const eventId = testUuid()
 
       fixture.sqlite
         .prepare(
@@ -211,7 +214,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
         id: string
       }
 
-      const eventId = crypto.randomUUID()
+      const eventId = testUuid()
       await recordPaymentFunnelEvent(fixture.database, {
         id: eventId,
         intentId: intent.id,
@@ -245,7 +248,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
         id: string
       }
 
-      const eventId = crypto.randomUUID()
+      const eventId = testUuid()
       await recordPaymentFunnelEvent(fixture.database, {
         id: eventId,
         intentId: intent.id,
@@ -364,7 +367,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
 
       for (let i = 0; i < records.length; i++) {
         const rec = records[i]
-        const intentId = crypto.randomUUID()
+        const intentId = testUuid()
         const merchantOrder = '9' + String(i).padStart(7, '0')
         const intentStatus =
           rec.step === 'authorized'
@@ -395,14 +398,14 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
             rec.method === 'bank_transfer' ? 'card' : rec.method,
             intentStatus,
             FUTURE,
-            crypto.randomUUID(),
+            testUuid(),
             rec.time,
             rec.time
           )
 
         // Record the prior intent_created and redirected steps for full funnel tracing
         await recordPaymentFunnelEvent(fixture.database, {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           intentId,
           orderId: order.id,
           step: 'intent_created',
@@ -414,7 +417,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
           createdAt: rec.time
         })
         await recordPaymentFunnelEvent(fixture.database, {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           intentId,
           orderId: order.id,
           step: 'redirected',
@@ -426,7 +429,7 @@ describe('PAY-018 Payment Funnel & Decline Causes (TDD)', () => {
           createdAt: rec.time
         })
         await recordPaymentFunnelEvent(fixture.database, {
-          id: crypto.randomUUID(),
+          id: testUuid(),
           intentId,
           orderId: order.id,
           step: rec.step,

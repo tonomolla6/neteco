@@ -16,6 +16,7 @@ import {
   CATEGORY_SESSION,
   ROOT_CATEGORY
 } from '../support/category-command-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('D1 category typed attribute definitions are governed and atomic', () => {
   let sqlite: DatabaseSync, database: D1Database
@@ -51,7 +52,7 @@ describe('D1 category typed attribute definitions are governed and atomic', () =
       action,
       target,
       input,
-      { idempotencyKey: options.key ?? crypto.randomUUID() }
+      { idempotencyKey: options.key ?? testUuid() }
     )
   }
   const create = (
@@ -234,7 +235,7 @@ describe('D1 category typed attribute definitions are governed and atomic', () =
     expect(sqlite.prepare('SELECT count(*) AS n FROM catalog_typed_attribute_guards').get()).toEqual({ n: 0 })
   })
   it('keeps immutable revision history and old replay outcome after later edits and retirement', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       initial = await create(body(), { key })
     const next = await execute(
       'update',
@@ -272,7 +273,7 @@ describe('D1 category typed attribute definitions are governed and atomic', () =
     expect(() => sqlite.exec("UPDATE catalog_typed_attribute_revisions SET label='changed' WHERE revision=1")).toThrow()
   })
   it('rejects stale versions, target identity changes, wrong config and reused idempotency bodies without effects', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       initial = await create(body(), { key }),
       before = state()
     await expect(create({ ...body(), label: 'Different label' }, { key })).rejects.toMatchObject({
@@ -384,7 +385,7 @@ describe('D1 category typed attribute definitions are governed and atomic', () =
     ).toEqual(protectedBefore)
   })
   it('requires live authority and MFA even for durable replay', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     await create(body(), { key })
     sqlite.prepare('UPDATE auth_sessions SET mfa_verified=0 WHERE id=?').run(CATEGORY_SESSION)
     const before = state()
@@ -410,7 +411,7 @@ describe('D1 category typed attribute definitions are governed and atomic', () =
       expect(sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 })
   })
   it('requires the catalog grant as well as administration for creation and durable replay', async () => {
-    const key = crypto.randomUUID()
+    const key = testUuid()
     await create(body(), { key })
     sqlite.exec("DELETE FROM role_permissions WHERE permission_code='catalog.write'")
     const before = state()

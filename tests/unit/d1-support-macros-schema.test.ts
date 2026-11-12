@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { CLAIMS, supportFixture, utc } from './d1-support-fixture'
+import { testUuid } from '../support/deterministic'
 
 describe('D1 support macro SQL backstop', () => {
   let fixture: Awaited<ReturnType<typeof supportFixture>>
@@ -23,8 +24,8 @@ describe('D1 support macro SQL backstop', () => {
       omitReview?: string
     } = {}
   ) {
-    const id = crypto.randomUUID(),
-      macroId = input.macroId ?? crypto.randomUUID()
+    const id = testUuid(),
+      macroId = input.macroId ?? testUuid()
     const approved = input.approved ?? false
     const state = approved ? 'approved' : 'draft'
     const response: Record<string, unknown> = {
@@ -53,7 +54,7 @@ describe('D1 support macro SQL backstop', () => {
         id,
         macroId,
         CLAIMS.identityId,
-        crypto.randomUUID(),
+        testUuid(),
         'a'.repeat(64),
         approved ? 'approve' : 'draft',
         approved ? 1 : 0,

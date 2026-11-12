@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { openMigratedDatabase, d1OverSqlite } from './d1-sqlite'
+import { testNow } from './deterministic'
 
 export const CATEGORY_IDENTITY = '10000000-0000-4000-8000-000000000040'
 export const CATEGORY_SESSION = '20000000-0000-4000-8000-000000000040'
@@ -7,7 +8,7 @@ export const ROOT_CATEGORY = '30000000-0000-4000-8000-000000000040'
 export const CHILD_CATEGORY = '40000000-0000-4000-8000-000000000040'
 export const OTHER_CATEGORY = '50000000-0000-4000-8000-000000000040'
 export const CATEGORY_CLAIMS = { identityId: CATEGORY_IDENTITY, sessionId: CATEGORY_SESSION, sessionVersion: 1 }
-export const categoryUtc = (offset = 0) => new Date(Date.now() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+export const categoryUtc = (offset = 0) => new Date(testNow() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
 /** Explicit local synthetic references. Never alter the shared migration/seed
  * adapter or manufacture production publication/financial approval evidence. */
 export async function categoryCommandFixture() {

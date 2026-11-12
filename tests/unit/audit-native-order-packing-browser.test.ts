@@ -7,6 +7,7 @@ import {
   auditNativeOrderPackingBrowser,
   createPackingBrowserBridge
 } from '../../scripts/lib/audit-native-order-packing-browser'
+import { testUuid } from '../support/deterministic'
 
 const connect = vi.hoisted(() => vi.fn())
 vi.mock('../../scripts/lib/remote-test-browser', () => ({
@@ -38,7 +39,7 @@ beforeEach(async () => {
     )
 })
 afterEach(() => fixture.sqlite.close())
-function request(input: unknown, key = crypto.randomUUID()) {
+function request(input: unknown, key = testUuid()) {
   return new Request(`${origin}/api/admin/orders/${fixture.orderId}/packing/commands`, {
     method: 'POST',
     headers: {
@@ -92,7 +93,7 @@ it('loses pack201 only after real immutable ledger, matching recovery and curren
       adminCookie: cookie,
       orderId: fixture.orderId
     })
-  const key = crypto.randomUUID(),
+  const key = testUuid(),
     input = pack(),
     before = fixture.economic()
   expect(await bridge.forward(request(input, key))).toEqual({ action: 'abort', reason: 'lost_packing_response' })
@@ -157,7 +158,7 @@ it('rejects a transport receipt whose order correlation differs from the real co
     dispatch: async (req) => {
       const response = await dispatch(req)
       if (req.method !== 'POST' || response.status !== 201) return response
-      return Response.json({ ...((await response.json()) as object), orderId: crypto.randomUUID() }, { status: 201 })
+      return Response.json({ ...((await response.json()) as object), orderId: testUuid() }, { status: 201 })
     }
   })
   await expect(bridge.forward(request(pack()))).rejects.toThrow()

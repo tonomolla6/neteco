@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { invitationFixture, ADMIN, RECIPIENT, FOREIGN, ORIGIN } from './d1-admin-invitations-fixture'
 import { handleAdminInvitationsHttp } from '../../workers/auth/admin-invitations-http'
 import { adminInvitationIntentHash } from '../../shared/admin-invitations'
+import { testUuid } from '../support/deterministic'
 
 describe('ADM-004 real D1 invitation HTTP boundary', () => {
   let f: Awaited<ReturnType<typeof invitationFixture>>
@@ -23,7 +24,7 @@ describe('ADM-004 real D1 invitation HTTP boundary', () => {
           cookie: await f.cookie(claims),
           origin: ORIGIN,
           'content-type': 'application/json',
-          'idempotency-key': crypto.randomUUID(),
+          'idempotency-key': testUuid(),
           ...headers
         },
         body: body === undefined ? undefined : JSON.stringify(body)
@@ -39,7 +40,7 @@ describe('ADM-004 real D1 invitation HTTP boundary', () => {
     expect(response.headers.get('referrer-policy')).toBe('no-referrer')
   })
   it('creates once and retrieves an exact actor-bound receipt through manual GET', async () => {
-    const key = crypto.randomUUID(),
+    const key = testUuid(),
       response = await request(undefined, 'POST', f.input, { 'idempotency-key': key })
     expect(response.status).toBe(201)
     const receipt = await response.json()

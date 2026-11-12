@@ -14,10 +14,11 @@ import {
   handleSearchMerchandisingHttp,
   ownsSearchMerchandisingNamespace
 } from '../../workers/catalog/search-merchandising-http'
+import { testNow } from '../support/deterministic'
 
 const PRODUCT = '10000000-0000-4000-8000-000000000b01'
 const OTHER = '10000000-0000-4000-8000-000000000b02'
-const at = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
+const at = (offsetMs = 0) => new Date(testNow() + offsetMs).toISOString().replace(/\.\d{3}Z$/, 'Z')
 const DAY = 86_400_000
 
 describe('search merchandising private HTTP contract', () => {
@@ -25,7 +26,28 @@ describe('search merchandising private HTTP contract', () => {
   const origin = 'https://merchandising.neteco.invalid',
     password = 'synthetic-only-cookie-password-32-characters'
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(testNow() + 1000)
     ;({ sqlite, database } = await categoryCommandFixture())
+    sqlite.function('synthetic_merch_clock', () =>
+      vi
+        .getMockedSystemTime()!
+        .toISOString()
+        .replace(/\.\d{3}Z$/, 'Z')
+    )
+    const exec = sqlite.exec.bind(sqlite),
+      prepare = database.prepare.bind(database)
+    sqlite.exec = (sql: string) => exec(sql.replaceAll("'now'", 'synthetic_merch_clock()'))
+    database.prepare = (sql: string) => prepare(sql.replaceAll("'now'", 'synthetic_merch_clock()'))
+    const triggers = sqlite
+      .prepare(
+        "SELECT name,sql FROM sqlite_schema WHERE type='trigger' AND name LIKE 'search_merchandising_%' AND sql LIKE '%strftime%'"
+      )
+      .all() as Array<{ name: string; sql: string }>
+    for (const trigger of triggers) {
+      sqlite.exec(`DROP TRIGGER "${trigger.name}"`)
+      sqlite.exec(trigger.sql)
+    }
     if (!sqlite.prepare("SELECT 1 FROM sqlite_master WHERE name='search_merchandising_commands'").get())
       sqlite.exec(
         await readFile(new URL('../../db/d1/migrations/0091_search_merchandising_rules.sql', import.meta.url), 'utf8')
@@ -43,7 +65,10 @@ describe('search merchandising private HTTP contract', () => {
       .run(OTHER, ROOT_CATEGORY)
     cookie = (await issueD1SessionCookie(database, CATEGORY_CLAIMS, { password, maxAgeSeconds: 3600 }))!.split(';')[0]!
   })
-  afterEach(() => sqlite.close())
+  afterEach(() => {
+    sqlite.close()
+    vi.useRealTimers()
+  })
 
   const draft = (extra: Record<string, unknown> = {}) => ({
     action: 'save',
@@ -281,7 +306,7 @@ describe('search merchandising private HTTP contract', () => {
   })
 
   it('enforces the command quota while keeping read-only receipt recovery available', async () => {
-    const instant = Math.floor(Date.now() / 1000)
+    const instant = Math.floor(testNow() / 1000)
     sqlite
       .prepare(
         'INSERT INTO identity_rate_limits(identity_id,scope,used,window_started_at,expires_at) VALUES (?, ?, 60, ?, ?)'
@@ -369,9 +394,7 @@ describe('search merchandising private HTTP contract', () => {
       expect(recovered.status).toBe(200)
       expect(await recovered.text()).toBe(receipt)
       expect(await (await dispatch('/api/admin/search-merchandising')).json()).toMatchObject({ total: 1 })
-      sqlite
-        .prepare("UPDATE auth_sessions SET revoked_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?")
-        .run(CATEGORY_SESSION)
+      sqlite.prepare('UPDATE auth_sessions SET revoked_at=created_at WHERE id=?').run(CATEGORY_SESSION)
       expect((await dispatch('/api/admin/search-merchandising/commands/dispatch-merchandising')).status).toBe(401)
     })
 

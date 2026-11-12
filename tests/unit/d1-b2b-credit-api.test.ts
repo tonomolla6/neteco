@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { readD1B2BCustomerTerms, upsertD1B2BCreditTerms } from '../../workers/catalog/b2b-credit'
 import { upsertD1B2BPriceList, assignD1CompanyB2BPriceList } from '../../workers/catalog/b2b-pricing'
+import { testUuid } from '../support/deterministic'
 
 const companyId = '30000000-0000-4000-8000-000000000099'
 async function world() {
@@ -16,7 +17,7 @@ async function world() {
       "INSERT INTO companies(id,customer_id,legal_name,status,created_at,updated_at) VALUES(?,?,'Empresa','approved',?,?)"
     )
     .run(companyId, CUSTOMER, before, before)
-  return { ...f, now, options: { idempotencyKey: crypto.randomUUID(), now: () => now } }
+  return { ...f, now, options: { idempotencyKey: testUuid(), now: () => now } }
 }
 const input = {
   expectedVersion: 0,
@@ -60,7 +61,7 @@ describe('credit administration', () => {
       await expect(
         upsertD1B2BCreditTerms(f.database, CLAIMS, companyId, input, {
           ...f.options,
-          idempotencyKey: crypto.randomUUID()
+          idempotencyKey: testUuid()
         })
       ).rejects.toMatchObject({ code: 'conflict' })
     } finally {
@@ -136,7 +137,7 @@ describe('credit administration', () => {
           categoryRules: [],
           reason: 'Acuerdo comercial'
         },
-        { ...f.options, idempotencyKey: crypto.randomUUID() }
+        { ...f.options, idempotencyKey: testUuid() }
       )
       await assignD1CompanyB2BPriceList(
         f.database,
@@ -149,7 +150,7 @@ describe('credit administration', () => {
           validUntil: null,
           reason: 'Acuerdo comercial'
         },
-        { ...f.options, idempotencyKey: crypto.randomUUID() }
+        { ...f.options, idempotencyKey: testUuid() }
       )
       expect(await readD1B2BCustomerTerms(f.database, BUYER_CLAIMS, { now: () => f.now })).toMatchObject({
         priceListName: 'Profesionales'

@@ -19,11 +19,17 @@ import { handleD1FiscalRequest, ownsFiscalNamespace } from '../../workers/fiscal
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { WorkerBeplyInvoiceProvider } from '../../workers/fiscal/beply-provider'
 import { fiscalBatchEvidence } from '../../workers/fiscal/d1-boundary'
+import { testUuid } from '../support/deterministic'
 
 const NOW = '2026-10-03T09:00:00Z',
   IDENTITY = '10000000-0000-4000-8000-000000000001',
   SESSION = '20000000-0000-4000-8000-000000000001'
 const claims = { identityId: IDENTITY, sessionId: SESSION, sessionVersion: 1 }
+function testClock() {
+  const clock = vi.getMockedSystemTime()
+  if (!clock) throw new Error('missing_synthetic_fiscal_clock')
+  return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
 const mappings = {
   companyId: 'SYNTHETIC',
   taxes: { '0': 'ZERO', '1000': 'REDUCED', '2100': 'GENERAL' },
@@ -55,7 +61,7 @@ async function world(options: { queue?: boolean; owner?: boolean } = {}) {
     sqlite.exec(await readFile(new URL('../../db/d1/migrations/0042_fiscal_issuance.sql', import.meta.url), 'utf8'))
   sqlite.limits.exprDepth = 100
   seedInventoryFixture(sqlite)
-  sqlite.function('synthetic_fiscal_clock', () => new Date(Date.now()).toISOString().replace('.000Z', 'Z'))
+  sqlite.function('synthetic_fiscal_clock', testClock)
   const native = d1OverSqlite(sqlite),
     prepare = native.prepare.bind(native)
   const database = {
@@ -120,7 +126,7 @@ async function world(options: { queue?: boolean; owner?: boolean } = {}) {
   })
   if (order.outcome !== 'order_created') throw Error('Synthetic order fixture failed')
   const orderId = String(order.body.id),
-    intentId = crypto.randomUUID(),
+    intentId = testUuid(),
     hash = 'a'.repeat(64)
   const amount = Number(
     sqlite.prepare('SELECT total_gross_cents FROM orders WHERE id=?').get(orderId)!.total_gross_cents
@@ -471,7 +477,7 @@ async function http(
       sessionCookieConfiguration: COOKIE,
       origin: 'https://neteco.invalid',
       appEnvironment: options.appEnvironment ?? 'local',
-      now: () => new Date(Date.now()).toISOString().replace('.000Z', 'Z'),
+      now: testClock,
       storage: options.storage ?? w.storage,
       providerResolver: () => w.provider
     }

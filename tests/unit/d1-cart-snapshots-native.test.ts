@@ -1,7 +1,7 @@
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
-import { build } from 'esbuild'
+import { buildNativeCanary as build } from '../support/native-canary-build'
 import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
 import { expect, it, vi } from 'vitest'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
@@ -14,6 +14,7 @@ import {
   cartSnapshotIntentHash,
   sharedCartResolveResponseSchema
 } from '../../shared/cart-snapshots'
+import { testUuid } from '../support/deterministic'
 
 it('creates, recovers, publicly reads and revokes a snapshot through actual canary/workerd D1 without cart or stock writes', async () => {
   const origin = 'https://cart-snapshots-native.neteco.test',
@@ -38,8 +39,7 @@ it('creates, recovers, publicly reads and revokes a snapshot through actual cana
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       name: 'cart-snapshots-native',
-      modules: true,
-      script: bundle.outputFiles[0]!.text,
+      ...bundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       cf: false,
@@ -88,9 +88,9 @@ it('creates, recovers, publicly reads and revokes a snapshot through actual cana
     const now = (await database.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS now").first<{ now: string }>())!
       .now
     await provisionPublicationValidityFixture(database, { productIds: ['p-1'], now })
-    const identityId = randomUUID(),
-      sessionId = randomUUID(),
-      customerId = randomUUID()
+    const identityId = testUuid(),
+      sessionId = testUuid(),
+      customerId = testUuid()
     await database.batch([
       database
         .prepare("INSERT INTO customers(id,name,created_at,updated_at) VALUES(?,'Synthetic snapshot owner',?,?)")
@@ -117,12 +117,12 @@ it('creates, recovers, publicly reads and revokes a snapshot through actual cana
       variantId: 'v-1-1',
       quantity: 2,
       expectedVersion: 1,
-      idempotencyKey: randomUUID(),
+      idempotencyKey: testUuid(),
       now,
       correlationId: 'native-snapshot-fixture'
     })
     const cookie = `${sessionCookie}; neteco-cart-v2=v1.${cart.cartId}.${cart.token}`
-    const call = (path: string, method: string, value?: unknown, Cookie = cookie, key = randomUUID(), hash?: string) =>
+    const call = (path: string, method: string, value?: unknown, Cookie = cookie, key = testUuid(), hash?: string) =>
       runtime.dispatchFetch(origin + path, {
         method,
         headers: {
@@ -149,7 +149,7 @@ it('creates, recovers, publicly reads and revokes a snapshot through actual cana
         ].map(async (table) => [table, (await database.prepare('SELECT * FROM ' + table).all()).results])
       )
     const before = await state(),
-      key = randomUUID(),
+      key = testUuid(),
       input = { name: 'Native saved cart', expectedCartVersion: 2, createShare: true }
     const created = await call('/api/account/cart-snapshots', 'POST', input, cookie, key)
     expect(created.status).toBe(201)
@@ -162,7 +162,7 @@ it('creates, recovers, publicly reads and revokes a snapshot through actual cana
       'GET',
       undefined,
       cookie,
-      randomUUID(),
+      testUuid(),
       await cartSnapshotIntentHash(input)
     )
     expect(recovered.status).toBe(200)

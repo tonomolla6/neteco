@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { returnsFixture, CLAIMS, BUYER_CLAIMS, CUSTOMER, utc } from './d1-returns-fixture'
 import { createCart, quoteCart, setCartLine } from '../../workers/catalog/cart'
 import { requestShippingOptions } from '../../workers/catalog/checkout'
+import { testUuid } from '../support/deterministic'
 
 export async function creditWorld() {
   const f = await returnsFixture()
@@ -21,7 +22,7 @@ export async function creditWorld() {
       )
       .run(
         CLAIMS.identityId,
-        crypto.randomUUID(),
+        testUuid(),
         CLAIMS.sessionId,
         expected,
         limit,

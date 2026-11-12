@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, it, expect, vi } from 'vitest'
 import { applyDeliveryPreferencesMigration } from '../support/delivery-preferences-migration'
-import { returnsFixture, CLAIMS, BUYER_CLAIMS, REQUEST, ADMISSION, utc } from './d1-returns-fixture'
+import { returnsFixture, CLAIMS, BUYER_CLAIMS, REQUEST, ADMISSION } from './d1-returns-fixture'
 import { requestD1CustomerReturn, executeD1AdminReturnCommand } from '../../workers/returns/operations'
 import { prepareOrderReturnEmail, orderReturnEmailRenderers } from '../../workers/communications/order-return-email'
 import { publishEmailOutbox, receiveEmailDispatch } from '../../workers/communications/email-outbox'
@@ -8,18 +8,53 @@ import {
   dispatchTransactionalEmails,
   type TransactionalEmailSender
 } from '../../workers/communications/transactional-email-delivery'
+import { testNow, testUuid } from '../support/deterministic'
+
+vi.mock('../support/d1-sqlite', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../support/d1-sqlite')>()
+  return {
+    ...original,
+    openMigratedDatabase: async (...args: Parameters<typeof original.openMigratedDatabase>) => {
+      const sqlite = await original.openMigratedDatabase(...args)
+      sqlite.function('synthetic_return_email_clock', () => {
+        const clock = vi.getMockedSystemTime()
+        if (!clock) throw new Error('missing_synthetic_return_email_clock')
+        return clock.toISOString().replace(/\.\d{3}Z$/, 'Z')
+      })
+      const nativeExec = sqlite.exec.bind(sqlite)
+      sqlite.exec = (sql: string) => nativeExec(sql.replaceAll("'now'", 'synthetic_return_email_clock()'))
+      return sqlite
+    },
+    d1OverSqlite: (sqlite: Parameters<typeof original.d1OverSqlite>[0]) => {
+      const database = original.d1OverSqlite(sqlite),
+        nativePrepare = database.prepare.bind(database)
+      database.prepare = (sql: string) => nativePrepare(sql.replaceAll("'now'", 'synthetic_return_email_clock()'))
+      return database
+    }
+  }
+})
 let f: Awaited<ReturnType<typeof returnsFixture>>, orderId: string, publicRef: string
+function instant(offset = 0) {
+  const clock = vi.getMockedSystemTime()
+  if (!clock) throw new Error('missing_synthetic_return_email_clock')
+  return new Date(clock.getTime() + offset).toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
 const from = 'returns@example.invalid',
   context = { appEnvironment: 'local' as const, validationEnabled: false },
   secret = 'PRIVATE_REASON_NOT_FOR_EMAIL',
   publicMessage = 'Información pública <b>sintética</b> para el comprador.'
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(testNow() + 1000)
   f = await returnsFixture()
   await applyDeliveryPreferencesMigration(f.sqlite)
   orderId = await f.order()
 })
-afterEach(() => f?.sqlite.close())
-async function request(key = crypto.randomUUID()) {
+afterEach(() => {
+  f?.sqlite.close()
+  vi.useRealTimers()
+})
+async function request(key = testUuid()) {
   const result = await requestD1CustomerReturn(
     f.database,
     BUYER_CLAIMS,
@@ -49,7 +84,7 @@ it.each(['requested', 'approved', 'rejected', 'received', 'inspected', 'resoluti
         CLAIMS,
         publicRef,
         { action: 'rejected', expectedVersion: 1, reason: secret, publicMessage, evidence: secret },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
     else if (state !== 'requested') {
       for (const [index, action] of ['approved', 'received', 'inspected', 'resolution_ready'].entries()) {
@@ -82,7 +117,7 @@ it.each(['requested', 'approved', 'rejected', 'received', 'inspected', 'resoluti
                     evidence: secret,
                     resolution: secret
                   }
-        await executeD1AdminReturnCommand(f.database, CLAIMS, publicRef, input, { idempotencyKey: crypto.randomUUID() })
+        await executeD1AdminReturnCommand(f.database, CLAIMS, publicRef, input, { idempotencyKey: testUuid() })
         if (action === state) break
       }
     }
@@ -104,7 +139,7 @@ it.each(['requested', 'approved', 'rejected', 'received', 'inspected', 'resoluti
   }
 )
 it('same request key replays without duplicate metadata', async () => {
-  const key = crypto.randomUUID()
+  const key = testUuid()
   await request(key)
   await request(key)
   expect(f.sqlite.prepare("SELECT count(*) n FROM email_outbox_events WHERE source_kind='return'").get()).toEqual({
@@ -127,20 +162,20 @@ it('superseded request is never sent as current and is manual-review only when e
     CLAIMS,
     publicRef,
     { ...ADMISSION, publicMessage, evidence: secret },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   expect(await prepareOrderReturnEmail(f.database, obsolete, from, context)).toEqual({ error: 'source_not_found' })
   await publishEmailOutbox(
     f.database,
     {
       send: async (message) => {
-        await receiveEmailDispatch(f.database, message, utc())
+        await receiveEmailDispatch(f.database, message, instant())
       }
     },
-    { now: utc(), limit: 100 }
+    { now: instant(), limit: 100 }
   )
   const sender = { send: vi.fn<TransactionalEmailSender['send']>(async () => ({ messageId: 'local-rma' })) },
-    config = { enabled: true, from, now: utc(), appEnvironment: 'local' as const }
+    config = { enabled: true, from, now: instant(), appEnvironment: 'local' as const }
   await dispatchTransactionalEmails(f.database, sender, config, { renderers: orderReturnEmailRenderers })
   expect(f.sqlite.prepare('SELECT status FROM transactional_email_deliveries WHERE event_id=?').get(obsolete)).toEqual({
     status: 'pending'
@@ -165,13 +200,13 @@ it('final source guard rejects advancement after preparation', async () => {
     CLAIMS,
     publicRef,
     { ...ADMISSION, publicMessage },
-    { idempotencyKey: crypto.randomUUID() }
+    { idempotencyKey: testUuid() }
   )
   await expect(
     f.database.batch(
       orderReturnEmailRenderers[0]!.authorityStatements(
         f.database,
-        { eventId: id, leaseToken: crypto.randomUUID(), sendingAt: utc(), leaseUntil: utc(60000) },
+        { eventId: id, leaseToken: testUuid(), sendingAt: instant(), leaseUntil: instant(60000) },
         prepared
       )
     )
@@ -184,10 +219,10 @@ it.each([false, true])('local sender acknowledgement/loss %s never automatically
     f.database,
     {
       send: async (message) => {
-        await receiveEmailDispatch(f.database, message, utc())
+        await receiveEmailDispatch(f.database, message, instant())
       }
     },
-    { now: utc(), limit: 100 }
+    { now: instant(), limit: 100 }
   )
   const sender = {
     send: vi.fn<TransactionalEmailSender['send']>(async (message) => {
@@ -201,7 +236,7 @@ it.each([false, true])('local sender acknowledgement/loss %s never automatically
   const config = {
     enabled: true,
     from,
-    now: utc(),
+    now: instant(),
     appEnvironment: 'local' as const,
     rendererOptIns: orderReturnEmailRenderers.map((item) => item.key)
   }

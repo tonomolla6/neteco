@@ -8,6 +8,7 @@ import { refundsCreditFixture, CLAIMS, REASON, utc } from './d1-refunds-credit-f
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
 import { dispatchCustomerFinancialOperations } from '../../workers/runtime/customer-operations-dispatch'
 import { executeSupportAdminCommand } from '../../workers/support/operations'
+import { testUuid } from '../support/deterministic'
 
 afterEach(() => vi.restoreAllMocks())
 const owned = [
@@ -54,7 +55,7 @@ describe('root Worker customer-operation namespaces', () => {
           slaDueAt: null,
           resolution: 'Consulta resuelta tras comprobación sintética.'
         },
-        { idempotencyKey: crypto.randomUUID() }
+        { idempotencyKey: testUuid() }
       )
       const before = w.economic()
       const env = environment({
@@ -65,7 +66,7 @@ describe('root Worker customer-operation namespaces', () => {
         SUPPORT_POLICY: JSON.stringify(POLICY),
         NUXT_SESSION_PASSWORD: w.deps.sessionCookieConfiguration!.password
       })
-      const send = (path: string, cookie: string, body?: unknown, key = crypto.randomUUID()) =>
+      const send = (path: string, cookie: string, body?: unknown, key = testUuid()) =>
         worker.fetch(
           new Request(ORIGIN + path, {
             method: body === undefined ? 'GET' : 'POST',
@@ -95,7 +96,7 @@ describe('root Worker customer-operation namespaces', () => {
         target: { kind: 'support', id: ticket.publicRef, version: 2 },
         privacy: { noticePath: POLICY.privacyNoticePath }
       })
-      const key = crypto.randomUUID()
+      const key = testUuid()
       const input = {
         score: 5,
         comment: 'Atención útil, valoración sintética privada.',
