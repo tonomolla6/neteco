@@ -7,6 +7,24 @@ export interface ProductVisualData {
   color: string
 }
 
+/**
+ * La única variante publicada de un producto de un solo formato. Con ella el listado puede
+ * enseñar la referencia y pedir el producto sin pasar por la ficha.
+ */
+export interface ProductSingleVariant {
+  variantId: number
+  sku: string
+  format: string
+  /** Contenido de la unidad de venta (5 para una garrafa de 5 L). */
+  units: number
+  unitLabel: string
+  minimumQuantity: number
+  quantityIncrement: number
+  maximumQuantity: number | null
+  stock: number
+  backorderAllowed: boolean
+}
+
 export interface ProductCardData {
   id: number
   slug: string
@@ -22,6 +40,8 @@ export interface ProductCardData {
   /** Precio anterior de la variante más barata, si lo hay. Permite marcar oferta con su ahorro. */
   compareAtPrice?: number | null
   formats: number
+  /** Solo en productos de un único formato; ausente o `null` en el resto. */
+  single?: ProductSingleVariant | null
 }
 
 export interface ProductSummary extends ProductCardData {

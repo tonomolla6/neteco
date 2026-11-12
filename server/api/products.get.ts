@@ -1,6 +1,7 @@
 import { useDatabase } from '../db/client'
 import type { SerializableParameter } from 'postgres'
 import { uniqueSearchTerms } from '../utils/search-terms'
+import type { ProductSingleVariant } from '../../shared/types/catalog'
 
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL']
 
@@ -26,6 +27,7 @@ interface ProductRow {
   minNetPrice: number
   compareAtPrice: number | null
   formats: number
+  single: ProductSingleVariant | null
 }
 
 function compileWhere(parts: FilterPart[], excluded: string[] = []) {
@@ -245,7 +247,28 @@ export default defineEventHandler(async (event) => {
            summary.min_net_price AS "minNetPrice", summary.formats,
            -- Precio anterior de la variante más barata: permite que el escaparate marque
            -- una oferta con su ahorro real en vez de tener que inventarlo.
-           summary.compare_at_price AS "compareAtPrice"
+           summary.compare_at_price AS "compareAtPrice",
+           -- Única variante de un producto de un solo formato: el listado puede enseñar la
+           -- referencia y pedirlo sin pasar por la ficha. Con varios formatos es NULL.
+           CASE WHEN summary.formats = 1 THEN (
+             SELECT jsonb_build_object(
+               'variantId', single.legacy_id, 'sku', single.sku, 'format', single.format,
+               'units', single.content_quantity::float8, 'unitLabel', single.unit_label,
+               'minimumQuantity', single.minimum_quantity, 'quantityIncrement', single.quantity_increment,
+               'maximumQuantity', single.maximum_quantity, 'backorderAllowed', single.backorder_allowed,
+               'stock', greatest(
+                 COALESCE((SELECT sum(ib.physical_quantity - ib.blocked_quantity)
+                           FROM inventory_balances ib WHERE ib.variant_id = single.id), 0)
+                 - single.safety_stock
+                 - COALESCE((SELECT sum(ir.quantity)
+                             FROM inventory_reservations ir
+                             WHERE ir.variant_id = single.id AND ir.status = 'active'
+                               AND ir.expires_at > now()), 0),
+                 0)::int)
+             FROM variants single
+             WHERE single.product_id = p.id AND single.status = 'published' AND single.legacy_id IS NOT NULL
+             LIMIT 1
+           ) END AS single
     FROM products p
     JOIN categories c ON c.id = p.category_id
     LEFT JOIN brands b ON b.id = p.brand_id

@@ -134,6 +134,19 @@ describe('actual workerd D1 product search and typed facets SQL', () => {
       )
       expect(result).toMatchObject({ total: 1 })
       expect(result?.facets?.typed).toHaveLength(5)
+      // A single-format product carries its only variant, so the listing can order it directly.
+      expect(result?.items[0]?.single).toEqual({
+        variantId: 1,
+        sku: 'SYNTHETIC',
+        format: 'Unit',
+        units: 1,
+        unitLabel: 'unidad',
+        minimumQuantity: 1,
+        quantityIncrement: 1,
+        maximumQuantity: null,
+        stock: 0,
+        backorderAllowed: false
+      })
       const native = database as unknown as D1Database,
         instant = { instant: '2026-10-08T12:00:00Z' }
       const failures: string[] = []

@@ -7,7 +7,7 @@ import {
   resolvePricingInstant,
   type EffectivePricingOptions
 } from './pricing'
-import type { ProductFacets } from '../../shared/types/catalog'
+import type { ProductFacets, ProductSingleVariant } from '../../shared/types/catalog'
 import { prepareProductFacetStatements, decodeProductFacetResults, type ProductFacetRow } from './product-facets'
 import {
   preparePublicTypedFilters,
@@ -22,6 +22,7 @@ import { publicationValidityWithClock } from './publication-validity'
 import { typedAttributePublicCategoryValiditySql } from './typed-attribute-sql'
 import { publicSearchTermsSql, spanishFoldSql } from './search'
 import { categoryOrderSqlPrefix, readLiveCategoryOrder, type LiveCategoryOrder } from './category-merchandising'
+import { sellableExpression } from './inventory'
 
 export type ProductSort = 'default' | 'name' | 'price_asc' | 'price_desc'
 
@@ -64,6 +65,7 @@ interface ProductRecord {
   minNetPrice: number
   compareAtPrice: number | null
   formats: number
+  singleJson?: string | null
 }
 
 export interface D1ProductSummary {
@@ -83,6 +85,8 @@ export interface D1ProductSummary {
   minNetPrice: number
   compareAtPrice: number | null
   formats: number
+  /** The only published variant of a single-format product; null with several formats. */
+  single: ProductSingleVariant | null
 }
 
 export interface D1ProductListResponse {
@@ -130,6 +134,37 @@ function parseJson<T>(value: string, fallback: T): T {
     return JSON.parse(value) as T
   } catch {
     return fallback
+  }
+}
+
+/** Decodes the page-only projection of a single-format product's variant. Malformed data is no data. */
+function singleVariant(json: string | null | undefined): ProductSingleVariant | null {
+  if (!json) return null
+  const value = parseJson<Record<string, unknown> | null>(json, null)
+  const integer = (candidate: unknown, minimum: number) =>
+    typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate >= minimum
+  if (
+    !value ||
+    !integer(value.variantId, 1) ||
+    typeof value.sku !== 'string' ||
+    typeof value.format !== 'string' ||
+    !integer(value.minimumQuantity, 1) ||
+    !integer(value.quantityIncrement, 1) ||
+    !(value.maximumQuantity === null || integer(value.maximumQuantity, 1))
+  )
+    return null
+  const units = typeof value.units === 'number' && Number.isFinite(value.units) && value.units > 0 ? value.units : 1
+  return {
+    variantId: value.variantId as number,
+    sku: value.sku,
+    format: value.format,
+    units,
+    unitLabel: typeof value.unitLabel === 'string' ? value.unitLabel : '',
+    minimumQuantity: value.minimumQuantity as number,
+    quantityIncrement: value.quantityIncrement as number,
+    maximumQuantity: (value.maximumQuantity as number | null) ?? null,
+    stock: integer(value.stock, 0) ? (value.stock as number) : 0,
+    backorderAllowed: value.backorderAllowed === 1 || value.backorderAllowed === true
   }
 }
 
@@ -377,7 +412,19 @@ export async function listPublishedProducts(
              summary.minPrice,
              summary.minNetPrice,
              summary.compareAtPrice,
-             summary.formats
+             summary.formats,
+             CASE WHEN summary.formats = 1 THEN (
+               SELECT json_object(
+                 'variantId', single.legacy_id, 'sku', single.sku, 'format', single.format,
+                 'units', single.content_quantity, 'unitLabel', single.unit_label,
+                 'minimumQuantity', single.minimum_quantity, 'quantityIncrement', single.quantity_increment,
+                 'maximumQuantity', single.maximum_quantity, 'backorderAllowed', single.backorder_allowed,
+                 'stock', COALESCE((SELECT SUM(${sellableExpression()}) FROM inventory_balances b
+                                    WHERE b.variant_id = single.id), 0))
+               FROM variants single
+               WHERE single.product_id = p.id AND single.status = 'published' AND single.legacy_id IS NOT NULL
+               LIMIT 1
+             ) END AS singleJson
       ${joins}
       ${where.text}
       ORDER BY ${orderBy}
@@ -482,7 +529,8 @@ export async function listPublishedProducts(
       minPrice: record.minPrice,
       minNetPrice: record.minNetPrice,
       compareAtPrice: record.compareAtPrice,
-      formats: record.formats
+      formats: record.formats,
+      single: record.formats === 1 ? singleVariant(record.singleJson) : null
     })),
     total,
     page: query.page,
