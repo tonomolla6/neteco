@@ -288,6 +288,7 @@ export async function getPublishedProductDetail(
     visual: parseJson(product.visualJson, visualFallback),
     image: media?.image ?? null,
     imageAlt: media?.imageAlt ?? null,
+    images: (media?.gallery ?? []).map(({ image, imageAlt }) => ({ src: image, alt: imageAlt })),
     datasheet: media?.documents.find((document) => document.role === 'datasheet')?.url ?? null,
     featured: product.featured === 1,
     series: product.series,

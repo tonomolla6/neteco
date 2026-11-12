@@ -20,9 +20,13 @@ export interface PublicMediaImage {
 export interface PublicProductMedia {
   image?: string
   imageAlt?: string
+  /** Every eligible product-level image, main first (gallery order). */
+  gallery: PublicMediaImage[]
   variants: Map<string, PublicMediaImage>
   documents: PublicMediaDocument[]
 }
+
+const GALLERY_LIMIT = 12
 
 const DOCUMENT_ROLES = new Set<PublicDocumentRole>(['datasheet', 'sds', 'certificate', 'label'])
 const BATCH_SIZE = 80
@@ -70,7 +74,7 @@ export async function readPublicProductMedia(
   }
   const ids = [...new Set(productIds)]
   const result = new Map<string, PublicProductMedia>(
-    ids.map((id) => [id, { variants: new Map<string, PublicMediaImage>(), documents: [] }])
+    ids.map((id) => [id, { gallery: [], variants: new Map<string, PublicMediaImage>(), documents: [] }])
   )
   if (!ids.length) return result
   const instant = now === undefined ? null : publicMediaInstant(now)
@@ -94,9 +98,12 @@ export async function readPublicProductMedia(
         const image = { image: publicMediaImageUrl(row.id), imageAlt: row.alt }
         if (row.variant_id) {
           if (!media.variants.has(row.variant_id)) media.variants.set(row.variant_id, image)
-        } else if (!media.image) {
-          media.image = image.image
-          media.imageAlt = image.imageAlt
+        } else {
+          if (!media.image) {
+            media.image = image.image
+            media.imageAlt = image.imageAlt
+          }
+          if (media.gallery.length < GALLERY_LIMIT) media.gallery.push(image)
         }
       } else if (row.content_type === 'application/pdf' && DOCUMENT_ROLES.has(row.role as PublicDocumentRole)) {
         media.documents.push({

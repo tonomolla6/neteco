@@ -49,6 +49,8 @@ export interface ProductQuery {
   /** «Solo en stock»: solo productos con existencias vendibles. */
   inStock?: boolean
   featured?: boolean
+  /** Solo uso interno (franjas de recomendación): limita el listado a estos productos. */
+  productIds?: readonly string[]
   facets?: boolean
   page: number
   limit: number
@@ -345,6 +347,12 @@ export async function listPublishedProducts(
     })
   if (query.inStock) filters.push({ key: 'stock', clause: IN_STOCK_CLAUSE, parameters: [] })
   if (query.featured) filters.push({ key: 'featured', clause: 'p.featured = 1', parameters: [] })
+  if (query.productIds)
+    filters.push({
+      key: 'ids',
+      clause: 'p.id IN (SELECT value FROM json_each(?))',
+      parameters: [JSON.stringify(query.productIds.slice(0, 100))]
+    })
 
   const pricingSummary = parameterizeEffectivePricingSql(
     `WITH effective_variant_prices AS (

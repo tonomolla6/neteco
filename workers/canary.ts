@@ -16,6 +16,10 @@ import { handleSemanticSearchHttp, ownsSemanticSearchNamespace } from './catalog
 import { handlePersonalizedRerankHttp, ownsPersonalizedRerankNamespace } from './catalog/personalized-rerank-http'
 import { handleCatalogRelationsHttp, ownsCatalogRelationsNamespace } from './catalog/catalog-relations-http'
 import { handleProductDetailExtrasHttp, ownsProductDetailExtrasNamespace } from './catalog/product-detail-extras-http'
+import {
+  handleProductRecommendationsHttp,
+  ownsProductRecommendationsNamespace
+} from './catalog/product-recommendations-http'
 import { handleD1SeoRequest, ownsD1SeoNamespace } from './catalog/seo-http'
 import { handleOgImageHttp } from './seo/og-image-http'
 import { ogImageRuntime } from './seo/og-image-runtime'
@@ -1443,6 +1447,19 @@ const canaryWorker = {
         origin: env.AUTH_ORIGIN
       })
       if (capabilities) return capabilities
+    }
+    if (ownsProductRecommendationsNamespace(path)) {
+      const authority = await catalogSession(request, env)
+      if (authority instanceof Response) return authority
+      const recommendations = await handleProductRecommendationsHttp(request, {
+        database: env.DB,
+        origin: env.AUTH_ORIGIN,
+        edgeLimiter: env.CART_EDGE_LIMIT,
+        rateLimitPepper: env.AUTH_RATE_LIMIT_PEPPER,
+        pricing: authority.pricingCustomerId ? { customerId: authority.pricingCustomerId } : undefined
+      })
+      if (!(await catalogSessionCurrent(env, authority))) return noStoreJson({ error: { code: 'unauthorized' } }, 401)
+      return recommendations ?? noStoreJson({ error: { code: 'not_found' } }, 404)
     }
     if (ownsProductDetailExtrasNamespace(path)) {
       const extras = await handleProductDetailExtrasHttp(request, {
