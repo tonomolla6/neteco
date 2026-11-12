@@ -93,10 +93,20 @@ it('preserves the existing complete storefront, canary and five real D1 checks',
   const workflow = await configuration()
   await iacJob()
   expect(workflow.jobs['shop-runtime']!.steps.some((step) => step.run === 'npm run audit:shop:ci')).toBe(true)
-  expect(workflow.jobs['worker-canary']!.steps.some((step) => step.run === 'npm run test:worker')).toBe(true)
+  expect(
+    workflow.jobs['worker-canary']!.steps.some((step) => step.run === 'npm run test:worker -- --maxWorkers=2')
+  ).toBe(true)
   expect(
     workflow.jobs['d1-audits']!.steps.some((step) => step.run === 'npx tsx scripts/audit-d1-${{ matrix.audit }}.ts')
   ).toBe(true)
+})
+
+it('allows the measured canary duration while keeping a bounded job timeout', async () => {
+  const job = (await configuration()).jobs['worker-canary']!
+  expect(job['timeout-minutes']).toBeGreaterThan(62)
+  expect(job['timeout-minutes']).toBeLessThanOrEqual(90)
+  expect(job['continue-on-error']).toBeUndefined()
+  expect(job.steps.some((step) => step.run === 'npm run test:worker -- --maxWorkers=2')).toBe(true)
 })
 
 async function gateModule() {

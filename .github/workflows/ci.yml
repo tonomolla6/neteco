@@ -177,6 +177,7 @@ jobs:
           test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: node scripts/storage-preflight.ts
+      - run: node /usr/local/libexec/neteco-ci/build-storage.mjs --estimated-output-gib 3
       - name: Allocate private container artifact directory
         id: container-artifacts
         shell: bash
@@ -184,16 +185,25 @@ jobs:
           set -euo pipefail
           [[ -n "${RUNNER_TEMP:-}" && "$RUNNER_TEMP" = /* && -d "$RUNNER_TEMP" ]]
           [[ "$(realpath -e -- "$RUNNER_TEMP")" == "$RUNNER_TEMP" ]]
+          [[ "${GITHUB_RUN_ID:-}" =~ ^[0-9]{1,20}$ && "${GITHUB_RUN_ATTEMPT:-}" =~ ^[0-9]{1,10}$ ]]
           umask 077
           artifact_dir="$(mktemp -d "$RUNNER_TEMP/neteco-container.XXXXXXXX")"
+          [[ "$(basename -- "$artifact_dir")" =~ ^neteco-container\.([A-Za-z0-9]{8})$ ]]
+          builder_name="neteco-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${BASH_REMATCH[1]}"
           printf 'directory=%s\n' "$artifact_dir" >> "$GITHUB_OUTPUT"
+          printf 'builder=%s\n' "$builder_name" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        id: buildx
+        with:
+          name: ${{ steps.container-artifacts.outputs.builder }}
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           push: false
           tags: neteco:${{ github.sha }}
           load: true
+          cache-from: type=gha,scope=neteco-linux-arm64
+          cache-to: type=gha,scope=neteco-linux-arm64,mode=max
       - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           image: neteco:${{ github.sha }}
@@ -221,6 +231,14 @@ jobs:
           path: ${{ steps.container-artifacts.outputs.directory }}/*
           if-no-files-found: error
           retention-days: 3
+      - name: Remove only this job's buildx builder
+        id: cleanup-buildx
+        if: always() && steps.container-artifacts.outcome == 'success' && steps.buildx.outcome != 'skipped'
+        shell: bash
+        env:
+          BUILDER_NAME: ${{ steps.container-artifacts.outputs.builder }}
+          ARTIFACT_DIR: ${{ steps.container-artifacts.outputs.directory }}
+        run: bash scripts/cleanup-ci-builder.sh
       - name: Remove only this job's private artifact directory
         id: cleanup-container-artifacts
         if: always() && steps.container-artifacts.outcome == 'success'

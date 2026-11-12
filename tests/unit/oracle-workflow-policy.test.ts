@@ -136,6 +136,38 @@ describe('Oracle-only workflow scheduling policy', () => {
     expect(steps.some((step) => step.uses?.startsWith('anchore/sbom-action@'))).toBe(true)
     expect(steps.some((step) => step.uses?.startsWith('aquasecurity/trivy-action@'))).toBe(true)
   })
+  it('names and cleans the buildx builder for only the current run even after failure or cancellation', async () => {
+    const workflow = parse(await readFile(resolve(directory, 'ci.yml'), 'utf8')) as Workflow
+    const steps = workflow.jobs.container!.steps
+    const allocation = steps.find((step) => step.id === 'container-artifacts')!
+    const setup = steps.find((step) => step.uses?.startsWith('docker/setup-buildx-action@'))!
+    const cleanup = steps.find((step) => step.id === 'cleanup-buildx')!
+    expect(allocation.run).toContain('builder=')
+    expect(setup.id).toBe('buildx')
+    expect(setup.with?.name).toBe('${{ steps.container-artifacts.outputs.builder }}')
+    expect(cleanup.if).toContain('always()')
+    expect(cleanup.if).toContain("steps.container-artifacts.outcome == 'success'")
+    expect(cleanup.if).toContain("steps.buildx.outcome != 'skipped'")
+    expect(cleanup.env?.BUILDER_NAME).toBe('${{ steps.container-artifacts.outputs.builder }}')
+    expect(cleanup.env?.ARTIFACT_DIR).toBe('${{ steps.container-artifacts.outputs.directory }}')
+    expect(cleanup.run).toBe('bash scripts/cleanup-ci-builder.sh')
+    expect(steps.indexOf(cleanup)).toBeLessThan(steps.findIndex((step) => step.id === 'cleanup-container-artifacts'))
+    expect(cleanup['continue-on-error']).toBeUndefined()
+  })
+  it('reuses ARM64 build layers across isolated builders and still loads the image for mandatory scans', async () => {
+    const workflow = parse(await readFile(resolve(directory, 'ci.yml'), 'utf8')) as Workflow
+    const build = workflow.jobs.container!.steps.find((step) => step.uses?.startsWith('docker/build-push-action@'))!
+    expect(build.with?.['cache-from']).toBe('type=gha,scope=neteco-linux-arm64')
+    expect(build.with?.['cache-to']).toBe('type=gha,scope=neteco-linux-arm64,mode=max')
+    expect(build.with?.load).toBe(true)
+    expect(build.with?.push).toBe(false)
+    const steps = workflow.jobs.container!.steps
+    const budget = steps.findIndex(
+      (step) => step.run === 'node /usr/local/libexec/neteco-ci/build-storage.mjs --estimated-output-gib 3'
+    )
+    expect(budget).toBeGreaterThanOrEqual(0)
+    expect(budget).toBeLessThan(steps.findIndex((step) => step.uses?.startsWith('docker/setup-buildx-action@')))
+  })
   it.each(files)('%s cannot schedule hosted compute or untrusted pull request code', async (file) => {
     const workflow = parse(await readFile(resolve(directory, file), 'utf8')) as Workflow
     expect(workflow.on).toBeTypeOf('object')

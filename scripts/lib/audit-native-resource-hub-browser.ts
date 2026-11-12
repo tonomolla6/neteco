@@ -102,10 +102,11 @@ export async function auditNativeResourceHubBrowser(
       transportErrors = 0,
       pageErrors = 0,
       responseErrors = 0
+    const transportPaths: string[] = []
     function assertTransport() {
       assert.equal(externalRequests, 0, 'External resource browser request forbidden')
       assert.equal(forbiddenWrites, 0, 'Resource browser write forbidden')
-      assert.equal(transportErrors, 0, 'Resource browser transport failed')
+      assert.equal(transportErrors, 0, `Resource browser transport failed: ${transportPaths.join(', ')}`)
       assert.equal(pageErrors, 0, 'Resource browser page error')
       assert.equal(responseErrors, 0, 'Resource browser response error')
     }
@@ -125,7 +126,11 @@ export async function auditNativeResourceHubBrowser(
           if (!allowed(request)) {
             if (url.origin !== input.origin) externalRequests++
             else if (request.method !== 'GET') forbiddenWrites++
-            else transportErrors++
+            else {
+              transportErrors++
+              if (transportPaths.length < 4)
+                transportPaths.push(/^\/[A-Za-z0-9/_@.-]{1,160}$/.test(url.pathname) ? url.pathname : '[redacted]')
+            }
             await route.abort('failed')
             return
           }
@@ -142,6 +147,7 @@ export async function auditNativeResourceHubBrowser(
           })
         } catch {
           transportErrors++
+          if (transportPaths.length < 4) transportPaths.push('[dispatch-error]')
           await route.abort('failed')
         }
       })

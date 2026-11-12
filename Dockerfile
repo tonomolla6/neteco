@@ -6,6 +6,7 @@ RUN npm ci --ignore-scripts && npm cache clean --force
 
 FROM dependencies AS build
 COPY . .
+ENV NODE_OPTIONS="--max-old-space-size=4096 --require=/app/scripts/limit-build-workers.cjs"
 RUN npm run postinstall && npm run build
 
 FROM node:24.18.1-alpine3.23 AS runtime

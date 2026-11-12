@@ -1,6 +1,7 @@
 export default {
   testRunner: 'vitest',
   checkers: ['typescript'],
+  concurrency: 2,
   tsconfigFile: 'tsconfig.stryker.json',
   disableTypeChecks: false,
   mutate: [

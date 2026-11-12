@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { Instrumenter } from '@stryker-mutator/instrumenter'
 import ts from 'typescript'
 import { describe, expect, it, vi } from 'vitest'
 import {
@@ -57,7 +59,66 @@ function csvError(action: () => unknown) {
   throw new Error('expected_editorial_csv_error')
 }
 
+function findUnsafeRuntimeGlobals(path: string, source: string, instrumented: boolean): string[] {
+  const ast = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true)
+  const globals: string[] = []
+  const visit = (node: ts.Node) => {
+    if (ts.isIdentifier(node) && ['Buffer', 'process', 'require'].includes(node.text)) globals.push(node.text)
+    ts.forEachChild(node, visit)
+  }
+  for (const statement of ast.statements) {
+    // Stryker 9.6.1 inserts this exact helper while instrumenting in place.
+    // Check the entire helper so changed or user-authored code remains audited.
+    if (
+      instrumented &&
+      statement === ast.statements[0] &&
+      ts.isFunctionDeclaration(statement) &&
+      statement.name?.text === 'stryNS_9fa48' &&
+      createHash('sha256').update(statement.getText(ast)).digest('hex') ===
+        '40fcc8e8f44204d284b6d294a7e56e64f410f6bfc54cb33ad508011b100f0015'
+    )
+      continue
+    visit(statement)
+  }
+  return globals
+}
+
 describe('editorial-only CSV profile v1, separate from the legacy full catalogue', () => {
+  it('audits source globals while recognizing only the exact Stryker instrumentation header', async () => {
+    const logger = { debug() {}, info() {}, isDebugEnabled: () => false }
+    const result = await new Instrumenter(logger as never).instrument(
+      [{ name: 'fixture.ts', content: 'export function increment(value: number) { return value + 1 }', mutate: true }],
+      { plugins: null, excludedMutations: [], ignorers: [] }
+    )
+    const instrumented = result.files[0]!.content
+    expect(result.mutants.length).toBeGreaterThan(0)
+    expect(findUnsafeRuntimeGlobals('fixture.ts', instrumented, true)).toEqual([])
+    expect(findUnsafeRuntimeGlobals('fixture.ts', instrumented, false)).toEqual([
+      'process',
+      'process',
+      'process',
+      'process'
+    ])
+    expect(findUnsafeRuntimeGlobals('fixture.ts', instrumented + '\nconst unsafe = process;', true)).toEqual([
+      'process'
+    ])
+    const ast = ts.createSourceFile('fixture.ts', instrumented, ts.ScriptTarget.Latest, true)
+    const copiedHeader = ast.statements[0]!.getText(ast)
+    expect(findUnsafeRuntimeGlobals('fixture.ts', instrumented + '\n' + copiedHeader, true)).toEqual([
+      'process',
+      'process',
+      'process',
+      'process'
+    ])
+    expect(
+      findUnsafeRuntimeGlobals('fixture.ts', instrumented.replace('g.process.env', 'g.process.pid'), true)
+    ).toEqual(['process', 'process', 'process', 'process'])
+    expect(findUnsafeRuntimeGlobals('fixture.ts', 'const unsafe = [Buffer, process, require];', false)).toEqual([
+      'Buffer',
+      'process',
+      'require'
+    ])
+  })
   it('has exact nine headers and independent 1 MB / 100-product limits', () => {
     expect(EDITORIAL_CSV_COLUMNS).toEqual([
       'product_id',
@@ -483,24 +544,14 @@ describe('editorial-only CSV profile v1, separate from the legacy full catalogue
       { path: '../../server/utils/csv.ts', imports: [] }
     ]
     for (const file of graph) {
-      const ast = ts.createSourceFile(
-        file.path,
-        readFileSync(new URL(file.path, import.meta.url), 'utf8'),
-        ts.ScriptTarget.Latest,
-        true
-      )
+      const source = readFileSync(new URL(file.path, import.meta.url), 'utf8')
+      const ast = ts.createSourceFile(file.path, source, ts.ScriptTarget.Latest, true)
       expect(
         ast.statements
           .filter(ts.isImportDeclaration)
           .map((statement) => (ts.isStringLiteral(statement.moduleSpecifier) ? statement.moduleSpecifier.text : ''))
       ).toEqual(file.imports)
-      const globals: string[] = []
-      const visit = (node: ts.Node) => {
-        if (ts.isIdentifier(node) && ['Buffer', 'process', 'require'].includes(node.text)) globals.push(node.text)
-        ts.forEachChild(node, visit)
-      }
-      visit(ast)
-      expect(globals).toEqual([])
+      expect(findUnsafeRuntimeGlobals(file.path, source, '__stryker__' in globalThis)).toEqual([])
     }
   })
 })

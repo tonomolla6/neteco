@@ -24,7 +24,9 @@ type FakeRoute = {
 
 // Explicit control-flow double only. These tests do NOT establish browser,
 // hydration, SSR or compiled-renderer acceptance; ROOT runs that separately.
-function harness(options: { badCanonical?: boolean; expiredStatus?: number; external?: boolean } = {}) {
+function harness(
+  options: { badCanonical?: boolean; expiredStatus?: number; external?: boolean; unexpected?: string } = {}
+) {
   const events: string[] = []
   const contexts: BrowserContextOptions[] = []
   const closed: number[] = []
@@ -46,7 +48,11 @@ function harness(options: { badCanonical?: boolean; expiredStatus?: number; exte
       const navigate = async (url: string) => {
         currentUrl = url
         events.push(`goto:${index}:${url}`)
-        const address = options.external ? 'https://external.invalid/tracker' : url
+        const address = options.external
+          ? 'https://external.invalid/tracker'
+          : options.unexpected
+            ? origin + options.unexpected
+            : url
         if (handler)
           await handler({
             request: () => ({
@@ -175,4 +181,19 @@ it('aborts external browser requests without forwarding them or claiming accepta
   expect(h.dispatch.mock.calls.every(([request]) => new URL(request.url).origin === origin)).toBe(true)
   expect(h.closed).toEqual([0])
   expect(scenario).not.toHaveBeenCalled()
+})
+
+it('reports the path of an unexpected same-origin request without its query', async () => {
+  const h = harness({ unexpected: '/unexpected-asset.svg?secret=synthetic-private-value' })
+  let failure: unknown
+  try {
+    await auditNativeResourceHubBrowser({ ...h, origin, fixture })
+  } catch (error) {
+    failure = error
+  }
+  expect(failure).toBeInstanceOf(Error)
+  expect((failure as Error).message).toContain('/unexpected-asset.svg')
+  expect((failure as Error).message).not.toContain('synthetic-private-value')
+  expect(h.aborted).toContain(origin + '/unexpected-asset.svg?secret=synthetic-private-value')
+  expect(h.closed).toEqual([0])
 })

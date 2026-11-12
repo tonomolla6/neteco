@@ -10,5 +10,10 @@ export default defineConfig({
   updateSnapshots: 'none',
   reporter: 'list',
   outputDir: 'test-results/ui013-routes',
-  use: { trace: 'off', screenshot: 'off', video: 'off' }
+  use: {
+    baseURL: process.env.NETECO_UI_STATE_E2E_ORIGIN,
+    trace: 'off',
+    screenshot: 'off',
+    video: 'off'
+  }
 })

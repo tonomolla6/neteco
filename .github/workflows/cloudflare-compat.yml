@@ -97,7 +97,7 @@ jobs:
         ARM64,
         "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
       ]
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Verify approved Neteco repository
         shell: bash
@@ -114,7 +114,7 @@ jobs:
       - run: npm ci
       - run: npm run cloudflare:typegen -- --check
       - run: npm run typecheck:worker
-      - run: npm run test:worker
+      - run: npm run test:worker -- --maxWorkers=2
       - run: npm run build:worker-canary
       - run: npm run audit:worker-bundle
 
