@@ -5,6 +5,7 @@ import { experimental_readRawConfig } from 'wrangler'
 import { createLocalShopConfig } from './generate-shop-config'
 import { DEMO_ORIGIN } from '../shared/demo-access'
 import { REDSYS_REDIRECT_URLS } from '../workers/payments/redsys'
+import { REDSYS_OFFICIAL_CONTRACT } from '../tests/fixtures/redsys-official'
 
 export const DEMO_ACCOUNT = '15f0ac470ce8d173cf7633c7bbcba3ec'
 export const DEMO_DATABASE = 'd8c99c59-57b3-434d-8f9b-6d6935adfaba'
@@ -19,7 +20,7 @@ const DEMO_REDSYS_SANDBOX = {
   REDSYS_TERMINAL: '1',
   REDSYS_BIZUM_ENABLED: 'false'
 } as const
-const REDSYS_PUBLIC_SANDBOX_SECRET = 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'
+const REDSYS_PUBLIC_SANDBOX_SECRET = REDSYS_OFFICIAL_CONTRACT.sandbox.secretKey
 const DEMO_DISABLED_PROVIDERS = [
   'BEPLY_ENABLED',
   'FISCAL_ISSUANCE_ENABLED',
