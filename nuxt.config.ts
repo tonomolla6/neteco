@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { nitroOgIsolation } from './scripts/lib/nitro-og-isolation'
 
 const cloudflareRuntime = process.env.NETECO_RUNTIME === 'cloudflare'
 const cloudflareServerDir = fileURLToPath(new URL('./server-cloudflare/', import.meta.url))
@@ -30,7 +31,9 @@ export default defineNuxtConfig({
           scanDirs: [cloudflareServerDir],
           output: { dir: cloudflareOutputDir },
           cloudflare: { deployConfig: false, nodeCompat: true },
-          prerender: { crawlLinks: false, routes: [] }
+          prerender: { crawlLinks: false, routes: [] },
+          // OG card fonts/wasm are Worker-only (wrangler rules); keep them out of Rollup.
+          rollupConfig: { plugins: [nitroOgIsolation()] }
         }
       : {}),
     esbuild: { options: { target: 'es2022' } }
