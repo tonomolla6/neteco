@@ -17,6 +17,9 @@ import { handlePersonalizedRerankHttp, ownsPersonalizedRerankNamespace } from '.
 import { handleCatalogRelationsHttp, ownsCatalogRelationsNamespace } from './catalog/catalog-relations-http'
 import { handleProductDetailExtrasHttp, ownsProductDetailExtrasNamespace } from './catalog/product-detail-extras-http'
 import { handleD1SeoRequest, ownsD1SeoNamespace } from './catalog/seo-http'
+import { handleOgImageHttp } from './seo/og-image-http'
+import { ogImageRuntime } from './seo/og-image-runtime'
+import { parseOgImagePath } from '../shared/og-image'
 import { handleEditorialImportHttp, ownsEditorialImportNamespace } from './catalog/editorial-import-http'
 import { handleNativeCatalogImportHttp, ownsNativeCatalogImportNamespace } from './catalog/native-import-http'
 import { handleCatalogImportJobHttp, ownsCatalogImportJobNamespace } from './catalog/import-job-http'
@@ -727,7 +730,7 @@ export class CanaryWorkflow extends WorkflowEntrypoint<CloudflareEnv, { correlat
   }
 }
 
-export default {
+const canaryWorker = {
   async scheduled(event: ScheduledController, env: CloudflareEnv): Promise<void> {
     const now = new Date(event.scheduledTime).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const failures: Array<{ stage: string; cause: unknown }> = []
@@ -927,6 +930,14 @@ export default {
     const demoLogin = await handleDemoLoginRequest(request, env)
     if (demoLogin) return demoLogin
     const earlyPath = new URL(request.url).pathname
+    // Dynamic Open Graph cards (/og/<kind>/<slug>.png): public, anonymous, cached and with a static fallback.
+    if (parseOgImagePath(earlyPath)) {
+      const card = await handleOgImageHttp(
+        request,
+        ogImageRuntime(new URL(request.url).origin, (internal) => canaryWorker.fetch(internal, env))
+      )
+      if (card) return card
+    }
     // The generic analytics namespace claims /api/admin/analytics/* and /api/analytics/*; these two
     // modules live under it and are mounted further below, so they must not be shadowed.
     const analytics =
@@ -3761,3 +3772,5 @@ export default {
     )
   }
 } satisfies ExportedHandler<CloudflareEnv>
+
+export default canaryWorker

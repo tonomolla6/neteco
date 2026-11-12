@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { DownloadableTemplate } from '~~/shared/downloadable-templates'
+import { dynamicOgMeta } from '~/utils/og-image'
+import { ogVersion } from '~~/shared/og-image'
 
 const route = useRoute()
 const runtime = useRuntimeConfig()
@@ -25,7 +27,28 @@ async function loadTemplate() {
   }
 }
 
+// La plantilla se carga en el cliente: el SSR emite la tarjeta de su slug y la versión llega con los datos.
+const templateOgMeta = computed(() =>
+  dynamicOgMeta({
+    origin: String(runtime.public.baseUrl),
+    kind: 'plantilla',
+    slug: slug.value,
+    version: template.value
+      ? ogVersion(template.value.title, template.value.version, template.value.updatedAt)
+      : undefined,
+    alt: `${template.value?.title ?? 'Plantilla descargable'} · NETECO`,
+    dynamic: runtime.public.serverRuntime === 'cloudflare'
+  })
+)
+
 useSeoMeta({
+  ogImage: () => templateOgMeta.value.ogImage,
+  ogImageWidth: () => templateOgMeta.value.ogImageWidth,
+  ogImageHeight: () => templateOgMeta.value.ogImageHeight,
+  ogImageType: () => templateOgMeta.value.ogImageType,
+  ogImageAlt: () => templateOgMeta.value.ogImageAlt,
+  twitterImage: () => templateOgMeta.value.twitterImage,
+  twitterImageAlt: () => templateOgMeta.value.twitterImageAlt,
   title: () => formatSeoTitle(template.value ? `${template.value.title} · Plantillas` : 'Plantilla descargable'),
   description: () =>
     truncateSeoDescription(

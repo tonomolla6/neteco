@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { dynamicOgMeta } from '~/utils/og-image'
+import { ogVersion } from '~~/shared/og-image'
 import type { CategoryNode, CategoryResponse } from '~~/shared/types/catalog'
 import PromotionalBlocks from '~/components/PromotionalBlocks.vue'
 import {
@@ -223,13 +225,32 @@ watch(
   { immediate: true }
 )
 
+// Tarjeta Open Graph dinámica de la categoría (nombre, nº de productos y miniaturas); sin ella, la tarjeta estática.
+const categoryOgMeta = computed(() =>
+  dynamicOgMeta({
+    origin: canonicalOrigin,
+    kind: 'categoria',
+    slug: slug.value,
+    version: ogVersion(category.value?.name, category.value?.count),
+    alt: `${category.value?.name ?? 'Categoría'} · NETECO`,
+    dynamic: runtime.public.serverRuntime === 'cloudflare'
+  })
+)
+
 useSeoMeta({
   title: () => categoryTitle.value,
   description: () => categoryDescription.value,
   ogTitle: () => `${categoryTitle.value} · NETECO`,
   ogDescription: () => categoryDescription.value,
+  ogImage: () => categoryOgMeta.value.ogImage,
+  ogImageWidth: () => categoryOgMeta.value.ogImageWidth,
+  ogImageHeight: () => categoryOgMeta.value.ogImageHeight,
+  ogImageType: () => categoryOgMeta.value.ogImageType,
+  ogImageAlt: () => categoryOgMeta.value.ogImageAlt,
   twitterTitle: () => `${categoryTitle.value} · NETECO`,
   twitterDescription: () => categoryDescription.value,
+  twitterImage: () => categoryOgMeta.value.twitterImage,
+  twitterImageAlt: () => categoryOgMeta.value.twitterImageAlt,
   robots: () => (isIndexableCatalogQuery(route.query) ? 'index, follow' : 'noindex, follow')
 })
 const activeCount = computed(

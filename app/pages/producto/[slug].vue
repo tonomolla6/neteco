@@ -10,6 +10,8 @@ import { buildAggregateRatingJsonLd, type ProductReviewSeoSummary } from '~~/sha
 import ProductVerifiedReviewsQa from '~/components/ProductVerifiedReviewsQa.vue'
 import VolumePricingTable from '~/components/VolumePricingTable.vue'
 import { z } from 'zod'
+import { dynamicOgMeta } from '~/utils/og-image'
+import { ogVersion } from '~~/shared/og-image'
 import { splitGross } from '~~/server/domain/money'
 import { MAX_CART_QUANTITY } from '~~/shared/cart-limits'
 import type { ProductCardData, ProductVisualData, TypedAttributeDetail } from '~~/shared/types/catalog'
@@ -116,18 +118,41 @@ const productSeoDescription = computed(() =>
   )
 )
 
+// Tarjeta Open Graph dinámica (/og/producto/<slug>.png, generada en el Worker); si el runtime no la sirve se
+// mantiene la imagen real del producto. `version` cambia con lo que dibuja la tarjeta e invalida CDN y redes.
+const productOgMeta = computed(() =>
+  dynamicOgMeta({
+    origin: canonicalOrigin,
+    kind: 'producto',
+    slug: String(route.params.slug),
+    version: ogVersion(
+      product.value.name,
+      product.value.brand,
+      product.value.variants.length,
+      Math.min(...product.value.variants.map((variant) => variant.price)),
+      product.value.image
+    ),
+    alt: `${product.value.name} · NETECO`,
+    dynamic: runtime.public.serverRuntime === 'cloudflare',
+    fallbackImage: product.value.image
+  })
+)
+
 useSeoMeta({
   title: () => productSeoTitle.value,
   description: () => productSeoDescription.value,
   ogTitle: () => `${productSeoTitle.value} · NETECO`,
   ogDescription: () => productSeoDescription.value,
   ogType: 'website',
-  ogImage: () =>
-    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/og-default.jpg`,
+  ogImage: () => productOgMeta.value.ogImage,
+  ogImageWidth: () => productOgMeta.value.ogImageWidth,
+  ogImageHeight: () => productOgMeta.value.ogImageHeight,
+  ogImageType: () => productOgMeta.value.ogImageType,
+  ogImageAlt: () => productOgMeta.value.ogImageAlt,
   twitterTitle: () => `${productSeoTitle.value} · NETECO`,
   twitterDescription: () => productSeoDescription.value,
-  twitterImage: () =>
-    product.value.image ? `${canonicalOrigin}${product.value.image}` : `${canonicalOrigin}/og-default.jpg`
+  twitterImage: () => productOgMeta.value.twitterImage,
+  twitterImageAlt: () => productOgMeta.value.twitterImageAlt
 })
 
 // La variante seleccionada vive en la URL (?sku=REF): el enlace es compartible

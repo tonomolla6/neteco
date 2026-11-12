@@ -44,6 +44,7 @@ function isAuthoritativePath(path: string) {
     path === '/sitemaps' ||
     path.startsWith('/sitemaps/') ||
     /^\/media(?:\/|$)/i.test(path) ||
+    /^\/og\/(?:producto|categoria|plantilla|contenido)\/[^/]+\.png$/.test(path) ||
     path === '/img/products' ||
     path.startsWith('/img/products/')
   )

@@ -3,6 +3,8 @@ import type { ContentBlock } from '~~/server/utils/content-schema'
 import { cmsPublicPageSchema } from '~~/shared/cms-publication'
 import CmsContentBlocks from '~/components/CmsContentBlocks.vue'
 import type { ResourceHubMetadata } from '~~/shared/resource-hub'
+import { dynamicOgMeta } from '~/utils/og-image'
+import { ogVersion } from '~~/shared/og-image'
 
 interface ContentPage {
   title: string
@@ -31,7 +33,26 @@ if (runtime === 'cloudflare') {
   if (!confirmed.success) throw createError({ statusCode: 503, statusMessage: 'Contenido no confirmado', fatal: true })
   data.value = confirmed.data
 }
+// Solo páginas publicadas tienen tarjeta dinámica; las vistas previas conservan la tarjeta por defecto.
+const contentOgMeta = computed(() =>
+  dynamicOgMeta({
+    origin: String(runtimeConfig.baseUrl),
+    kind: 'contenido',
+    slug: page.value.slug,
+    version: ogVersion(page.value.title, page.value.version),
+    alt: `${page.value.title} · NETECO`,
+    dynamic: runtime === 'cloudflare' && !page.value.preview
+  })
+)
+
 useSeoMeta({
+  ogImage: () => contentOgMeta.value.ogImage,
+  ogImageWidth: () => contentOgMeta.value.ogImageWidth,
+  ogImageHeight: () => contentOgMeta.value.ogImageHeight,
+  ogImageType: () => contentOgMeta.value.ogImageType,
+  ogImageAlt: () => contentOgMeta.value.ogImageAlt,
+  twitterImage: () => contentOgMeta.value.twitterImage,
+  twitterImageAlt: () => contentOgMeta.value.twitterImageAlt,
   title: () => page.value.seo.title,
   description: () => page.value.seo.description,
   robots: () => (page.value.preview || page.value.seo.noindex ? 'noindex, nofollow, noarchive' : 'index, follow')
