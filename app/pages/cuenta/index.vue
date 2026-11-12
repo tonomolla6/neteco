@@ -52,7 +52,7 @@ const resourceLabels: Record<Resource, string> = {
   orders: 'pedidos',
   profile: 'datos de cuenta',
   addresses: 'direcciones',
-  favorites: 'listas de compra'
+  favorites: 'listas'
 }
 const text = z.string().max(4096),
   nullableText = text.nullable()
@@ -321,6 +321,14 @@ const companyStatus = computed(() => {
   return raw ? (COMPANY_STATUS[raw] ?? { label: raw, color: 'neutral' as const }) : null
 })
 
+const commercial = useCommercialTerms()
+const companyExplanation = computed(() =>
+  companyStatusExplanation(accountData.value?.profile.companyStatus, {
+    bankTransfer: useRuntimeConfig().public.bankTransferEnabled === true,
+    deferredDays: commercial.terms.value.deferredPaymentDays
+  })
+)
+
 const shortcuts = computed(() => [
   {
     to: '/cuenta/pedidos',
@@ -333,9 +341,9 @@ const shortcuts = computed(() => [
       : `${orders.value.length} en total`
   },
   {
-    to: '/cuenta/favoritos',
+    to: '/cuenta/listas',
     icon: 'i-lucide-list-checks',
-    label: 'Listas de compra',
+    label: 'Listas',
     hint:
       cloudflare && (readState.favorites !== 'success' || !authorized())
         ? 'Listas no confirmadas'
@@ -443,7 +451,7 @@ onBeforeUnmount(() => {
     <UiSurface v-if="lastOrder" tone="accent" padding="lg">
       <div class="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
         <div class="min-w-0">
-          <p class="text-sm font-semibold uppercase tracking-wide text-neteco-800">Tu último pedido</p>
+          <p class="text-[13px] font-semibold text-[var(--text-muted)]">Tu último pedido</p>
           <p class="tabular mt-1 text-2xl font-bold text-[var(--text-strong)]">{{ lastOrder.id }}</p>
           <p class="mt-1 text-[var(--text-muted)]">
             {{ formatAccountDate(lastOrder.createdAt) }} · {{ lastOrder.lines }}
@@ -530,6 +538,9 @@ onBeforeUnmount(() => {
           Gestionar
         </UButton>
       </div>
+      <p v-if="companyExplanation" data-company-explanation class="mt-2 text-sm text-[var(--text)]">
+        {{ companyExplanation }}
+      </p>
     </UiSurface>
 
     <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">

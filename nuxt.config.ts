@@ -194,6 +194,8 @@ export default defineNuxtConfig({
       ssr: true,
       headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }
     },
+    // «Favoritos» pasó a llamarse «Listas»; la dirección antigua redirige de forma permanente.
+    '/cuenta/favoritos': { redirect: { to: '/cuenta/listas', statusCode: 301 } },
     '/cuenta/**': {
       ssr: true,
       headers: { 'cache-control': 'private, no-store', 'x-robots-tag': 'noindex, nofollow, noarchive' }

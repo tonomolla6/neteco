@@ -386,7 +386,7 @@ onBeforeUnmount(() => {
         </button>
       </li>
     </ul>
-    <a href="/cuenta/favoritos" class="mt-3 inline-block underline">Ver listas de compra</a>
+    <a href="/cuenta/listas" class="mt-3 inline-block underline">Ver mis listas</a>
     <div v-if="intent" class="mt-4 flex flex-wrap gap-3">
       <button data-snapshot-check type="button" :disabled="busy" class="underline" @click="check">
         Comprobar guardado

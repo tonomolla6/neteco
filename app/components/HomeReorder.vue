@@ -16,7 +16,7 @@ const { habituals } = useHabituals(orders)
 const { ownDelivery } = useCommercialTerms()
 const cart = useCartStore()
 const dialog = useTemplateRef<{ start: (orderId: string) => void }>('dialog')
-const LISTS_PATH = '/cuenta/favoritos'
+const LISTS_PATH = '/cuenta/listas'
 
 const greeting = computed(() => user.value?.company || user.value?.name?.split(' ')[0] || '')
 

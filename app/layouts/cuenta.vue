@@ -13,15 +13,19 @@
 const { user, clear } = useUserSession()
 const runtime = useRuntimeConfig()
 
-const links = [
-  { to: '/cuenta', label: 'Resumen', icon: 'i-lucide-layout-dashboard', exact: true },
+/** Las siete secciones de siempre, en el orden en que se usan. */
+const primary = [
+  { to: '/cuenta', label: 'Inicio', icon: 'i-lucide-layout-dashboard', exact: true },
   { to: '/cuenta/pedidos', label: 'Pedidos', icon: 'i-lucide-package' },
-  { to: '/cuenta/favoritos', label: 'Listas de compra', icon: 'i-lucide-list-checks' },
+  { to: '/cuenta/listas', label: 'Listas', icon: 'i-lucide-list-checks' },
   { to: '/cuenta/direcciones', label: 'Direcciones', icon: 'i-lucide-map-pin' },
-  { to: '/cuenta/datos', label: 'Datos y empresa', icon: 'i-lucide-building-2' },
+  { to: '/cuenta/datos', label: 'Empresa y facturación', icon: 'i-lucide-building-2' },
   { to: '/cuenta/seguridad', label: 'Acceso y seguridad', icon: 'i-lucide-shield-check' },
-  { to: '/cuenta/comunicaciones', label: 'Avisos y privacidad', icon: 'i-lucide-bell' },
-  ...(runtime.public.serverRuntime === 'cloudflare'
+  { to: '/cuenta/comunicaciones', label: 'Avisos', icon: 'i-lucide-bell' }
+]
+/** El resto de pantallas de la cuenta: accesibles, pero fuera del camino principal. */
+const secondary =
+  runtime.public.serverRuntime === 'cloudflare'
     ? [
         { to: '/cuenta/newsletter', label: 'Temas y frecuencia', icon: 'i-lucide-mails' },
         { to: '/cuenta/preferencias-mensajes', label: 'Preferencias de mensajes', icon: 'i-lucide-message-circle' },
@@ -30,19 +34,19 @@ const links = [
         { to: '/cuenta/recuperar-carrito', label: 'Recuperación de carrito', icon: 'i-lucide-shopping-cart' },
         { to: '/cuenta/aportaciones-productos', label: 'Reseñas y preguntas', icon: 'i-lucide-message-square' },
         { to: '/cuenta/presupuestos', label: 'Mis presupuestos', icon: 'i-lucide-file-check-2' },
-        { to: '/cuenta/solicitudes-b2b', label: 'Solicitudes B2B', icon: 'i-lucide-clipboard-list' },
+        { to: '/cuenta/solicitudes-b2b', label: 'Solicitudes de empresa', icon: 'i-lucide-clipboard-list' },
         { to: '/cuenta/metodos-de-pago', label: 'Métodos de pago', icon: 'i-lucide-credit-card' },
         { to: '/cuenta/revision-promociones', label: 'Revisión de promociones', icon: 'i-lucide-shield-alert' },
         { to: '/cuenta/soporte', label: 'Mis consultas', icon: 'i-lucide-life-buoy' }
       ]
-    : [])
-]
+    : []
+const links: Array<{ to: string; label: string; icon: string; exact?: boolean }> = [...primary, ...secondary]
 
 const route = useRoute()
 function isActive(link: (typeof links)[number]) {
   return link.exact ? route.path === link.to : route.path.startsWith(link.to)
 }
-const current = computed(() => links.find((link) => isActive(link)))
+const currentSecondary = computed(() => secondary.find((link) => isActive(link)))
 
 async function logout() {
   await $fetch('/api/auth/logout', { method: 'POST' })
@@ -66,29 +70,29 @@ async function logout() {
     <AppHeader />
 
     <div class="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:py-8">
-      <div class="flex flex-wrap items-center justify-between gap-3 pb-6">
-        <!--
-          Tira de identidad, no encabezado. El `h1` lo pone cada página, porque describe
-          la pantalla —«Mis pedidos», «Direcciones»—; el nombre del cliente identifica
-          la sesión y se repite igual en las siete. Antes esto era un `h1` y las páginas
-          añadían el suyo: dos `h1` por pantalla, que para un lector de pantalla son dos
-          títulos de documento en conflicto.
-        -->
-        <div class="min-w-0">
-          <p class="text-sm text-[var(--text-muted)]">Área de cliente</p>
-          <p class="truncate text-2xl font-bold text-[var(--text-strong)] sm:text-[1.75rem]">{{ user?.name }}</p>
-          <p class="mt-0.5 truncate text-sm text-[var(--text-muted)]">
-            {{ user?.email }}<template v-if="user?.company"> · {{ user.company }}</template>
-          </p>
-        </div>
-        <UButton color="neutral" variant="outline" icon="i-lucide-log-out" @click="logout"> Cerrar sesión </UButton>
+      <!--
+        Tira de identidad de una línea. El `h1` lo pone cada página, porque describe la
+        pantalla; el nombre del cliente solo identifica la sesión y no compite con él.
+      -->
+      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 pb-4">
+        <p data-account-identity class="min-w-0 truncate text-[13px] text-[var(--text-muted)]">
+          <span class="font-semibold text-[var(--text-strong)]">{{ user?.company || user?.name }}</span>
+          · {{ user?.email }}
+        </p>
+        <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-log-out" @click="logout">
+          Cerrar sesión
+        </UButton>
       </div>
 
       <div class="gap-8 lg:flex">
         <!-- Escritorio: navegación lateral persistente -->
         <nav aria-label="Secciones de la cuenta" class="hidden w-56 shrink-0 lg:block">
           <ul class="sticky top-6 space-y-0.5">
-            <li v-for="link in links" :key="link.to">
+            <li
+              v-for="(link, index) in links"
+              :key="link.to"
+              :class="index === primary.length ? 'mt-3 border-t border-[var(--border)] pt-3' : ''"
+            >
               <NuxtLink
                 :to="link.to"
                 class="flex items-center gap-2.5 rounded-[var(--radius-control)] px-3 py-2 text-sm font-medium transition-colors"
@@ -106,17 +110,39 @@ async function logout() {
           </ul>
         </nav>
 
-        <!-- Móvil: tiras horizontales ocultan destinos. Un desplegable los enseña todos. -->
-        <div class="mb-5 lg:hidden">
+        <!-- Móvil: las secciones principales en una fila de pestañas desplazable, a un toque.
+             Un desplegable cerrado dejaba Pedidos y Listas a dos. -->
+        <nav
+          aria-label="Secciones de la cuenta"
+          data-account-tabs
+          class="-mx-4 mb-4 flex gap-1 overflow-x-auto border-b border-[var(--border)] px-4 lg:hidden"
+        >
+          <NuxtLink
+            v-for="link in primary"
+            :key="link.to"
+            :to="link.to"
+            :aria-current="isActive(link) ? 'page' : undefined"
+            class="-mb-px flex min-h-11 shrink-0 items-center border-b-2 px-3 text-[15px] font-medium"
+            :class="
+              isActive(link)
+                ? 'border-[var(--action)] text-[var(--action)]'
+                : 'border-transparent text-[var(--text-muted)]'
+            "
+          >
+            {{ link.label }}
+          </NuxtLink>
+        </nav>
+        <div v-if="secondary.length" class="mb-5 lg:hidden">
           <USelectMenu
-            :model-value="current"
-            :items="links"
+            :model-value="currentSecondary"
+            :items="secondary"
             label-key="label"
+            placeholder="Más secciones"
             class="w-full"
             @update:model-value="(link) => link && navigateTo(link.to)"
           >
             <template #leading>
-              <UIcon :name="current?.icon ?? 'i-lucide-menu'" class="size-4" />
+              <UIcon :name="currentSecondary?.icon ?? 'i-lucide-ellipsis'" class="size-4" />
             </template>
           </USelectMenu>
         </div>

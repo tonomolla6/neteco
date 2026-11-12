@@ -5,7 +5,7 @@
  * compra fija (ficha, carrito), en el pago ni en el panel.
  */
 const route = useRoute()
-const LISTS_PATH = '/cuenta/favoritos'
+const LISTS_PATH = '/cuenta/listas'
 const items = [
   { to: '/', label: 'Inicio', icon: 'i-lucide-house' },
   { to: '/buscar', label: 'Buscar', icon: 'i-lucide-search' },

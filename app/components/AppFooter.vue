@@ -68,7 +68,7 @@ function configureCookies() {
         <ul id="footer-shop" class="space-y-2 pb-4 text-sm sm:mt-3 sm:block sm:pb-0" :class="open.shop ? '' : 'hidden'">
           <li><NuxtLink to="/catalogo" class="hover:text-white">Todo el catálogo</NuxtLink></li>
           <li><NuxtLink to="/pedido-rapido" class="hover:text-white">Pedido rápido por referencia</NuxtLink></li>
-          <li><NuxtLink to="/cuenta/favoritos" class="hover:text-white">Listas de compra</NuxtLink></li>
+          <li><NuxtLink to="/cuenta/listas" class="hover:text-white">Listas</NuxtLink></li>
           <li v-if="runtime.public.serverRuntime === 'cloudflare'">
             <NuxtLink to="/recursos" class="hover:text-white">Guías y recursos profesionales</NuxtLink>
           </li>

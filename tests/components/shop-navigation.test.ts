@@ -68,7 +68,7 @@ describe('shop header as the entry to ordering', () => {
     const quick = header.get('[data-header-quick-order]')
     expect(quick.attributes('href')).toBe('/pedido-rapido')
     expect(quick.text()).toContain('Pedido rápido')
-    expect(header.get('[data-header-lists]').attributes('href')).toBe('/cuenta/favoritos')
+    expect(header.get('[data-header-lists]').attributes('href')).toBe('/cuenta/listas')
     expect(header.get('[data-header-lists]').text()).toContain('Listas')
     expect(header.find('[role="radiogroup"][aria-label="Precios"]').exists()).toBe(true)
   })
@@ -82,7 +82,7 @@ describe('shop header as the entry to ordering', () => {
     const menu = document.querySelector('[role="dialog"][aria-label="Menú de navegación"]')!
     expect(menu.textContent).not.toContain('Productos químicos')
     expect(menu.textContent).toContain('Menaje y hostelería')
-    expect(menu.querySelector('a[href="/cuenta/favoritos"]')).not.toBeNull()
+    expect(menu.querySelector('a[href="/cuenta/listas"]')).not.toBeNull()
   })
 
   it('offers to repeat the last order only to a signed-in customer who has one', async () => {
@@ -109,7 +109,7 @@ describe('mobile bottom bar', () => {
       ['Inicio', '/'],
       ['Buscar', '/buscar'],
       ['Pedido rápido', '/pedido-rapido'],
-      ['Listas', '/cuenta/favoritos']
+      ['Listas', '/cuenta/listas']
     ])
     expect(links.every((link) => link.classes().includes('min-h-14'))).toBe(true)
     expect(bar.get('a[href="/"]').attributes('aria-current')).toBe('page')

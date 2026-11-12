@@ -641,7 +641,7 @@ async function addFavorite() {
       method: 'POST',
       body: { variantId: selected.value.uuid, quantity: qty.value }
     })
-    toast.add({ title: 'Guardado en favoritos', icon: 'i-lucide-heart', color: 'success' })
+    toast.add({ title: 'Guardado en tu lista', icon: 'i-lucide-list-checks', color: 'success' })
   } catch {
     toast.add({ title: 'No se ha podido guardar', icon: 'i-lucide-triangle-alert', color: 'error' })
   }

@@ -1,4 +1,5 @@
 import type { OrderReorderOffer } from '~~/shared/order-reorder'
+import { SHOP_PHONE } from '~~/shared/commercial-terms'
 
 /**
  * Tipos y utilidades compartidas del área de cliente.
@@ -137,6 +138,28 @@ export const COMPANY_STATUS: Record<string, { label: string; color: 'neutral' | 
   active: { label: 'Activa', color: 'success' },
   rejected: { label: 'No aprobada', color: 'error' },
   suspended: { label: 'Suspendida', color: 'error' }
+}
+
+/**
+ * «En revisión» no explica nada. Aquí se dice qué se comprueba y qué puede hacer el cliente
+ * mientras tanto. El plazo de pago solo se nombra si el negocio lo ha configurado.
+ */
+export function companyStatusExplanation(
+  status: string | null | undefined,
+  options: { bankTransfer: boolean; deferredDays: number | null }
+): string {
+  const methods = options.bankTransfer ? 'tarjeta, Bizum o transferencia' : 'tarjeta o Bizum'
+  if (status === 'pending')
+    return `Estamos comprobando los datos de tu empresa. Mientras tanto puedes comprar con ${methods}; ${
+      options.deferredDays
+        ? `la tarifa de empresa y el pago a ${options.deferredDays} días se activan`
+        : 'las condiciones de empresa se activan'
+    } al aprobarla.`
+  if (status === 'rejected')
+    return `No hemos podido aprobar la cuenta de empresa con los datos enviados. Revísalos o llámanos al ${SHOP_PHONE}.`
+  if (status === 'suspended')
+    return `La cuenta de empresa está suspendida. Puedes seguir comprando con ${methods}; llámanos al ${SHOP_PHONE} para reactivarla.`
+  return ''
 }
 
 export const COMPANY_ROLE: Record<string, string> = {

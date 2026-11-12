@@ -2,7 +2,7 @@ import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, proxyRefs, ref, shallowRef } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import FavoritesPage from '../../app/pages/cuenta/favoritos.vue'
+import FavoritesPage from '../../app/pages/cuenta/listas.vue'
 import '#app/nuxt-vitest-app-entry'
 
 const mocks = vi.hoisted(() => ({

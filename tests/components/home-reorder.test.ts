@@ -103,7 +103,7 @@ describe('home for a returning customer', () => {
     await last.get('[data-repeat-order]').trigger('click')
     expect(state.start).toHaveBeenCalledWith('ord-9')
     expect(block.get('a[href="/pedido-rapido"]').text()).toContain('Pedido rápido')
-    expect(block.get('a[href="/cuenta/favoritos"]').text()).toContain('Mis listas')
+    expect(block.get('a[href="/cuenta/listas"]').text()).toContain('Mis listas')
   })
 
   it('lists the habitual references with their usual quantity, ready to add', async () => {

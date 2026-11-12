@@ -18,7 +18,7 @@ const roots = computed(() => (catData.value?.roots ?? []).filter((root) => root.
 // «Repetir último pedido»: solo con sesión y con al menos un pedido.
 const { lastOrder } = await useLastOrder()
 const reorderDialog = useTemplateRef<{ start: (orderId: string) => void }>('reorderDialog')
-const LISTS_PATH = '/cuenta/favoritos'
+const LISTS_PATH = '/cuenta/listas'
 
 const mobileOpen = ref(false)
 const accountOpen = ref(false)
