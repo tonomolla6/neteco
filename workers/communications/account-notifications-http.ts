@@ -1,4 +1,5 @@
-import { z } from 'zod'
+import { notificationUuidSchema } from '../../shared/account-notifications'
+import { multichannelUuidSchema } from '../../shared/multichannel-orchestration'
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
 import {
   listAccountNotifications,
@@ -97,7 +98,7 @@ export async function handleAccountNotificationsHttp(
       const idempotencyKey =
         request.headers.get('Idempotency-Key') ?? request.headers.get('idempotency-key') ?? crypto.randomUUID()
 
-      if (!z.string().uuid().safeParse(idempotencyKey).success) {
+      if (!notificationUuidSchema.safeParse(idempotencyKey).success) {
         return errorResponse('invalid_input', 400)
       }
 
@@ -123,7 +124,7 @@ export async function handleAccountNotificationsHttp(
       const idempotencyKey =
         request.headers.get('Idempotency-Key') ?? request.headers.get('idempotency-key') ?? crypto.randomUUID()
 
-      if (!z.string().uuid().safeParse(idempotencyKey).success) {
+      if (!multichannelUuidSchema.safeParse(idempotencyKey).success) {
         return errorResponse('invalid_input', 400)
       }
 

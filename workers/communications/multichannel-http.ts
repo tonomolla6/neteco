@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { multichannelUuidSchema } from '../../shared/multichannel-orchestration'
 import { denyUnlessAdmin, serverInstant } from '../release/admin-access'
 import { verifySessionCookie, type SessionCookieConfiguration } from '../auth/session-cookie'
 import {
@@ -83,7 +83,7 @@ export async function handleMultichannelHttp(
       const idempotencyKey =
         request.headers.get('Idempotency-Key') ?? request.headers.get('idempotency-key') ?? crypto.randomUUID()
 
-      if (!z.string().uuid().safeParse(idempotencyKey).success) {
+      if (!multichannelUuidSchema.safeParse(idempotencyKey).success) {
         return errorResponse('invalid_input', 400)
       }
 
@@ -113,7 +113,7 @@ export async function handleMultichannelHttp(
       let selectSql = 'SELECT * FROM multichannel_orchestration_commands WHERE 1=1'
       const params: unknown[] = []
 
-      if (customerId && z.string().uuid().safeParse(customerId).success) {
+      if (customerId && multichannelUuidSchema.safeParse(customerId).success) {
         countSql += ' AND customer_id = ?'
         selectSql += ' AND customer_id = ?'
         params.push(customerId)
@@ -177,7 +177,7 @@ export async function handleMultichannelHttp(
     const prefMatch = /^\/api\/admin\/communications\/multichannel\/preferences\/([^/]+)$/.exec(url.pathname)
     if (prefMatch) {
       const customerId = prefMatch[1]!
-      if (!z.string().uuid().safeParse(customerId).success) return errorResponse('invalid_input', 400)
+      if (!multichannelUuidSchema.safeParse(customerId).success) return errorResponse('invalid_input', 400)
 
       if (request.method === 'GET') {
         const prefs = await readCustomerChannelPreferences(deps.database, customerId)

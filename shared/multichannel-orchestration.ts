@@ -16,6 +16,8 @@ export const DEFAULT_CHANNEL_PRIORITY: MultichannelChannel[] = ['whatsapp', 'sms
 export const multichannelChannelSchema = z.enum(MULTICHANNEL_CHANNELS)
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES)
 export const multichannelStatusSchema = z.enum(MULTICHANNEL_STATUSES)
+// Zod 3 accepted UUID-shaped strings without checking their version or variant.
+export const multichannelUuidSchema = z.string().guid('Invalid uuid')
 
 export const priorityOrderSchema = z
   .array(multichannelChannelSchema)
@@ -27,14 +29,14 @@ export const priorityOrderSchema = z
 
 export const customerChannelPreferencesSchema = z
   .object({
-    customerId: z.string().uuid(),
+    customerId: multichannelUuidSchema,
     priorityOrder: priorityOrderSchema,
     emailEnabled: z.boolean(),
     smsEnabled: z.boolean(),
     whatsappEnabled: z.boolean(),
     version: z.number().int().min(0),
     updatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
-    commandId: z.string().uuid()
+    commandId: multichannelUuidSchema
   })
   .strict()
 
@@ -67,7 +69,7 @@ export type ChannelAttemptResult = z.infer<typeof channelAttemptResultSchema>
 
 export const orchestrateMultichannelInputSchema = z
   .object({
-    customerId: z.string().uuid(),
+    customerId: multichannelUuidSchema,
     dedupKey: z.string().min(1).max(150),
     category: notificationCategorySchema,
     eventType: z.string().min(1).max(80),
@@ -85,8 +87,8 @@ export type OrchestrateMultichannelInput = z.infer<typeof orchestrateMultichanne
 
 export const orchestrateMultichannelResultSchema = z
   .object({
-    commandId: z.string().uuid(),
-    customerId: z.string().uuid(),
+    commandId: multichannelUuidSchema,
+    customerId: multichannelUuidSchema,
     dedupKey: z.string().min(1).max(150),
     category: notificationCategorySchema,
     eventType: z.string().min(1).max(80),
@@ -96,7 +98,7 @@ export const orchestrateMultichannelResultSchema = z
     cause: z.string().min(1).max(120),
     results: z.array(channelAttemptResultSchema),
     mandatory: z.boolean(),
-    inAppNotificationId: z.string().uuid().nullable(),
+    inAppNotificationId: multichannelUuidSchema.nullable(),
     createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
   })
   .strict()

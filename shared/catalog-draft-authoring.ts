@@ -23,7 +23,32 @@ const text = (minimum: number, maximum: number, multiline = false) =>
       })
     )
     .transform((value) => value.trim())
-    .pipe(z.string().min(minimum).max(maximum))
+    .pipe(
+      z
+        .string()
+        .max(maximum, `String must contain at most ${maximum} character(s)`)
+        .superRefine((value, context) => {
+          // Preserve the UTF-16 limits used by Zod 3, including supplementary characters.
+          if (value.length < minimum) {
+            context.addIssue({
+              code: 'too_small',
+              origin: 'string',
+              minimum,
+              inclusive: true,
+              message: `String must contain at least ${minimum} character(s)`
+            })
+          }
+          if (value.length > maximum && Array.from(value).length <= maximum) {
+            context.addIssue({
+              code: 'too_big',
+              origin: 'string',
+              maximum,
+              inclusive: true,
+              message: `String must contain at most ${maximum} character(s)`
+            })
+          }
+        })
+    )
 const nullableText = (maximum: number, multiline = false) =>
   text(0, maximum, multiline)
     .nullable()

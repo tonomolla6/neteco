@@ -19,12 +19,14 @@ export interface CustomerFavoritesHttpDependencies {
 }
 
 const root = '/api/account/favorites'
-const variantIdentifier = z.union([z.string().uuid(), z.number().int().positive().safe()])
+// Zod 3 accepted UUID-shaped identifiers without enforcing version and variant bits.
+const uuidSchema = z.string().guid()
+const variantIdentifier = z.union([uuidSchema, z.number().int().positive().safe()])
 const saveSchema = z
   .object({
     variantId: variantIdentifier,
     quantity: z.number().int().min(1).max(999).optional(),
-    listId: z.string().uuid().optional()
+    listId: uuidSchema.optional()
   })
   .strict()
 const nameSchema = z.object({ name: z.string().min(1).max(80) }).strict()
@@ -144,7 +146,7 @@ export async function handleCustomerFavoritesHttp(
     if (path === root && request.method === 'GET') return json(account)
     if (listItem || preparation) {
       const id = (listItem ?? preparation)![1]!
-      if (!z.string().uuid().safeParse(id).success) return error('invalid_input', 400)
+      if (!uuidSchema.safeParse(id).success) return error('invalid_input', 400)
       if (preparation) {
         if (request.body) return error('invalid_input', 400)
         const result = await prepareD1FavoriteListForCart(deps.database, request, configuration, id)
@@ -171,7 +173,7 @@ export async function handleCustomerFavoritesHttp(
       const identifier = /^\d+$/.test(raw) ? Number(raw) : raw
       if (!variantIdentifier.safeParse(identifier).success) return error('invalid_input', 400)
       const values = url.searchParams.getAll('listId')
-      if (values.length > 1 || (values.length === 1 && !z.string().uuid().safeParse(values[0]).success))
+      if (values.length > 1 || (values.length === 1 && !uuidSchema.safeParse(values[0]).success))
         return error('invalid_input', 400)
       const variantId = await resolveVariant(deps.database, identifier)
       if (!variantId) return error('not_found', 404)

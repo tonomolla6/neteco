@@ -1,4 +1,3 @@
-import { z } from 'zod'
 import type { VerifiedSessionClaims } from '../catalog/authorization'
 import { canonicalJson, sha256Hex } from '../catalog/inventory'
 import {
@@ -9,7 +8,8 @@ import {
   createNotificationInputSchema,
   listNotificationsQuerySchema,
   markNotificationsReadInputSchema,
-  accountNotificationItemSchema
+  accountNotificationItemSchema,
+  notificationUuidSchema
 } from '../../shared/account-notifications'
 
 export class AccountNotificationError extends Error {
@@ -85,7 +85,7 @@ export async function createAccountNotification(
   rawInput: CreateNotificationInput | unknown,
   options?: AccountNotificationOptions
 ): Promise<AccountNotificationItem> {
-  if (!z.string().uuid().safeParse(id).success) fail('invalid_input')
+  if (!notificationUuidSchema.safeParse(id).success) fail('invalid_input')
   const parsed = createNotificationInputSchema.safeParse(rawInput)
   if (!parsed.success) fail('invalid_input')
   const input = parsed.data
@@ -197,7 +197,7 @@ export async function markAccountNotificationsRead(
   options?: AccountNotificationOptions
 ): Promise<{ affectedCount: number }> {
   if (!claims) fail('unauthenticated')
-  if (!z.string().uuid().safeParse(commandId).success) fail('invalid_input')
+  if (!notificationUuidSchema.safeParse(commandId).success) fail('invalid_input')
   const customerId = await resolveCustomerId(db, claims.identityId)
 
   const parsed = markNotificationsReadInputSchema.safeParse(rawInput)

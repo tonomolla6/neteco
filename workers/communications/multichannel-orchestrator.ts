@@ -1,4 +1,3 @@
-import { z } from 'zod'
 import type { VerifiedSessionClaims } from '../catalog/authorization'
 import { canonicalJson, sha256Hex } from '../catalog/inventory'
 import {
@@ -10,7 +9,8 @@ import {
   type OrchestrateMultichannelResult,
   orchestrateMultichannelInputSchema,
   updateChannelPreferencesInputSchema,
-  priorityOrderSchema
+  priorityOrderSchema,
+  multichannelUuidSchema
 } from '../../shared/multichannel-orchestration'
 import { createAccountNotification } from './account-notifications'
 
@@ -88,7 +88,7 @@ export async function readCustomerChannelPreferences(
   db: D1Database,
   customerId: string
 ): Promise<CustomerChannelPreferences> {
-  if (!z.string().uuid().safeParse(customerId).success) {
+  if (!multichannelUuidSchema.safeParse(customerId).success) {
     fail('invalid_input')
   }
 
@@ -140,7 +140,7 @@ export async function updateCustomerChannelPreferences(
   options?: MultichannelOptions
 ): Promise<CustomerChannelPreferences> {
   if (!claims) fail('unauthenticated')
-  if (!z.string().uuid().safeParse(customerId).success || !z.string().uuid().safeParse(commandId).success) {
+  if (!multichannelUuidSchema.safeParse(customerId).success || !multichannelUuidSchema.safeParse(commandId).success) {
     fail('invalid_input')
   }
 
@@ -242,7 +242,7 @@ export async function orchestrateMultichannelDelivery(
   rawInput: unknown,
   options?: MultichannelOptions
 ): Promise<OrchestrateMultichannelResult> {
-  if (!z.string().uuid().safeParse(commandId).success) fail('invalid_input')
+  if (!multichannelUuidSchema.safeParse(commandId).success) fail('invalid_input')
   const parsed = orchestrateMultichannelInputSchema.safeParse(rawInput)
   if (!parsed.success) fail('invalid_input')
   const input = parsed.data

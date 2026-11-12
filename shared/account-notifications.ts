@@ -7,14 +7,35 @@ import {
 
 export { NOTIFICATION_CATEGORIES, notificationCategorySchema, type NotificationCategory }
 
+// Zod 3's uuid validator accepted UUID-shaped values regardless of version and variant bits.
+export const notificationUuidSchema = z.string().guid('Invalid uuid')
+
+// Zod 3 counted UTF-16 code units; Zod 4's built-in string limits count code points.
+const boundedText = (maximum: number) =>
+  z
+    .string()
+    .max(maximum, `String must contain at most ${maximum} character(s)`)
+    .superRefine((value, context) => {
+      if (value.length > maximum && Array.from(value).length <= maximum) {
+        context.addIssue({
+          code: 'too_big',
+          origin: 'string',
+          maximum,
+          inclusive: true,
+          message: `String must contain at most ${maximum} character(s)`
+        })
+      }
+    })
+const requiredText = (maximum: number) => boundedText(maximum).min(1, 'String must contain at least 1 character(s)')
+
 export const accountNotificationItemSchema = z
   .object({
-    id: z.string().uuid(),
-    customerId: z.string().uuid(),
+    id: notificationUuidSchema,
+    customerId: notificationUuidSchema,
     category: notificationCategorySchema,
-    title: z.string().min(1).max(200),
-    body: z.string().min(1).max(2000),
-    link: z.string().max(500).nullable(),
+    title: requiredText(200),
+    body: requiredText(2000),
+    link: boundedText(500).nullable(),
     read: z.boolean(),
     readAt: z
       .string()
@@ -22,7 +43,7 @@ export const accountNotificationItemSchema = z
       .nullable(),
     mandatory: z.boolean(),
     metadata: z.record(z.string(), z.unknown()),
-    dedupKey: z.string().max(150).nullable(),
+    dedupKey: boundedText(150).nullable(),
     createdAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/),
     updatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
   })
@@ -54,14 +75,14 @@ export type AccountNotificationSummary = z.infer<typeof accountNotificationSumma
 
 export const createNotificationInputSchema = z
   .object({
-    customerId: z.string().uuid(),
+    customerId: notificationUuidSchema,
     category: notificationCategorySchema,
-    title: z.string().min(1).max(200),
-    body: z.string().min(1).max(2000),
-    link: z.string().max(500).optional(),
+    title: requiredText(200),
+    body: requiredText(2000),
+    link: boundedText(500).optional(),
     mandatory: z.boolean().default(false),
     metadata: z.record(z.string(), z.unknown()).default({}),
-    dedupKey: z.string().max(150).optional()
+    dedupKey: boundedText(150).optional()
   })
   .strict()
 
@@ -69,7 +90,7 @@ export type CreateNotificationInput = z.infer<typeof createNotificationInputSche
 
 export const markNotificationsReadInputSchema = z
   .object({
-    notificationIds: z.array(z.string().uuid()).min(1).max(100).optional(),
+    notificationIds: z.array(notificationUuidSchema).min(1).max(100).optional(),
     all: z.boolean().optional(),
     category: notificationCategorySchema.optional()
   })
