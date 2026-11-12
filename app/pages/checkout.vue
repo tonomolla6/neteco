@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Address } from '~/composables/useAccount'
 import { z } from 'zod'
 import CartRecoverySection from '~/components/CartRecoverySection.vue'
 import { useCartStore } from '~/stores/cart'
@@ -7,6 +8,7 @@ import { submitHostedPayment } from '~/utils/hosted-payment'
 import { NEWSLETTER_CONFIRMATION_NOTICE, NEWSLETTER_CONSENT_TEXT } from '~~/shared/newsletter'
 import { promotionCodeSchema, promotionReasonSchema, type PromotionReason } from '~~/shared/promotions'
 
+definePageMeta({ layout: 'checkout' })
 useSeoMeta({ title: 'Tramitar pedido', robots: 'noindex, nofollow' })
 
 const cart = useCartStore()
@@ -59,7 +61,14 @@ onMounted(async () => {
   }
   await cart.load()
   recovering.value = false
+  // Sin nada que pagar no hay pago: de vuelta al carrito, que es quien sabe ofrecer repetir
+  // el último pedido o pedir por referencia.
+  if (cart.ready && !cart.error && !cart.items.length) {
+    await navigateTo('/carrito', { replace: true })
+    return
+  }
   void track('checkout_started', { itemCount: cart.count, totalCents: cart.subtotal })
+  void prefillSavedAddress()
 })
 
 const form = reactive({
@@ -107,6 +116,37 @@ const billingAddress = reactive({
   instructions: ''
 })
 const billingSameAsShipping = ref(true)
+
+/**
+ * Quien tiene cuenta no vuelve a teclear lo que ya sabemos: la entrega se rellena con su
+ * dirección predeterminada. Solo si aún no ha escrito nada, y siempre a la vista para poder
+ * cambiarla.
+ */
+const prefilledAddress = ref('')
+async function prefillSavedAddress() {
+  if (!loggedIn.value) return
+  let saved: Address[]
+  try {
+    saved = (await $fetch<{ addresses: Address[] }>('/api/account/addresses')).addresses ?? []
+  } catch {
+    return
+  }
+  const candidates = saved.filter((address) => address.kind !== 'billing' && address.countryCode === 'ES')
+  const address = candidates.find((candidate) => candidate.isDefault) ?? candidates[0]
+  if (!address || shippingAddress.line1 || shippingAddress.postalCode || shippingAddress.city) return
+  Object.assign(shippingAddress, {
+    recipientName: shippingAddress.recipientName || address.recipientName,
+    companyName: shippingAddress.companyName || (address.companyName ?? ''),
+    line1: address.line1,
+    line2: address.line2 ?? '',
+    postalCode: address.postalCode,
+    city: address.city,
+    region: address.region || shippingAddress.region,
+    phone: shippingAddress.phone || (address.phone ?? ''),
+    instructions: shippingAddress.instructions || (address.instructions ?? '')
+  })
+  prefilledAddress.value = `${address.line1}, ${address.postalCode} ${address.city}`
+}
 
 watch(
   user,
@@ -1293,6 +1333,20 @@ async function finish(order: { id: string; token?: string }) {
         @submit.prevent="submit"
       >
         <div class="min-w-0 space-y-6 lg:col-span-2">
+          <!-- En móvil el resumen queda al final: el total se enseña ya en el primer pliegue. -->
+          <a
+            href="#resumen-pedido"
+            data-checkout-total-mobile
+            class="flex items-center justify-between gap-3 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 lg:hidden"
+          >
+            <span class="text-[15px] text-[var(--text)]">
+              Tu pedido · {{ cart.items.length }} {{ cart.items.length === 1 ? 'referencia' : 'referencias' }}
+              <span class="block text-[13px] text-[var(--link)] underline">Ver el detalle</span>
+            </span>
+            <span class="tabular font-display text-xl font-bold text-[var(--text-strong)]">
+              {{ formatPrice(total) }}
+            </span>
+          </a>
           <div v-if="cart.pendingMutation" role="alert" class="rounded-2xl border border-amber-300 bg-amber-50 p-5">
             <p>{{ cartMutationNotice }}</p>
             <NuxtLink to="/carrito" class="mt-2 inline-block font-semibold underline">Revisar el carrito</NuxtLink>
@@ -1327,7 +1381,9 @@ async function finish(order: { id: string; token?: string }) {
               >
               Contacto, entrega y facturación
             </h2>
-            <h3 class="mt-5 text-sm font-bold uppercase tracking-wide text-slate-500">Datos de contacto</h3>
+            <h3 class="mt-5 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
+              Datos de contacto
+            </h3>
             <div class="mt-5 grid gap-4 grid-cols-1 sm:grid-cols-2">
               <UFormField label="Nombre y apellidos" required :error="errors.name">
                 <UInput v-model="form.name" class="w-full" autocomplete="name" />
@@ -1335,7 +1391,7 @@ async function finish(order: { id: string; token?: string }) {
               <UFormField label="Empresa" hint="opcional">
                 <UInput v-model="form.company" class="w-full" autocomplete="organization" />
               </UFormField>
-              <UFormField label="NIF / NIE / CIF" hint="opcional" :error="errors.nif">
+              <UFormField label="NIF / NIE / CIF" hint="para factura de empresa" :error="errors.nif">
                 <UInput v-model="form.nif" class="w-full" />
               </UFormField>
               <UFormField label="Teléfono" required :error="errors.phone">
@@ -1367,7 +1423,16 @@ async function finish(order: { id: string; token?: string }) {
               </p>
             </div>
 
-            <h3 class="mt-8 text-sm font-bold uppercase tracking-wide text-slate-500">Dirección de entrega</h3>
+            <h3 class="mt-8 font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
+              Dirección de entrega
+            </h3>
+            <p
+              v-if="prefilledAddress"
+              data-checkout-prefilled
+              class="mt-2 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-[13px] text-[var(--text)]"
+            >
+              Hemos rellenado tu dirección guardada: {{ prefilledAddress }}. Puedes cambiarla aquí mismo.
+            </p>
             <div class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
               <UFormField label="Destinatario" required :error="errors.shippingRecipientName">
                 <UInput v-model="shippingAddress.recipientName" class="w-full" autocomplete="shipping name" />
@@ -1473,7 +1538,9 @@ async function finish(order: { id: string; token?: string }) {
               Usar esta dirección también para facturación
             </label>
             <div v-if="!billingSameAsShipping" class="mt-5 border-t border-slate-100 pt-5">
-              <h3 class="text-sm font-bold uppercase tracking-wide text-slate-500">Dirección de facturación</h3>
+              <h3 class="font-sans text-[15px] font-semibold tracking-normal text-[var(--text-strong)]">
+                Dirección de facturación
+              </h3>
               <div class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
                 <UFormField label="Titular / razón social" required :error="errors.billingRecipientName">
                   <UInput v-model="billingAddress.recipientName" class="w-full" autocomplete="billing name" />
@@ -1628,9 +1695,7 @@ async function finish(order: { id: string; token?: string }) {
                   data-testid="saved-cards-section"
                 >
                   <div v-if="savedPaymentTokens.length" class="space-y-2" data-testid="saved-cards-list">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-700">
-                      Tarjetas guardadas para pago rápido
-                    </p>
+                    <p class="text-[13px] font-semibold text-slate-700">Tarjetas guardadas para pago rápido</p>
                     <div
                       v-for="token in savedPaymentTokens"
                       :key="token.id"
@@ -1663,9 +1728,9 @@ async function finish(order: { id: string; token?: string }) {
                       class="mt-0.5 accent-neteco-600"
                     />
                     <span>
-                      Autorizo guardar una referencia tokenizada de mi tarjeta tras este pago para futuras compras en un
-                      clic (versión <span class="font-mono">{{ savedCardsConsentVersion }}</span
-                      >). No almacenamos PAN ni CVV.
+                      Guardar esta tarjeta para próximos pedidos. El banco nos da una referencia para cobrar en un clic
+                      (condiciones versión <span class="tabular">{{ savedCardsConsentVersion }}</span
+                      >); nunca guardamos el número ni el código de seguridad.
                     </span>
                   </label>
 
@@ -1686,7 +1751,7 @@ async function finish(order: { id: string; token?: string }) {
                   class="space-y-2 border-t border-slate-200 pt-3"
                   data-testid="wallet-payment-options"
                 >
-                  <p class="text-xs font-semibold uppercase tracking-wide text-slate-700">Pago rápido con wallet</p>
+                  <p class="text-[13px] font-semibold text-slate-700">Pago rápido con wallet</p>
                   <div class="flex flex-wrap gap-2">
                     <UButton
                       v-if="walletCapabilities.apple_pay"
@@ -1765,7 +1830,10 @@ async function finish(order: { id: string; token?: string }) {
         </div>
 
         <!-- resumen lateral -->
-        <aside class="sticky top-40 rounded-2xl border border-slate-200 bg-white p-6">
+        <aside
+          id="resumen-pedido"
+          class="scroll-mt-4 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 lg:sticky lg:top-6"
+        >
           <div class="flex items-baseline justify-between">
             <h2 class="text-lg font-bold text-slate-900">Tu pedido</h2>
             <NuxtLink to="/carrito" class="text-sm font-medium text-neteco-600 hover:text-neteco-500">Editar</NuxtLink>
@@ -1987,7 +2055,7 @@ async function finish(order: { id: string; token?: string }) {
             </li>
             <li class="flex items-start gap-2">
               <UIcon name="i-lucide-file-text" class="mt-px size-4 shrink-0 text-neteco-600" />
-              Recibirás la factura con tus datos fiscales por email.
+              Recibirás la factura por email. Para factura de empresa, indica razón social y NIF.
             </li>
             <li class="flex items-start gap-2">
               <UIcon name="i-lucide-phone" class="mt-px size-4 shrink-0 text-neteco-600" />

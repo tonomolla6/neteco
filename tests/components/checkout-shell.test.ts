@@ -1,0 +1,232 @@
+import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import { flushPromises } from '@vue/test-utils'
+import { readFileSync } from 'node:fs'
+import { defineComponent, h, nextTick, proxyRefs, ref } from 'vue'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import CheckoutPage from '../../app/pages/checkout.vue'
+import CheckoutLayout from '../../app/layouts/checkout.vue'
+import type { useCartStore, CartItem } from '../../app/stores/cart'
+import '#app/nuxt-vitest-app-entry'
+
+const { fetchMock, runtimeMock, navigateMock, auth } = vi.hoisted(() => ({
+  fetchMock: vi.fn(),
+  navigateMock: vi.fn(),
+  auth: { loggedIn: false },
+  runtimeMock: vi.fn(() => ({
+    app: { baseURL: '/', buildAssetsDir: '/_nuxt/', cdnURL: '' },
+    public: {
+      freeShippingThresholdCents: 0,
+      priceDisplayMode: 'gross',
+      serverRuntime: 'node',
+      commercial: {},
+      legalTermsUrl: 'https://neteco.es/legal'
+    } as Record<string, unknown>
+  }))
+}))
+mockNuxtImport('$fetch', () => fetchMock)
+mockNuxtImport('useRuntimeConfig', () => runtimeMock)
+mockNuxtImport('navigateTo', () => navigateMock)
+mockNuxtImport('useAnalytics', () => () => ({ track: async () => undefined }))
+mockNuxtImport('useToast', () => () => ({ add: () => undefined }))
+mockNuxtImport('useUserSession', () => () => ({
+  ready: ref(true),
+  loggedIn: ref(auth.loggedIn),
+  user: ref(
+    auth.loggedIn
+      ? { id: 'u', name: 'Ana Pérez', email: 'ana@example.invalid', phone: '600000000', company: 'Bar Central' }
+      : null
+  ),
+  session: ref(null),
+  clear: async () => undefined
+}))
+
+const Slot = defineComponent({
+  setup:
+    (_, { slots }) =>
+    () =>
+      h('section', slots.default?.())
+})
+const item: CartItem = {
+  productId: 1,
+  variantId: 11,
+  slug: 'producto',
+  name: 'Producto sintético',
+  brand: 'NETECO',
+  format: '1 L',
+  sku: 'S-11',
+  price: 1210,
+  netPrice: 1000,
+  qty: 2,
+  visual: { type: 'garrafa', color: '#123456' }
+}
+const serverCart = (items: CartItem[]) => ({
+  id: 'synthetic-cart',
+  version: 2,
+  status: 'active',
+  expiresAt: '2026-10-01T00:00:00Z',
+  items,
+  count: items.length,
+  subtotal: items.length ? 2420 : 0,
+  subtotalNet: items.length ? 2000 : 0,
+  tax: items.length ? 420 : 0
+})
+let cartItems: CartItem[]
+let addresses: unknown[]
+type Mounted = Awaited<ReturnType<typeof mountSuspended>>
+let wrapper: Mounted | undefined
+async function render() {
+  wrapper = await mountSuspended(CheckoutPage, {
+    route: false,
+    global: { stubs: { ClientOnly: Slot, ProductImage: true, CartRecoverySection: true } }
+  })
+  await flushPromises()
+  await nextTick()
+  return wrapper
+}
+beforeEach(() => {
+  auth.loggedIn = false
+  cartItems = [item]
+  addresses = []
+  navigateMock.mockReset()
+  fetchMock.mockReset().mockImplementation(async (path: string) => {
+    if (path === '/api/checkout/recover') return { orderId: null }
+    if (path === '/api/cart') return serverCart(cartItems)
+    if (path === '/api/account/addresses') return { addresses }
+    throw Object.assign(new Error('Unexpected request: ' + path), { statusCode: 404 })
+  })
+  localStorage.clear()
+})
+afterEach(() => {
+  wrapper?.unmount()
+  wrapper = undefined
+})
+
+describe('checkout shell', () => {
+  it('uses a reduced layout: way back to the cart, secure payment and the phone, nothing else to leave by', async () => {
+    const layout = await mountSuspended(CheckoutLayout, { slots: { default: '<p>contenido</p>' } })
+    expect(layout.get('a[href="/carrito"]').attributes('aria-label')).toContain('Volver al carrito')
+    expect(layout.text()).toContain('Pago seguro')
+    expect(layout.get('a[href="tel:600861334"]').text()).toContain('600 861 334')
+    expect(layout.find('a[href="/catalogo"]').exists()).toBe(false)
+    expect(layout.find('a[href^="/categoria"]').exists()).toBe(false)
+    expect(layout.find('input[type="email"]').exists()).toBe(false)
+    expect(layout.find('nav[aria-label="Accesos rápidos"]').exists()).toBe(false)
+    expect(layout.get('main').attributes('id')).toBe('contenido-principal')
+    expect(readFileSync('app/pages/checkout.vue', 'utf8')).toMatch(/definePageMeta\(\{[^}]*layout: 'checkout'/)
+  })
+
+  it('goes back to the cart when there is nothing to pay for', async () => {
+    cartItems = []
+    await render()
+    expect(navigateMock).toHaveBeenCalledWith('/carrito', { replace: true })
+  })
+
+  it('stays on the page with a cart and shows the total in the first screen on mobile', async () => {
+    await render()
+    expect(navigateMock).not.toHaveBeenCalled()
+    const top = wrapper!.get('[data-checkout-total-mobile]')
+    expect(top.classes()).toContain('lg:hidden')
+    expect(top.attributes('href')).toBe('#resumen-pedido')
+    expect(top.text().replace(/\s+/g, ' ')).toContain('24,20 €')
+    expect(wrapper!.find('#resumen-pedido').exists()).toBe(true)
+    const html = wrapper!.html()
+    expect(html.indexOf('data-checkout-total-mobile')).toBeLessThan(html.indexOf('Nombre y apellidos'))
+  })
+
+  it('speaks plainly about saved cards and has no all-caps subheadings', () => {
+    const source = readFileSync('app/pages/checkout.vue', 'utf8')
+    expect(source).toContain('Guardar esta tarjeta para próximos pedidos')
+    expect(source).not.toContain('referencia tokenizada')
+    expect(source).not.toMatch(/\buppercase\b/)
+  })
+
+  it('fills the delivery with the saved default address of a signed-in customer', async () => {
+    auth.loggedIn = true
+    addresses = [
+      {
+        id: 'a-2',
+        kind: 'billing',
+        label: 'Fiscal',
+        recipientName: 'Bar Central S.L.',
+        companyName: 'Bar Central S.L.',
+        taxId: 'B12345678',
+        line1: 'C/ Fiscal 1',
+        line2: null,
+        postalCode: '46001',
+        city: 'València',
+        region: 'Valencia',
+        countryCode: 'ES',
+        phone: null,
+        instructions: null,
+        isDefault: true
+      },
+      {
+        id: 'a-1',
+        kind: 'shipping',
+        label: 'Bar',
+        recipientName: 'Ana Pérez',
+        companyName: 'Bar Central',
+        taxId: null,
+        line1: 'C/ Mayor 12',
+        line2: 'Bajo',
+        postalCode: '46870',
+        city: 'Ontinyent',
+        region: 'Valencia',
+        countryCode: 'ES',
+        phone: '611111111',
+        instructions: 'Entrada por el callejón',
+        isDefault: true
+      }
+    ]
+    await render()
+    await flushPromises()
+    const shipping = (proxyRefs(wrapper!.setupState) as Record<string, Record<string, string>>).shippingAddress!
+    expect(shipping).toMatchObject({
+      line1: 'C/ Mayor 12',
+      line2: 'Bajo',
+      postalCode: '46870',
+      city: 'Ontinyent',
+      instructions: 'Entrada por el callejón'
+    })
+    expect(wrapper!.get('[data-checkout-prefilled]').text()).toContain('C/ Mayor 12, 46870 Ontinyent')
+    expect((proxyRefs(wrapper!.setupState).cart as ReturnType<typeof useCartStore>).items).toHaveLength(1)
+  })
+
+  it('never overwrites what the customer has already typed', async () => {
+    auth.loggedIn = true
+    addresses = [
+      {
+        id: 'a-1',
+        kind: 'both',
+        label: 'Bar',
+        recipientName: 'Ana Pérez',
+        companyName: null,
+        taxId: null,
+        line1: 'C/ Mayor 12',
+        line2: null,
+        postalCode: '46870',
+        city: 'Ontinyent',
+        region: 'Valencia',
+        countryCode: 'ES',
+        phone: null,
+        instructions: null,
+        isDefault: true
+      }
+    ]
+    let release!: (value: unknown) => void
+    fetchMock.mockImplementation(async (path: string) => {
+      if (path === '/api/checkout/recover') return { orderId: null }
+      if (path === '/api/cart') return serverCart(cartItems)
+      if (path === '/api/account/addresses') return new Promise((resolve) => (release = resolve))
+      throw Object.assign(new Error('Unexpected request: ' + path), { statusCode: 404 })
+    })
+    await render()
+    const shipping = (proxyRefs(wrapper!.setupState) as Record<string, Record<string, string>>).shippingAddress!
+    shipping.line1 = 'Otra dirección 5'
+    release({ addresses })
+    await flushPromises()
+    expect(shipping.line1).toBe('Otra dirección 5')
+    expect(shipping.postalCode).toBe('')
+    expect(wrapper!.find('[data-checkout-prefilled]').exists()).toBe(false)
+  })
+})
