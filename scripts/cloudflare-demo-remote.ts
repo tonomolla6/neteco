@@ -43,11 +43,13 @@ export function prepareDemoSecrets(names: ReadonlySet<string>) {
 
 // Explicit operators only; credentials stay in process memory and Cloudflare's store.
 const operation = process.argv[2]
-if (!['migrate', 'seed', 'secrets', 'deploy', 'attach'].includes(operation ?? ''))
+if (!['migrate', 'seed', 'catalog', 'secrets', 'deploy', 'attach'].includes(operation ?? ''))
   throw new Error('explicit_demo_operation_required')
 // Validate the selected ignored configuration before acquiring credentials.
 const configurationPath =
-  operation === 'migrate' || operation === 'seed' ? '.wrangler/demo/bootstrap.json' : '.wrangler/demo/wrangler.json'
+  operation === 'migrate' || operation === 'seed' || operation === 'catalog'
+    ? '.wrangler/demo/bootstrap.json'
+    : '.wrangler/demo/wrangler.json'
 const selected = JSON.parse(await readFile(configurationPath, 'utf8'))
 if (
   selected.account_id !== DEMO_ACCOUNT ||
@@ -68,6 +70,7 @@ if (
 if (
   operation !== 'migrate' &&
   operation !== 'seed' &&
+  operation !== 'catalog' &&
   (selected.name !== DEMO_WORKER ||
     selected.vars?.APP_ENV !== 'preview' ||
     selected.vars?.AUTH_ORIGIN !== DEMO_ORIGIN ||
@@ -164,6 +167,29 @@ if (operation === 'migrate') {
         await provisionDemoDataset(database, proxy.env.MEDIA, new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'))
       )
     )
+  } finally {
+    await proxy.dispose()
+  }
+} else if (operation === 'catalog') {
+  // Additive: renews the demo seed's publication authority, then loads the PDF catalogue (no deletes/overwrites).
+  const sourcePath = process.argv[3] ?? '/root/workspace/scripts/catalog-pdf/out/products.json'
+  const imagesDirectory = process.argv[4] ?? '/root/workspace/scripts/catalog-pdf/import/package/clean'
+  const proxy = await getPlatformProxy<{ DB: D1Database; MEDIA: R2Bucket }>({
+    configPath: '.wrangler/demo/bootstrap.json',
+    persist: false,
+    envFiles: [],
+    remoteBindings: true
+  })
+  try {
+    const { loadCatalogPdf, renewDemoSeedAuthority } = await import('./lib/demo-catalog-pdf')
+    const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+    console.log(JSON.stringify({ demoSeed: await renewDemoSeedAuthority(proxy.env.DB, { now }) }))
+    const summary = await loadCatalogPdf(proxy.env.DB, proxy.env.MEDIA, {
+      source: JSON.parse(await readFile(sourcePath, 'utf8')),
+      readImage: async (reference) => new Uint8Array(await readFile(`${imagesDirectory}/${reference}.jpg`)),
+      now
+    })
+    console.log(JSON.stringify({ catalogPdf: summary }))
   } finally {
     await proxy.dispose()
   }
