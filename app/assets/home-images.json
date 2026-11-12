@@ -1,1 +1,164 @@
-[]
+[
+  {
+    "file": "equipo-atencion-telefonica.webp",
+    "alt": "Profesional de atención al cliente con auriculares en su puesto de trabajo",
+    "width": 1200,
+    "height": 800
+  },
+  {
+    "file": "equipo-reparto.webp",
+    "alt": "Repartidor entrega un paquete a una restauradora junto a una furgoneta blanca",
+    "width": 1200,
+    "height": 800
+  },
+  {
+    "file": "error-almacen.webp",
+    "alt": "Empleado buscando una caja en un almacén",
+    "width": 1200,
+    "height": 800
+  },
+  {
+    "file": "familia-celulosa-y-desechables.webp",
+    "alt": "Servilletas, papel y envases desechables en una mesa de trabajo",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-coccion-y-cacerolas.webp",
+    "alt": "Cocinero junto a varias cacerolas de acero inoxidable",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-corte-y-preparacion.webp",
+    "alt": "Cocinero cortando verduras en una cocina profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-desengrasantes.webp",
+    "alt": "Pulverizador y paño ante una campana de cocina profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-guantes-de-trabajo-y-epi.webp",
+    "alt": "Guantes de trabajo y gafas de protección sobre un banco",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-guantes-desechables.webp",
+    "alt": "Manos con guantes desechables azules sostienen un paño blanco",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-guantes-y-proteccion.webp",
+    "alt": "Guantes azules, gafas y delantal de protección sobre una mesa",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-lavado-manual-de-vajilla.webp",
+    "alt": "Profesional lavando un plato a mano en una cocina",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-menaje-de-cocina.webp",
+    "alt": "Utensilios y recipientes de acero en una cocina profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-menaje-y-hosteleria.webp",
+    "alt": "Cacerolas, platos y utensilios de cocina profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-mesa-y-servicio.webp",
+    "alt": "Personal colocando platos y cubiertos en una mesa de restaurante",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-productos-quimicos.webp",
+    "alt": "Envases blancos y azules de productos de limpieza profesional",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-reposteria-y-moldes.webp",
+    "alt": "Manos organizando moldes y utensilios de repostería",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-termos-botellas-y-sifones.webp",
+    "alt": "Termo, botella y sifón de hostelería sobre un mostrador",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "familia-utiles-de-limpieza.webp",
+    "alt": "Profesional limpiando un suelo junto a un cubo y útiles de limpieza",
+    "width": 800,
+    "height": 800
+  },
+  {
+    "file": "hero-almacen.webp",
+    "alt": "Personal organizando cajas en un almacén ordenado",
+    "width": 1920,
+    "height": 800
+  },
+  {
+    "file": "hero-cocina.webp",
+    "alt": "Equipo de cocina trabajando y sonriendo en un restaurante",
+    "width": 1920,
+    "height": 800
+  },
+  {
+    "file": "hero-comercio.webp",
+    "alt": "Comerciante y clienta sonríen en el mostrador de una tienda",
+    "width": 1920,
+    "height": 800
+  },
+  {
+    "file": "hero-hotel.webp",
+    "alt": "Personal de limpieza preparando una habitación de hotel",
+    "width": 1920,
+    "height": 800
+  },
+  {
+    "file": "hero-reparto-bar.webp",
+    "alt": "Repartidor entrega una caja al propietario de un bar junto a una furgoneta blanca",
+    "width": 1920,
+    "height": 800
+  },
+  {
+    "file": "sector-colectividades.webp",
+    "alt": "Profesional de cuidados conversa con una residente en un comedor luminoso",
+    "width": 1200,
+    "height": 800
+  },
+  {
+    "file": "sector-comercio.webp",
+    "alt": "Comerciante conversa con una clienta en una tienda de barrio",
+    "width": 1200,
+    "height": 800
+  },
+  {
+    "file": "sector-hosteleria.webp",
+    "alt": "Equipo de restaurante preparando el servicio",
+    "width": 1200,
+    "height": 800
+  },
+  {
+    "file": "sector-industria.webp",
+    "alt": "Dos profesionales conversan en una instalación industrial",
+    "width": 1200,
+    "height": 800
+  }
+]
