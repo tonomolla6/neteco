@@ -1812,7 +1812,7 @@ async function finish(order: { id: string; token?: string }) {
               pendingOrder
                 ? 'Reintentar el pago del pedido original'
                 : paymentMethod === 'transferencia'
-                  ? 'Confirmar pedido'
+                  ? 'Confirmar pedido con obligación de pago'
                   : `Pagar ${totalText}`
             }}
           </UButton>

@@ -158,7 +158,7 @@ async function createTransferOrder(page: Page, email: string) {
   const creation = page.waitForResponse(
     (response) => response.url().endsWith('/api/orders') && response.request().method() === 'POST'
   )
-  await page.getByRole('button', { name: 'Confirmar pedido' }).click()
+  await page.getByRole('button', { name: 'Confirmar pedido con obligación de pago' }).click()
   const response = await creation
   await responseStatus(response, 201, 'pedido propietario')
   const orderCookie = await response.headerValue('set-cookie')

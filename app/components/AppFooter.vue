@@ -206,8 +206,8 @@ function configureCookies() {
         class="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-2 px-4 py-4 text-xs text-slate-400 sm:flex-row"
       >
         <p data-footer-legal class="text-center sm:text-left">
-          © {{ year }} Maria Carmen González Nacher<template v-if="terms.companyTaxId">
-            · NIF {{ terms.companyTaxId }}</template
+          © {{ year }} {{ terms.companyLegalName || 'NETECO'
+          }}<template v-if="terms.companyTaxId"> · NIF {{ terms.companyTaxId }}</template
           ><template v-if="terms.companyAddress"> · {{ terms.companyAddress }}</template> · Todos los derechos
           reservados.
         </p>

@@ -82,4 +82,15 @@ describe('shop footer', () => {
     config.appEnv = 'production'
     expect((await mountSuspended(AppFooter)).text()).not.toContain('Demo interna')
   })
+
+  it('names the company from the legal configuration, never a hard-coded person', async () => {
+    config.commercial = { companyLegalName: 'Empresa Ejemplo, S.L.' }
+    const footer = await mountSuspended(AppFooter)
+    const legal = footer.find('[data-footer-legal]').text()
+    expect(legal).toContain('Empresa Ejemplo, S.L.')
+    expect(legal).not.toMatch(/Gonz[aá]lez Nacher/)
+    config.commercial = {}
+    const unnamed = await mountSuspended(AppFooter)
+    expect(unnamed.find('[data-footer-legal]').text()).not.toMatch(/Gonz[aá]lez Nacher/)
+  })
 })

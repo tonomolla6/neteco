@@ -48,7 +48,7 @@ async function createGuestTransferOrder(page: Page, email: string) {
   const responsePromise = page.waitForResponse(
     (response) => response.url().endsWith('/api/orders') && response.request().method() === 'POST'
   )
-  await page.getByRole('button', { name: 'Confirmar pedido' }).click()
+  await page.getByRole('button', { name: 'Confirmar pedido con obligación de pago' }).click()
   const response = await responsePromise
   expect(response.status(), await response.text()).toBe(201)
   const order = (await response.json()) as { id: string; total: number; expiresAt: string }

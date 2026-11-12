@@ -157,6 +157,9 @@ describe('credit in Cloudflare checkout', () => {
     await render()
     expect(transfer().exists()).toBe(true)
     await transfer().setValue(true)
+    await nextTick()
+    // TRLGDCU art. 98.2: the final button must state the payment obligation.
+    expect(wrapper!.text()).toContain('Confirmar pedido con obligación de pago')
     await wrapper!.get('form').trigger('submit')
     await flushPromises()
     const order = mocks.fetch.mock.calls.find(([path]) => path === '/api/orders')
