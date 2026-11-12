@@ -23,7 +23,19 @@ mockNuxtImport('useRuntimeConfig', (original) => {
   }
 })
 
-registerEndpoint('/api/categories', () => ({ roots: [], flat: [] }))
+const node = (id: number, slug: string, children: unknown[] = []) => ({
+  id,
+  name: slug,
+  slug,
+  parentId: null,
+  sort: id,
+  count: 3,
+  children
+})
+registerEndpoint('/api/categories', () => ({
+  roots: [node(1, 'productos-quimicos', [node(2, 'linea-eco-profesional')])],
+  flat: []
+}))
 registerEndpoint('/api/products', () => ({ items: [], total: 0, page: 1, pages: 1 }))
 
 const stubs = { PromotionalBlocks: true, SearchBox: true, HeroOfferSlider: true, ProductCard: true }

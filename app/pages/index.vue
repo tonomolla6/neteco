@@ -74,25 +74,19 @@ const featuredRow = computed(() => {
 })
 
 /**
- * Familias del escaparate.
+ * Familias del escaparate: solo las que tienen producto, de más a menos surtido.
  *
- * Antes se filtraba por `count > 0` sobre las familias de segundo nivel. Con el catálogo
- * cargado hoy —los 20 productos viven todos en dos hojas de tercer nivel— eso dejaba **una
- * sola tarjeta** en una rejilla de cuatro columnas: un visitante nuevo concluía que NETECO
- * vende guantes.
- *
- * El escaparate de un mayorista tiene que comunicar amplitud, así que ahora se muestran las
- * familias con producto primero y se completa la rejilla con el resto del árbol, para que se
- * vea el surtido real. Las que aún no tienen referencias cargadas se marcan como tales en
- * lugar de esconderse: prometen menos y no llevan a un callejón sin salida silencioso.
+ * Una versión anterior completaba la rejilla con familias vacías marcadas «Consúltanos
+ * disponibilidad»; con siete de ocho tarjetas así, la portada parecía una tienda sin género.
+ * Una familia sin referencias no se enseña: lleva a una página vacía.
  */
-const families = computed(() => {
-  const roots = catData.value?.roots ?? []
-  const all = roots.flatMap((root) => root.children)
-  const withStock = all.filter((category) => category.count > 0).sort((left, right) => right.count - left.count)
-  const rest = all.filter((category) => category.count === 0)
-  return [...withStock, ...rest].slice(0, 8)
-})
+const families = computed(() =>
+  (catData.value?.roots ?? [])
+    .flatMap((root) => root.children)
+    .filter((category) => category.count > 0)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 8)
+)
 
 // filas de producto por familia (las 3 con más catálogo), estilo mayorista
 const { data: familyRows } = await useAsyncData('home-family-rows', async () => {
@@ -130,39 +124,59 @@ const visibleFamilyRows = computed(() => {
  */
 const { promises, terms: commercialTerms } = useCommercialTerms()
 
-// enlazan solo a familias con producto; se remapearán según crezca el catálogo
-const sectors = [
+/**
+ * Quien vuelve con sesión y pedidos ve primero su recompra; el titular de venta es para
+ * quien llega de nuevas. Se decide en cliente: esta página se sirve desde una caché
+ * compartida y no puede llevar datos de ninguna cuenta.
+ */
+const { lastOrder } = await useLastOrder()
+const returning = computed(() => !!lastOrder.value)
+
+// Accesos por sector. Cada uno apunta a una familia y solo se enseña si esa familia tiene
+// producto: un acceso a una página vacía es peor que no tenerlo.
+const SECTORS = [
   {
     name: 'Hostelería',
     desc: 'Limpieza de cocina y sala',
-    image: SECTOR_IMAGES.hosteleria,
-    to: '/categoria/limpiadores-generales'
+    slug: 'limpiadores-generales',
+    image: SECTOR_IMAGES.hosteleria
   },
-  {
-    name: 'Comercio',
-    desc: 'Limpieza sostenible del local',
-    image: SECTOR_IMAGES.comercio,
-    to: '/categoria/linea-eco-profesional'
-  },
-  {
-    name: 'Industria',
-    desc: 'Maquinaria y fregadoras',
-    image: SECTOR_IMAGES.industria,
-    to: '/categoria/limpiadores-maquina'
-  },
+  { name: 'Comercio', desc: 'Limpieza del local', slug: 'linea-eco-profesional', image: SECTOR_IMAGES.comercio },
+  { name: 'Industria', desc: 'Maquinaria y fregadoras', slug: 'limpiadores-maquina', image: SECTOR_IMAGES.industria },
   {
     name: 'Colectividades',
     desc: 'Guantes y protección',
-    image: SECTOR_IMAGES.colectividades,
-    to: '/categoria/guantes-y-proteccion'
+    slug: 'guantes-y-proteccion',
+    image: SECTOR_IMAGES.colectividades
   }
 ]
+const sectors = computed(() => {
+  const stocked = new Set<string>()
+  const visit = (nodes: CategoryResponse['roots']) => {
+    for (const node of nodes) {
+      if (node.count > 0) stocked.add(node.slug)
+      visit(node.children)
+    }
+  }
+  visit(catData.value?.roots ?? [])
+  return SECTORS.filter((sector) => stocked.has(sector.slug)).map((sector) => ({
+    ...sector,
+    to: `/categoria/${sector.slug}`
+  }))
+})
+const ecoRangeAvailable = computed(() => families.value.some((family) => family.slug === 'linea-eco-profesional'))
 </script>
 
 <template>
   <div>
+    <ClientOnly><HomeReorder v-if="returning" /></ClientOnly>
+
     <!-- hero -->
-    <section class="relative overflow-hidden bg-gradient-to-b from-neteco-950 via-neteco-900 to-neteco-700 text-white">
+    <section
+      v-if="!returning"
+      data-home-hero
+      class="relative overflow-hidden bg-gradient-to-b from-neteco-950 via-neteco-900 to-neteco-700 text-white"
+    >
       <!-- Hero partido: el mensaje sobre el azul de marca y la oferta sobre un panel claro
            que llega al borde. Las fotos de producto vienen con fondo blanco de estudio, así
            que sobre el degradado siempre se leerían como una tarjeta pegada; con el panel,
@@ -171,7 +185,7 @@ const sectors = [
         class="mx-auto grid max-w-[1600px] grid-cols-1 items-stretch"
         :class="offers.length ? 'lg:grid-cols-[1fr_460px]' : ''"
       >
-        <div class="max-w-2xl px-4 py-14 sm:py-16 lg:py-20">
+        <div class="max-w-2xl px-4 py-10 sm:py-12">
           <p class="mb-3 text-sm font-medium text-neteco-200">Más de 25 años al servicio de tu negocio</p>
           <!-- `text-white` explícito: la regla global de titulares fija `--text-strong`, y una
                regla de elemento gana siempre al color heredado del contenedor oscuro. -->
@@ -182,12 +196,8 @@ const sectors = [
             Químicos de limpieza profesional, higiene y menaje para hostelería, comercio, industria y colectividades.
             Con reparto propio en Ontinyent y la Vall d'Albaida.
           </p>
-          <div class="mt-8 hidden max-w-xl md:block">
-            <SearchBox size="xl" placeholder="Busca por producto o referencia del albarán" />
-          </div>
-
-          <!-- Dos caminos, no tres: ver el catálogo o pedir por teléfono, que en este sector
-               sigue siendo como entra la mitad de los pedidos. -->
+          <!-- Dos caminos: ver el catálogo o, con el albarán delante, pedir por referencia. El
+               buscador ya está en la cabecera; repetirlo aquí empujaba todo 80 px hacia abajo. -->
           <div class="mt-6 flex flex-wrap items-center gap-3">
             <NuxtLink
               to="/catalogo"
@@ -196,13 +206,13 @@ const sectors = [
               Ver el catálogo
               <UIcon name="i-lucide-arrow-right" class="size-4" />
             </NuxtLink>
-            <a
-              href="tel:600861334"
+            <NuxtLink
+              to="/pedido-rapido"
               class="inline-flex items-center gap-2 rounded-[var(--radius-control)] border border-white/40 px-6 py-3 font-semibold text-white transition hover:bg-white/10"
             >
-              <UIcon name="i-lucide-phone" class="size-4" />
-              600 861 334
-            </a>
+              <UIcon name="i-lucide-list-plus" class="size-4" />
+              Tengo el albarán: pedir por referencia
+            </NuxtLink>
           </div>
         </div>
 
@@ -257,7 +267,7 @@ const sectors = [
 
     <!-- sectores: es el bloque más fuerte de la competencia («Tu negocio»), porque el
          comprador no busca «desengrasante», busca «lo que necesito para mi bar» -->
-    <section class="mx-auto max-w-[1600px] px-4 py-12">
+    <section v-if="sectors.length" class="mx-auto max-w-[1600px] px-4 py-12">
       <div class="mb-5">
         <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Empieza por tu sector</h2>
       </div>
@@ -266,6 +276,7 @@ const sectors = [
           v-for="s in sectors"
           :key="s.name"
           :to="s.to"
+          data-home-sector
           class="group overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] transition hover:border-neteco-300 hover:shadow-md"
         >
           <div class="flex h-28 items-center sm:h-40 justify-center overflow-hidden bg-[var(--canvas)]">
@@ -294,7 +305,7 @@ const sectors = [
     </section>
 
     <!-- familias -->
-    <section class="mx-auto max-w-[1600px] px-4 py-4">
+    <section v-if="families.length" class="mx-auto max-w-[1600px] px-4 py-4">
       <div class="mb-5 flex items-end justify-between">
         <div>
           <h2 class="text-xl font-bold text-slate-900 sm:text-2xl">Compra por familia</h2>
@@ -330,10 +341,7 @@ const sectors = [
             <p class="text-sm font-medium leading-snug text-[var(--text-strong)] group-hover:text-neteco-700">
               {{ f.name }}
             </p>
-            <p class="mt-0.5 text-xs text-[var(--text-muted)]">
-              <template v-if="f.count">{{ f.count }} producto{{ f.count === 1 ? '' : 's' }}</template>
-              <template v-else>Consúltanos disponibilidad</template>
-            </p>
+            <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ f.count }} producto{{ f.count === 1 ? '' : 's' }}</p>
           </div>
         </NuxtLink>
       </div>
@@ -372,7 +380,7 @@ const sectors = [
          tratamiento: leía como un anuncio de terceros incrustado y competía con el azul de
          marca por la atención. El verde se queda —es lo que significa «eco»— pero como
          acento sobre una superficie del sistema, no como fondo. -->
-    <section class="mx-auto max-w-[1600px] px-4 pb-12">
+    <section v-if="ecoRangeAvailable" class="mx-auto max-w-[1600px] px-4 pb-12">
       <NuxtLink
         to="/categoria/linea-eco-profesional"
         class="group flex flex-col justify-between gap-4 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-6 transition-colors hover:border-neteco-300 sm:flex-row sm:items-center sm:p-8"
@@ -418,11 +426,13 @@ const sectors = [
           </div>
           <div>
             <UIcon name="i-lucide-search" class="size-6 text-neteco-700" />
-            <h3 class="mt-3 font-semibold text-[var(--text-strong)]">Busca por referencia</h3>
+            <h3 class="mt-3 font-semibold text-[var(--text-strong)]">Pide por referencia</h3>
             <p class="mt-1 text-sm text-[var(--text-muted)]">
-              Si tienes el albarán delante, escribe el código del artículo y lo encuentras directo.
+              Si tienes el albarán delante, escribe las referencias o pega la lista y añádelo todo de una vez.
             </p>
-            <UButton class="mt-3" size="sm" color="neutral" variant="outline" to="/catalogo">Ver el catálogo</UButton>
+            <UButton class="mt-3" size="sm" color="neutral" variant="outline" to="/pedido-rapido">
+              Pedir por referencia
+            </UButton>
           </div>
           <div>
             <UIcon name="i-lucide-phone" class="size-6 text-neteco-700" />
