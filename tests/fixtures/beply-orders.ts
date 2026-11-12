@@ -6,7 +6,7 @@ export const beplyOrderFixture = {
   idpedido: 71,
   codigo: 'PED2026NE71',
   numero2: '10000000-0000-4000-8000-000000000010',
-  codcliente: 'NE008000000000000010',
+  codcliente: 'NELMOUXWCW',
   coddivisa: 'EUR',
   total: '12.10',
   editable: true,

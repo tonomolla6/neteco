@@ -27,6 +27,69 @@ const key = `neteco-order:${fixture.orderId}`
 const hash = 'a'.repeat(64)
 
 describe('Beply orders synthetic API contracts', () => {
+  it('detects a compact customer-code collision using the full external identity', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ error: 'duplicate' }, 400))
+      .mockResolvedValueOnce(
+        json({ codcliente: 'NELMOUXWCW', observaciones: `NETECO ${fixture.customer.externalKey}` })
+      )
+    const other = { ...fixture, customer: { ...fixture.customer, externalKey: '10000000-0000-4000-8000-0290d7410010' } }
+    await expect(new BeplyOrdersProvider(config, fetcher).upsertCustomer(other)).rejects.toMatchObject({
+      code: 'identity_conflict'
+    })
+    expect((fetcher.mock.calls[0]![1]!.body as URLSearchParams).get('codcliente')).toBe('NELMOUXWCW')
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+  it('uses the core ten-character customer key consistently for customer, shipping and order', async () => {
+    const customers: URLSearchParams[] = [],
+      contacts: URLSearchParams[] = [],
+      orders: URLSearchParams[] = []
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new URL(String(input)).pathname,
+        form = init?.body as URLSearchParams
+      if (path.endsWith('/variantes')) return json([{ referencia: 'SKU-1' }])
+      if (path.endsWith('/settings/default')) return json({ name: 'default', properties: '{}' })
+      if (path.includes('/clientes/')) return json({ error: 'not found' }, 404)
+      if (path.endsWith('/clientes')) {
+        customers.push(form)
+        return (form.get('codcliente')?.length ?? 0) > 10
+          ? json({ error: 'invalid customer code' }, 422)
+          : json({ ok: 'created' })
+      }
+      if (path.endsWith('/contactos')) {
+        contacts.push(form)
+        return json({ ok: 'created', data: Object.fromEntries(form) })
+      }
+      if (path.endsWith('/crearPedidoCliente')) {
+        orders.push(form)
+        return json({ doc: { ...beplyOrderFixture, codcliente: form.get('codcliente') }, lines: [] })
+      }
+      throw new Error('Unexpected source contract')
+    })
+    await expect(new BeplyOrdersProvider(config, fetcher).createOrder(fixture, { key, hash })).resolves.toMatchObject({
+      providerOrderId: '71'
+    })
+    const code = customers[0]!.get('codcliente')
+    expect(code).toMatch(/^NE[A-Z0-9]{8}$/)
+    expect(customers[0]!.get('observaciones')).toBe(`NETECO ${fixture.customer.externalKey}`)
+    expect(contacts[0]!.get('codcliente')).toBe(code)
+    expect(orders[0]!.get('codcliente')).toBe(code)
+  })
+  it.each(['variants', 'calculator'])(
+    'classifies malformed %s metadata as a known failure before any order POST',
+    async (target) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(json(target === 'variants' ? [{ referencia: null }] : [{ referencia: 'SKU-1' }]))
+        .mockResolvedValueOnce(json({ name: 'default', properties: null }))
+      await expect(new BeplyOrdersProvider(config, fetcher).createOrder(fixture, { key, hash })).rejects.toMatchObject({
+        code: 'invalid_response',
+        ambiguous: false
+      })
+      expect(fetcher.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true)
+    }
+  )
   it('synchronizes A-08 with the explicitly attested price-adjusted core setting', async () => {
     const lines = [0, 1].map((lineIndex) => ({
       ...fixture.lines[0]!,

@@ -18,6 +18,13 @@ export const beplyRemoteId = z
     z.number().int().positive().max(Number.MAX_SAFE_INTEGER)
   ])
   .transform(String)
+/** Core/Table/clientes.xml: codcliente is varchar(10). The compact alias is
+ * correlation only; duplicate reconciliation must verify the FULL external key.
+ * Eight base-36 digits retain more than 41 bits within the existing NE prefix. */
+export function beplyCustomerCode(externalKey: string): string {
+  const uuid = fiscalUuid.parse(externalKey).replaceAll('-', '')
+  return `NE${(BigInt(`0x${uuid}`) % 36n ** 8n).toString(36).toUpperCase().padStart(8, '0')}`
+}
 export const beplyOrderStateSchema = z.enum([
   'confirmed',
   'preparing',

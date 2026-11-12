@@ -618,7 +618,7 @@ describe('native shop audit explicit browser CLI and honest evidence integration
     inspect(ast)
     expect(migrations.length).toBeGreaterThan(57)
     expect(declaredCounts).toEqual([migrations.length])
-    expect(declaredCounts).toEqual([154])
+    expect(declaredCounts).toEqual([155])
     expect(requiredNames.has('0077_inventory_count_imports.sql')).toBe(true)
     expect(requiredNames.has('0078_shipping_calendars.sql')).toBe(true)
     expect(requiredNames.has('0079_support_escalations.sql')).toBe(true)

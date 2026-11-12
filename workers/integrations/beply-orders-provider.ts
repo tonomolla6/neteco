@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import {
   assertBeplyTaxCompatibility,
+  beplyCustomerCode,
   beplyNetUnit,
   beplyOrderSnapshotSchema,
   beplyRemoteId,
@@ -187,10 +188,7 @@ export class BeplyOrdersProvider implements BeplyOrderAdapter {
   }
   async upsertCustomer(snapshot: BeplyOrderSnapshot): Promise<string> {
     const customer = snapshot.customer
-    const id = `NE${customer.externalKey
-      .replace(/[^A-Za-z0-9]/g, '')
-      .toUpperCase()
-      .slice(-18)}`
+    const id = beplyCustomerCode(customer.externalKey)
     try {
       await this.request('clientes', 'POST', {
         codcliente: id,
@@ -249,12 +247,13 @@ export class BeplyOrdersProvider implements BeplyOrderAdapter {
     const skus = [...new Set(snapshot.lines.map((line) => line.sku))].sort()
     const variants = z
       .array(z.object({ referencia: z.string() }).passthrough())
-      .parse(
+      .safeParse(
         await this.list(
           `variantes?filter[referencia_gte]=${encodeURIComponent(skus[0]!)}&filter[referencia_lte]=${encodeURIComponent(skus.at(-1)!)}`
         )
       )
-    if (skus.some((sku) => variants.filter((variant) => variant.referencia === sku).length !== 1))
+    if (!variants.success) throw new BeplyOrdersProviderError('invalid_response')
+    if (skus.some((sku) => variants.data.filter((variant) => variant.referencia === sku).length !== 1))
       throw new BeplyOrdersProviderError('product_mapping_missing')
     await this.checkCalculator()
     let customerId: string, shippingContactId: string
@@ -385,9 +384,11 @@ export class BeplyOrdersProvider implements BeplyOrderAdapter {
     return this.configuration.taxCalculationMethod ?? 'classic'
   }
   private async checkCalculator(): Promise<void> {
-    const raw = z
+    const settings = z
       .object({ name: z.literal('default'), properties: z.union([z.string(), z.record(z.string(), z.unknown())]) })
-      .parse(unwrap(await this.request('settings/default')))
+      .safeParse(unwrap(await this.request('settings/default')))
+    if (!settings.success) throw new BeplyOrdersProviderError('invalid_response')
+    const raw = settings.data
     let properties: Record<string, unknown>
     try {
       properties = z
@@ -545,7 +546,7 @@ export class BeplyOrdersProvider implements BeplyOrderAdapter {
           })
           .passthrough()
       )
-      .parse(await this.list(`estadosdocumentos?filter[tipodoc]=${model}&filter[generadoc]=${target}&filter[activo]=1`))
+      .parse(await this.list(`estadodocumentos?filter[tipodoc]=${model}&filter[generadoc]=${target}&filter[activo]=1`))
     if (rows.length !== 1) throw new BeplyOrdersProviderError('conversion_state_ambiguous')
     return rows[0]!.idestado
   }
@@ -570,10 +571,7 @@ export class BeplyOrdersProvider implements BeplyOrderAdapter {
       })
       .passthrough()
       .safeParse(unwrap(raw))
-    const customerId = `NE${contract.customer.externalKey
-      .replace(/[^A-Za-z0-9]/g, '')
-      .toUpperCase()
-      .slice(-18)}`
+    const customerId = beplyCustomerCode(contract.customer.externalKey)
     if (
       !parsed.success ||
       String(parsed.data[column]) !== id ||

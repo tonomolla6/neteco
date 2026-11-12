@@ -31,6 +31,41 @@ function world() {
   return { legacy, linked, provider: new BeplyOrderInvoiceProvider(legacy, linked) }
 }
 describe('Beply invoice chaining preserves the fiscal authority boundary', () => {
+  it('never adopts another customer on a duplicate fiscal customer code', async () => {
+    let customerCode = ''
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      const path = new URL(String(input)).pathname
+      if (path.endsWith('/clientes')) {
+        customerCode = (init!.body as URLSearchParams).get('codcliente')!
+        return Response.json({ error: 'duplicate' }, { status: 409 })
+      }
+      if (path.includes('/clientes/'))
+        return Response.json({ codcliente: customerCode, observaciones: 'NETECO 10000000-0000-4000-8000-000000000099' })
+      if (path.endsWith('/contactos'))
+        return init?.method === 'POST' ? Response.json({ ok: 'created' }) : Response.json([])
+      if (path.endsWith('/crearFacturaCliente'))
+        return Response.json({ doc: { idfactura: 91, codigo: 'FAC91', total: '12.10', coddivisa: 'EUR' } })
+      throw new Error('Unexpected source contract')
+    })
+    const provider = await WorkerBeplyInvoiceProvider.create(
+      {
+        baseUrl: 'https://sandbox.beply.es/api/3',
+        token: 'synthetic',
+        invoiceSeries: 'NE',
+        correctiveSeries: 'NR',
+        taxCode0: 'IVA0',
+        taxCode10: 'IVA10',
+        taxCode21: 'IVA21',
+        paymentCodeRedsys: 'CARD',
+        paymentCodeBankTransfer: 'TRANSFER',
+        companyId: '1',
+        environment: 'sandbox'
+      },
+      fetcher
+    )
+    await expect(provider.issueInvoice(contract)).rejects.toMatchObject({ code: 'invalid_response' })
+    expect(fetcher.mock.calls.some(([url]) => String(url).endsWith('/crearFacturaCliente'))).toBe(false)
+  })
   it('converts the synchronized delivery note, preserving the fiscal idempotency key and PDF adapter', async () => {
     const w = world()
     await expect(w.provider.issueInvoice(contract)).resolves.toEqual(receipt)

@@ -27,7 +27,7 @@ function world() {
     totaliva: '2.10',
     total: '12.10',
     coddivisa: 'EUR',
-    codcliente: 'NE008000000000000010',
+    codcliente: 'NELMOUXWCW',
     idempresa: 1,
     codserie: 'NE',
     editable: true,
@@ -65,7 +65,7 @@ function world() {
         name: 'default',
         properties: JSON.stringify({ taxcalculationmethod: 'classic', decimals: '2' })
       })
-    if (path === 'estadosdocumentos')
+    if (path === 'estadodocumentos')
       return Response.json([
         {
           idestado: url.searchParams.get('filter[tipodoc]') === 'PedidoCliente' ? 12 : 13,

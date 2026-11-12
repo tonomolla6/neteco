@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { assertBeplyTaxCompatibility } from '../../shared/beply-orders'
+import { assertBeplyTaxCompatibility, beplyCustomerCode } from '../../shared/beply-orders'
 import type { BeplyConfiguration } from '../../server/integrations/beply'
 import type { FiscalContract, FiscalReceipt, OrdinaryFiscalProvider } from '../../shared/fiscal-issuance'
 import { fiscalContractSchema, fiscalReceiptSchema, FISCAL_MAX_PDF_BYTES } from '../../shared/fiscal-issuance'
@@ -174,8 +174,7 @@ export class WorkerBeplyInvoiceProvider implements OrdinaryFiscalProvider {
   }
   private async upsertCustomer(request: FiscalContract): Promise<string> {
     const customer = request.customer,
-      safe = customer.externalKey.replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
-      customerId = `NE${safe.slice(-18)}`
+      customerId = beplyCustomerCode(customer.externalKey)
     try {
       await this.request('clientes', 'POST', {
         codcliente: customerId,
@@ -189,13 +188,19 @@ export class WorkerBeplyInvoiceProvider implements OrdinaryFiscalProvider {
         observaciones: `NETECO ${customer.externalKey}`
       })
     } catch (error) {
-      if (!(error instanceof WorkerBeplyError) || error.code !== 'duplicate') throw error
+      if (
+        !(error instanceof WorkerBeplyError) ||
+        (error.code !== 'duplicate' && !(error.code === 'validation' && error.status === 400))
+      )
+        throw error
       const existing = await this.json(await this.request(`clientes/${encodeURIComponent(customerId)}`))
       if (
         !existing ||
         typeof existing !== 'object' ||
         !('codcliente' in existing) ||
-        existing.codcliente !== customerId
+        existing.codcliente !== customerId ||
+        !('observaciones' in existing) ||
+        existing.observaciones !== `NETECO ${customer.externalKey}`
       )
         throw new WorkerBeplyError('invalid_response')
     }
