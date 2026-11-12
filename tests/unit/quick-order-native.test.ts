@@ -222,7 +222,7 @@ describe('quick order against real public HTTP contracts and workerd D1', () => 
       await measured(async () => {
         expect((await previewQuickOrder([{ reference: sku, quantity: 2 }], read))[0]).toMatchObject({
           status: 'error',
-          message: expect.stringContaining('ninguna variante')
+          message: expect.stringContaining('No encontramos')
         })
       })
       expect(writes).toBe(0)
