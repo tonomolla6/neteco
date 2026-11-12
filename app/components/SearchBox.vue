@@ -3,7 +3,15 @@ import { useCartStore } from '~/stores/cart'
 import type { SearchSuggestion } from '~~/shared/types/catalog'
 import { PRICE_ON_REQUEST, PRICE_REQUEST_ACTION, hasPublicPrice, priceRequestPath } from '~~/shared/price-on-request'
 
-const props = defineProps<{ size?: 'sm' | 'md' | 'lg' | 'xl'; placeholder?: string }>()
+const props = defineProps<{
+  size?: 'sm' | 'md' | 'lg' | 'xl'
+  placeholder?: string
+  /**
+   * Campo grande con botón «Buscar» a la derecha, para la cabecera móvil y los bloques de
+   * pedido: se acierta con el pulgar y no obliga a buscar la tecla Intro del teclado.
+   */
+  prominent?: boolean
+}>()
 
 const q = ref('')
 const items = ref<SearchSuggestion[]>([])
@@ -189,6 +197,14 @@ function onFocusOut(e: FocusEvent) {
       :loading="loading"
       :placeholder="props.placeholder ?? 'Busca por nombre o referencia…'"
       class="w-full"
+      :ui="
+        props.prominent
+          ? {
+              base: 'h-12 rounded-[var(--radius-control)] bg-white pe-14 text-base ring-2 ring-neteco-700 focus-visible:ring-neteco-800',
+              leadingIcon: 'text-[var(--text-muted)]'
+            }
+          : undefined
+      "
       role="combobox"
       aria-label="Buscar productos"
       :aria-expanded="open"
@@ -199,7 +215,18 @@ function onFocusOut(e: FocusEvent) {
       @keydown.down.prevent="move(1)"
       @keydown.up.prevent="move(-1)"
       @focus="q.trim().length >= 2 && (open = true)"
-    />
+    >
+      <template v-if="props.prominent" #trailing>
+        <button
+          type="button"
+          aria-label="Buscar"
+          class="-me-1 grid size-10 place-items-center rounded-[6px] bg-neteco-700 text-white transition-colors hover:bg-neteco-800"
+          @click="goToResults"
+        >
+          <UIcon name="i-lucide-search" class="size-5" />
+        </button>
+      </template>
+    </UInput>
 
     <div
       v-if="open"

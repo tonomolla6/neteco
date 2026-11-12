@@ -70,7 +70,7 @@ onMounted(() => {
 <template>
   <main class="mx-auto max-w-4xl px-4 py-8" data-testid="template-detail-page">
     <!-- Breadcrumb -->
-    <nav class="mb-6 text-xs text-slate-500" aria-label="Miga de pan">
+    <nav class="mb-6 hidden text-xs text-slate-500 md:block" aria-label="Miga de pan">
       <ol class="flex items-center gap-1.5">
         <li><NuxtLink to="/" class="hover:underline">Inicio</NuxtLink></li>
         <li>/</li>

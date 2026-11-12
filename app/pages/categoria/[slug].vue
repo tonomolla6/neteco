@@ -360,7 +360,7 @@ watch(
       class="mb-6"
     />
     <!-- migas -->
-    <nav aria-label="Migas de pan" class="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
+    <nav aria-label="Migas de pan" class="hidden flex-wrap items-center gap-1.5 text-sm text-slate-500 md:flex">
       <NuxtLink to="/" class="hover:text-neteco-600">Inicio</NuxtLink>
       <template v-for="(c, i) in breadcrumb" :key="c.id">
         <UIcon name="i-lucide-chevron-right" class="size-3.5" />

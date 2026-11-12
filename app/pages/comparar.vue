@@ -97,7 +97,7 @@ useSeoMeta({
 <template>
   <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
     <!-- Breadcrumb -->
-    <nav class="mb-4 flex text-xs text-slate-500" aria-label="Miga de pan">
+    <nav class="mb-4 hidden text-xs text-slate-500 md:flex" aria-label="Miga de pan">
       <ol class="inline-flex items-center gap-1.5">
         <li>
           <NuxtLink to="/" class="hover:text-neteco-600">Inicio</NuxtLink>
