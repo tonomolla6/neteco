@@ -1,3 +1,5 @@
+import { LEGAL_PAGES } from '../../shared/legal-pages'
+
 type RouteQuery = Record<string, unknown>
 
 export const PRIVATE_SEO_PREFIXES = [
@@ -154,6 +156,7 @@ const ROUTE_SEO_DEFAULTS: Record<string, { title: string; description: string }>
     description:
       'Paga tus pedidos profesionales con tarjeta bancaria, Bizum o transferencia inmediata con factura electrónica con IVA desglosado.'
   },
+  ...Object.fromEntries(LEGAL_PAGES.map(({ path, title, description }) => [path, { title, description }])),
   '/accesibilidad': {
     title: 'Declaración de accesibilidad web WCAG',
     description:

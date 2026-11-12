@@ -3,6 +3,7 @@ import { publicationValidityExpression, assertCurrentPublicationValidity } from 
 import { z } from 'zod'
 import { catalogPolicyInstantSchema, catalogPolicyUuidSchema } from '../../shared/catalog-publication-policy'
 import { readThinLandingSlugs } from '../content/resource-hub'
+import { LEGAL_PATHS } from '../../shared/legal-pages'
 import { parsePublishedSections } from '../../shared/published-sections'
 import { cmsPublishedValiditySql, cmsSource, type CmsPublicationDependencies } from '../cms/publication-gate'
 
@@ -43,7 +44,8 @@ const STATIC_PAGES = [
   '/devoluciones',
   '/ayuda',
   '/accesibilidad',
-  '/contacto'
+  '/contacto',
+  ...LEGAL_PATHS
 ]
 const PRIVATE_PATHS = [
   '/admin',

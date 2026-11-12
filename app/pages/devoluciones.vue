@@ -66,6 +66,14 @@ async function submitReturn() {
       Abre la devolución desde tu pedido para consultar sus cantidades e historial con tu cuenta verificada.
     </p>
     <NuxtLink to="/cuenta/pedidos" class="underline">Ver mis pedidos</NuxtLink>
+    <p class="text-sm text-slate-600">
+      Si eres consumidor, tienes 14 días naturales desde la entrega para desistir de la compra. Plazos, excepciones y
+      formulario en las
+      <NuxtLink to="/condiciones-generales#desistimiento" class="font-semibold text-neteco-700 underline"
+        >condiciones de desistimiento</NuxtLink
+      >
+      (<NuxtLink to="/condiciones-generales#formulario-desistimiento" class="underline">formulario</NuxtLink>).
+    </p>
   </div>
   <div v-else-if="runtime === 'node'" class="mx-auto max-w-4xl px-4 py-10">
     <h1 class="text-2xl font-bold text-slate-900 sm:text-3xl">Devoluciones</h1>
@@ -129,9 +137,21 @@ async function submitReturn() {
           <UIcon name="i-lucide-calendar-days" class="size-5 text-neteco-600" /> Plazo
         </h2>
         <p class="mt-2 text-sm text-slate-600">
-          Escríbenos en cuanto veas el problema. El plazo depende del producto y de las condiciones que aceptaste al
-          comprar; si tienes dudas, pregúntanos y lo miramos contigo. Al enviar la solicitud te damos una referencia con
-          la fecha, para que quede constancia desde el primer momento.
+          Si eres consumidor, puedes desistir de la compra sin dar explicaciones en un plazo de 14 días naturales desde
+          que recibes el pedido; te devolvemos lo pagado, incluido el envío ordinario. Si el producto llega defectuoso,
+          se aplica la garantía legal de tres años. Las empresas pueden devolver producto sin abrir si lo autorizamos
+          antes. Al enviar la solicitud te damos una referencia con la fecha, para que quede constancia desde el primer
+          momento.
+        </p>
+        <p class="mt-2 text-sm text-slate-600">
+          Todo el detalle está en las
+          <NuxtLink to="/condiciones-generales#desistimiento" class="font-semibold text-neteco-600 underline"
+            >condiciones de desistimiento</NuxtLink
+          >, con el
+          <NuxtLink to="/condiciones-generales#formulario-desistimiento" class="font-semibold text-neteco-600 underline"
+            >formulario de desistimiento</NuxtLink
+          >
+          que puedes usar si lo prefieres.
         </p>
       </div>
 
@@ -140,9 +160,18 @@ async function submitReturn() {
           <UIcon name="i-lucide-package-check" class="size-5 text-neteco-600" /> Condiciones
         </h2>
         <ul class="mt-2 list-inside list-disc space-y-1 text-sm text-slate-600">
-          <li>El producto debe estar sin abrir y en su embalaje original.</li>
-          <li>Por seguridad, los productos químicos abiertos o desprecintados no admiten devolución.</li>
-          <li>Si el fallo es nuestro, la recogida corre de nuestra cuenta. Te lo confirmamos al autorizar.</li>
+          <li>
+            Puedes abrir el embalaje para comprobar el producto, pero devuélvelo completo y en buen estado: respondes de
+            la pérdida de valor por un uso mayor que ese.
+          </li>
+          <li>
+            Por higiene y seguridad, los productos químicos y de higiene desprecintados tras la entrega no admiten
+            desistimiento. Con el precinto intacto, sí.
+          </li>
+          <li>
+            Si el fallo es nuestro, la recogida corre de nuestra cuenta. En un desistimiento, el coste de la devolución
+            es tuyo salvo que te digamos otra cosa al autorizarla.
+          </li>
         </ul>
       </div>
 

@@ -1,3 +1,4 @@
+import { LEGAL_PATHS } from '../../../shared/legal-pages'
 import { parsePublishedSections } from '../../../shared/published-sections'
 
 function xml(value: string) {
@@ -17,6 +18,7 @@ export default defineEventHandler((event) => {
     '/ayuda',
     '/accesibilidad',
     '/contacto',
+    ...LEGAL_PATHS,
     ...parsePublishedSections(runtime.public.publishedSections).map((section) => `/${section}`)
   ]
   const urls = paths.map((path) => `<url><loc>${xml(`${origin}${path}`)}</loc></url>`).join('')
