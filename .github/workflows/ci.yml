@@ -176,8 +176,23 @@ jobs:
           test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
           test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
       - run: node scripts/storage-preflight.ts
       - run: node /usr/local/libexec/neteco-ci/build-storage.mjs --estimated-output-gib 3
+      - run: node scripts/ci-build-memory-preflight.mjs
+      - run: npm ci
+      - name: Compile runtime on the admitted Oracle runner
+        shell: bash
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="--max-old-space-size=4096 --require=$GITHUB_WORKSPACE/scripts/limit-build-workers.cjs"
+          node scripts/ci-build-memory-preflight.mjs
+          npm run build
       - name: Allocate private container artifact directory
         id: container-artifacts
         shell: bash
@@ -199,6 +214,9 @@ jobs:
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
+          file: Dockerfile.ci
+          build-contexts: neteco-output=.output
+          build-args: APP_VERSION=${{ github.sha }}
           push: false
           tags: neteco:${{ github.sha }}
           load: true

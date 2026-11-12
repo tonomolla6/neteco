@@ -1448,6 +1448,25 @@ SELinux relaxation or cgroup bypass was introduced. The one labelled test
 container was removed; no containers remain. Real service TCP, mounts, limits,
 BuildKit/SBOM/scanning/save and unattended boot acceptance remain pending.
 
+### CI compiler and private image packaging (2026-11-12)
+
+The private BuildKit user inherits a 2 GiB maximum and 1.5 GiB pressure boundary;
+the Oracle Actions runner has a separate 8 GiB maximum. The container job now
+compiles Nuxt on the approved runner before packaging the resulting `.output`
+through the `neteco-output` named context in `Dockerfile.ci`. The compiler admits
+a 5 GiB additional peak against every visible cgroup ancestor (including
+`memory.high`) and requires more than that peak plus 4 GiB of available host
+memory/free swap. Admission runs before installation and again before compilation;
+missing counters fail closed. Existing host storage admission still precedes it.
+No resource limits are increased. Terser remains capped at two workers.
+
+The CI runtime uses Node 24.18.1 Debian/glibc to match the ARM64 runner's traced
+native modules. It copies only the output, runs as UID/GID 10001, records the
+candidate SHA, and retains blocking image SBOM/Trivy checks and job-owned builder
+cleanup. The normal Alpine multi-stage `Dockerfile` remains available for
+independently admitted builders. Passing local policy tests is not evidence of a
+successful image build, scan, Oracle pipeline or deployed acceptance.
+
 Checkout now retains an uncertain original command, offers explicit authenticated
 GET recovery and prevents replacement/double submission. Only demonstrated
 pre-write Cloudflare validation codes permit correction. Recovered unpaid orders
