@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { assertBeplyTaxCompatibility } from '../../shared/beply-orders'
 import type { BeplyConfiguration } from '../../server/integrations/beply'
 import type { FiscalContract, FiscalReceipt, OrdinaryFiscalProvider } from '../../shared/fiscal-issuance'
 import { fiscalContractSchema, fiscalReceiptSchema, FISCAL_MAX_PDF_BYTES } from '../../shared/fiscal-issuance'
@@ -9,7 +10,14 @@ import { creditContractSchema, type CreditContract } from '../../shared/fiscal-c
 
 export class WorkerBeplyError extends Error {
   constructor(
-    readonly code: 'transport' | 'credentials' | 'validation' | 'duplicate' | 'provider' | 'invalid_response',
+    readonly code:
+      | 'transport'
+      | 'credentials'
+      | 'validation'
+      | 'duplicate'
+      | 'provider'
+      | 'invalid_response'
+      | 'tax_rounding_review_required',
     readonly status = 0
   ) {
     super(`beply_${code}`)
@@ -235,6 +243,13 @@ export class WorkerBeplyInvoiceProvider implements OrdinaryFiscalProvider {
       request.series !== this.configuration.invoiceSeries
     )
       throw new WorkerBeplyError('validation')
+    // Core Calculator.php:278-342 (37e1341d): standalone invoices retain the
+    // classic calculation contract. Linked orders attest their configured mode.
+    try {
+      assertBeplyTaxCompatibility(request)
+    } catch {
+      throw new WorkerBeplyError('tax_rounding_review_required')
+    }
     const taxCode = (rate: number) =>
       rate === 0
         ? this.configuration.taxCode0
@@ -294,7 +309,11 @@ export class WorkerBeplyInvoiceProvider implements OrdinaryFiscalProvider {
       })
     )
     const document =
-      rawDocument && typeof rawDocument === 'object' && 'data' in rawDocument ? rawDocument.data : rawDocument
+      rawDocument && typeof rawDocument === 'object' && 'doc' in rawDocument
+        ? rawDocument.doc
+        : rawDocument && typeof rawDocument === 'object' && 'data' in rawDocument
+          ? rawDocument.data
+          : rawDocument
     const checked = z
       .object({
         idfactura: z.union([code, z.number().int().positive().max(Number.MAX_SAFE_INTEGER)]),

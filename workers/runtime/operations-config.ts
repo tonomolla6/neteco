@@ -2,6 +2,8 @@ import { fiscalUuid, type FiscalPolicy, type OrdinaryFiscalProvider } from '../.
 import { fiscalMappingFingerprint } from '../fiscal/issuance'
 import { PersistentLocalFiscalProvider } from '../fiscal/local-provider'
 import { WorkerBeplyInvoiceProvider } from '../fiscal/beply-provider'
+import { BeplyOrderInvoiceProvider } from '../fiscal/beply-order-invoice'
+import { beplyOrdersRuntimeProvider } from '../integrations/beply-orders-runtime'
 import type { FiscalRuntimeConfiguration } from '../fiscal/runtime-dispatch'
 import type { CmsPublicationDependencies } from '../cms/publication-gate'
 
@@ -26,6 +28,11 @@ type OperationsEnv = Pick<CloudflareEnv, 'APP_ENV' | 'DB' | 'MEDIA' | 'IMAGES' |
   BEPLY_TAX_CODE_21?: unknown
   BEPLY_PAYMENT_CODE_REDSYS?: unknown
   BEPLY_PAYMENT_CODE_BANK_TRANSFER?: unknown
+  BEPLY_PAYMENT_CODE_CREDIT?: unknown
+  BEPLY_ORDERS_ENABLED?: unknown
+  BEPLY_ORDER_SERIES?: unknown
+  BEPLY_TAX_CALCULATION_METHOD?: unknown
+  BEPLY_SUPPORT_FILE_ID?: unknown
 }
 function flag(value: unknown) {
   if (value === undefined || value === false || value === 'false') return false
@@ -96,7 +103,31 @@ export async function configuredFiscalProvider(
       flag(env.FISCAL_LOCAL_VALIDATION_ENABLED)
       ? new PersistentLocalFiscalProvider(env.DB, await fiscalMappingFingerprint(policy.mappings))
       : null
-  return configuredBeplyProvider(env, policy, 'ordinary', fetcher)
+  const fiscal = await configuredBeplyProvider(env, policy, 'ordinary', fetcher)
+  if (!fiscal || !flag(env.BEPLY_ORDERS_ENABLED)) return fiscal
+  const text = (value: unknown) => (typeof value === 'string' ? value : undefined)
+  const orders = beplyOrdersRuntimeProvider(
+    {
+      APP_ENV: env.APP_ENV,
+      BEPLY_ENVIRONMENT: text(env.BEPLY_ENVIRONMENT),
+      BEPLY_ORDERS_ENABLED: 'true',
+      BEPLY_BASE_URL: text(env.BEPLY_BASE_URL),
+      BEPLY_API_TOKEN: text(env.BEPLY_API_TOKEN),
+      BEPLY_COMPANY_ID: text(env.BEPLY_COMPANY_ID),
+      BEPLY_ORDER_SERIES: text(env.BEPLY_ORDER_SERIES),
+      BEPLY_TAX_CODE_0: text(env.BEPLY_TAX_CODE_0),
+      BEPLY_TAX_CODE_10: text(env.BEPLY_TAX_CODE_10),
+      BEPLY_TAX_CODE_21: text(env.BEPLY_TAX_CODE_21),
+      BEPLY_PAYMENT_CODE_REDSYS: text(env.BEPLY_PAYMENT_CODE_REDSYS),
+      BEPLY_PAYMENT_CODE_BANK_TRANSFER: text(env.BEPLY_PAYMENT_CODE_BANK_TRANSFER),
+      BEPLY_PAYMENT_CODE_CREDIT: text(env.BEPLY_PAYMENT_CODE_CREDIT),
+      BEPLY_TAX_CALCULATION_METHOD: text(env.BEPLY_TAX_CALCULATION_METHOD),
+      BEPLY_SUPPORT_FILE_ID: text(env.BEPLY_SUPPORT_FILE_ID)
+    },
+    fetcher
+  )
+  if (!orders) return null
+  return BeplyOrderInvoiceProvider.fromDatabase(fiscal, env.DB, orders)
 }
 
 /** Both document kinds share the same tenant, environment and tax authority;
