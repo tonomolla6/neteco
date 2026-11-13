@@ -41,7 +41,9 @@ export async function runRemoteBrowserShell(script: string, options: ShellOption
     !path ||
     path.startsWith('..') ||
     isAbsolute(path) ||
-    !script.endsWith('.sh')
+    // GitHub omits the extension for custom shell executables. Its script is
+    // still a generated UUID directly inside RUNNER_TEMP, not an arbitrary path.
+    (!script.endsWith('.sh') && !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(path))
   )
     throw new Error('remote_browser_shell_unauthorized')
 
