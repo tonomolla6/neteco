@@ -395,7 +395,7 @@ describe('local Cloudflare preproduction configuration invariants', () => {
     expect(audits.steps.some((step) => step.run === 'npm run cloudflare:check')).toBe(false)
     const worker = compatibility.jobs['worker-canary']!
     expect(worker.steps.some((step) => step.run === 'npm run typecheck:worker')).toBe(true)
-    expect(worker.steps.some((step) => step.run === 'npm run test:worker')).toBe(true)
+    expect(worker.steps.some((step) => step.run === 'npm run test:worker -- --maxWorkers=2')).toBe(true)
     expect(worker.steps.some((step) => step.run === 'npm run audit:worker-bundle')).toBe(true)
     expect(worker.steps.some((step) => step.run?.includes('audit-d1-'))).toBe(false)
   })

@@ -262,7 +262,7 @@ it('keeps uncertainty when a POST receipt belongs to another command, never read
   await flushPromises()
   await w.get('[data-testid="promotion-confirm"]').trigger('click')
   await flushPromises()
-  expect(w.text()).toContain('Resultado incierto')
+  await vi.waitFor(() => expect(w.text()).toContain('Resultado incierto'))
   expect(w.text()).not.toContain('Cambio registrado y regla vigente comprobada')
 })
 it('does not restore a late private list after identity/session authority is lost', async () => {

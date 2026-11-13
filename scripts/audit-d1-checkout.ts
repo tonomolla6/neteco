@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
+import { buildNativeCanary } from '../tests/support/native-canary-build'
 import { provisionPublicationValidityFixture } from '../tests/support/publication-validity-fixture'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -51,26 +52,17 @@ try {
 
   // Use the actual workerd binding: SQL parameters and batch boundaries must
   // have exactly the same semantics as the application, without CLI splitting.
-  const coordinatorBundle = join(persistenceDirectory, 'inventory-coordinator.mjs')
-  await execute(
-    executable,
-    [
-      '--no-install',
-      'esbuild',
-      'tests/support/inventory-runtime.ts',
-      '--bundle',
-      '--format=esm',
-      '--platform=browser',
-      '--external:cloudflare:*',
-      '--external:node:*',
-      `--outfile=${coordinatorBundle}`
-    ],
-    { cwd: process.cwd() }
-  )
+  const coordinatorBundle = await buildNativeCanary({
+    entryPoints: ['tests/support/inventory-runtime.ts'],
+    bundle: true,
+    format: 'esm',
+    platform: 'browser',
+    external: ['cloudflare:*', 'node:*'],
+    write: false
+  })
   runtime = new Miniflare(
     convertV4MiniflareOptions({
-      modules: true,
-      script: await readFile(coordinatorBundle, 'utf8'),
+      ...coordinatorBundle.nativeSource,
       compatibilityDate: '2026-08-15',
       compatibilityFlags: ['nodejs_compat'],
       queueProducers: { ASYNC_JOBS: 'fiscal-audit-local' },

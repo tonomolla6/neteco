@@ -89,7 +89,10 @@ const MIGRATIONS = [
   '0060_support_macros.sql',
   '0061_search_synonyms.sql',
   '0062_support_knowledge_feedback.sql',
-  '0091_search_merchandising_rules.sql'
+  '0091_search_merchandising_rules.sql',
+  // Independent shipping tables required by the current checkout. Keeping the
+  // coupon/contract rebuild out still permits the historical 0072 upgrade test.
+  '0156_shipment_plans_restock_lead_time.sql'
 ].map((name) => fileURLToPath(new URL(`../../db/d1/migrations/${name}`, import.meta.url)))
 /** Base migrations applied by openMigratedDatabase; later suites must not apply them twice. */
 export const BASE_MIGRATION_NAMES: ReadonlySet<string> = new Set(MIGRATIONS.map((path) => path.split('/').pop()!))

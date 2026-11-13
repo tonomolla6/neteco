@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFile } from 'node:fs/promises'
 import type { DatabaseSync } from 'node:sqlite'
 import { analyticsFixture, CLAIMS } from './d1-analytics-fixture'
@@ -9,9 +9,11 @@ import type { AnalyticsHttpDependencies } from '../../workers/analytics/http'
 const connections: DatabaseSync[] = []
 afterEach(() => {
   for (const db of connections.splice(0)) db.close()
+  vi.useRealTimers()
 })
 
 async function setupCohortsFixture(options: { now?: string } = {}) {
+  if (options.now) vi.setSystemTime(options.now)
   const world = await analyticsFixture({ commerce: true, refund: true })
   connections.push(world.sqlite)
 

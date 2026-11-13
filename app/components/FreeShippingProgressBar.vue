@@ -17,7 +17,7 @@ const isReached = computed(() => props.evaluation.status === 'reached')
 <template>
   <div v-if="isExcluded || isInProgress || isReached" data-free-shipping class="text-[13px] leading-snug">
     <p v-if="isExcluded" class="text-[var(--text-muted)]">
-      {{ evaluation.badgeText }}.
+      {{ evaluation.message }}
       <NuxtLink to="/envios" class="underline underline-offset-2 hover:text-[var(--link)]">Ver envíos</NuxtLink>
     </p>
     <template v-else>
@@ -27,14 +27,14 @@ const isReached = computed(() => props.evaluation.status === 'reached')
           class="mr-0.5 inline size-4 -translate-y-px align-middle"
           aria-hidden="true"
         />
-        Tienes el envío gratis
+        Has alcanzado el umbral para paquetería estándar elegible
       </p>
       <p v-else class="text-[var(--text)]">
         Te faltan
         <strong class="tabular font-semibold text-[var(--text-strong)]">{{
           formatPrice(evaluation.missingCents)
         }}</strong>
-        para el envío gratis
+        para el envío gratis en paquetería estándar elegible
       </p>
       <div
         class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-sunken)]"
@@ -50,6 +50,11 @@ const isReached = computed(() => props.evaluation.status === 'reached')
           :style="{ width: `${evaluation.progressPercent}%` }"
         />
       </div>
+      <p class="mt-1 text-[var(--text-muted)]">
+        Solo para paquetería estándar elegible a península. Palés y mercancías peligrosas no están incluidos. El coste
+        definitivo se confirma al elegir la entrega.
+        <NuxtLink to="/envios" class="underline underline-offset-2 hover:text-[var(--link)]">Ver envíos</NuxtLink>
+      </p>
     </template>
   </div>
 </template>

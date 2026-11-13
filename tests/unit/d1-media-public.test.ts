@@ -802,7 +802,7 @@ describe('authoritative D1 public media', () => {
       `UPDATE products SET attributes = '{"image":"https://legacy.invalid/image.jpg","datasheet":"https://legacy.invalid/private.pdf"}' WHERE id = 'p-1'`
     )
     const empty = await readPublicProductMedia(database, ['p-1'], clock)
-    expect(empty.get('p-1')).toEqual({ variants: new Map(), documents: [] })
+    expect(empty.get('p-1')).toEqual({ gallery: [], variants: new Map(), documents: [] })
     const primary = await publish({ role: 'main' })
     const variant = await publish({ role: 'image', variantId: 'v-1-1' })
     const document = await publish({ role: 'sds' })
@@ -813,6 +813,9 @@ describe('authoritative D1 public media', () => {
     expect(media.get('p-1')).toEqual({
       image: `/media/${primary.id}/image?w=800&format=jpeg`,
       imageAlt: 'Fotografía alternativa de producto',
+      gallery: [
+        { image: `/media/${primary.id}/image?w=800&format=jpeg`, imageAlt: 'Fotografía alternativa de producto' }
+      ],
       variants: new Map([
         [
           'v-1-1',
@@ -831,12 +834,28 @@ describe('authoritative D1 public media', () => {
         }
       ]
     })
-    expect(media.get('p-2')).toEqual({ variants: new Map(), documents: [] })
+    expect(media.get('p-2')).toEqual({ gallery: [], variants: new Map(), documents: [] })
     expect(JSON.stringify([...media])).not.toMatch(
       /legacy|quarantine|object_key|checksum|Titular|Expediente|rights_owner|scan_receipt/
     )
     await withdraw(document.id)
     expect((await readPublicProductMedia(database, ['p-1'], clock)).get('p-1')!.documents).toEqual([])
+  })
+
+  it('bounds the gallery to twelve eligible product images, main first, excluding other variant photos', async () => {
+    const primary = await publish({ role: 'main' })
+    const variant = await publish({ role: 'image', variantId: 'v-1-1' })
+    for (let index = 0; index < 13; index++) await publish({ role: 'image', version: `gallery-${index}` })
+    const projection = (await readPublicProductMedia(database, ['p-1'], clock)).get('p-1')!
+    expect(projection.gallery).toHaveLength(12)
+    expect(projection.gallery[0]).toEqual({
+      image: `/media/${primary.id}/image?w=800&format=jpeg`,
+      imageAlt: 'Fotografía alternativa de producto'
+    })
+    expect(projection.gallery.every((image) => image.image !== `/media/${variant.id}/image?w=800&format=jpeg`)).toBe(
+      true
+    )
+    expect(new Set(projection.gallery.map((image) => image.image)).size).toBe(12)
   })
 
   it('returns an empty map without SQL and rejects malformed trusted projection inputs', async () => {
@@ -864,7 +883,7 @@ describe('authoritative D1 public media', () => {
     expect(prepare).toHaveBeenCalledTimes(2)
     expect(media.size).toBe(ids.length)
     expect(media.get('p-1')!.documents[0]!.id).toBe(publication.id)
-    expect(media.get('missing-product-89')).toEqual({ variants: new Map(), documents: [] })
+    expect(media.get('missing-product-89')).toEqual({ gallery: [], variants: new Map(), documents: [] })
   })
 
   it('deterministically selects the latest currently valid primary relation', async () => {
@@ -959,8 +978,8 @@ describe('authoritative D1 public media', () => {
       expect(missing.status).toBe(404)
       const projection = await readPublicProductMedia(database, ['p-1', 'p-2'], clock)
       expect([...projection.values()]).toEqual([
-        { variants: new Map(), documents: [] },
-        { variants: new Map(), documents: [] }
+        { gallery: [], variants: new Map(), documents: [] },
+        { gallery: [], variants: new Map(), documents: [] }
       ])
       expect(JSON.stringify({ list, search, projection: [...projection] })).not.toMatch(
         /legacy\.invalid|\/img\/products|quarantine/

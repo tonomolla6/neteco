@@ -39,9 +39,12 @@ describe('home shows only what can be bought', () => {
     expect(page.find('a[href="/categoria/limpiadores-generales"]').exists()).toBe(false)
     expect(page.find('a[href="/categoria/celulosa"]').exists()).toBe(false)
     expect(page.text()).not.toContain('Consúltanos disponibilidad')
-    // sector shortcuts only point at families that have products
-    const sectors = page.findAll('[data-home-sector]')
-    expect(sectors.map((sector) => sector.attributes('href'))).toEqual(['/categoria/guantes-y-proteccion'])
+    // The approved family tiles only point at families with published products.
+    const families = page.findAll('[data-home-family]')
+    expect(families.map((family) => family.attributes('href'))).toEqual([
+      '/categoria/raiz',
+      '/categoria/guantes-y-proteccion'
+    ])
     expect(page.html()).not.toContain('uppercase')
   })
 })

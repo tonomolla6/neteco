@@ -24,6 +24,11 @@ mockNuxtImport('$fetch', () => fetchMock)
 mockNuxtImport('useRuntimeConfig', () => runtimeMock)
 mockNuxtImport('useLazyFetch', () => lazyMock)
 mockNuxtImport('useAnalytics', () => () => ({ track: async () => undefined }))
+mockNuxtImport('useProductRecommendations', () => () => ({
+  available: true,
+  strips: ref([{ kind: 'for_you', basis: 'featured', items: [] }]),
+  strip: () => ref(undefined)
+}))
 mockNuxtImport('useToast', () => () => ({ add: () => undefined }))
 mockNuxtImport('useUserSession', () => () => ({
   ready: ref(true),
@@ -112,7 +117,7 @@ async function render() {
         ReorderDialog: true,
         CartRecoverySection: { template: '<div data-recovery-section />' },
         CartSnapshotsPanel: { template: '<div data-snapshots-panel />' },
-        PublishedProductRelations: { template: '<div data-cross-sell />' },
+        RecommendationStrips: { template: '<div data-cross-sell />' },
         CartAddByReference: { template: '<div data-add-by-reference />' }
       }
     }
@@ -193,21 +198,20 @@ describe('cart as the last ordering surface', () => {
 
   it('asks for the destination once and then states method, cost and day', async () => {
     await render()
-    const estimate = wrapper!.get('[data-shipping-estimate]')
     expect(fetchMock.mock.calls.some(([path]) => path === '/api/shipping/rates')).toBe(false)
-    await estimate.get('input[autocomplete="postal-code"]').setValue('46870')
-    await estimate.get('input[autocomplete="address-level2"]').setValue('Ontinyent')
-    await estimate.get('form').trigger('submit')
+    await wrapper!.get('[data-delivery-change]').trigger('click')
+    await wrapper!.get('input[autocomplete="postal-code"]').setValue('46870')
+    await wrapper!.get('[data-cart-delivery-date] form').trigger('submit')
     await flushPromises()
     const call = fetchMock.mock.calls.find(([path]) => path === '/api/shipping/rates')!
-    expect(call[1]).toMatchObject({ method: 'POST', body: { postalCode: '46870', city: 'Ontinyent' } })
+    expect(call[1]).toMatchObject({ method: 'POST', body: { postalCode: '46870', city: 'Valencia' } })
     expect(call[1].headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/)
     const summary = wrapper!.get('[data-cart-summary]').text().replace(/\s+/g, ' ')
     expect(summary).toContain('Envío a 46870')
     expect(summary).toContain('gratis')
     expect(summary).toContain('Reparto propio')
     expect(summary).toMatch(/jueves,? 19/)
-    expect(JSON.parse(localStorage.getItem('neteco-destination')!)).toEqual({ postalCode: '46870', city: 'Ontinyent' })
+    expect(JSON.parse(localStorage.getItem('neteco-destination')!)).toEqual({ postalCode: '46870', city: 'Valencia' })
   })
 
   it('uses the remembered destination without asking and adds a paid shipping to the total', async () => {
@@ -237,6 +241,8 @@ describe('cart as the last ordering surface', () => {
     expect(summary).toContain('5,90 €')
     expect(summary).toContain('46,58 €')
     expect(summary).toContain('Envío peninsular')
+    expect(wrapper!.find('[data-cart-delivery-date] [data-delivery-date]').exists()).toBe(false)
+    expect(summary).toContain('Te confirmamos la fecha')
     expect(wrapper!.find('[data-shipping-estimate] input').exists()).toBe(false)
     expect(wrapper!.get('[data-shipping-change]').text()).toBe('Cambiar')
   })

@@ -24,6 +24,8 @@ watch(
   () => props.tabs.map((tab) => tab.id).join('|'),
   () => {
     if (!props.tabs.some((tab) => tab.id === active.value)) active.value = props.tabs[0]?.id ?? ''
+    const remaining = [...open.value].filter((id) => props.tabs.some((tab) => tab.id === id))
+    open.value = new Set(remaining.length ? remaining : props.tabs[0] ? [props.tabs[0].id] : [])
   }
 )
 

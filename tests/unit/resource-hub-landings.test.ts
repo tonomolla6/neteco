@@ -4,6 +4,7 @@ import { provisionPublicationValidityFixture } from '../support/publication-vali
 import { handleD1SeoRequest, type D1SeoDependencies } from '../../workers/catalog/seo-http'
 import { listD1ResourceHub, listLandingCoverage, readD1ResourceHub } from '../../workers/content/resource-hub'
 import { LANDING_MIN_TEXT_CHARS } from '../../shared/landing-quality'
+import { cmsUtc } from './d1-cms-fixture'
 
 const ORIGIN = 'https://neteco.es'
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
@@ -53,7 +54,7 @@ describe('SEO-028 landings with real value only', () => {
     })
     await provisionPublicationValidityFixture(f.database, {
       productIds: ids,
-      now: '2026-08-19T00:00:00Z',
+      now: cmsUtc(-60000),
       validUntil: '2099-01-01T00:00:00Z'
     })
   })

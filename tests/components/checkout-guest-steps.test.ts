@@ -117,23 +117,28 @@ const fill = () => {
   })
 }
 
-describe('guest checkout in three steps', () => {
-  it('shows delivery, billing and payment as three steps with only the first one open', async () => {
+describe('guest checkout in four steps', () => {
+  it('shows delivery, billing, payment and shipment as four explicit steps', async () => {
     await render()
     const steps = wrapper!.findAll('[data-checkout-step]')
-    expect(steps.map((step) => step.attributes('data-checkout-step'))).toEqual(['entrega', 'facturacion', 'pago'])
-    expect(steps[0]!.text()).toContain('Entrega')
-    expect(steps[1]!.text()).toContain('Facturación')
+    expect(steps.map((step) => step.attributes('data-checkout-step'))).toEqual([
+      'entrega',
+      'facturacion',
+      'pago',
+      'envio'
+    ])
+    expect(steps[0]!.text()).toContain('Dirección de entrega')
+    expect(steps[1]!.text()).toContain('Dirección de facturación')
     expect(steps[2]!.text()).toContain('Pago')
     expect(visible('[data-checkout-step="entrega"] [data-step-body]')).toBe(true)
     expect(visible('[data-checkout-step="facturacion"] [data-step-body]')).toBe(false)
     expect(visible('[data-checkout-step="pago"] [data-step-body]')).toBe(false)
     expect(wrapper!.get('[data-checkout-step="entrega"]').attributes('aria-current')).toBe('step')
-    // Contact comes first, then the delivery address and the delivery methods in the same step.
+    // Contact and address come first; shipment choice remains in its own final step.
     const entrega = wrapper!.get('[data-checkout-step="entrega"]')
     expect(entrega.find('[data-checkout-contact-fields]').exists()).toBe(true)
     expect(entrega.find('[data-checkout-address-fields]').exists()).toBe(true)
-    expect(entrega.find('[data-checkout-delivery-methods]').exists()).toBe(true)
+    expect(wrapper!.get('[data-checkout-step="envio"]').find('[data-checkout-shipments]').exists()).toBe(true)
     expect(wrapper!.get('[data-checkout-step="facturacion"]').find('[data-invoice-choice]').exists()).toBe(true)
   })
 

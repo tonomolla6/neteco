@@ -5,9 +5,9 @@ import { lstat, open, readFile, realpath } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import { dirname, isAbsolute, relative, sep } from 'node:path'
 import { chromium } from '@playwright/test'
+import { connectRemoteTestBrowser } from './remote-test-browser'
 
-interface PrivateBrowserServer {
-  wsEndpoint(): string
+interface PrivateBrowserConnection {
   close(): Promise<void>
 }
 export interface OraclePreflightEvidence {
@@ -25,7 +25,7 @@ interface OracleShopAuditOptions {
   arch?: string
   now?: number
   preflight?: () => Promise<OraclePreflightEvidence>
-  launchServer?: () => Promise<PrivateBrowserServer>
+  connectBrowser?: (endpoint: string) => Promise<PrivateBrowserConnection>
   execute?: (env: NodeJS.ProcessEnv) => Promise<number>
 }
 
@@ -137,8 +137,8 @@ function executeAudit(env: NodeJS.ProcessEnv): Promise<number> {
   })
 }
 
-/** No hosted fallback. An operator-issued external preflight is mandatory;
- * environment labels alone never authorize a browser on the shared host. */
+/** Oracle admission stays mandatory; all browser execution uses the dedicated
+ * private SSH transport. Neither missing transport nor a failed probe falls back. */
 export async function runOracleShopAudit(options: OracleShopAuditOptions = {}): Promise<number> {
   const env = options.env ?? process.env
   if (
@@ -153,12 +153,10 @@ export async function runOracleShopAudit(options: OracleShopAuditOptions = {}): 
     !['push', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME ?? '')
   )
     throw new Error('Shop CI browser requires the verified self-hosted Oracle ARM64 runner on trusted main events.')
-  if (env.PW_TEST_CONNECT_WS_ENDPOINT)
-    throw new Error('Shop CI browser must not reuse an externally configured endpoint.')
   validateOraclePreflight(await (options.preflight ?? (() => readPreflight(env)))(), env, options.now ?? Date.now())
-  const server = await (options.launchServer ?? (() => chromium.launchServer({ host: '127.0.0.1', port: 0 })))()
+  const endpoint = env.PW_TEST_CONNECT_WS_ENDPOINT
   try {
-    const endpoint = server.wsEndpoint()
+    if (!endpoint) throw new Error('missing transport')
     const url = new URL(endpoint)
     if (
       url.protocol !== 'ws:' ||
@@ -171,14 +169,21 @@ export async function runOracleShopAudit(options: OracleShopAuditOptions = {}): 
       url.hash ||
       /\s/.test(endpoint)
     )
-      throw new Error('Shop CI browser did not bind an isolated loopback endpoint.')
-    return await (options.execute ?? executeAudit)({
-      ...env,
-      PW_TEST_CONNECT_WS_ENDPOINT: endpoint,
-      NUXT_TELEMETRY_DISABLED: '1',
-      WRANGLER_SEND_METRICS: 'false'
-    })
-  } finally {
-    await server.close()
+      throw new Error('invalid transport')
+  } catch {
+    throw new Error('Shop CI requires a private loopback SSH browser endpoint.')
   }
+  const browser = await (options.connectBrowser ?? ((endpoint) => connectRemoteTestBrowser(chromium, { endpoint })))(
+    endpoint
+  )
+  // Release the probe before the child connects: the remote server admits one
+  // client, so holding this connection would deadlock its own browser checks.
+  await browser.close()
+  return await (options.execute ?? executeAudit)({
+    ...env,
+    PW_TEST_CONNECT_WS_ENDPOINT: endpoint,
+    PW_TEST_CONNECT_EXPOSE_NETWORK: '<loopback>',
+    NUXT_TELEMETRY_DISABLED: '1',
+    WRANGLER_SEND_METRICS: 'false'
+  })
 }

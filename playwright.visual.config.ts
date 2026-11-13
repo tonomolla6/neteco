@@ -5,6 +5,7 @@ export default defineConfig({
   ...base,
   testDir: './tests/visual',
   fullyParallel: false,
+  updateSnapshots: 'none',
   workers: 1,
   reporter: process.env.CI
     ? [

@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
+import { handleDeploymentHealth } from './runtime/deployment-health'
 import { listPublishedCategories } from './catalog/categories'
 import { listPublishedProducts, type ProductSort } from './catalog/products'
 import { getPublishedProductDetail } from './catalog/product-detail'
@@ -954,6 +955,8 @@ const canaryWorker = {
   },
 
   async fetch(request: Request, env: CloudflareEnv): Promise<Response> {
+    const deploymentHealth = await handleDeploymentHealth(request, env)
+    if (deploymentHealth) return deploymentHealth
     const demoLogin = await handleDemoLoginRequest(request, env)
     if (demoLogin) return demoLogin
     const earlyPath = new URL(request.url).pathname

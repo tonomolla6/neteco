@@ -21,6 +21,11 @@ mockNuxtImport('$fetch', () => fetchMock)
 mockNuxtImport('useRuntimeConfig', () => runtimeMock)
 mockNuxtImport('useLazyFetch', () => lazyMock)
 mockNuxtImport('useAnalytics', () => () => ({ track: trackMock }))
+mockNuxtImport('useProductRecommendations', () => () => ({
+  available: true,
+  strips: ref([]),
+  strip: () => ref(undefined)
+}))
 mockNuxtImport('useToast', () => () => ({ add: () => undefined }))
 mockNuxtImport('useUserSession', () => () => ({
   ready: ref(true),

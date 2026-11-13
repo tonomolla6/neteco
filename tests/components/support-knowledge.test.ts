@@ -293,7 +293,15 @@ describe('searchable published help centre', () => {
         global: { stubs: { NuxtLink: Link, UIcon: true, SupportKnowledgePanel: true } }
       })
       mounted.push(wrapper)
-      for (const path of ['/envios', '/formas-de-pago', '/devoluciones', '/cuenta', '/cuenta/pedidos', '/contacto'])
+      for (const path of [
+        '/envios',
+        '/formas-de-pago',
+        '/devoluciones',
+        '/cuenta/direcciones',
+        '/cuenta/listas',
+        '/cuenta/pedidos',
+        '/contacto'
+      ])
         expect(wrapper.find(`a[href="${path}"]`).exists()).toBe(true)
       expect(wrapper.find('a[href="mailto:tienda@neteco.es"]').exists()).toBe(true)
       expect(wrapper.find('support-knowledge-panel-stub').exists()).toBe(runtime === 'cloudflare')

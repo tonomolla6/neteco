@@ -1,10 +1,12 @@
 import { chromium } from '@playwright/test'
 import { expect, test as base } from '../fixtures/playwright'
 import { connectRemoteTestBrowser } from '../../scripts/lib/remote-test-browser'
+import { createUiStatePostgresSession } from '../support/ui-state-postgres-session'
 
-// Runtime acceptance complements STATIC component images. The caller must supply
-// already authenticated ephemeral fixtures using existing real auth APIs; this
-// spec never creates a login bypass, role, DB record, provider or demo account.
+// Runtime acceptance complements static component images. A compiled-Worker
+// caller supplies ephemeral authenticated fixtures; the normal E2E suite uses
+// real auth APIs in its disposable PostgreSQL clone. Route navigation itself
+// remains read-only and blocks every external request.
 const test = base.extend({
   browser: [
     async ({ browserName }, use) => {
@@ -19,8 +21,8 @@ const test = base.extend({
     { scope: 'worker' }
   ]
 })
-function isolatedOrigin() {
-  const raw = process.env.NETECO_UI_STATE_E2E_ORIGIN
+function isolatedOrigin(baseURL?: string) {
+  const raw = process.env.NETECO_UI_STATE_E2E_ORIGIN ?? baseURL
   if (!raw) throw Error('Explicit isolated UI E2E runtime required')
   const origin = new URL(raw)
   if (origin.origin !== raw || !['127.0.0.1', 'localhost', 'shop-audit.neteco.test'].includes(origin.hostname))
@@ -28,9 +30,24 @@ function isolatedOrigin() {
   return raw
 }
 for (const audience of ['admin', 'customer'] as const)
-  test(`${audience} real order route respects session and read-only boundary`, async ({ browser }) => {
-    const origin = isolatedOrigin(),
-      cookie = process.env[audience === 'admin' ? 'NETECO_UI_STATE_ADMIN_COOKIE' : 'NETECO_UI_STATE_CUSTOMER_COOKIE']
+  test(`${audience} real order route respects session and read-only boundary`, async ({
+    browser,
+    request,
+    baseURL,
+    deterministic
+  }) => {
+    const origin = isolatedOrigin(baseURL),
+      cookie =
+        process.env[audience === 'admin' ? 'NETECO_UI_STATE_ADMIN_COOKIE' : 'NETECO_UI_STATE_CUSTOMER_COOKIE'] ??
+        (await createUiStatePostgresSession({
+          audience,
+          origin,
+          request,
+          data: deterministic,
+          connection: process.env.DATABASE_URL ?? '',
+          appEnv: process.env.APP_ENV ?? '',
+          encryptionKey: process.env.AUTH_ENCRYPTION_KEY ?? ''
+        }))
     const match = /^neteco-session=([^;\r\n]{1,16384})$/.exec(cookie ?? '')
     if (!match) throw Error('Existing ephemeral authenticated fixture cookie required')
     const context = await browser.newContext({

@@ -59,3 +59,29 @@ it('reads the visible parent slices instead of trusting the leaf maximum', async
   delete files['/sys/fs/cgroup/builder.slice/memory.high']
   await expect(inspectBuildMemory(read)).rejects.toThrow('missing probe')
 })
+
+it('uses only the verified operator memory view when ProcSubset hides meminfo', async () => {
+  const paths: string[] = []
+  const read = async (path: string) => {
+    paths.push(path)
+    if (path === '/proc/meminfo') throw Error('hidden by ProcSubset')
+    if (path === '/run/neteco-ci-resources/meminfo') return 'MemAvailable: 12582912 kB\nSwapFree: 2097152 kB\n'
+    if (path === '/proc/self/cgroup') return '0::/runner\n'
+    if (path.endsWith('memory.current')) return String(GiB)
+    if (path.endsWith('memory.high')) return String(7 * GiB)
+    if (path.endsWith('memory.max')) return String(8 * GiB)
+    throw Error('unexpected probe')
+  }
+  let verified = false
+  const verify = async () => {
+    verified = true
+  }
+  expect(evaluateBuildMemory(await inspectBuildMemory(read, verify))).toMatchObject({ pass: true })
+  expect(verified).toBe(true)
+  expect(paths).toContain('/run/neteco-ci-resources/meminfo')
+  await expect(
+    inspectBuildMemory(read, async () => {
+      throw Error('untrusted view')
+    })
+  ).rejects.toThrow('untrusted view')
+})

@@ -6,6 +6,7 @@ import { createLocalShopConfig } from './generate-shop-config'
 import { DEMO_ORIGIN } from '../shared/demo-access'
 import { REDSYS_REDIRECT_URLS } from '../workers/payments/redsys'
 import { REDSYS_OFFICIAL_CONTRACT } from '../tests/fixtures/redsys-official'
+import { readBuildCommit } from './lib/build-commit'
 
 export const DEMO_ACCOUNT = '15f0ac470ce8d173cf7633c7bbcba3ec'
 export const DEMO_DATABASE = 'd8c99c59-57b3-434d-8f9b-6d6935adfaba'
@@ -75,8 +76,8 @@ export function prepareDemoRedsysSandboxSecret(names: ReadonlySet<string>) {
 }
 
 /** Separate deployment contract: never changes the production/local generators. */
-export function createDemoConfig(source: Record<string, unknown>, projectRoot: string) {
-  const local = createLocalShopConfig(source, projectRoot)
+export function createDemoConfig(source: Record<string, unknown>, projectRoot: string, buildCommit = 'dev') {
+  const local = createLocalShopConfig(source, projectRoot, buildCommit)
   // No cron, queue, workflow or email transport in this public demo.
   const {
     send_email: _email,
@@ -111,6 +112,7 @@ export function createDemoConfig(source: Record<string, unknown>, projectRoot: s
     vars: {
       ...(local.vars as Record<string, string>),
       APP_ENV: 'preview',
+      CSP_MODE: 'enforce',
       DEMO_ENABLED: 'true',
       AUTH_ENABLED: 'true',
       AUTH_ORIGIN: DEMO_ORIGIN,
@@ -144,7 +146,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   await mkdir(directory, { recursive: true })
   await writeFile(
     resolve(directory, 'wrangler.json'),
-    JSON.stringify(createDemoConfig(rawConfig, process.cwd()), null, 2) + '\n',
+    JSON.stringify(createDemoConfig(rawConfig, process.cwd(), readBuildCommit(process.cwd())), null, 2) + '\n',
     { mode: 0o600 }
   )
   await writeFile(

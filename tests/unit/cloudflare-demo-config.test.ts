@@ -17,6 +17,16 @@ describe('isolated Cloudflare demo configuration', () => {
     const { rawConfig } = experimental_readRawConfig({ config: 'wrangler.canary.jsonc' })
     return createDemoConfig(rawConfig as Record<string, unknown>, process.cwd())
   }
+  it('carries the supplied checkout identity into the Worker compiler definitions', () => {
+    const { rawConfig } = experimental_readRawConfig({ config: 'wrangler.canary.jsonc' })
+    const sha = 'a'.repeat(40)
+    expect(createDemoConfig(rawConfig as Record<string, unknown>, process.cwd(), sha).define).toEqual({
+      __NETECO_BUILD_COMMIT__: JSON.stringify(sha)
+    })
+    expect(() => createDemoConfig(rawConfig as Record<string, unknown>, process.cwd(), 'invalid')).toThrow(
+      'build_commit_invalid'
+    )
+  })
   it('uses the isolated database, bucket, KV and worker, never production landing', () => {
     const output = config()
     expect(output.name).toBe(DEMO_WORKER)
@@ -46,6 +56,7 @@ describe('isolated Cloudflare demo configuration', () => {
   it('aligns preview authentication and public runtime without granting production access', () => {
     const output = config()
     expect(output.vars.APP_ENV).toBe('preview')
+    expect(output.vars.CSP_MODE).toBe('enforce')
     expect(output.vars.DEMO_ENABLED).toBe('true')
     expect(output.vars.NUXT_PUBLIC_DEMO_ENABLED).toBe('true')
     for (const key of [

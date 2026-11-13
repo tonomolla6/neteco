@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { testNow } from '../support/deterministic'
 import type { DatabaseSync } from 'node:sqlite'
 import sharp from 'sharp'
 import { renderD1CategorySeed } from '../../scripts/lib/d1-category-seed'
@@ -72,8 +73,24 @@ const readImage = async (reference: string) =>
       .toBuffer()
   )
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+beforeEach(() => vi.setSystemTime(new Date('2026-11-12T12:00:00Z')))
+afterEach(() => vi.useRealTimers())
 
 describe('demo catalogue price table', () => {
+  it('rejects an unconfigured family before granting a loader session or writing prices/stock', async () => {
+    const prepare = vi.fn(),
+      batch = vi.fn()
+    const source = { productos: [{ ...SOURCE.productos[0]!, familia: 'Familia sin rango configurado' }] }
+    await expect(
+      applyCatalogPrices({ prepare, batch } as unknown as D1Database, {
+        source,
+        now: '2026-11-12T12:00:00Z'
+      })
+    ).rejects.toThrow('catalog_prices_family_unranged')
+    expect(prepare).not.toHaveBeenCalled()
+    expect(batch).not.toHaveBeenCalled()
+  })
+
   it('is deterministic, commercially rounded, grows with size and respects the unit of sale', () => {
     const first = planCatalogPrices(SOURCE)
     expect(planCatalogPrices(structuredClone(SOURCE))).toEqual(first)
@@ -119,12 +136,12 @@ describe('demo catalogue price and stock loader', () => {
       applyGeneratedSeed(sqlite, render())
     database = d1OverSqlite(sqlite)
     env = { DB: database, AUTH_ENABLED: 'false', REDSYS_ENABLED: 'false' } as CloudflareEnv
-    await loadCatalogPdf(database, store(), { source: SOURCE, readImage, now: iso(Date.now() - 120_000) })
+    await loadCatalogPdf(database, store(), { source: SOURCE, readImage, now: iso(testNow() - 120_000) })
   })
   afterEach(() => sqlite.close())
 
   it('prices and stocks every variant through governed commands, idempotently', async () => {
-    const now = iso(Date.now() - 60_000)
+    const now = iso(testNow() - 60_000)
     const expected = planCatalogPrices(SOURCE)
     const summary = await applyCatalogPrices(database, { source: SOURCE, now })
     expect(summary).toMatchObject({ variants: 6, priced: 6, alreadyPriced: 0, stocked: 6, alreadyStocked: 0 })

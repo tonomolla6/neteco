@@ -24,7 +24,7 @@ describe('FreeShippingProgressBar.vue (MKT-022)', () => {
       }
     })
 
-    expect(wrapper.text()).toContain('60,00 €')
+    expect(wrapper.text().replace(/\s+/g, ' ')).toContain('60,00 €')
     expect(wrapper.find('[role="progressbar"]').exists()).toBe(true)
     expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('60')
   })

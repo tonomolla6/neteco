@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { testNow, testUuid } from '../support/deterministic'
 import type { DatabaseSync } from 'node:sqlite'
 import sharp from 'sharp'
 import { renderD1CategorySeed, stableUuid } from '../../scripts/lib/d1-category-seed'
@@ -78,6 +79,8 @@ const jpeg = async (seed: number) =>
       .toBuffer()
   )
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+beforeEach(() => vi.setSystemTime(new Date('2026-11-12T12:00:00Z')))
+afterEach(() => vi.useRealTimers())
 
 describe('preproduction PDF catalogue loader', () => {
   let sqlite: DatabaseSync
@@ -127,7 +130,7 @@ describe('preproduction PDF catalogue loader', () => {
 
   it('publishes the products as "Consultar precio" with brand, category and governed main image', async () => {
     const bucket = store()
-    const now = iso(Date.now() - 60_000)
+    const now = iso(testNow() - 60_000)
     const summary = await loadCatalogPdf(database, bucket, { source: SOURCE, readImage, now })
     expect(summary).toMatchObject({
       products: { planned: 3, inserted: 3 },
@@ -172,7 +175,7 @@ describe('preproduction PDF catalogue loader', () => {
 
   it('is idempotent and renews only what would lapse, never overwriting existing rows', async () => {
     const bucket = store()
-    const now = iso(Date.now() - 60_000)
+    const now = iso(testNow() - 60_000)
     await loadCatalogPdf(database, bucket, { source: SOURCE, readImage, now })
     sqlite.prepare("UPDATE products SET name='Editado' WHERE slug='colador-chino'").run()
     const again = await loadCatalogPdf(database, bucket, { source: SOURCE, readImage, now })
@@ -198,7 +201,7 @@ describe('preproduction PDF catalogue loader', () => {
   it('refuses to load over a different row holding a planned slug or SKU', async () => {
     sqlite.prepare("UPDATE variants SET sku='40125' WHERE legacy_id=1").run()
     await expect(
-      loadCatalogPdf(database, store(), { source: SOURCE, readImage, now: iso(Date.now() - 60_000) })
+      loadCatalogPdf(database, store(), { source: SOURCE, readImage, now: iso(testNow() - 60_000) })
     ).rejects.toThrow('catalog_pdf_collision:variants.sku=40125')
   })
 })
@@ -212,7 +215,7 @@ describe('demo seed publication authority renewal', () => {
       const database = d1OverSqlite(sqlite)
       const env = { DB: database, AUTH_ENABLED: 'false', REDSYS_ENABLED: 'false' } as CloudflareEnv
       // Remote state since 2026-10-10: seed policy and its 7-day media evidence both expired.
-      const past = Date.now() - 40 * 86400_000
+      const past = testNow() - 40 * 86400_000
       const productIds = sqlite
         .prepare("SELECT id FROM products WHERE status='published'")
         .all()
@@ -243,14 +246,14 @@ describe('demo seed publication authority renewal', () => {
           `INSERT INTO media_scan_receipts(id,upload_id,checksum,object_key,byte_size,verdict,scanner_version,scanned_at,expires_at,received_at,payload_hash)
           VALUES(?,?,?,?,100,'clean','synthetic',?,?,?,?)`
         )
-        .run(crypto.randomUUID(), upload, checksum, key, iso(past), iso(past + 7 * 86400_000), iso(past), checksum)
+        .run(testUuid(), upload, checksum, key, iso(past), iso(past + 7 * 86400_000), iso(past), checksum)
       sqlite
         .prepare(
           `INSERT INTO media_rights_decisions(id,upload_id,decision,reason,actor_id,evidence_authorized_at,evidence_reference,
           rights_owner,rights_license,created_at,idempotency_key,payload_hash)
           VALUES(?,?,'approved','Ilustración propia',?,?,'demo','NETECO','Propia',?,'demo-rights',?)`
         )
-        .run(crypto.randomUUID(), upload, actor, iso(past).slice(0, 10), iso(past), checksum)
+        .run(testUuid(), upload, actor, iso(past).slice(0, 10), iso(past), checksum)
       const total = async () =>
         (
           (await (await worker.fetch(new Request('https://neteco.invalid/api/products?limit=100'), env)).json()) as {
@@ -260,7 +263,7 @@ describe('demo seed publication authority renewal', () => {
       expect(await total()).toBe(0)
       const policies = (sqlite.prepare('SELECT count(*) AS n FROM catalog_publication_policies').get() as { n: number })
         .n
-      const result = await renewDemoSeedAuthority(database, { now: iso(Date.now() - 60_000) })
+      const result = await renewDemoSeedAuthority(database, { now: iso(testNow() - 60_000) })
       expect(result).toMatchObject({
         products: 20,
         renewed: { policyCreated: true, assignments: 20, receipts: 1, publications: 20 }

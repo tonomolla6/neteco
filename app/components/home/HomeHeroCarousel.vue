@@ -153,6 +153,8 @@ function discount(product: ProductCardData) {
 
 const index = ref(0)
 const touching = ref(false)
+const hovered = ref(false)
+const focused = ref(false)
 const stopped = ref(false)
 const reducedMotion = ref(false)
 const track = ref<HTMLElement | null>(null)
@@ -161,7 +163,23 @@ let frame = 0
 /** Mientras dura un desplazamiento pedido por código, el índice ya es el de destino. */
 let settleUntil = 0
 
-const playing = computed(() => !stopped.value && !reducedMotion.value && slides.value.length > 1)
+const playing = computed(
+  () => !stopped.value && !reducedMotion.value && !hovered.value && !focused.value && slides.value.length > 1
+)
+
+function togglePlaying() {
+  stopped.value = !stopped.value
+  if (!stopped.value) {
+    hovered.value = false
+    focused.value = false
+    restart()
+  }
+}
+
+function onFocusOut(event: FocusEvent) {
+  focused.value =
+    event.relatedTarget instanceof Node && (event.currentTarget as HTMLElement).contains(event.relatedTarget)
+}
 
 function go(next: number, behavior: ScrollBehavior = 'smooth') {
   const count = slides.value.length
@@ -217,6 +235,10 @@ onBeforeUnmount(() => {
     aria-label="Novedades y ofertas"
     class="relative bg-neteco-950"
     @keydown="onKeydown"
+    @mouseenter="hovered = true"
+    @mouseleave="hovered = false"
+    @focusin="focused = true"
+    @focusout="onFocusOut"
   >
     <div
       ref="track"
@@ -380,7 +402,7 @@ onBeforeUnmount(() => {
           type="button"
           class="grid size-8 place-items-center rounded-full text-[var(--text-strong)] hover:bg-[var(--surface-sunken)]"
           :aria-label="stopped ? 'Reanudar el pase automático' : 'Pausar el pase automático'"
-          @click="stopped = !stopped"
+          @click="togglePlaying"
         >
           <UIcon :name="stopped ? 'i-lucide-play' : 'i-lucide-pause'" class="size-4" />
         </button>

@@ -1,13 +1,19 @@
 import { cloudflareEnvironmentSchema } from '../../shared/cloudflare-environment'
 import { resolve } from 'node:path'
 import { createSafePlatformConfig, createSafeVariables } from './cloudflare-config-safety'
+import { buildCommitDefinitions } from './build-commit'
 
 /** Existing local projection, shared verbatim by the CLI and environment adapter. */
-export function createLocalShopConfig(source: Record<string, unknown>, projectRoot: string): Record<string, unknown> {
+export function createLocalShopConfig(
+  source: Record<string, unknown>,
+  projectRoot: string,
+  buildCommit = 'dev'
+): Record<string, unknown> {
   const config = createSafePlatformConfig(source)
   return {
     ...config,
     name: 'neteco-shop-local',
+    define: buildCommitDefinitions(buildCommit),
     main: resolve(projectRoot, 'workers/shop.ts'),
     alias: { '#neteco/nitro-renderer': resolve(projectRoot, '.output-cloudflare/server/index.mjs') },
     assets: {
@@ -29,12 +35,13 @@ export function createLocalShopConfig(source: Record<string, unknown>, projectRo
 export function createEnvironmentShopConfig(
   source: Record<string, unknown>,
   projectRoot: string,
-  input: unknown
+  input: unknown,
+  buildCommit = 'dev'
 ): Record<string, unknown> {
   const environment = cloudflareEnvironmentSchema.safeParse(input)
   if (!environment.success) throw new Error('invalid_cloudflare_environment_contract')
   const contract = environment.data
-  const local = createLocalShopConfig(source, projectRoot)
+  const local = createLocalShopConfig(source, projectRoot, buildCommit)
   const variables = { ...(local.vars as Record<string, string>) }
   variables.APP_ENV = contract.environment
   variables.NUXT_PUBLIC_APP_ENV = contract.environment

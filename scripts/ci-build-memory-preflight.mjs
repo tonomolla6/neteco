@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { lstat, readFile, realpath } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -46,9 +46,35 @@ export function evaluateBuildMemory(snapshot) {
   return { ...result, pass: true, code: 'ok' }
 }
 
+async function verifyOperatorMemoryView() {
+  const path = '/run/neteco-ci-resources/meminfo'
+  if (!(await lstat(path)).isFile() || (await realpath(path)) !== path) throw new Error('untrusted_memory_view')
+  for (let current = path; ; current = dirname(current)) {
+    const entry = await lstat(current)
+    if (
+      entry.isSymbolicLink() ||
+      entry.uid !== 0 ||
+      (entry.mode & 0o022) !== 0 ||
+      (current !== path && !entry.isDirectory())
+    )
+      throw new Error('untrusted_memory_view')
+    if (current === '/') return
+  }
+}
+
 /** @param {(path: string) => Promise<string>} read */
-export async function inspectBuildMemory(read = (path) => readFile(path, 'utf8')) {
-  const memory = await read('/proc/meminfo')
+export async function inspectBuildMemory(
+  read = (path) => readFile(path, 'utf8'),
+  verifyHostView = verifyOperatorMemoryView
+) {
+  let memory
+  try {
+    memory = await read('/proc/meminfo')
+  } catch {
+    // Reuse the operator's existing live, read-only bind; keep ProcSubset=pid.
+    await verifyHostView()
+    memory = await read('/run/neteco-ci-resources/meminfo')
+  }
   const value = (name) => {
     const match = new RegExp(`^${name}:\\s+(\\d+) kB$`, 'm').exec(memory)
     if (!match) throw new Error('memory_counter_missing')

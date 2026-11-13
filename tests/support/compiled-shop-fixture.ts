@@ -6,7 +6,7 @@ import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { deterministicTestData } from '../fixtures/deterministic'
 
 /** Current immutable compiled Worker + actual Nitro/assets, never a source
- * bundle or renderer double. Each caller owns one disposable all-90 database.
+ * bundle or renderer double. Each caller owns one disposable all-156 database.
  * No Queue consumer is installed: this fixture exercises HTTP and its real DOs.
  */
 export async function createCompiledShopFixture(overrides: Record<string, string> = {}) {
@@ -16,8 +16,8 @@ export async function createCompiledShopFixture(overrides: Record<string, string
   const assetsDirectory = resolve('.output-cloudflare/public')
   await Promise.all([access(scriptPath), access(assetsDirectory)])
   const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
-  if (migrations.length !== 155 || migrations.some((file, index) => Number(file.slice(0, 4)) !== index + 1))
-    throw new Error('Compiled-shop fixture requires exactly migrations 0001 through 0155')
+  if (migrations.length !== 156 || migrations.some((file, index) => Number(file.slice(0, 4)) !== index + 1))
+    throw new Error('Compiled-shop fixture requires exactly migrations 0001 through 0156')
 
   const bindings = Object.freeze({
     APP_ENV: 'local',

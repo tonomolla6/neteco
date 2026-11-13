@@ -1,7 +1,8 @@
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { inventoryAndRedactArtifacts } from './lib/ci-artifacts'
-import { flakeObservationCommands, FLAKE_PROJECTS } from './lib/flake-monitor'
+import { FLAKE_PROJECTS } from './lib/flake-monitor'
+import { flakeShardCommands } from './lib/flake-observations'
 
 interface ArtifactPolicy {
   schemaVersion: number
@@ -52,27 +53,27 @@ for (const [script, report] of Object.entries({
 }
 // Inspect the same effective command plan used by the monitor, not only the
 // standalone developer scripts that CI no longer executes a third time.
-const observations = flakeObservationCommands('/fresh-monitor')
-if (observations.length !== 5)
-  failures.push('monitor must run four first projects and one independent second observation')
-for (const [index, project] of FLAKE_PROJECTS.entries()) {
-  const observation = observations[index]!
-  for (const token of [
-    '--reporter=junit',
-    '--reporter=json',
-    '--maxWorkers=1',
-    '--no-file-parallelism',
-    '--project',
-    project,
-    `--outputFile.junit=/fresh-monitor/${project}.xml`
-  ])
-    if (!observation.args.includes(token)) failures.push(`monitor first ${project} command missing ${token}`)
+for (const repetition of [1, 2] as const) {
+  const observations = flakeShardCommands('/fresh-monitor', repetition)
+  if (observations.length !== FLAKE_PROJECTS.length) failures.push(`observation ${repetition}: missing projects`)
+  for (const [index, project] of FLAKE_PROJECTS.entries()) {
+    const observation = observations[index]!
+    for (const token of [
+      '--reporter=junit',
+      '--reporter=json',
+      '--project',
+      project,
+      `--maxWorkers=${project === 'unit' || project === 'component' ? 2 : 1}`,
+      `--outputFile.junit=/fresh-monitor/${project}.xml`
+    ])
+      if (!observation.args.includes(token)) failures.push(`observation ${repetition}/${project}: missing ${token}`)
+    const coverage = repetition === 1 && project === 'unit'
+    if (observation.args.includes('--coverage') !== coverage)
+      failures.push('coverage must run once on the full unit suite')
+  }
 }
-for (const token of ['--coverage', 'vitest.node.config.ts', '--coverage.reportsDirectory=/fresh-monitor/coverage'])
-  if (!observations[0]!.args.includes(token)) failures.push(`monitor unit coverage missing ${token}`)
-if (observations[4]!.args.includes('--project') || !observations[4]!.args.includes('--reporter=json'))
-  failures.push('monitor second observation must include all projects and JSON evidence')
-requireText(monitor, 'runFlakeObservations(', 'monitor does not execute audited observation plan')
+for (const token of ['runFlakeObservation(', 'aggregateFlakeObservations(', 'GITHUB_RUN_ATTEMPT'])
+  requireText(monitor, token, `monitor does not execute fresh audited observation plan: ${token}`)
 requireText(workflow, 'npm run test:flake-monitor', 'CI does not run evidence-producing monitor')
 for (const script of ['coverage', 'test:nuxt', 'test:component', 'test:integration'])
   if (workflow.split('\n').some((line) => line.trim() === `- run: npm run ${script}`))

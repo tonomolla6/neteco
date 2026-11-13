@@ -90,8 +90,8 @@ it('runs bounded bulk preparation and cursor pages through actual canary SOURCE 
       }
     })
     const files = (await readdir('db/d1/migrations')).filter((file) => /^\d{4}_.*\.sql$/.test(file)).sort()
-    expect(files).toHaveLength(155)
-    expect(files.map((file) => Number(file.slice(0, 4)))).toEqual(Array.from({ length: 155 }, (_, index) => index + 1))
+    expect(files).toHaveLength(156)
+    expect(files.map((file) => Number(file.slice(0, 4)))).toEqual(Array.from({ length: 156 }, (_, index) => index + 1))
     for (const file of files)
       await database.batch(
         splitDemoSql(await readFile('db/d1/migrations/' + file, 'utf8')).map((sql) => database.prepare(sql))

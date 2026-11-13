@@ -16,7 +16,129 @@ env:
   NETECO_GITHUB_REPOSITORY: ${{ vars.NETECO_GITHUB_REPOSITORY }}
 
 jobs:
+  test-observations:
+    if: github.ref == 'refs/heads/main'
+    runs-on:
+      [
+        self-hosted,
+        Linux,
+        ARM64,
+        "${{ vars.NETECO_ORACLE_RUNNER_LABEL || 'neteco-oracle-unverified-do-not-register' }}"
+      ]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        observation: [1, 2]
+    env:
+      NETECO_FLAKE_OBSERVATION: ${{ matrix.observation }}
+      NETECO_UI_STATE_CAPTURE_DIR: ${{ matrix.observation == 1 && 'test-results/ui013-components' || '' }}
+      APP_ENV: test
+      APP_BASE_URL: http://127.0.0.1:3100
+      NUXT_PUBLIC_BASE_URL: http://127.0.0.1:3100
+      NUXT_SESSION_PASSWORD: test-only-session-password-32-characters
+      PAYMENT_PROVIDER: mock
+      INVOICE_PROVIDER: mock
+      CARRIER_PROVIDER: mock
+      EMAIL_PROVIDER: log
+    steps:
+      - name: Verify approved Neteco repository
+        shell: bash
+        run: |
+          test -n "$NETECO_GITHUB_REPOSITORY"
+          test "$GITHUB_REPOSITORY" = "$NETECO_GITHUB_REPOSITORY"
+          test "${GITHUB_REPOSITORY,,}" != 'publicher0/neteco-shop'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: node scripts/storage-preflight.ts
+      - name: Allocate isolated service identifiers
+        id: service-identifiers
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="$(node -p "require('node:crypto').randomUUID()")"
+          printf 'id=%s\n' "$id" >> "$GITHUB_OUTPUT"
+      - name: Start isolated PostgreSQL and Redis
+        shell: bash
+        env:
+          SERVICE_ID: ${{ steps.service-identifiers.outputs.id }}
+        run: |
+          set -euo pipefail
+          [[ "$SERVICE_ID" =~ ^[a-f0-9-]{36}$ ]]
+          node /usr/local/libexec/neteco-ci/build-storage.mjs --estimated-output-gib 2
+          /usr/local/libexec/neteco-ci/bin/docker create --pull=never --name "neteco-ci-$SERVICE_ID-postgres" \
+            --label "neteco.ci.service=$SERVICE_ID" --cpus 0.5 --memory 256m --memory-swap 384m --pids-limit 128 \
+            --publish 127.0.0.1::5432 --env POSTGRES_USER=neteco --env POSTGRES_PASSWORD=neteco-test \
+            --env POSTGRES_DB=neteco_test postgres:17.6-alpine3.22 >/dev/null
+          /usr/local/libexec/neteco-ci/bin/docker create --pull=never --name "neteco-ci-$SERVICE_ID-redis" \
+            --label "neteco.ci.service=$SERVICE_ID" --cpus 0.5 --memory 256m --memory-swap 384m --pids-limit 128 \
+            --publish 127.0.0.1::6379 redis:8.2.1-alpine3.22 >/dev/null
+          /usr/local/libexec/neteco-ci/bin/docker start "neteco-ci-$SERVICE_ID-postgres" "neteco-ci-$SERVICE_ID-redis" >/dev/null
+          for service in postgres redis; do
+            ready=0
+            for attempt in {1..30}; do
+              if [[ "$service" == postgres ]]; then
+                if [[ "$(/usr/local/libexec/neteco-ci/bin/docker exec -e PGPASSWORD=neteco-test "neteco-ci-$SERVICE_ID-postgres" psql -h 127.0.0.1 -U neteco -d neteco_test -At -c 'SELECT 1' 2>/dev/null)" == 1 ]]; then ready=1; break; fi
+              else
+                if [[ "$(/usr/local/libexec/neteco-ci/bin/docker exec "neteco-ci-$SERVICE_ID-redis" redis-cli ping 2>/dev/null)" == PONG ]]; then ready=1; break; fi
+              fi
+              sleep 1
+            done
+            [[ "$ready" == 1 ]]
+          done
+          pg_address="$(/usr/local/libexec/neteco-ci/bin/docker port "neteco-ci-$SERVICE_ID-postgres" 5432/tcp)"
+          redis_address="$(/usr/local/libexec/neteco-ci/bin/docker port "neteco-ci-$SERVICE_ID-redis" 6379/tcp)"
+          [[ "$pg_address" =~ ^127\.0\.0\.1:([0-9]+)$ ]]
+          printf 'DATABASE_URL=postgres://neteco:neteco-test@127.0.0.1:%s/neteco_test\n' "${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+          [[ "$redis_address" =~ ^127\.0\.0\.1:([0-9]+)$ ]]
+          printf 'REDIS_URL=redis://127.0.0.1:%s/0\n' "${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run db:migrate
+      - run: npm run db:seed
+      - name: Compile current Cloudflare CSS for component evidence
+        if: matrix.observation == 1
+        shell: bash
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export NODE_OPTIONS="--max-old-space-size=4096 --require=$GITHUB_WORKSPACE/scripts/limit-build-workers.cjs"
+          node scripts/ci-build-memory-preflight.mjs
+          npm run build:cloudflare-ui
+      - run: npm run test:flake-monitor
+      - run: npm run ci:artifacts -- --publish
+        if: always()
+        id: observation-artifacts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always() && steps.observation-artifacts.outcome == 'success'
+        with:
+          name: flake-observation-${{ matrix.observation }}-${{ github.run_attempt }}
+          path: test-results/flake-observation-${{ matrix.observation }}/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove isolated PostgreSQL and Redis
+        if: always() && steps.service-identifiers.outcome == 'success'
+        shell: bash
+        env:
+          SERVICE_ID: ${{ steps.service-identifiers.outputs.id }}
+        run: |
+          set -euo pipefail
+          [[ "$SERVICE_ID" =~ ^[a-f0-9-]{36}$ ]]
+          /usr/local/libexec/neteco-ci/bin/docker info --format '{{.ServerVersion}}' >/dev/null
+          for service in postgres redis; do
+            name="neteco-ci-$SERVICE_ID-$service"
+            if /usr/local/libexec/neteco-ci/bin/docker container inspect "$name" >/dev/null 2>&1; then
+              [[ "$(/usr/local/libexec/neteco-ci/bin/docker inspect --format '{{ index .Config.Labels "neteco.ci.service" }}' "$name")" == "$SERVICE_ID" ]]
+              /usr/local/libexec/neteco-ci/bin/docker rm --force --volumes "$name" >/dev/null
+            fi
+          done
+
   quality:
+    needs: [test-observations]
     if: github.ref == 'refs/heads/main'
     runs-on:
       [
@@ -103,18 +225,51 @@ jobs:
       - run: npm run ci:artifacts
       - run: npm run db:migrate
       - run: npm run db:seed
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: flake-observation-1-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/flake-observations/flake-observation-1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: flake-observation-2-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/flake-observations/flake-observation-2
       - run: npm run test:flake-monitor
+        env:
+          NETECO_FLAKE_ARTIFACTS: ${{ runner.temp }}/flake-observations
       - run: npm run audit:exploratory
       - run: npm run audit:uat:policy
       - run: npm run build
-      - run: npx playwright install chromium firefox webkit
       - run: npm run test:performance
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - run: npx tsx scripts/performance-gate.ts --report test-results/performance.json --diff-out test-results/performance-diff.md
       - run: npm run test:e2e -- --project=chromium --grep-invert accessibility
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - run: npm run test:a11y
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - run: npm run test:browser-matrix
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - run: npm run test:flake-browser
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - run: npm run test:visual
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
         with:
           path: .output

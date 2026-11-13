@@ -15,14 +15,16 @@ async function stabilize(page: Page) {
       }
     `
   })
-  await page.evaluate(async () => {
+  const broken = await page.evaluate(async () => {
     await document.fonts.ready
-    await Promise.all(
-      [...document.images]
-        .filter((image) => !image.complete)
-        .map((image) => new Promise<void>((resolve) => image.addEventListener('load', () => resolve(), { once: true })))
-    )
+    const images = [...document.images]
+    // A full-page reference needs the below-fold assets too. Waiting only for
+    // load events leaves native lazy images pending forever and misses errors.
+    for (const image of images) image.loading = 'eager'
+    await Promise.all(images.map((image) => image.decode().catch(() => undefined)))
+    return images.filter((image) => image.isConnected && image.naturalWidth === 0).length
   })
+  expect(broken, 'Rendered images must decode or present their real fallback').toBe(0)
   await expect(page.locator('body')).toBeVisible()
 }
 
@@ -36,28 +38,33 @@ test.beforeEach(async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' })
 })
 
-test('public templates remain visually reviewed at stable breakpoints', async ({ page, request }) => {
-  const response = await request.get('/api/products?limit=1')
-  expect(response.status()).toBe(200)
-  const body = (await response.json()) as { items: Array<{ slug: string }> }
-  const product = body.items[0]
-  expect(product).toBeTruthy()
+const templates = [
+  { name: 'home', path: '/' },
+  { name: 'catalog', path: '/catalogo' },
+  { name: 'search', path: '/buscar?q=guante' },
+  { name: 'product', path: null },
+  { name: 'cart-empty', path: '/carrito' },
+  { name: 'login', path: '/login' }
+] as const
 
-  const templates = [
-    { name: 'home', path: '/' },
-    { name: 'catalog', path: '/catalogo' },
-    { name: 'search', path: '/buscar?q=guante' },
-    { name: 'product', path: `/producto/${product!.slug}` },
-    { name: 'cart-empty', path: '/carrito' },
-    { name: 'login', path: '/login' }
-  ]
-
-  for (const template of templates) {
-    await test.step(template.name, async () => {
-      await page.goto(template.path, { waitUntil: 'networkidle' })
-      await dismissConsent(page)
-      await stabilize(page)
-      await expect(page).toHaveScreenshot(`${template.name}.png`, { fullPage: true })
-    })
-  }
-})
+// Each existing page/breakpoint comparison gets its own isolated browser
+// context and result, so a home mismatch cannot hide the other five templates.
+for (const template of templates)
+  test(`public templates: ${template.name} remains visually reviewed at stable breakpoints`, async ({
+    page,
+    request
+  }) => {
+    let path: string
+    if (template.path === null) {
+      const response = await request.get('/api/products?limit=1')
+      expect(response.status()).toBe(200)
+      const body = (await response.json()) as { items: Array<{ slug: string }> }
+      const product = body.items[0]
+      expect(product).toBeTruthy()
+      path = `/producto/${product!.slug}`
+    } else path = template.path
+    await page.goto(path, { waitUntil: 'networkidle' })
+    await dismissConsent(page)
+    await stabilize(page)
+    await expect(page).toHaveScreenshot(`${template.name}.png`, { fullPage: true })
+  })

@@ -13,6 +13,7 @@ const trusted = {
   RUNNER_ENVIRONMENT: 'self-hosted',
   RUNNER_ARCH: 'ARM64',
   RUNNER_NAME: 'synthetic-oracle',
+  PW_TEST_CONNECT_WS_ENDPOINT: 'ws://127.0.0.1:43123/private-browser',
   // Fictional unit fixture only, not an identified or authorized repository.
   NETECO_GITHUB_REPOSITORY: 'example-owned/neteco',
   GITHUB_REPOSITORY: 'example-owned/neteco',
@@ -44,10 +45,9 @@ function evidence() {
 }
 function fixture() {
   const close = vi.fn(async () => {}),
-    wsEndpoint = vi.fn(() => 'ws://127.0.0.1:43123/private-browser'),
-    launchServer = vi.fn(async () => ({ close, wsEndpoint })),
+    connectBrowser = vi.fn(async (_endpoint: string) => ({ close })),
     execute = vi.fn(async (_env: NodeJS.ProcessEnv) => 0)
-  return { close, wsEndpoint, launchServer, execute, preflight: vi.fn(async () => evidence()), arch: 'arm64', now }
+  return { close, connectBrowser, execute, preflight: vi.fn(async () => evidence()), arch: 'arm64', now }
 }
 
 describe('fail-closed Oracle shop browser audit (synthetic admission evidence only)', () => {
@@ -73,7 +73,7 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
           platform: 'linux'
         })
       ).rejects.toThrow()
-      expect(f.launchServer).not.toHaveBeenCalled()
+      expect(f.connectBrowser).not.toHaveBeenCalled()
       expect(f.execute).not.toHaveBeenCalled()
     }
   )
@@ -93,7 +93,7 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
     vi.mocked(open).mockClear()
     await expect(runOracleShopAudit({ ...f, preflight: undefined, env: trusted, platform: 'linux' })).rejects.toThrow()
     expect(open).not.toHaveBeenCalled()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
   })
   it('rejects an untrusted ancestor before opening the preflight file', async () => {
     const f = fixture()
@@ -113,13 +113,13 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
     vi.mocked(open).mockClear()
     await expect(runOracleShopAudit({ ...f, preflight: undefined, env: trusted, platform: 'linux' })).rejects.toThrow()
     expect(open).not.toHaveBeenCalled()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
   })
   it('rejects an unverified self-hosted runner before launching', async () => {
     const f = fixture()
     f.preflight.mockRejectedValue(new Error('missing root-managed preflight'))
     await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'linux' })).rejects.toThrow()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
     expect(f.execute).not.toHaveBeenCalled()
   })
   it.each([
@@ -132,12 +132,12 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
     const f = fixture()
     await expect(runOracleShopAudit({ ...f, env: { ...trusted, ...override }, platform: 'linux' })).rejects.toThrow()
     expect(f.preflight).not.toHaveBeenCalled()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
   })
   it('rejects an actual non-ARM64 process despite its environment label', async () => {
     const f = fixture()
     await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'linux', arch: 'x64' })).rejects.toThrow()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
   })
   it.each([
     { uid: 0 },
@@ -152,7 +152,7 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
     const f = fixture()
     f.preflight.mockResolvedValue({ ...evidence(), ...override })
     await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'linux' })).rejects.toThrow()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
   })
   it.each([
     { version: 2 },
@@ -181,7 +181,7 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
     async (env) => {
       const f = fixture()
       await expect(runOracleShopAudit({ ...f, env, platform: 'linux' })).rejects.toThrow()
-      expect(f.launchServer).not.toHaveBeenCalled()
+      expect(f.connectBrowser).not.toHaveBeenCalled()
       expect(f.execute).not.toHaveBeenCalled()
     }
   )
@@ -194,29 +194,36 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
   ])('fails closed before launching or executing with %j', async (env) => {
     const f = fixture()
     await expect(runOracleShopAudit({ ...f, env, platform: 'linux' })).rejects.toThrow()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
     expect(f.execute).not.toHaveBeenCalled()
   })
   it('does not launch on unsupported platforms', async () => {
     const f = fixture()
     await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'darwin' })).rejects.toThrow()
-    expect(f.launchServer).not.toHaveBeenCalled()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
   })
-  it.each([0, 1, 23])('preserves audit exit %i and closes its own server', async (code) => {
-    const f = fixture(),
-      env = { ...trusted, SYNTHETIC_SETTING: 'preserved' }
-    f.execute.mockResolvedValue(code)
-    expect(await runOracleShopAudit({ ...f, env, platform: 'linux' })).toBe(code)
-    expect(f.execute).toHaveBeenCalledExactlyOnceWith({
-      ...env,
-      PW_TEST_CONNECT_WS_ENDPOINT: f.wsEndpoint(),
-      NUXT_TELEMETRY_DISABLED: '1',
-      WRANGLER_SEND_METRICS: 'false'
-    })
-    expect(env).not.toHaveProperty('PW_TEST_CONNECT_WS_ENDPOINT')
-    expect(f.close).toHaveBeenCalledOnce()
-  })
-  it('closes its server if the audit cannot start', async () => {
+  it.each([0, 1, 23])(
+    'preserves audit exit %i and closes its remote connection before starting the audit',
+    async (code) => {
+      const f = fixture(),
+        env = { ...trusted, SYNTHETIC_SETTING: 'preserved' }
+      f.execute.mockResolvedValue(code)
+      expect(await runOracleShopAudit({ ...f, env, platform: 'linux' })).toBe(code)
+      expect(f.execute).toHaveBeenCalledExactlyOnceWith({
+        ...env,
+        PW_TEST_CONNECT_WS_ENDPOINT: trusted.PW_TEST_CONNECT_WS_ENDPOINT,
+        PW_TEST_CONNECT_EXPOSE_NETWORK: '<loopback>',
+        NUXT_TELEMETRY_DISABLED: '1',
+        WRANGLER_SEND_METRICS: 'false'
+      })
+      expect(env.PW_TEST_CONNECT_WS_ENDPOINT).toBe(trusted.PW_TEST_CONNECT_WS_ENDPOINT)
+      expect(env).not.toHaveProperty('PW_TEST_CONNECT_EXPOSE_NETWORK')
+      expect(f.connectBrowser).toHaveBeenCalledExactlyOnceWith(trusted.PW_TEST_CONNECT_WS_ENDPOINT)
+      expect(f.close.mock.invocationCallOrder[0]).toBeLessThan(f.execute.mock.invocationCallOrder[0]!)
+      expect(f.close).toHaveBeenCalledOnce()
+    }
+  )
+  it('has already closed its remote probe if the audit cannot start', async () => {
     const f = fixture()
     f.execute.mockRejectedValue(new Error('synthetic child failure'))
     await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'linux' })).rejects.toThrow()
@@ -234,9 +241,26 @@ describe('fail-closed Oracle shop browser audit (synthetic admission evidence on
     'not a URL'
   ])('never passes a non-private endpoint to the child: %s', async (endpoint) => {
     const f = fixture()
-    f.wsEndpoint.mockReturnValue(endpoint)
-    await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'linux' })).rejects.toThrow()
+    await expect(
+      runOracleShopAudit({ ...f, env: { ...trusted, PW_TEST_CONNECT_WS_ENDPOINT: endpoint }, platform: 'linux' })
+    ).rejects.toThrow()
     expect(f.execute).not.toHaveBeenCalled()
-    expect(f.close).toHaveBeenCalledOnce()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
+    expect(f.close).not.toHaveBeenCalled()
+  })
+  it('rejects a missing remote transport without launching locally or executing the audit', async () => {
+    const f = fixture()
+    await expect(
+      runOracleShopAudit({ ...f, env: { ...trusted, PW_TEST_CONNECT_WS_ENDPOINT: undefined }, platform: 'linux' })
+    ).rejects.toThrow()
+    expect(f.connectBrowser).not.toHaveBeenCalled()
+    expect(f.execute).not.toHaveBeenCalled()
+  })
+  it('fails closed when the remote probe fails without executing or falling back', async () => {
+    const f = fixture()
+    f.connectBrowser.mockRejectedValueOnce(new Error('synthetic remote unavailable'))
+    await expect(runOracleShopAudit({ ...f, env: trusted, platform: 'linux' })).rejects.toThrow()
+    expect(f.connectBrowser).toHaveBeenCalledOnce()
+    expect(f.execute).not.toHaveBeenCalled()
   })
 })

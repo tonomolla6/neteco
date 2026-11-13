@@ -24,6 +24,7 @@ it('preserves a real pre-coupon order and RMA when SQLite upgrades the contractu
     await requestD1CustomerReturn(fixture.database, BUYER_CLAIMS, orderId, REQUEST, { idempotencyKey: testUuid() })
     const tables = [
       'orders',
+      'order_shipment_plans',
       'order_lines',
       'checkout_quote_lines',
       'order_returns',
@@ -136,7 +137,7 @@ it('executes governed promotions, buyer PO and coupon checkout through actual ca
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 155 }, (_, index) => index + 1)
+      Array.from({ length: 156 }, (_, index) => index + 1)
     )
     for (const name of migrations)
       await database.batch(

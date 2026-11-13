@@ -14,6 +14,7 @@ import { createOrder, type CheckoutAddress } from '../server/services/orders'
 import integrationGlobalSetup from '../tests/support/integration-global-setup'
 import { isolatedPostgresDatabase } from '../tests/fixtures/postgres'
 import { REDSYS_OFFICIAL_CONTRACT } from '../tests/fixtures/redsys-official'
+import { connectRemoteTestBrowser } from './lib/remote-test-browser'
 import {
   assertLoadBudget,
   compressedAssetBytes,
@@ -342,7 +343,7 @@ async function main() {
         }
       }
 
-      const browser = await chromium.launch({ headless: true })
+      const browser = await connectRemoteTestBrowser(chromium)
       const lab: Record<string, Record<string, unknown>> = {}
       try {
         for (const [device, deviceBudget] of [

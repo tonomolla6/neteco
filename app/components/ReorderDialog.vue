@@ -65,8 +65,9 @@ defineExpose({ start: reorder.open })
           {{ reorder.addedCount.value }} líneas ya añadidas al carrito. No se volverán a añadir al reintentar.
         </p>
         <p class="text-[13px] text-[var(--text-muted)]">
-          Pedido del {{ formatAccountDate(reorder.plan.value.orderedAt) }}. Se añaden con el precio de hoy; podrás
-          cambiar las cantidades en el carrito.
+          Pedido {{ reorder.plan.value.orderId }} del {{ formatAccountDate(reorder.plan.value.orderedAt) }}. Se muestran
+          precios históricos y, cuando hay oferta, la disponibilidad observada. El carrito vuelve a validar el precio y
+          las existencias al añadir.
         </p>
 
         <ul
@@ -79,14 +80,29 @@ defineExpose({ start: reorder.open })
               <p class="truncate text-[15px] font-medium text-[var(--text-strong)]">{{ line.name }}</p>
               <p class="truncate text-[13px] text-[var(--text-muted)]">{{ line.format }} · Ref. {{ line.sku }}</p>
               <p class="tabular mt-0.5 text-[13px] text-[var(--text)]">
-                {{ formatPrice(line.reorderOffer?.unitGross ?? line.unitGross) }}/ud
-                <span
-                  v-if="line.reorderOffer && line.reorderOffer.unitGross !== line.unitGross"
-                  class="text-[var(--text-muted)]"
-                >
-                  · antes {{ formatPrice(line.unitGross) }}
-                </span>
+                Precio histórico: {{ formatPrice(line.unitGross) }}/ud · {{ formatPrice(line.lineGross) }} total
               </p>
+              <template v-if="line.reorderOffer">
+                <p class="tabular text-[13px] text-[var(--text)]">
+                  Oferta observada: {{ formatPrice(line.reorderOffer.unitGross) }}/ud ·
+                  {{ formatPrice(line.reorderOffer.lineGross) }} total. Sin IVA:
+                  {{ formatPrice(line.reorderOffer.unitNet) }}/ud · {{ formatPrice(line.reorderOffer.lineNet) }} total.
+                  IVA {{ line.reorderOffer.taxRateBasisPoints / 100 }} %.
+                </p>
+                <p
+                  v-if="
+                    line.reorderOffer.unitGross !== line.unitGross || line.reorderOffer.lineGross !== line.lineGross
+                  "
+                  class="text-[13px] font-medium text-[var(--text-strong)]"
+                >
+                  El precio ha cambiado
+                </p>
+                <p class="text-[13px] text-[var(--text-muted)]">
+                  Disponibilidad observada: {{ line.reorderOffer.availableQuantity }}.
+                  <span v-if="line.reorderOffer.backorderAllowed">Venta bajo pedido admitida.</span>
+                  No reserva stock.
+                </p>
+              </template>
             </div>
             <span class="tabular shrink-0 text-[15px] font-semibold text-[var(--text-strong)]"
               >× {{ line.quantity }}</span

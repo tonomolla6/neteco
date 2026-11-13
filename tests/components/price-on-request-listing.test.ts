@@ -80,17 +80,22 @@ describe.each([
   ['ProductCard', ProductCard],
   ['ProductRow', ProductRow]
 ] as const)('%s without a public price', (_name, component) => {
-  it('shows "Consultar precio", never 0,00 € or "Agotado", and keeps the reference visible', async () => {
+  it('shows "Consultar precio", never 0,00 € or "Agotado", and opens the exact product for its quote', async () => {
     const wrapper = await render(component, { product: unpriced })
     expect(flat(wrapper)).toContain('Consultar precio')
     expect(flat(wrapper)).not.toMatch(/0,00|Agotado|desde/)
-    expect(wrapper.get('[data-product-reference]').text()).toBe('Ref. BM-40')
+    expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/bayeta-microfibra')
   })
 
-  it('cannot be added to the cart: the action is "Pedir precio" with the product prefilled in contact', async () => {
+  it('cannot be added to the cart and offers the approved path to request its price', async () => {
     const wrapper = await render(component, { product: unpriced })
     expect(wrapper.find('[data-product-add]').exists()).toBe(false)
     expect(wrapper.find('input[inputmode="numeric"]').exists()).toBe(false)
+    if (component === ProductCard) {
+      expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/bayeta-microfibra')
+      expect(mocks.add).not.toHaveBeenCalled()
+      return
+    }
     const link = wrapper.get('a[data-price-request]')
     expect(link.text()).toBe('Pedir precio')
     const url = new URL(link.attributes('href')!, 'https://shop.invalid')
@@ -104,7 +109,8 @@ describe.each([
     const wrapper = await render(component, { product: unpricedMulti })
     expect(flat(wrapper)).toContain('Consultar precio')
     expect(flat(wrapper)).not.toMatch(/0,00|desde/)
-    expect(wrapper.get('a[data-price-request]').text()).toBe('Pedir precio')
+    if (component === ProductCard) expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/fregona')
+    else expect(wrapper.get('a[data-price-request]').text()).toBe('Pedir precio')
   })
 })
 

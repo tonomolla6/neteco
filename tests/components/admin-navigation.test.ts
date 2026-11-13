@@ -242,7 +242,8 @@ describe('permission-based staff navigation', () => {
       if (!loggedIn) actor.user.value = {}
       const wrapper = await mount(true)
       // Ordering by reference works in every runtime and is always one click away.
-      expect(wrapper.findAll('a[href="/pedido-rapido"]')).toHaveLength(1)
+      expect(wrapper.findAll('a[href="/pedido-rapido"]')).toHaveLength(2)
+      expect(wrapper.get('[data-header-quick-order]').attributes('href')).toBe('/pedido-rapido')
       await wrapper.get('[aria-label="Abrir menú"]').trigger('click')
       await flushPromises()
       // The actual mobile navigation is teleported outside the mounted header.

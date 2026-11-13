@@ -1,0 +1,37 @@
+[Unit]
+Description=Leased Neteco CI browser transport
+Requisite=devtono-neteco-actions-runner.service
+After=devtono-neteco-actions-runner.service
+PartOf=devtono-neteco-actions-runner.service
+JoinsNamespaceOf=devtono-neteco-actions-runner.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/libexec/neteco-ci/browser-ssh-session
+RuntimeDirectory=neteco-ci-browser-identity
+RuntimeDirectoryMode=0700
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+PrivateNetwork=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/devtono/.ssh/devtono_e2e_server_20261004:/run/neteco-ci-browser-identity/key /home/devtono/.ssh/devtono_e2e_server_known_hosts:/run/neteco-ci-browser-identity/known_hosts
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+MemoryHigh=96M
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=50%
+TasksMax=32
+RuntimeMaxSec=1800
+TimeoutStopSec=15
+KillMode=control-group

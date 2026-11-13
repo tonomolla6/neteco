@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { DialogContent, DialogDescription, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
+import { DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot, DialogTitle } from 'reka-ui'
 
 /**
  * Galería de la ficha, al estilo de las grandes tiendas: miniaturas siempre visibles (nunca
@@ -28,14 +28,20 @@ const runtime = useRuntimeConfig()
 const governed = Boolean(runtime.public.mediaGoverned)
 
 const failed = ref(new Set<string>())
-const shown = computed(() => props.images.filter((image) => !failed.value.has(image.src)))
+const shown = computed(() =>
+  props.images.filter(
+    (image) => !failed.value.has(image.src) && (!governed || publishedImageUrl(image.src, 1200, 'jpeg'))
+  )
+)
 const active = ref(0)
 const current = computed(() => shown.value[Math.min(active.value, shown.value.length - 1)] ?? null)
 const loaded = ref(false)
+const viewer = ref(false)
 
 watch(
   () => [props.contextKey, props.images.map((image) => image.src).join('|')],
   () => {
+    viewer.value = false
     active.value = 0
     failed.value = new Set()
   }
@@ -50,6 +56,7 @@ function sized(src: string, width: 128 | 800 | 1200 | 1600) {
 }
 function fail(src: string) {
   failed.value = new Set([...failed.value, src])
+  if (!shown.value.length) viewer.value = false
 }
 function select(index: number) {
   if (index >= 0 && index < shown.value.length) active.value = index
@@ -104,7 +111,6 @@ function thumbKeydown(event: KeyboardEvent, index: number) {
 }
 
 // --- Visor a pantalla completa.
-const viewer = ref(false)
 const zoom = ref(1)
 const offset = reactive({ x: 0, y: 0 })
 function resetZoom() {
@@ -351,7 +357,7 @@ const viewerStyle = computed(() => ({
 
     <DialogRoot v-model:open="viewer">
       <DialogPortal>
-        <div v-if="viewer" class="fixed inset-0 z-[60] bg-slate-950/95" aria-hidden="true" />
+        <DialogOverlay v-if="viewer" class="fixed inset-0 z-[60] bg-slate-950/95" aria-hidden="true" />
         <DialogContent
           v-if="viewer && current"
           data-gallery-viewer

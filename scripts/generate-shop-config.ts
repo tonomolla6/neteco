@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { experimental_readRawConfig } from 'wrangler'
 import { createEnvironmentShopConfig, createLocalShopConfig } from './lib/cloudflare-environment-config'
+import { readBuildCommit } from './lib/build-commit'
 export { createLocalShopConfig } from './lib/cloudflare-environment-config'
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
@@ -24,9 +25,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
       throw new Error('invalid_cloudflare_environment_file')
     }
   }
+  const buildCommit = readBuildCommit(process.cwd())
   const config = inputPath
-    ? createEnvironmentShopConfig(rawConfig, process.cwd(), environment)
-    : createLocalShopConfig(rawConfig, process.cwd())
+    ? createEnvironmentShopConfig(rawConfig, process.cwd(), environment, buildCommit)
+    : createLocalShopConfig(rawConfig, process.cwd(), buildCommit)
   const directory = inputPath
     ? resolve('.wrangler/environments', String((config.vars as Record<string, string>).APP_ENV))
     : resolve('.wrangler/shop')

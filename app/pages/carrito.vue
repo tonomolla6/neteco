@@ -307,11 +307,15 @@ async function retryOriginalAdd() {
                 Si lo pides ahora · {{ shipping.rate.value?.label }}
               </p>
             </template>
+            <template v-else-if="shipping.rate.value && !shipping.stale.value">
+              <p class="text-[15px] text-[var(--text)]">Te confirmamos la fecha de entrega al pedirlo.</p>
+              <p class="mt-1 text-[13px] text-[var(--text-muted)]">{{ shipping.rate.value.label }}</p>
+            </template>
             <DeliveryPromiseLine v-else earliest :free="freeShippingEvaluation.status === 'reached'" />
             <!-- Código postal, compacto: una línea para verlo o cambiarlo -->
             <div v-if="shipping.available.value" data-shipping-estimate class="text-[13px]">
               <p
-                v-if="serverDeliveryDate && shipping.destination.value && !editingDestination"
+                v-if="shipping.rate.value && shipping.destination.value && !editingDestination"
                 class="mt-1.5 flex items-start gap-1.5 text-[var(--text-muted)]"
               >
                 <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -328,7 +332,7 @@ async function retryOriginalAdd() {
                 </span>
               </p>
               <form
-                v-else-if="serverDeliveryDate && editingDestination"
+                v-else-if="shipping.rate.value && editingDestination"
                 class="mt-2 flex items-center gap-2"
                 @submit.prevent="submitDestination"
               >

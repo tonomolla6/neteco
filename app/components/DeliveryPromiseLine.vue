@@ -72,31 +72,30 @@ function save() {
         Si lo pides hoy antes de las
         <strong class="font-semibold text-[var(--stock-ok)]">{{ view.cutoffTime }}</strong>
       </p>
-      <p v-if="!editing" class="mt-1.5 flex items-start gap-1.5 text-[13px] text-[var(--text-muted)]">
-        <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        <span v-if="destination">
-          Enviar a {{ destination.postalCode }} {{ destination.city }} ·
-          <button
-            type="button"
-            data-delivery-change
-            class="font-semibold text-[var(--link)] underline underline-offset-2"
-            @click="edit"
-          >
-            Cambiar
-          </button>
-        </span>
+    </template>
+    <p v-if="!editing" class="mt-1.5 flex items-start gap-1.5 text-[13px] text-[var(--text-muted)]">
+      <UIcon name="i-lucide-map-pin" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+      <span v-if="destination">
+        Enviar a {{ destination.postalCode }} {{ destination.city }} ·
         <button
-          v-else
           type="button"
           data-delivery-change
-          class="text-left font-semibold text-[var(--link)] underline underline-offset-2"
+          class="font-semibold text-[var(--link)] underline underline-offset-2"
           @click="edit"
         >
-          Indica tu código postal
+          Cambiar
         </button>
-      </p>
-    </template>
-
+      </span>
+      <button
+        v-else
+        type="button"
+        data-delivery-change
+        class="text-left font-semibold text-[var(--link)] underline underline-offset-2"
+        @click="edit"
+      >
+        Indica tu código postal
+      </button>
+    </p>
     <form v-if="editing" class="mt-2 flex flex-wrap items-center gap-2" @submit.prevent="save">
       <label class="sr-only" :for="postalInputId">Código postal</label>
       <input

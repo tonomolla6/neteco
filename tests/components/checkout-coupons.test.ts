@@ -75,8 +75,15 @@ const state = () =>
     } | null
   }
 const quotes = () => mocks.fetch.mock.calls.filter(([path]) => path === '/api/shipping/rates')
-const input = () => wrapper!.get('[data-testid="checkout-coupon-code"]')
+const input = async () => {
+  if (!wrapper!.find('[data-testid="checkout-coupon-code"]').exists()) {
+    await wrapper!.get('[data-testid="checkout-coupon-open"]').trigger('click')
+    await flushPromises()
+  }
+  return wrapper!.get('[data-testid="checkout-coupon-code"]')
+}
 const apply = async () => {
+  await input()
   await wrapper!.get('[data-testid="checkout-coupon-apply"]').trigger('click')
   await flushPromises()
 }
@@ -85,6 +92,13 @@ async function render() {
     route: false,
     global: {
       stubs: {
+        UModal: defineComponent({
+          props: { open: Boolean },
+          setup:
+            (props, { slots }) =>
+            () =>
+              h('div', props.open ? [slots.body?.(), slots.footer?.()] : [])
+        }),
         ClientOnly: Slot,
         UButton: Button,
         UFormField: Slot,
@@ -161,7 +175,7 @@ afterEach(() => {
 describe('real Cloudflare checkout coupon interaction', () => {
   it('releases only the rejected pre-write intent for a non-positive total and asks to adjust the coupon', async () => {
     await render()
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     mocks.fetch.mockImplementation(async (path: string) => {
       if (path === '/api/shipping/rates')
@@ -181,12 +195,12 @@ describe('real Cloudflare checkout coupon interaction', () => {
     expect(mocks.fetch.mock.calls.filter(([path]) => path === '/api/orders')).toHaveLength(1)
     expect(quotes()).toHaveLength(1) // The normal pre-submit quote, never a catch/refresh loop.
     expect(wrapper!.get('#checkout-alert').html()).toContain('Quita o ajusta el cupón')
-    expect(input().attributes('disabled')).toBeUndefined()
+    expect((await input()).attributes('disabled')).toBeUndefined()
   })
   it('shows an accessible explicit control only for Cloudflare', async () => {
     await render()
-    expect(input().attributes('id')).toBeTruthy()
-    expect(wrapper!.find(`label[for="${input().attributes('id')}"]`).text()).toContain('Código de descuento')
+    expect((await input()).attributes('id')).toBeTruthy()
+    expect(wrapper!.find(`label[for="${(await input()).attributes('id')}"]`).text()).toContain('Escribe tu código')
     expect(wrapper!.get('[data-testid="checkout-coupon-apply"]').attributes('type')).toBe('button')
   })
   it('preserves the Node page and never sends a coupon parameter there', async () => {
@@ -198,7 +212,7 @@ describe('real Cloudflare checkout coupon interaction', () => {
   })
   it('applies a normalized code through the real shipping quote and uses server totals only', async () => {
     await render()
-    await input().setValue(' save ')
+    await (await input()).setValue(' save ')
     expect(state().shippingRates).toHaveLength(0)
     await apply()
     expect(quotes()).toHaveLength(1)
@@ -212,16 +226,17 @@ describe('real Cloudflare checkout coupon interaction', () => {
   it('does not subtract the discount twice from already discounted net totals', async () => {
     mocks.runtime.public.priceDisplayMode = 'net-and-gross'
     await render()
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     expect(wrapper!.get('[data-testid="checkout-subtotal"]').text()).toContain('9,00')
     expect(wrapper!.get('[data-testid="checkout-total"]').text()).toContain('10,89')
   })
   it('removes an applied code with a fresh quote and different key, never reusing stale totals', async () => {
     await render()
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     const original = quotes()[0]?.[1].headers['Idempotency-Key']
+    await input()
     await wrapper!.get('[data-testid="checkout-coupon-remove"]').trigger('click')
     await flushPromises()
     expect(quotes()).toHaveLength(2)
@@ -237,7 +252,7 @@ describe('real Cloudflare checkout coupon interaction', () => {
       rates: [rate],
       promotion: { code: 'SAVE', applied: false, reason: 'usage_limit', discountGrossCents: 0 }
     }))
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     expect(wrapper!.get('[data-testid="checkout-coupon-feedback"]').text()).toContain('no se puede aplicar')
     expect(wrapper!.text()).not.toContain('usage_limit')
@@ -250,7 +265,7 @@ describe('real Cloudflare checkout coupon interaction', () => {
       rates: [rate],
       promotion: { code: 'OTHER', applied: true, reason: null, discountGrossCents: 121 }
     }))
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     expect(state().shippingRates).toHaveLength(0)
     expect(wrapper!.get('[data-testid="checkout-coupon-feedback"]').text()).not.toContain('Cupón aplicado')
@@ -258,14 +273,14 @@ describe('real Cloudflare checkout coupon interaction', () => {
   it('does not invent success if the coupon response omits its eligibility proof', async () => {
     await render()
     mocks.fetch.mockImplementation(async () => ({ cartVersion: 2, rates: [rate] }))
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     expect(state().shippingRates).toHaveLength(0)
   })
   it('retries an unresolved quote with the exact same key and body', async () => {
     await render()
     mocks.fetch.mockRejectedValue(new TypeError('synthetic_lost_quote_response'))
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await apply()
     await apply()
     expect(quotes()).toHaveLength(2)
@@ -285,7 +300,7 @@ describe('real Cloudflare checkout coupon interaction', () => {
         mocks.fetch.mockClear()
       }
       await nextTick()
-      expect(input().attributes('disabled')).toBeDefined()
+      expect((await input()).attributes('disabled')).toBeDefined()
       expect(wrapper!.get('[data-testid="checkout-coupon-apply"]').attributes('disabled')).toBeDefined()
       await apply()
       expect(quotes()).toHaveLength(0)
@@ -293,7 +308,7 @@ describe('real Cloudflare checkout coupon interaction', () => {
   )
   it('rejects Unicode aliases locally without issuing a new server command', async () => {
     await render()
-    await input().setValue('SÁVE')
+    await (await input()).setValue('SÁVE')
     await apply()
     expect(quotes()).toHaveLength(0)
     expect(wrapper!.get('[data-testid="checkout-coupon-feedback"]').text()).toContain('Revisa')
@@ -307,7 +322,7 @@ describe('real Cloudflare checkout coupon interaction', () => {
           resolve = value
         })
     )
-    await input().setValue('SAVE')
+    await (await input()).setValue('SAVE')
     await wrapper!.get('[data-testid="checkout-coupon-apply"]').trigger('click')
     await flushPromises()
     state().couponDraft = 'OTHER'

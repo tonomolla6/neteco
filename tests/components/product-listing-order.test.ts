@@ -75,14 +75,14 @@ describe.each([
   ['ProductCard', ProductCard],
   ['ProductRow', ProductRow]
 ] as const)('%s as an ordering surface', (_name, component) => {
-  it('shows the reference, the format on its own line, availability and the price per unit of measure', async () => {
+  it('shows the exact product, delivery line and price per unit of measure', async () => {
     const wrapper = await render(component, { product: single })
-    expect(wrapper.get('[data-product-reference]').text()).toBe('Ref. 1042')
-    expect(wrapper.get('[data-product-format]').text()).toBe('Garrafa 5 L')
-    expect(wrapper.get('[data-product-availability]').text()).toBe('Disponible')
+    expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/desengrasante-dg-5')
+    expect(wrapper.find('[data-product-delivery]').exists()).toBe(true)
     expect(wrapper.text()).toContain('2,37 €/L')
     expect(wrapper.html()).not.toContain('uppercase')
-    expect(wrapper.text()).not.toContain('Comparar')
+    if (component === ProductRow)
+      expect(wrapper.find('button[aria-label="Comparar Desengrasante en frío DG-5"]').exists()).toBe(true)
   })
 
   it('is not a single link: only image and name navigate, quantity and button are controls', async () => {
@@ -97,6 +97,13 @@ describe.each([
 
   it('adds a single-format product from the listing without navigating and announces it', async () => {
     const wrapper = await render(component, { product: single })
+    if (component === ProductCard) {
+      expect(wrapper.find('[data-product-add]').exists()).toBe(false)
+      expect(wrapper.find('input[inputmode="numeric"]').exists()).toBe(false)
+      expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/desengrasante-dg-5')
+      expect(mocks.add).not.toHaveBeenCalled()
+      return
+    }
     const quantity = wrapper.get('input[inputmode="numeric"]')
     expect((quantity.element as HTMLInputElement).value).toBe('2')
     await wrapper.get('button[aria-label^="Más unidades"]').trigger('click')
@@ -116,6 +123,12 @@ describe.each([
   it('says why when the cart rejects the addition and keeps the control usable', async () => {
     mocks.add.mockRejectedValueOnce(new Error('offline'))
     const wrapper = await render(component, { product: single })
+    if (component === ProductCard) {
+      expect(wrapper.find('[data-product-add]').exists()).toBe(false)
+      expect(mocks.add).not.toHaveBeenCalled()
+      expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/desengrasante-dg-5')
+      return
+    }
     await wrapper.get('[data-product-add]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('No se ha podido añadir')
@@ -126,8 +139,8 @@ describe.each([
     const wrapper = await render(component, { product: multi })
     expect(wrapper.find('[data-product-add]').exists()).toBe(false)
     expect(wrapper.find('input[inputmode="numeric"]').exists()).toBe(false)
-    const choose = wrapper.get('[data-product-formats]')
-    expect(choose.text()).toContain('4 formatos')
+    const choose = component === ProductCard ? wrapper.get('h3 a') : wrapper.get('[data-product-formats]')
+    if (component === ProductRow) expect(choose.text()).toContain('4 formatos')
     expect(choose.attributes('href')).toBe('/producto/guante-nitrilo')
     expect(wrapper.text()).toContain('desde')
   })
@@ -136,16 +149,19 @@ describe.each([
     const wrapper = await render(component, {
       product: { ...single, single: { ...single.single!, stock: 0, backorderAllowed: false } }
     })
-    expect(wrapper.get('[data-product-availability]').text()).toBe('Agotado')
-    expect(wrapper.get('[data-product-add]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).not.toContain('Agotado')
+    if (component === ProductRow) expect(wrapper.get('[data-product-add]').attributes('disabled')).toBeDefined()
+    else expect(wrapper.find('[data-product-add]').exists()).toBe(false)
+    expect(mocks.add).not.toHaveBeenCalled()
   })
 
   it('marks a backorder product as such and still lets it be ordered', async () => {
     const wrapper = await render(component, {
       product: { ...single, single: { ...single.single!, stock: 0, backorderAllowed: true } }
     })
-    expect(wrapper.get('[data-product-availability]').text()).toBe('Bajo pedido')
-    expect(wrapper.get('[data-product-add]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-product-delivery]').exists()).toBe(true)
+    if (component === ProductRow) expect(wrapper.get('[data-product-add]').attributes('disabled')).toBeUndefined()
+    else expect(wrapper.get('h3 a').attributes('href')).toBe('/producto/desengrasante-dg-5')
   })
 
   it('shows the brand only when the listing asks for it', async () => {

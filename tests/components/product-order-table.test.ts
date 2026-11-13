@@ -1,5 +1,5 @@
-import { mockNuxtImport, mountSuspended, registerEndpoint } from '@nuxt/test-utils/runtime'
-import { readBody } from 'h3'
+import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
+import { clearNuxtState } from '#app'
 import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, ref, Suspense } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -115,11 +115,9 @@ async function pdp() {
   await flushPromises()
   return wrapper
 }
-const rows = (page: Awaited<ReturnType<typeof pdp>>) => page.findAll('[data-variant-row]')
-async function setQuantity(row: ReturnType<typeof rows>[number], value: number) {
-  const input = row.get('input[inputmode="numeric"]')
-  await input.setValue(String(value))
-  await input.trigger('change')
+const rows = (page: Awaited<ReturnType<typeof pdp>>) => page.findAll('[data-variant-option]')
+async function setQuantity(page: Awaited<ReturnType<typeof pdp>>, value: number) {
+  await page.get('[data-buy-row] select').setValue(String(value))
 }
 
 beforeEach(() => {
@@ -142,23 +140,24 @@ describe('product page as an ordering surface', () => {
     const radios = page.findAll('[role="radio"]')
     expect(radios).toHaveLength(3)
     expect(radios[0]!.attributes('aria-checked')).toBe('true')
-    expect(radios[1]!.text()).toContain('Ref. 102')
+    expect(radios[1]!.attributes('data-variant-option')).toBe('102')
     expect(rows(page)[0]!.text().replace(/\s+/g, ' ')).toContain('12,10 €')
     expect(rows(page)[0]!.text()).toContain('0,12 €/ud')
-    // the selected format starts at its minimum, the rest at zero
-    const values = rows(page).map((row) => (row.get('input[inputmode="numeric"]').element as HTMLInputElement).value)
-    expect(values).toEqual(['1', '0', '0'])
-    expect(rows(page)[2]!.text()).toContain('Agotado')
-    expect(rows(page)[2]!.get('input[inputmode="numeric"]').attributes('disabled')).toBeDefined()
+    expect((page.get('[data-buy-row] select').element as HTMLSelectElement).value).toBe('1')
+    await radios[2]!.trigger('click')
+    expect(radios[2]!.attributes('aria-checked')).toBe('true')
+    expect(page.get('[data-add-to-cart]').attributes('disabled')).toBeDefined()
+    expect(add).not.toHaveBeenCalled()
   })
 
-  it('adds every format with a quantity in one action', async () => {
+  it('adds exact formats and quantities through the selected-format purchase box', async () => {
     const page = await pdp()
-    await setQuantity(rows(page)[0]!, 3)
-    await setQuantity(rows(page)[1]!, 2)
-    const summary = page.get('[data-order-summary]').text().replace(/\s+/g, ' ')
-    expect(summary).toContain('5 uds')
-    expect(summary).toContain('60,50 €')
+    await setQuantity(page, 3)
+    await page.get('[data-add-to-cart]').trigger('click')
+    await flushPromises()
+    await rows(page)[1]!.trigger('click')
+    await setQuantity(page, 2)
+    expect(page.get('[data-order-total]').text().replace(/\s+/g, ' ')).toContain('24,20 €')
     await page.get('[data-add-to-cart]').trigger('click')
     await flushPromises()
     expect(add.mock.calls.map(([item, quantity]) => [item.variantId, item.sku, quantity])).toEqual([
@@ -177,9 +176,13 @@ describe('product page as an ordering surface', () => {
 
   it('shows the price at display size and the mobile bar with units and total', async () => {
     const page = await pdp()
-    await setQuantity(rows(page)[0]!, 4)
-    const total = page.get('[data-order-total]')
-    expect(total.classes().join(' ')).toMatch(/text-\[1\.625rem\]|text-3xl/)
+    await setQuantity(page, 4)
+    expect(
+      page
+        .get('[data-product-price]')
+        .findAll('span')
+        .some((span) => span.classes().includes('text-[26px]'))
+    ).toBe(true)
     const bar = page.get('[data-mobile-buy-bar]')
     expect(bar.text().replace(/\s+/g, ' ')).toContain('4 uds')
     expect(bar.text().replace(/\s+/g, ' ')).toContain('48,40 €')
@@ -197,15 +200,18 @@ describe('product page as an ordering surface', () => {
     product = { ...base(), variants: [variant(1, { minimumQuantity: 10, quantityIncrement: 10 })] }
     const boxed = await pdp()
     expect(boxed.text()).toContain('Se vende de 10 en 10')
-    expect(rows(boxed)).toHaveLength(1)
-    expect((rows(boxed)[0]!.get('input[inputmode="numeric"]').element as HTMLInputElement).value).toBe('10')
+    expect(rows(boxed)).toHaveLength(0)
+    expect((boxed.get('[data-buy-row] select').element as HTMLSelectElement).value).toBe('10')
   })
 
   it('stops at an addition that fails and says which format', async () => {
     add.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('offline'))
     const page = await pdp()
-    await setQuantity(rows(page)[0]!, 1)
-    await setQuantity(rows(page)[1]!, 1)
+    await setQuantity(page, 1)
+    await page.get('[data-add-to-cart]').trigger('click')
+    await flushPromises()
+    await rows(page)[1]!.trigger('click')
+    await setQuantity(page, 1)
     await page.get('[data-add-to-cart]').trigger('click')
     await flushPromises()
     expect(add).toHaveBeenCalledTimes(2)
@@ -228,93 +234,87 @@ describe('safety documents next to the purchase', () => {
     runtime.public.mediaGoverned = false
     const page = await pdp()
     runtime.public.mediaGoverned = true
-    const documents = page.get('[data-product-documents]')
-    expect(documents.text()).toContain('Ficha de datos de seguridad')
-    expect(documents.get('a').attributes('href')).toBe('/media/documents/fds.pdf')
+    const documents = page.get('[data-product-safety]')
+    expect(documents.text()).toContain('Ficha de seguridad (PDF)')
+    expect(documents.get('[data-sds-link]').attributes('href')).toBe('/media/documents/fds.pdf')
     const html = page.html()
-    expect(html.indexOf('data-product-documents')).toBeLessThan(html.indexOf('Guante desechable.'))
+    expect(html.indexOf('data-product-safety')).toBeLessThan(html.indexOf('Guante desechable.'))
     const safety = page.get('[data-product-safety]')
     expect(safety.text()).toContain('Peligro')
-    expect(safety.text()).toContain('H314')
+    expect(page.get('[data-product-tabs]').text()).toContain('H314')
   })
 
   it('a regulated product without a data sheet says how to get it, in every environment', async () => {
     product = { ...base(), regulatory: { signalWord: 'Atención' } }
     const page = await pdp()
-    expect(page.get('[data-product-documents]').text()).toContain(
-      'Pídenos la ficha de seguridad: escríbenos a tienda@neteco.es'
+    expect(page.get('[data-product-safety] [data-sds-on-request]').text()).toContain(
+      'Ficha de seguridad disponible bajo petición'
     )
+    expect(page.get('[data-product-safety] [data-sds-on-request]').attributes('href')).toBe('/contacto')
     expect(page.text()).not.toContain('demostración')
   })
 
   it('a product that is not regulated and has no documents shows no empty documents block', async () => {
-    expect((await pdp()).find('[data-product-documents]').exists()).toBe(false)
+    expect((await pdp()).find('[data-product-safety]').exists()).toBe(false)
   })
 })
 
 describe('delivery estimate on the product page', () => {
   beforeEach(() => {
     localStorage.clear()
+    clearNuxtState('delivery-destination')
     runtime.public.serverRuntime = 'node'
+    runtime.public.commercial = {
+      ownDeliveryDays: 'martes y jueves',
+      orderCutoffTime: '13:00',
+      parcelLeadTime: '24-72 h'
+    }
   })
   afterEach(() => {
     runtime.public.serverRuntime = 'node'
     localStorage.clear()
   })
 
-  it('is not offered where the storefront cannot answer it', async () => {
+  it('uses the configured client promise in Cloudflare without the retired product-rates form', async () => {
     runtime.public.serverRuntime = 'cloudflare'
     const page = await pdp()
     expect(page.find('#delivery-postal-code').exists()).toBe(false)
     expect(page.text()).not.toContain('¿Cuándo me llega?')
+    expect(page.find('[data-delivery-date]').exists()).toBe(true)
   })
 
   it('asks for the destination once and remembers it for the next product', async () => {
     const first = await pdp()
-    expect(first.find('#delivery-postal-code').exists()).toBe(true)
+    expect(first.find('[data-delivery-change]').exists()).toBe(true)
     localStorage.setItem('neteco-destination', JSON.stringify({ postalCode: '46870', city: 'Ontinyent' }))
     const second = await pdp()
     await flushPromises()
-    expect(second.get('[data-delivery-destination]').text()).toContain('46870 Ontinyent')
-    expect(second.find('#delivery-postal-code').exists()).toBe(false)
+    expect(second.get('[data-delivery-promise]').text()).toContain('46870 Ontinyent')
+    expect(second.find('input[autocomplete="postal-code"]').exists()).toBe(false)
     await second.get('[data-delivery-change]').trigger('click')
-    expect((second.get('#delivery-postal-code').element as HTMLInputElement).value).toBe('46870')
+    expect((second.get('input[autocomplete="postal-code"]').element as HTMLInputElement).value).toBe('46870')
   })
 
-  it('needs only the postal code to give a date', async () => {
-    const bodies: unknown[] = []
-    registerEndpoint('/api/shipping/product-rates', {
-      method: 'POST',
-      handler: async (event) => {
-        bodies.push(await readBody(event))
-        return {
-          stockCondition: 'in_stock',
-          leadTimeDays: null,
-          rates: [
-            {
-              serviceCode: 'OWN',
-              label: 'Reparto propio',
-              profile: 'own_delivery',
-              estimatedDeliveryFrom: '2026-11-17T09:00:00Z',
-              estimatedDeliveryTo: '2026-11-18T18:00:00Z'
-            }
-          ]
-        }
-      }
-    })
+  it('needs only the postal code to refine and remember the configured date without a product-rates mutation', async () => {
     const page = await pdp()
-    bodies.length = 0
-    // The destination remembered by the previous test lives in shared state: change it.
-    if (page.find('[data-delivery-change]').exists()) await page.get('[data-delivery-change]').trigger('click')
-    expect(page.find('#delivery-city').exists()).toBe(false)
-    await page.get('#delivery-postal-code').setValue('28001')
-    await page.get('[aria-labelledby="delivery-title"] form').trigger('submit')
-    await vi.waitFor(() => expect(page.find('[data-delivery-destination]').exists()).toBe(true))
-    expect(bodies).toHaveLength(1)
-    // A new postal code never carries the town remembered for the previous one.
-    expect(bodies[0]).toMatchObject({ postalCode: '28001' })
-    expect(bodies[0]).not.toHaveProperty('city')
-    expect(page.get('[data-delivery-destination]').text()).toContain('28001 Madrid')
-    expect(JSON.parse(localStorage.getItem('neteco-destination') ?? 'null')).toMatchObject({ postalCode: '28001' })
+    await page.get('[data-delivery-change]').trigger('click')
+    expect(page.find('input[autocomplete="address-level2"]').exists()).toBe(false)
+    await page.get('input[autocomplete="postal-code"]').setValue('28001')
+    await page.get('[data-delivery-promise] form').trigger('submit')
+    await flushPromises()
+    expect(page.get('[data-delivery-promise]').text()).toContain('28001 Madrid')
+    expect(page.get('[data-delivery-date]').text()).toMatch(
+      /^(lunes|martes|miércoles|jueves|viernes), \d+ de noviembre$/
+    )
+    expect(JSON.parse(localStorage.getItem('neteco-destination') ?? 'null')).toEqual({
+      postalCode: '28001',
+      city: 'Madrid'
+    })
+    expect(
+      fetchData.mock.calls.some(
+        ([source]) => typeof source === 'string' && source.includes('/api/shipping/product-rates')
+      )
+    ).toBe(false)
+    expect(request).not.toHaveBeenCalledWith('/api/shipping/product-rates', expect.anything())
   })
 })

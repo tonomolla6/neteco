@@ -222,6 +222,39 @@ it('does not launder actual source credentials through the environment projectio
 it('runs the actual explicit CLI offline and preserves the no-argument local default', async () => {
   const directory = await mkdtemp(resolve(tmpdir(), 'neteco-iac-cli-'))
   try {
+    // The CLI now attests a real checkout. Give this isolated configuration
+    // fixture its own tiny deterministic repository, without copying a repo,
+    // credentials, dependencies or hooks from the caller's checkout.
+    const gitEnvironment = {
+      PATH: process.env.PATH,
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_AUTHOR_DATE: '2000-01-01T00:00:00Z',
+      GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z'
+    }
+    await executeFile('git', ['init', '--quiet', '--template=', '--initial-branch=fixture'], {
+      cwd: directory,
+      env: gitEnvironment
+    })
+    await executeFile(
+      'git',
+      [
+        '-c',
+        'user.name=Neteco CI Fixture',
+        '-c',
+        'user.email=fixture@example.invalid',
+        'commit',
+        '--quiet',
+        '--allow-empty',
+        '--no-gpg-sign',
+        '-m',
+        'Synthetic configuration fixture\n\nCo-Authored-By: Codex <noreply@openai.com>'
+      ],
+      { cwd: directory, env: gitEnvironment }
+    )
+    const commit = (
+      await executeFile('git', ['rev-parse', 'HEAD'], { cwd: directory, env: gitEnvironment })
+    ).stdout.trim()
     await copyFile(resolve(root, 'wrangler.canary.jsonc'), resolve(directory, 'wrangler.canary.jsonc'))
     const contractPath = resolve(directory, 'environment.json')
     await writeFile(contractPath, JSON.stringify(environment()), { mode: 0o600 })
@@ -242,6 +275,7 @@ it('runs the actual explicit CLI offline and preserves the no-argument local def
       await readFile(resolve(directory, '.wrangler/environments/preprod/wrangler.json'), 'utf8')
     )
     expect(output).toMatchObject({ name: 'neteco-iac-preprod-shop', vars: { APP_ENV: 'preprod' } })
+    expect(output.define).toEqual({ __NETECO_BUILD_COMMIT__: JSON.stringify(commit) })
     expect(await readdir(resolve(directory, '.wrangler/environments'))).toEqual(['preprod'])
     await executeFile(process.execPath, ['--import', tsx, script], {
       cwd: directory,
@@ -251,6 +285,7 @@ it('runs the actual explicit CLI offline and preserves the no-argument local def
     })
     const local = JSON.parse(await readFile(resolve(directory, '.wrangler/shop/wrangler.json'), 'utf8'))
     expect(local).toMatchObject({ name: 'neteco-shop-local', vars: { APP_ENV: 'local' } })
+    expect(local.define).toEqual({ __NETECO_BUILD_COMMIT__: JSON.stringify(commit) })
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

@@ -480,6 +480,14 @@ useHead(() => ({
             </p>
           </div>
         </aside>
+        <section
+          v-if="runtime.public.serverRuntime === 'cloudflare'"
+          aria-labelledby="help-guides"
+          class="min-w-0 lg:col-span-2 xl:col-span-3"
+        >
+          <h2 id="help-guides" class="mb-4 text-xl font-bold text-[var(--text-strong)]">Guías y documentación</h2>
+          <SupportKnowledgePanel :runtime="runtime.public.serverRuntime" />
+        </section>
       </div>
     </div>
   </div>

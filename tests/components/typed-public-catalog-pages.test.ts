@@ -282,7 +282,7 @@ describe('catalogue contextual support navigation', () => {
   it('product support uses the returned canonical slug, not a route alias', async () => {
     route.params.slug = 'alias-producto'
     const wrapper = await mount(Product)
-    const link = wrapper.findAll('a').find((item) => item.text() === 'Consultar sobre este producto')!
+    const link = wrapper.findAll('a').find((item) => item.text() === 'Pídenosla')!
     expect(link?.attributes('href')).toBe('/contacto?producto=producto')
     expect(
       wrapper

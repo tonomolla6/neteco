@@ -270,7 +270,7 @@ async function renderPdp(
 }
 
 async function openPdpLightbox(wrapper: Mounted) {
-  await wrapper.get('button[aria-label="Ver la imagen a pantalla completa"]').trigger('click')
+  await wrapper.get('[data-product-gallery] button[aria-label^="Ampliar"]').trigger('click')
   await vi.waitFor(() => expect(document.body.querySelector('[role="dialog"]')).not.toBeNull())
 }
 
@@ -530,19 +530,21 @@ describe('governed image consumer boundaries', () => {
     }
   )
 
-  it('PDP preloads and opens only bounded governed JPEG derivatives with the approved variant alt', async () => {
+  it('PDP displays, declaratively preloads and opens only bounded governed JPEG derivatives with the approved variant alt', async () => {
     const wrapper = await renderPdp(publicationPath)
-    expect(preloads.length).toBeGreaterThan(0)
-    expect(preloads.every((preload) => preload.src === `${publicationPath}?w=1200&format=jpeg`)).toBe(true)
+    expect(preloads).toEqual([])
     expect(imageApiMock).not.toHaveBeenCalled()
-    preloads.find((preload) => preload.onload)?.onload?.()
-    await nextTick()
-    expectResponsive(
-      wrapper,
-      publicationPath,
-      approvedAlt,
-      '(min-width: 1280px) 33vw, (min-width: 1024px) 50vw, 100vw',
-      'eager'
+    const images = wrapper.get('[data-product-gallery]').findAll('img')
+    expect(images.length).toBeGreaterThan(0)
+    for (const image of images) {
+      expect(image.attributes('src')).toBe(`${publicationPath}?w=1200&format=jpeg`)
+      expect(image.attributes('alt')).toBe(approvedAlt)
+      expect(image.attributes('loading')).toBe('eager')
+    }
+    await vi.waitFor(() =>
+      expect(
+        [...document.head.querySelectorAll('link[rel="preload"][as="image"]')].map((link) => link.getAttribute('href'))
+      ).toContain(`${publicationPath}?w=1200&format=jpeg`)
     )
     await openPdpLightbox(wrapper)
     const lightbox = pdpDialog()
@@ -570,7 +572,7 @@ describe('governed image consumer boundaries', () => {
     expect(imageApiMock).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()
     expect(wrapper.find('img, picture, source').exists()).toBe(false)
-    expect(wrapper.find('button[aria-label="Ver la imagen a pantalla completa"]').exists()).toBe(false)
+    expect(wrapper.find('[data-product-gallery] button[aria-label^="Ampliar"]').exists()).toBe(false)
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
     expect(wrapper.html()).not.toContain(source)
     expect(wrapper.find('[data-product-visual]').exists()).toBe(true)
@@ -612,7 +614,9 @@ describe('governed image consumer boundaries', () => {
     preloads.find((preload) => preload.src.includes(nextPublicationPath) && preload.onload)?.onload?.()
     await nextTick()
     expect(wrapper.get('img').attributes('alt')).toBe('Nueva publicación explícita')
-    expect(wrapper.get('img').attributes('src')).toBe(`${nextPublicationPath}?w=800&format=jpeg`)
+    expect(wrapper.get('[data-product-gallery] img').attributes('src')).toBe(
+      `${nextPublicationPath}?w=1200&format=jpeg`
+    )
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
     expect(document.body.style.overflow).toBe('')
   })
@@ -670,65 +674,80 @@ describe('governed image consumer boundaries', () => {
           version: '1',
           language: 'es',
           authorizedAt: '2020-01-01'
+        },
+        {
+          id: 'node-technical-document',
+          role: 'datasheet',
+          name: 'Ficha técnica Node',
+          url: '/doc/node-legacy.pdf',
+          version: '1',
+          language: 'es',
+          authorizedAt: '2020-01-01'
         }
       ]
     })
-    expect(imageApiMock).toHaveBeenCalledWith(legacy, { format: 'webp', quality: 80, width: 1120 })
+    expect(imageApiMock).toHaveBeenCalledWith(legacy, { format: 'webp', quality: 85, width: 1200 })
     preloads.find((preload) => preload.onload)?.onload?.()
     await nextTick()
     await openPdpLightbox(wrapper)
-    expect(imageApiMock).toHaveBeenCalledWith(legacy, { format: 'webp', quality: 85, width: 1800 })
+    expect(imageApiMock).toHaveBeenCalledWith(legacy, { format: 'webp', quality: 85, width: 1600 })
     expect(pdpDialog().get('img').attributes('src')).toBe(`/node-image-test?source=${encodeURIComponent(legacy)}`)
     // Governed documents sit next to the purchase; the legacy demo datasheet stays in the spec card below.
     expect(wrapper.findAll('a[target="_blank"]').map((link) => link.attributes('href'))).toEqual([
+      'https://legacy.example.invalid/sds.pdf',
       'https://legacy.example.invalid/sds.pdf',
       '/doc/node-legacy.pdf'
     ])
   })
 
+  it('PDP Node retains the legacy technical-sheet fallback for nonchemical goods', async () => {
+    configureRuntime(false)
+    const wrapper = await renderPdp(null, { datasheet: '/doc/node-legacy.pdf' })
+    expect(wrapper.get('a[target="_blank"]').attributes('href')).toBe('/doc/node-legacy.pdf')
+    expect(wrapper.find('[data-product-safety]').exists()).toBe(false)
+  })
+
   it.each(['timeout', 'idle'] as const)(
-    'PDP cancels pending %s prefetch when the component unmounts',
+    'PDP leaves no imperative %s prefetch or declarative preload after unmount',
     async (scheduler) => {
       const wrapper = await renderPdp(publicationPath, {}, scheduler)
-      const initialLoads = preloads.length
-      expect(initialLoads).toBeGreaterThan(0)
-      const pendingId = [...pendingIdle.keys()][0]
-      if (scheduler === 'idle') expect(pendingId).toBeDefined()
-      else expect(pendingTimeouts.size).toBeGreaterThan(0)
+      expect(preloads).toEqual([])
+      expect(pendingIdle.size).toBe(0)
+      expect(pendingTimeouts.size).toBe(0)
       release(wrapper)
-      if (scheduler === 'idle') expect(cancelledIdle).toContain(pendingId)
       flushIdleRequests()
       flushPrefetchTimeouts()
-      await nextTick()
-      expect(preloads).toHaveLength(initialLoads)
+      await vi.waitFor(() => {
+        for (const link of document.head.querySelectorAll('link[rel="preload"][as="image"]'))
+          expect(link.getAttribute('href')).not.toContain(publicationPath)
+      })
+      expect(preloads).toEqual([])
     }
   )
 
   it.each(['timeout', 'idle'] as const)(
-    'PDP cancels obsolete %s prefetch on source change and can prefetch that asset again later',
+    'PDP keeps only the current image/preload through source changes with %s available',
     async (scheduler) => {
-      await renderPdp(publicationPath, {}, scheduler)
-      const firstIdle = [...pendingIdle.keys()][0]
+      const wrapper = await renderPdp(publicationPath, {}, scheduler)
       currentPdpData!.value.variants[0]!.image = nextPublicationPath
       await nextTick()
-      const nextLoads = preloads.length
-      if (scheduler === 'idle') expect(cancelledIdle).toContain(firstIdle)
       flushIdleRequests()
       flushPrefetchTimeouts()
       await nextTick()
-      expect(preloads.slice(nextLoads).map((preload) => preload.src)).toEqual([
+      expect(wrapper.get('[data-product-gallery] img').attributes('src')).toBe(
         `${nextPublicationPath}?w=1200&format=jpeg`
-      ])
+      )
+      expect(wrapper.get('[data-product-gallery]').html()).not.toContain(publicationPath)
       currentPdpData!.value.variants[0]!.image = publicationPath
       await nextTick()
-      const restoredLoads = preloads.length
       flushIdleRequests()
       flushPrefetchTimeouts()
       await nextTick()
-      // A cancelled schedule must not mark the old source as already prefetched.
-      expect(preloads.slice(restoredLoads).map((preload) => preload.src)).toEqual([
-        `${publicationPath}?w=1200&format=jpeg`
-      ])
+      expect(wrapper.get('[data-product-gallery] img').attributes('src')).toBe(`${publicationPath}?w=1200&format=jpeg`)
+      expect(wrapper.get('[data-product-gallery]').html()).not.toContain(nextPublicationPath)
+      expect(preloads).toEqual([])
+      expect(pendingIdle.size).toBe(0)
+      expect(pendingTimeouts.size).toBe(0)
       expect(document.body.querySelector('[role="dialog"]')).toBeNull()
     }
   )

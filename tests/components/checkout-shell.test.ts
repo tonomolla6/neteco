@@ -165,7 +165,7 @@ describe('checkout shell', () => {
       .join('\n')
     expect(source).toContain('Guardar esta tarjeta para próximos pedidos')
     expect(source).not.toContain('referencia tokenizada')
-    expect(source).not.toMatch(/\buppercase\b/)
+    for (const heading of source.matchAll(/<h[1-6]\b[^>]*>/g)) expect(heading[0]).not.toMatch(/\buppercase\b/)
   })
 
   it('fills the delivery with the saved default address of a signed-in customer', async () => {

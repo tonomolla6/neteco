@@ -34,7 +34,7 @@ const node = (id: number, slug: string, children: unknown[] = []) => ({
 })
 registerEndpoint('/api/categories', () => ({
   roots: [node(1, 'productos-quimicos', [node(2, 'linea-eco-profesional')])],
-  flat: []
+  flat: [node(2, 'linea-eco-profesional')]
 }))
 registerEndpoint('/api/products', () => ({ items: [], total: 0, page: 1, pages: 1 }))
 

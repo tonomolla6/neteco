@@ -20,18 +20,35 @@ export function useProductRecommendations(options: {
 }) {
   const runtime = useRuntimeConfig()
   const recent = useRecentlyViewed()
+  const { ready, loggedIn, user, session } = useUserSession()
   const available = runtime.public.serverRuntime === 'cloudflare'
   const strips = shallowRef<RecommendationStrip[]>([])
   const state = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   let generation = 0
 
   const key = computed(() =>
-    JSON.stringify([toValue(options.product) ?? '', [...new Set(toValue(options.cart) ?? [])].sort()])
+    JSON.stringify([
+      toValue(options.product) ?? '',
+      [...new Set(toValue(options.cart) ?? [])].sort(),
+      ready?.value,
+      loggedIn?.value,
+      user?.value?.id,
+      session?.value?.sessionId,
+      session?.value?.sessionVersion,
+      user?.value?.emailVerified,
+      user?.value?.mfaVerified
+    ])
   )
 
   async function load() {
-    if (!available || !import.meta.client) return
     const token = ++generation
+    // Cards may carry contractual prices. Discard them as soon as their
+    // identity/session/product scope changes, even while its replacement loads.
+    strips.value = []
+    if (!available || !import.meta.client || ready?.value !== true) {
+      state.value = 'idle'
+      return
+    }
     const product = toValue(options.product) ?? ''
     const cart = [...new Set(toValue(options.cart) ?? [])].slice(0, 30)
     state.value = 'loading'
@@ -62,6 +79,11 @@ export function useProductRecommendations(options: {
   onMounted(() => {
     recent.restore()
     watch(key, () => void load(), { immediate: true })
+  })
+  onBeforeUnmount(() => {
+    generation += 1
+    strips.value = []
+    state.value = 'idle'
   })
 
   const strip = (kind: RecommendationStripKind) => computed(() => strips.value.find((entry) => entry.kind === kind))

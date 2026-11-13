@@ -7,6 +7,7 @@ import { returnsFixture, CLAIMS, utc } from './d1-returns-fixture'
 import type { DatabaseSync } from 'node:sqlite'
 import { seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
+import { syncNativeTestClock } from '../support/native-runtime-clock'
 import { createCart, setCartLine, quoteCart } from '../../workers/catalog/cart'
 import { requestShippingOptions, placeOrder } from '../../workers/catalog/checkout'
 import {
@@ -32,12 +33,14 @@ it('executes append/CAS/live-authority and receipt recovery on actual workerd D1
       }
     })
   )
-  const fixture = await returnsFixture()
+  let fixture: Awaited<ReturnType<typeof returnsFixture>> | undefined
   try {
     // Only synthetic identity grants and shipping configuration are portable.
     // Create the catalog and the order through their native fixture/services:
     // copying a post-publication catalog would bypass its initial-version guard.
     const db = (await runtime.getD1Database('DB')) as unknown as D1Database
+    await syncNativeTestClock(db)
+    fixture = await returnsFixture()
     for (const name of (await readdir('db/d1/migrations')).filter((value) => /^\d+.*\.sql$/.test(value)).sort()) {
       const sql = splitDemoSql(await readFile(join('db/d1/migrations', name), 'utf8'))
       for (let index = 0; index < sql.length; index += 50)
@@ -174,7 +177,7 @@ it('executes append/CAS/live-authority and receipt recovery on actual workerd D1
       code: 'unauthenticated'
     })
   } finally {
-    fixture.sqlite.close()
+    fixture?.sqlite.close()
     await runtime.dispose()
   }
 }, 60000)

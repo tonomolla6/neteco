@@ -36,6 +36,25 @@ function bindings(options: { d1Ok?: boolean; categories?: unknown[]; categoryErr
 }
 
 describe('Cloudflare canary', () => {
+  it('publishes compiled release liveness without accessing application data', async () => {
+    vi.stubGlobal('__NETECO_BUILD_COMMIT__', 'a'.repeat(40))
+    try {
+      const env = bindings()
+      const response = await worker.fetch(new Request('https://neteco.invalid/api/health/live'), env)
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        status: 'ok',
+        service: 'neteco',
+        runtime: 'cloudflare',
+        version: 'a'.repeat(40)
+      })
+      expect(response.headers.get('cache-control')).toBe('no-store')
+      expect(env.DB.prepare).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('acknowledges a permanently malformed fiscal message without waking issuance or querying D1', async () => {
     const env = bindings(),
       ack = vi.fn(),

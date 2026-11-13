@@ -69,8 +69,11 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=2816 --require=/usr/local/libexec/neteco-ci/terser-max-workers.cjs
       - run: npm run test:compiled
-      - run: npx playwright install chromium
       - run: npm run audit:shop:ci
+        shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}
+        env:
+          PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser
+          PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>
       - run: npm run artifacts:cloudflare:verify
         id: verified-cloudflare-artifacts
       - name: Assess verified Cloudflare lock vulnerabilities

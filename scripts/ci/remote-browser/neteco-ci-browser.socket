@@ -1,0 +1,14 @@
+[Unit]
+Description=Private Neteco CI browser transport activation
+
+[Socket]
+ListenStream=/var/lib/neteco-ci/browser-transport/browser.sock
+SocketUser=root
+SocketGroup=neteco-actions
+SocketMode=0660
+Accept=yes
+MaxConnections=1
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

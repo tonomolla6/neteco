@@ -19,6 +19,7 @@ const ready = ref(true),
   user = ref<Record<string, unknown> | null>(null),
   session = ref<Record<string, unknown> | null>(null)
 mockNuxtImport('useRequestFetch', () => () => request)
+mockNuxtImport('$fetch', () => request)
 mockNuxtImport('useFetch', () => fetchData)
 mockNuxtImport('useRuntimeConfig', () => () => runtime)
 mockNuxtImport('useUserSession', () => () => ({ ready, loggedIn, user, session, clear: async () => undefined }))
@@ -140,6 +141,7 @@ function customer() {
 // Other PDP sections issue their own public, read-only GETs. They are listed exactly so that any request made by the
 // engagement/participation controls (contributions, watch, private reads, writes) still fails these tests.
 const OTHER_PDP_SECTION_READS = [
+  '/api/product-recommendations',
   '/api/product-detail-extras',
   '/api/products/1/media-guides',
   '/api/products/1/reviews',
@@ -157,10 +159,13 @@ describe('PDP real product engagement authority and coordination', () => {
     const engagement = wrapper.getComponent(ProductEngagementPanel)
     expect(engagement.props()).toMatchObject({ productId: 1, variantId: 11, enabled: true, customerEnabled: false })
     expect(engagementRequests()).toEqual([])
-    // The curated alternatives/complements block is an expected anonymous GET, bound to this product slug only.
+    // The approved recommendation strips replace the previous extras request.
     const extras = request.mock.calls.filter(([url]) => url === '/api/product-detail-extras')
-    expect(extras).toHaveLength(1)
-    expect(extras[0]![1]).toMatchObject({ query: { slug: 'producto-1' } })
+    expect(extras).toHaveLength(0)
+    const recommendations = request.mock.calls.filter(([url]) => url === '/api/product-recommendations')
+    expect(recommendations).toHaveLength(1)
+    expect(recommendations[0]![1]).toMatchObject({ query: { product: 'producto-1' }, retry: 0 })
+    expect(wrapper.get('[data-product-tabs]').text()).toContain('Avisos y reposición')
     expect(
       otherSectionReads().every(([, options]) => !options || !('method' in options) || options.method === 'GET')
     ).toBe(true)

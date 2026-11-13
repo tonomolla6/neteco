@@ -136,16 +136,20 @@ describe('home for a returning customer', () => {
     expect((await mount(HomeReorder)).find('[data-home-reorder]').exists()).toBe(false)
   })
 
-  it('the home page shows the repeat block before the sales pitch, and the pitch only to newcomers', async () => {
+  it('keeps returning customers first and shows the approved carousel underneath with a secondary heading', async () => {
     const returning = await mount(HomePage)
     const html = returning.html()
     expect(returning.find('[data-home-reorder]').exists()).toBe(true)
-    expect(returning.find('[data-home-hero]').exists()).toBe(false)
+    expect(returning.find('[data-home-hero]').exists()).toBe(true)
+    expect(html.indexOf('data-home-reorder')).toBeLessThan(html.indexOf('data-home-hero'))
+    expect(returning.get('[data-home-hero]').find('h1').exists()).toBe(false)
+    expect(returning.get('[data-home-hero]').find('h2').exists()).toBe(true)
     expect(html.indexOf('data-home-reorder')).toBeLessThan(html.indexOf('data-commercial-promises'))
     state.loggedIn = false
     const visitor = await mount(HomePage)
     expect(visitor.find('[data-home-reorder]').exists()).toBe(false)
     expect(visitor.find('[data-home-hero]').exists()).toBe(true)
-    expect(visitor.get('[data-home-hero] a[href="/pedido-rapido"]').text()).toContain('pedir por referencia')
+    expect(visitor.get('[data-home-hero]').find('h1').exists()).toBe(true)
+    expect(visitor.get('a[href="/pedido-rapido"]').exists()).toBe(true)
   })
 })

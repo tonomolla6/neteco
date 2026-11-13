@@ -87,7 +87,7 @@ it('runs actual canary source reset and compiled dispatcher on workerd D1/all71 
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
     expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(
-      Array.from({ length: 155 }, (_, index) => index + 1)
+      Array.from({ length: 156 }, (_, index) => index + 1)
     )
     for (const name of migrations) {
       const sql = splitDemoSql(await readFile('db/d1/migrations/' + name, 'utf8'))

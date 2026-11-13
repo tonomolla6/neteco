@@ -35,7 +35,7 @@ it('serves delivery choices through actual canary.fetch/workerd D1/all71 with li
   try {
     const database = (await runtime.getD1Database('DB')) as unknown as D1Database
     const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
-    expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(Array.from({ length: 155 }, (_, i) => i + 1))
+    expect(migrations.map((name) => Number(name.slice(0, 4)))).toEqual(Array.from({ length: 156 }, (_, i) => i + 1))
     for (const name of migrations)
       await database.batch(
         splitDemoSql(await readFile('db/d1/migrations/' + name, 'utf8')).map((sql) => database.prepare(sql))

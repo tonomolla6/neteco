@@ -99,7 +99,7 @@ describe('shop header as the entry to ordering', () => {
 })
 
 describe('mobile bottom bar', () => {
-  it('has four large destinations and is hidden from the desktop layout', async () => {
+  it('has the four approved links and a fifth large menu control on mobile', async () => {
     const bar = await mount(AppBottomBar)
     const nav = bar.get('nav')
     expect(nav.attributes('aria-label')).toBe('Accesos rápidos')
@@ -107,12 +107,17 @@ describe('mobile bottom bar', () => {
     const links = bar.findAll('a')
     expect(links.map((link) => [link.text(), link.attributes('href')])).toEqual([
       ['Inicio', '/'],
-      ['Buscar', '/buscar'],
       ['Pedido rápido', '/pedido-rapido'],
-      ['Listas', '/cuenta/listas']
+      ['Carrito', '/carrito'],
+      ['Entrar', '/login']
     ])
     expect(links.every((link) => link.classes().includes('min-h-14'))).toBe(true)
     expect(bar.get('a[href="/"]').attributes('aria-current')).toBe('page')
+    const menu = bar.get('button[aria-haspopup="dialog"]')
+    expect(menu.text()).toBe('Menú')
+    expect(menu.classes()).toContain('min-h-14')
+    await menu.trigger('click')
+    expect(menu.attributes('aria-expanded')).toBe('true')
   })
 
   it.each(['/checkout', '/carrito', '/producto/guante-nitrilo', '/admin', '/admin/pedidos'])(

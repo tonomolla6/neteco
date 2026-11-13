@@ -3,6 +3,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { d1OverSqlite, openMigratedDatabase } from '../support/d1-sqlite'
 import { issueD1SessionCookie } from '../../workers/auth/session-cookie'
+import { pinSqlClock } from '../support/independent-sql-clock'
 import { handleB2bPublicApi } from '../../workers/developer-platform/b2b-public-api'
 import { handleB2bPublicAdmin } from '../../workers/developer-platform/b2b-public-admin'
 
@@ -224,6 +225,7 @@ describe('administración de credenciales B2B', () => {
     const dbTime = (
       sqlite.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS instant").get() as { instant: string }
     ).instant
+    pinSqlClock(sqlite, dbTime)
     const dbMs = Date.parse(dbTime)
     const iso = (n: number) => new Date(n).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const workerTime = dbMs - 120000
@@ -310,6 +312,7 @@ describe('administración de credenciales B2B', () => {
     const dbTime = (
       sqlite.prepare("SELECT strftime('%Y-%m-%dT%H:%M:%SZ','now') AS instant").get() as { instant: string }
     ).instant
+    pinSqlClock(sqlite, dbTime)
     const dbMs = Date.parse(dbTime)
     const iso = (n: number) => new Date(n).toISOString().replace(/\.\d{3}Z$/, 'Z')
     const workerTime = dbMs - 2000

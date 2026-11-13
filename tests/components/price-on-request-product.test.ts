@@ -115,7 +115,7 @@ async function pdp() {
   await flushPromises()
   return wrapper
 }
-const rows = (page: Awaited<ReturnType<typeof pdp>>) => page.findAll('[data-variant-row]')
+const rows = (page: Awaited<ReturnType<typeof pdp>>) => page.findAll('[data-variant-option]')
 
 beforeEach(() => {
   product = base()
@@ -139,12 +139,13 @@ const unpriced = (id: number) => variant(id, { price: 0, netPrice: 0, stock: 0 }
 const flat = (wrapper: { text: () => string }) => wrapper.text().replace(/\s+/g, ' ')
 
 describe('product page without a public price', () => {
-  it('keeps the format table with references and says "Consultar precio", never 0,00 € or "Agotado"', async () => {
+  it('keeps the format options with references and says "Consultar precio", never 0,00 € or "Agotado"', async () => {
     product = { ...base(), variants: [unpriced(1), unpriced(2)] }
     const page = await pdp()
     expect(rows(page)).toHaveLength(2)
-    expect(flat(rows(page)[0]!)).toContain('Ref. 101')
-    expect(flat(rows(page)[1]!)).toContain('Ref. 102')
+    expect(rows(page).map((row) => row.attributes('data-variant-option'))).toEqual(['101', '102'])
+    await rows(page)[1]!.trigger('click')
+    expect(flat(page)).toContain('Ref. 102')
     for (const row of rows(page)) {
       expect(flat(row)).toContain('Consultar precio')
       expect(row.find('input[inputmode="numeric"]').exists()).toBe(false)
@@ -184,6 +185,9 @@ describe('product page without a public price', () => {
     await page.get('[data-add-to-cart]').trigger('click')
     await flushPromises()
     expect(add.mock.calls.map(([item]) => item.variantId)).toEqual([1])
+    await rows(page)[1]!.trigger('click')
+    expect(page.find('[data-add-to-cart]').exists()).toBe(false)
+    expect(page.find('[data-price-request]').exists()).toBe(true)
   })
 })
 
