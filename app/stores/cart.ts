@@ -553,12 +553,14 @@ export const useCartStore = defineStore('cart', {
         method: 'DELETE',
         query: { expectedVersion: this.version, idempotencyKey: randomId() }
       })
-      this.items = []
-      this.id = null
-      this.version = 0
-      this.serverTotals = null
-      this.ready = false
-      this.persist()
+      if (context.generation !== generation) return
+      const previousRead = loadPromise
+      this.resetLocal()
+      const clearedGeneration = context.generation
+      // Discard a read of the deleted cart before creating its replacement.
+      // A failed replacement read retains the ordinary explicit retry state.
+      if (previousRead) await previousRead
+      if (context.generation === clearedGeneration) await this.load({ restoreCachedItems: false })
     },
     resetLocal() {
       this.clearAddRecovery()

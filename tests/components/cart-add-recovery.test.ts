@@ -437,3 +437,114 @@ describe('cart ADD original-intent recovery', () => {
     }
   )
 })
+
+function seedNonEmptyCart() {
+  const original = {
+    ...snapshot(3),
+    items: [
+      {
+        productId: 1,
+        slug: 'synthetic',
+        name: 'Synthetic',
+        brand: 'NETECO',
+        variantId: 11,
+        format: '1 L',
+        sku: 'SYN-11',
+        price: 100,
+        netPrice: 83,
+        taxRateBasisPoints: 2100,
+        qty: 3,
+        visual: { type: 'bottle', color: '#123456' }
+      }
+    ],
+    count: 3,
+    subtotal: 300,
+    subtotalNet: 249,
+    tax: 51
+  }
+  cart.apply(original)
+  return original
+}
+
+describe('confirmed cart clearing', () => {
+  it('reads the replacement cart and becomes ready without restoring cached lines or sending another mutation', async () => {
+    seedNonEmptyCart()
+    request.mockImplementation(async (_path, options) =>
+      options?.method === 'DELETE' ? { ok: true } : snapshot(1, 'replacement-cart')
+    )
+    await cart.clear()
+    expect(cart).toMatchObject({
+      ready: true,
+      loading: false,
+      error: '',
+      id: 'replacement-cart',
+      version: 1,
+      items: []
+    })
+    expect({ subtotal: cart.subtotal, tax: cart.tax }).toEqual({ subtotal: 0, tax: 0 })
+    expect(request.mock.calls.map(([path, options]) => [path, options?.method ?? 'GET'])).toEqual([
+      ['/api/cart', 'DELETE'],
+      ['/api/cart', 'GET']
+    ])
+    expect(request.mock.calls[0]?.[1]?.query).toEqual({ expectedVersion: 3, idempotencyKey: expect.any(String) })
+    expect(posts()).toEqual([])
+    expect(localStorage.getItem('neteco-cart-cache')).toBe('[]')
+  })
+  it('exposes a replacement read failure without silently declaring an authoritative empty cart', async () => {
+    seedNonEmptyCart()
+    request.mockImplementation(async (_path, options) => {
+      if (options?.method === 'DELETE') return { ok: true }
+      throw new Error('private SQL transport detail')
+    })
+    await cart.clear()
+    expect(cart).toMatchObject({
+      ready: true,
+      loading: false,
+      id: null,
+      items: [],
+      error: 'No se ha podido sincronizar el carrito'
+    })
+    expect(posts()).toEqual([])
+    expect(localStorage.getItem('neteco-cart-cache')).toBe('[]')
+  })
+  it('preserves the confirmed original cart when the clear request fails', async () => {
+    const original = seedNonEmptyCart()
+    request.mockRejectedValue(new Error('transport failure'))
+    await expect(cart.clear()).rejects.toThrow('transport failure')
+    expect(cart).toMatchObject({ ready: true, id: original.id, version: original.version, items: original.items })
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(posts()).toEqual([])
+  })
+  it('does not erase another identity cart when an earlier clear completes', async () => {
+    seedNonEmptyCart()
+    const deletion = deferred<{ ok: boolean }>()
+    request.mockReturnValue(deletion.promise)
+    const clearing = cart.clear()
+    await flushPromises()
+    identity.user.value = { id: 'another-owner' }
+    identity.session.value = { sessionId: 'another-session', sessionVersion: 1 }
+    cart.apply(snapshot(7, 'another-identity-cart'))
+    deletion.resolve({ ok: true })
+    await clearing
+    expect(cart).toMatchObject({ ready: true, id: 'another-identity-cart', version: 7 })
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+  it('discards an older pending read before reading the replacement cart', async () => {
+    const original = seedNonEmptyCart()
+    const oldRead = deferred<typeof original>()
+    let gets = 0
+    request.mockImplementation(async (_path, options) =>
+      options?.method === 'DELETE' ? { ok: true } : ++gets === 1 ? oldRead.promise : snapshot(1, 'replacement-cart')
+    )
+    const reading = cart.load()
+    await flushPromises()
+    const clearing = cart.clear()
+    await flushPromises()
+    oldRead.resolve(original)
+    await reading
+    await clearing
+    expect(cart).toMatchObject({ ready: true, loading: false, id: 'replacement-cart', version: 1, items: [] })
+    expect(gets).toBe(2)
+    expect(posts()).toEqual([])
+  })
+})

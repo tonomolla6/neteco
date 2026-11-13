@@ -132,6 +132,7 @@ afterEach(() => {
   wrapper?.unmount()
   wrapper = undefined
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe.each([
@@ -269,4 +270,36 @@ describe('shipping threshold is not a contractual free-shipping promise', () => 
       fetchMock.mock.calls.filter(([, options]) => (options as { method?: string })?.method === 'POST')
     ).toHaveLength(1)
   })
+})
+
+describe('clear cart read feedback', () => {
+  it.each(['success', 'failure'] as const)(
+    'shows the confirmed %s instead of an endless consultation after clearing',
+    async (mode) => {
+      await render(CartPage)
+      cart().resetLocal()
+      cart().apply(serverCart([item]))
+      vi.stubGlobal(
+        'confirm',
+        vi.fn(() => true)
+      )
+      fetchMock.mockReset().mockImplementation(async (_path, options) => {
+        if (options?.method === 'DELETE') return { ok: true }
+        if (mode === 'failure') throw new Error('private replacement database failure')
+        return { ...serverCart(), id: 'replacement-cart', version: 1 }
+      })
+      await nextTick()
+      const clear = wrapper!.findAll('button').find((button) => button.text() === 'Vaciar carrito')!
+      await clear.trigger('click')
+      await flushPromises()
+      expect(wrapper!.text()).not.toContain('Consultando el carrito')
+      if (mode === 'success') expect(wrapper!.text()).toContain('Tu carrito está vacío')
+      else {
+        expect(wrapper!.get('[role="alert"]').text()).toContain('Reintentar consulta')
+        expect(wrapper!.text()).not.toContain('Tu carrito está vacío')
+        expect(wrapper!.text()).not.toContain('private replacement database failure')
+      }
+      expect(fetchMock.mock.calls.map(([, options]) => options?.method ?? 'GET')).toEqual(['DELETE', 'GET'])
+    }
+  )
 })
