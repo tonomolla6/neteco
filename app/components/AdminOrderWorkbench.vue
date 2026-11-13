@@ -219,6 +219,16 @@ const responseSchema = z
       .strict()
   })
   .strict()
+const pageFallbackSchema = responseSchema.extend({
+  pagination: z
+    .object({
+      page: z.literal(1),
+      perPage: z.literal(25),
+      total: z.number().int().nonnegative(),
+      pages: z.number().int().nonnegative()
+    })
+    .strict()
+})
 const snapshot = shallowRef<z.infer<typeof responseSchema> | null>(null)
 const loading = ref(false),
   failed = ref(false),
@@ -359,13 +369,27 @@ async function read(query: Query) {
   const current = () => alive && epoch === generation && authority.value === scope
   try {
     const endpoint: string = '/api/admin/orders'
-    const raw: unknown = await request(endpoint, {
-      method: 'GET',
-      query: { ...query },
-      retry: 0,
-      cache: 'no-store',
-      signal
-    })
+    let raw: unknown
+    try {
+      raw = await request(endpoint, {
+        method: 'GET',
+        query: { ...query },
+        retry: 0,
+        cache: 'no-store',
+        signal
+      })
+    } catch (error: unknown) {
+      // La paginación por cursor exige un segundo factor registrado. Si el servidor la
+      // rechaza solo por eso (p. ej. en la sesión de demostración), se usa el listado por
+      // páginas que el propio servidor sí autoriza a esta sesión: primera página, sin cursores.
+      const failure = error as { data?: { error?: { code?: unknown } } } | null
+      if (failure?.data?.error?.code !== 'mfa_required' || query.page !== 1 || query.after || query.before) throw error
+      const { pagination: _mode, after: _after, before: _before, ...plain } = query
+      const page = pageFallbackSchema.parse(
+        await request(endpoint, { method: 'GET', query: plain, retry: 0, cache: 'no-store', signal })
+      )
+      raw = { ...page, pagination: { ...page.pagination, mode: 'cursor', nextCursor: null, previousCursor: null } }
+    }
     if (!current()) return
     const dto = responseSchema.parse(raw)
     if (

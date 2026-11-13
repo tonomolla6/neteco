@@ -1544,7 +1544,7 @@ a.adm-breakdown__row:hover .adm-breakdown__label {
   letter-spacing: -0.01em;
 }
 .adm-table td {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .adm-list > li > .flex-1 {
   flex-basis: 14rem;

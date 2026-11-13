@@ -199,7 +199,7 @@ function meta(status: string) {
 </script>
 
 <template>
-  <AdminPage :count="total" :count-label="total === 1 ? 'pedido' : 'pedidos'">
+  <AdminPage :count="cloudflare ? undefined : total" :count-label="total === 1 ? 'pedido' : 'pedidos'">
     <AdminOrderWorkbench v-if="cloudflare" />
     <div v-else class="adm-stack">
       <UiDataTable

@@ -13,7 +13,7 @@ import InventoryAlertsPanel from '~/components/InventoryAlertsPanel.vue'
 import InventoryCountImportPanel from '~/components/InventoryCountImportPanel.vue'
 import InventoryLotsCostingForecastPanel from '~/components/InventoryLotsCostingForecastPanel.vue'
 import InventoryOperationsPanel from '~/components/InventoryOperationsPanel.vue'
-definePageMeta({ layout: 'default', middleware: 'auth' })
+definePageMeta({ layout: 'admin', middleware: 'auth' })
 useSeoMeta({ title: 'Inventario · Admin', robots: 'noindex, nofollow, noarchive' })
 const { ready, loggedIn, user, session } = useUserSession(),
   runtime = useRuntimeConfig().public.serverRuntime
