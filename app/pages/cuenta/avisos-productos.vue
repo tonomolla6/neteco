@@ -4,8 +4,8 @@ import { productWatchConfirmInputSchema } from '~~/shared/product-watch'
 import { catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
 // Public capability entry. The generic account guard redirects fullPath,
 // including the confirmation fragment; private reads remain gated below.
-definePageMeta({ layout: 'default' })
-useSeoMeta({ title: 'Mis avisos de variantes', robots: 'noindex, nofollow, noarchive' })
+definePageMeta({ layout: 'cuenta' })
+useSeoMeta({ title: 'Avisos de productos', robots: 'noindex, nofollow, noarchive' })
 useHead({ meta: [{ name: 'referrer', content: 'no-referrer' }] })
 const runtime = useRuntimeConfig(),
   auth = useUserSession()
@@ -68,27 +68,39 @@ function onConfirmed() {
 }
 </script>
 <template>
-  <div class="space-y-5">
-    <h1 class="text-2xl font-semibold">Mis avisos de variantes</h1>
-    <p>
-      Gestiona tus solicitudes de reposición y bajada de precio. Cada solicitud requiere consentimiento y confirmación
-      por correo. No reserva productos ni garantiza el envío de un aviso.
-    </p>
-    <p v-if="fragmentError" role="alert">El enlace de confirmación no es válido. No se ha enviado ninguna solicitud.</p>
-    <p v-if="pending" role="status">Hay una operación pendiente de confirmar. Consulta su recibo antes de repetirla.</p>
-    <ProductWatchPanel
-      v-if="enabled"
-      :scope-key="scopeKey"
-      :enabled="enabled"
-      :pending="false"
-      :confirmation="confirmation"
-      @pending="onPending"
-      @confirmed="onConfirmed"
+  <div class="space-y-6">
+    <UiPageHeader
+      title="Avisos de productos"
+      description="Te escribimos cuando un producto vuelve a estar disponible o baja de precio. Los pides desde la ficha de cada producto y los cancelas aquí cuando quieras."
     />
-    <p v-else>
-      Estos avisos requieren una cuenta con correo verificado y el servicio de avisos disponible.
-      <a href="/login?redirect=%2Fcuenta%2Favisos-productos" class="underline">Inicia sesión</a>
-      y reabre el enlace original del correo para confirmar el aviso.
+    <p v-if="fragmentError" role="alert">El enlace de confirmación no es válido. No se ha cambiado nada.</p>
+    <p v-if="pending" role="status">
+      Hay un cambio pendiente de confirmar. Espera a ver el resultado antes de repetirlo.
     </p>
+    <div v-if="enabled" class="account-card account-embedded">
+      <ProductWatchPanel
+        :scope-key="scopeKey"
+        :enabled="enabled"
+        :pending="false"
+        :confirmation="confirmation"
+        @pending="onPending"
+        @confirmed="onConfirmed"
+      />
+    </div>
+    <UiSurface v-else padding="none">
+      <UiEmptyState
+        icon="i-lucide-bell-ring"
+        title="Inicia sesión para ver tus avisos"
+        description="Necesitas una cuenta con el correo confirmado. Si vienes de un correo nuestro, vuelve a abrir su enlace después de entrar."
+      >
+        <UButton to="/login?redirect=%2Fcuenta%2Favisos-productos" external>Iniciar sesión</UButton>
+      </UiEmptyState>
+    </UiSurface>
+    <UiSurface tone="sunken" padding="sm">
+      <p class="text-sm text-[var(--text)]">
+        Para pedir un aviso nuevo, abre el producto en el <NuxtLink to="/catalogo">catálogo</NuxtLink> y pulsa
+        «Avisarme».
+      </p>
+    </UiSurface>
   </div>
 </template>

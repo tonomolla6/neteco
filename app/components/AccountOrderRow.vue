@@ -7,16 +7,11 @@ import { orderCancellationReceiptSchema } from '~~/shared/order-cancellation'
 import { catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
 
 /**
- * Fila de pedido del área de cliente, desplegable en el sitio.
+ * Tarjeta de pedido del área de cliente, con el patrón de «Mis pedidos» de Amazon.
  *
- * Antes había que salir a `/pedido/[id]` para saber qué llevaba un pedido, lo que sacaba
- * al cliente del listado y le obligaba a volver atrás para mirar el siguiente. Ahora el
- * contenido —con imagen de cada referencia— y el estado del envío se abren aquí mismo,
- * y la página completa queda como un enlace más para quien la necesite.
- *
- * El contenido se pide en cuanto la fila se monta, no al desplegar: así las miniaturas
- * están disponibles ya en el estado plegado, que es lo que permite reconocer un pedido
- * de un vistazo sin leer su número.
+ * Cabecera gris con fecha, total, destino y número; debajo el estado en grande, los productos
+ * con su imagen y, a la derecha, una columna de acciones. Nada destructivo queda a la vista:
+ * la cancelación y el historial se abren en un modal, y la devolución en su propia página.
  */
 const props = withDefaults(
   defineProps<{
@@ -29,8 +24,9 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ reorder: [string]; pending: [boolean]; confirmed: [string] }>()
 
-const open = ref(props.defaultOpen)
-const panelId = computed(() => `pedido-${props.order.id}`)
+const cancelOpen = ref(false)
+const timelineOpen = ref(false)
+const showAllLines = ref(false)
 const { user, session, loggedIn } = useUserSession()
 const timelineCloudflare = useRuntimeConfig().public.serverRuntime === 'cloudflare'
 const privateScope = computed(() =>
@@ -77,7 +73,6 @@ const readState = computed(() =>
 const timelineReady = computed(
   () =>
     timelineCloudflare &&
-    open.value &&
     loggedIn.value &&
     user.value?.emailVerified === true &&
     !scopeRevoked.value &&
@@ -168,8 +163,61 @@ const invoiceable = computed(
     ['pagado', 'enviado', 'entregado', 'listo_recogida'].includes(props.order.status)
 )
 const lines = computed(() => detail.value?.lines ?? [])
-const thumbs = computed(() => lines.value.slice(0, 4))
-const extra = computed(() => Math.max(0, lines.value.length - thumbs.value.length))
+const VISIBLE_LINES = 3
+const visibleLines = computed(() => (showAllLines.value ? lines.value : lines.value.slice(0, VISIBLE_LINES)))
+const extra = computed(() => Math.max(0, lines.value.length - VISIBLE_LINES))
+/**
+ * El plan de envíos solo sustituye a la lista de productos cuando aporta algo: varios envíos
+ * o una fecha prevista. Un único envío sin fecha se queda en la lista de siempre, con precios.
+ */
+const shipmentPlan = computed(() => {
+  const plan = detail.value?.shipmentPlan
+  if (!plan) return null
+  return plan.shipments.length > 1 || plan.shipments.some((shipment) => shipment.from || shipment.to) ? plan : null
+})
+const shortId = computed(() => props.order.id.slice(0, 8).toUpperCase())
+/** Estados en los que tiene sentido ofrecer cada acción; el servidor decide al abrirla. */
+const cancellable = computed(() =>
+  ['pendiente_pago', 'pago_fallido', 'pendiente_transferencia', 'incidencia_stock', 'pagado', 'preparando'].includes(
+    props.order.status
+  )
+)
+const returnable = computed(() =>
+  ['enviado', 'entregado', 'listo_recogida', 'reembolso_parcial'].includes(props.order.status)
+)
+const trackable = computed(() => props.order.status === 'enviado' || Boolean(detail.value?.shipment?.trackingNumber))
+const statusLead = computed(() => {
+  const place = detail.value?.destination
+    ? `${detail.value.destination.postalCode} ${formatPlace(detail.value.destination.city)}`
+    : ''
+  switch (props.order.status) {
+    case 'pendiente_pago':
+      return 'Completa el pago para que empecemos a prepararlo.'
+    case 'pendiente_transferencia':
+      return 'Lo preparamos en cuanto recibamos la transferencia.'
+    case 'pago_fallido':
+      return 'El pago no se completó. Puedes reintentarlo desde el pedido.'
+    case 'pagado':
+    case 'preparando':
+      return place ? `Lo estamos preparando para enviarlo a ${place}.` : 'Lo estamos preparando.'
+    case 'enviado':
+      return place ? `Va de camino a ${place}.` : 'Va de camino.'
+    case 'listo_recogida':
+      return 'Ya puedes pasar a recogerlo.'
+    case 'entregado':
+      return place ? `Entregado en ${place}.` : ''
+    case 'cancelado':
+      return 'Este pedido se canceló.'
+    default:
+      return ''
+  }
+})
+watch(timelineReady, (allowed) => {
+  if (!allowed) {
+    if (!cancellationPending.value) cancelOpen.value = false
+    timelineOpen.value = false
+  }
+})
 const fulfillment = computed(() => {
   const raw = detail.value?.fulfillmentStatus
   return raw ? FULFILLMENT_STATUS[raw] : undefined
@@ -180,179 +228,181 @@ const shippingLabel = computed(
 </script>
 
 <template>
-  <article class="overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)]">
-    <!-- Cabecera plegada: toda la fila abre y cierra -->
-    <button
-      type="button"
-      class="flex w-full flex-wrap items-center gap-x-5 gap-y-3 px-4 py-4 text-left transition-colors hover:bg-[var(--canvas)]"
-      :aria-expanded="open"
-      :aria-controls="panelId"
-      :disabled="operationBlocked"
-      @click="!operationBlocked && (open = !open)"
+  <article
+    data-account-order
+    class="overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)]"
+  >
+    <!-- Cabecera: los cuatro datos con los que se reconoce un pedido -->
+    <header
+      class="flex flex-wrap items-start gap-x-8 gap-y-3 border-b border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm sm:px-5"
     >
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Pedido realizado</p>
+        <p class="mt-0.5 text-[var(--text-strong)]">{{ formatAccountDate(order.createdAt) }}</p>
+      </div>
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Total</p>
+        <p class="tabular mt-0.5 font-semibold text-[var(--text-strong)]">{{ formatPrice(order.total) }}</p>
+      </div>
+      <div v-if="detail?.destination" class="hidden sm:block">
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">Enviar a</p>
+        <p class="mt-0.5 text-[var(--text-strong)]">
+          {{ detail.destination.postalCode }} {{ formatPlace(detail.destination.city) }}
+        </p>
+      </div>
+      <div class="ml-auto text-right">
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          Pedido n.º <span class="tabular normal-case text-[var(--text-strong)]" :title="order.id">{{ shortId }}</span>
+        </p>
+        <p class="mt-0.5 flex flex-wrap justify-end gap-x-3">
+          <NuxtLink
+            v-if="order.fullDetailAvailable !== false"
+            :to="`/pedido/${order.id}`"
+            class="font-medium text-[var(--link)] hover:underline"
+          >
+            Ver detalles
+          </NuxtLink>
+          <a
+            v-if="invoiceable"
+            :href="`/api/orders/${order.id}/invoice`"
+            target="_blank"
+            rel="noopener"
+            class="font-medium text-[var(--link)] hover:underline"
+          >
+            Factura
+          </a>
+        </p>
+      </div>
+    </header>
+
+    <div class="flex flex-col gap-5 px-4 py-4 sm:px-5 md:flex-row md:items-start md:gap-8">
       <div class="min-w-0 flex-1">
+        <!-- Estado: lo primero que se lee -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span class="tabular font-semibold text-[var(--text-strong)]">{{ order.id }}</span>
-          <UBadge :color="status_.color" :icon="status_.icon" variant="subtle">
-            {{ status_.label }}
+          <p class="text-lg font-bold text-[var(--text-strong)]">{{ status_.label }}</p>
+          <UBadge v-if="fulfillment" :icon="fulfillment.icon" color="neutral" variant="subtle">
+            {{ fulfillment.label }}
           </UBadge>
         </div>
-        <p class="mt-1 text-sm text-[var(--text-muted)]">
-          {{ formatAccountDate(order.createdAt) }} · {{ order.lines }}
-          {{ order.lines === 1 ? 'referencia' : 'referencias' }}
-          <template v-if="fulfillment"> · {{ fulfillment.label }}</template>
+        <p v-if="statusLead || shippingLabel" class="mt-0.5 text-sm text-[var(--text-muted)]">
+          {{ statusLead }}
+          <template v-if="shippingLabel"> {{ shippingLabel }}.</template>
+          <template v-if="detail?.shipment?.trackingNumber">
+            Seguimiento: <span class="tabular">{{ detail.shipment.trackingNumber }}</span
+            >.
+          </template>
+        </p>
+
+        <!-- Productos, con su imagen -->
+        <div v-if="readState === 'loading'" class="mt-4 space-y-3" role="status" aria-busy="true">
+          <p class="sr-only">Cargando el contenido del pedido.</p>
+          <div v-for="n in 2" :key="n" class="flex items-center gap-4" aria-hidden="true">
+            <div class="size-20 animate-pulse rounded-[var(--radius-control)] bg-[var(--surface-sunken)]" />
+            <div class="h-4 w-1/2 animate-pulse rounded bg-[var(--surface-sunken)]" />
+          </div>
+        </div>
+
+        <div v-else-if="readState === 'error'" class="mt-4 space-y-3">
+          <p class="text-sm text-red-700">No hemos podido cargar el contenido de este pedido.</p>
+          <UButton v-if="scopeRevoked" to="/cuenta/pedidos" external color="neutral" variant="outline" size="sm">
+            Volver a cargar Mis pedidos
+          </UButton>
+          <UButton v-else data-order-detail-retry color="neutral" variant="outline" size="sm" @click="retryRead">
+            Reintentar lectura del pedido
+          </UButton>
+        </div>
+
+        <!-- Con plan de envíos guardado: cada envío con su fecha, estado y productos -->
+        <OrderShipmentPlan
+          v-else-if="shipmentPlan"
+          class="mt-4"
+          :plan="shipmentPlan"
+          :lines="lines"
+          :status="order.status"
+        />
+
+        <ul v-else class="mt-4 space-y-4">
+          <li v-for="line in visibleLines" :key="line.sku" class="flex items-start gap-4">
+            <OrderLineThumb :line="line" size="lg" />
+            <div class="min-w-0 flex-1">
+              <component
+                :is="line.slug ? 'NuxtLink' : 'p'"
+                :to="line.slug ? `/producto/${line.slug}?sku=${encodeURIComponent(line.sku)}` : undefined"
+                class="line-clamp-2 font-medium"
+                :class="line.slug ? 'text-[var(--link)] hover:underline' : 'text-[var(--text-strong)]'"
+              >
+                {{ line.name }}
+              </component>
+              <p class="mt-0.5 text-sm text-[var(--text-muted)]">
+                {{ line.format }} · Ref. {{ line.sku }}
+                <template v-if="!line.available"> · {{ line.reason }}</template>
+              </p>
+              <p class="tabular mt-0.5 text-sm text-[var(--text)]">
+                {{ line.quantity }} {{ line.quantity === 1 ? 'unidad' : 'unidades' }} ·
+                <span class="font-semibold text-[var(--text-strong)]">{{ formatPrice(line.lineGross) }}</span>
+              </p>
+            </div>
+          </li>
+        </ul>
+        <button
+          v-if="extra && readState === 'success' && !shipmentPlan"
+          type="button"
+          class="mt-3 inline-flex min-h-9 items-center gap-1 text-sm font-medium text-[var(--link)] hover:underline"
+          :aria-expanded="showAllLines"
+          @click="showAllLines = !showAllLines"
+        >
+          <UIcon :name="showAllLines ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-4" />
+          {{
+            showAllLines ? 'Ver menos' : `Ver ${extra} ${extra === 1 ? 'producto más' : 'productos más'} de este pedido`
+          }}
+        </button>
+
+        <p
+          v-if="cancellationPending"
+          data-order-cancellation-pending
+          role="status"
+          class="mt-4 rounded-[var(--radius-control)] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        >
+          Hay una cancelación pendiente de confirmar. Mantén esta pestaña abierta hasta ver el resultado.
         </p>
       </div>
 
-      <!-- Miniaturas: reconocer el pedido sin leer el número -->
-      <div v-if="thumbs.length" class="flex items-center gap-1.5">
-        <OrderLineThumb v-for="line in thumbs" :key="line.sku" :line="line" size="sm" />
-        <span v-if="extra" class="tabular text-sm font-medium text-[var(--text-muted)]">+{{ extra }}</span>
-      </div>
-      <div v-else-if="readState === 'loading'" class="flex items-center gap-1.5" aria-hidden="true">
-        <div
-          v-for="n in 2"
-          :key="n"
-          class="size-10 animate-pulse rounded-[var(--radius-control)] bg-[var(--surface-sunken)]"
-        />
-      </div>
-
-      <p class="tabular text-lg font-bold text-[var(--text-strong)]">{{ formatPrice(order.total) }}</p>
-
-      <UIcon
-        name="i-lucide-chevron-down"
-        class="size-5 shrink-0 text-[var(--text-muted)] transition-transform"
-        :class="open && 'rotate-180'"
-      />
-    </button>
-
-    <div v-if="open" :id="panelId" class="border-t border-[var(--border)]">
-      <!-- Envío -->
-      <div
-        v-if="detail"
-        class="flex flex-wrap items-center gap-x-6 gap-y-2 bg-[var(--surface-sunken)] px-4 py-3 text-sm"
-      >
-        <span v-if="fulfillment" class="flex items-center gap-2 font-medium text-[var(--text-strong)]">
-          <UIcon :name="fulfillment.icon" class="size-4" />
-          {{ fulfillment.label }}
-        </span>
-        <span v-if="shippingLabel" class="text-[var(--text-muted)]">{{ shippingLabel }}</span>
-        <span v-if="detail.destination" class="text-[var(--text-muted)]">
-          {{ detail.destination.postalCode }} {{ formatPlace(detail.destination.city) }}
-        </span>
-        <span v-if="detail.shipment?.trackingNumber" class="tabular flex items-center gap-1.5 text-[var(--text-muted)]">
-          <UIcon name="i-lucide-truck" class="size-4" />
-          {{ detail.shipment.trackingNumber }}
-        </span>
-      </div>
-
-      <!-- Líneas -->
-      <div v-if="readState === 'loading'" class="space-y-3 p-4" role="status" aria-busy="true">
-        <p class="sr-only">Cargando el contenido del pedido.</p>
-        <div
-          v-for="n in 2"
-          :key="n"
-          class="h-14 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
-        />
-      </div>
-
-      <div v-else-if="readState === 'error'" class="space-y-3 px-4 py-6">
-        <p role="alert" class="text-sm text-red-700">No hemos podido cargar el contenido de este pedido.</p>
-        <UButton v-if="scopeRevoked" to="/cuenta/pedidos" external color="neutral" variant="outline">
-          Volver a cargar Mis pedidos
-        </UButton>
-        <UButton v-else data-order-detail-retry color="neutral" variant="outline" @click="retryRead">
-          Reintentar lectura del pedido
-        </UButton>
-      </div>
-
-      <ul v-else class="divide-y divide-[var(--border)]">
-        <li v-for="line in lines" :key="line.sku" class="flex items-center gap-4 px-4 py-3">
-          <OrderLineThumb :line="line" />
-          <div class="min-w-0 flex-1">
-            <component
-              :is="line.slug ? 'NuxtLink' : 'p'"
-              :to="line.slug ? `/producto/${line.slug}?sku=${encodeURIComponent(line.sku)}` : undefined"
-              class="font-medium text-[var(--text-strong)]"
-              :class="line.slug && 'hover:text-neteco-700 hover:underline'"
-            >
-              {{ line.name }}
-            </component>
-            <p class="text-sm text-[var(--text-muted)]">
-              {{ line.format }} · Ref. {{ line.sku }}
-              <template v-if="!line.available"> · {{ line.reason }}</template>
-            </p>
-          </div>
-          <span class="tabular shrink-0 text-sm text-[var(--text-muted)]">× {{ line.quantity }}</span>
-          <span class="tabular w-20 shrink-0 text-right font-semibold text-[var(--text-strong)]">
-            {{ formatPrice(line.lineGross) }}
-          </span>
-        </li>
-      </ul>
-
-      <!-- Totales -->
-      <dl v-if="detail" class="space-y-1.5 border-t border-[var(--border)] px-4 py-3 text-sm">
-        <div class="flex justify-between gap-4">
-          <dt class="text-[var(--text-muted)]">Productos</dt>
-          <dd class="tabular">{{ formatPrice(detail.totals.subtotalNet) }}</dd>
-        </div>
-        <div class="flex justify-between gap-4">
-          <dt class="text-[var(--text-muted)]">Envío</dt>
-          <dd class="tabular">
-            {{ detail.totals.shippingNet ? formatPrice(detail.totals.shippingNet) : 'Gratis' }}
-          </dd>
-        </div>
-        <div class="flex justify-between gap-4">
-          <dt class="text-[var(--text-muted)]">IVA</dt>
-          <dd class="tabular">{{ formatPrice(detail.totals.tax) }}</dd>
-        </div>
-        <div
-          class="flex justify-between gap-4 border-t border-[var(--border)] pt-1.5 font-bold text-[var(--text-strong)]"
-        >
-          <dt>Total</dt>
-          <dd class="tabular">{{ formatPrice(detail.totals.total) }}</dd>
-        </div>
-      </dl>
-
-      <!-- Acciones -->
-      <div v-if="timelineReady" class="border-t border-[var(--border)] px-4 py-3">
-        <OrderCancellationPanel
-          :order-id="originalOrderId"
-          audience="customer"
-          :scope-key="originalScope"
-          :enabled="timelineReady"
-          :pending="operationPending"
-          @pending="setCancellationPending"
-          @confirmed="cancellationConfirmed"
-        />
-      </div>
-      <p v-if="cancellationPending" data-order-cancellation-pending role="status" class="px-4 py-3 text-sm">
-        Hay una cancelación pendiente de confirmar. Conserva esta pestaña para recuperar su resultado antes de otra
-        operación.
-      </p>
-      <div v-if="timelineReady" class="border-t border-[var(--border)] px-4 py-3">
-        <OrderTimelinePanel
-          :key="cancellationRevision"
-          :order-id="originalOrderId"
-          audience="customer"
-          :scope-key="originalScope"
-          :enabled="timelineReady"
-          :pending="readState !== 'success'"
-        />
-      </div>
-      <div v-if="!scopeRevoked" class="flex flex-wrap gap-2 border-t border-[var(--border)] px-4 py-3">
+      <!-- Acciones: una columna de botones del mismo ancho, como en Amazon -->
+      <div v-if="!scopeRevoked" data-account-order-actions class="flex shrink-0 flex-col gap-2 md:w-60">
         <UButton
+          block
           :disabled="operationBlocked"
           icon="i-lucide-rotate-cw"
           @click="!operationBlocked && emit('reorder', order.id)"
-          >Volver a pedir</UButton
         >
+          Volver a pedir
+        </UButton>
         <UButton
-          v-if="invoiceable"
+          v-if="order.fullDetailAvailable !== false"
+          block
           :disabled="operationBlocked"
           color="neutral"
           variant="outline"
-          icon="i-lucide-file-text"
+          :to="`/pedido/${order.id}`"
+        >
+          Ver pedido
+        </UButton>
+        <UButton
+          v-if="trackable && order.fullDetailAvailable !== false"
+          block
+          :disabled="operationBlocked"
+          color="neutral"
+          variant="outline"
+          :to="`/pedido/${order.id}`"
+        >
+          Seguir envío
+        </UButton>
+        <UButton
+          v-if="invoiceable"
+          block
+          :disabled="operationBlocked"
+          color="neutral"
+          variant="outline"
           :to="`/api/orders/${order.id}/invoice`"
           external
           target="_blank"
@@ -360,17 +410,83 @@ const shippingLabel = computed(
           Descargar factura
         </UButton>
         <UButton
-          v-if="order.fullDetailAvailable !== false"
+          v-if="returnable"
+          block
           :disabled="operationBlocked"
           color="neutral"
-          variant="ghost"
-          :to="`/pedido/${order.id}`"
-          trailing
-          icon="i-lucide-arrow-right"
+          variant="outline"
+          :to="`/devoluciones?pedido=${order.id}`"
         >
-          Ver pedido completo
+          Devolver productos
         </UButton>
+        <UButton
+          v-if="timelineReady"
+          block
+          data-order-timeline-open
+          :disabled="operationBlocked"
+          color="neutral"
+          variant="outline"
+          @click="timelineOpen = true"
+        >
+          Historial del pedido
+        </UButton>
+        <UButton
+          v-if="timelineReady && cancellable"
+          block
+          data-order-cancel-open
+          :disabled="props.operationPending"
+          color="neutral"
+          variant="outline"
+          @click="cancelOpen = true"
+        >
+          Cancelar pedido
+        </UButton>
+        <UButton block color="neutral" variant="ghost" to="/contacto">Ayuda con este pedido</UButton>
       </div>
     </div>
+
+    <!-- La cancelación nunca está a la vista: se abre aquí, bajo demanda -->
+    <UModal
+      v-model:open="cancelOpen"
+      :title="`Cancelar el pedido ${shortId}`"
+      description="Cuéntanos el motivo y confirma. Si el pedido ya no admite cancelación, te lo indicamos aquí."
+      :dismissible="!cancellationPending"
+      :close="!cancellationPending"
+    >
+      <template #body>
+        <div class="account-main account-embedded">
+          <OrderCancellationPanel
+            v-if="timelineReady"
+            :order-id="originalOrderId"
+            audience="customer"
+            :scope-key="originalScope"
+            :enabled="timelineReady"
+            :pending="operationPending"
+            @pending="setCancellationPending"
+            @confirmed="cancellationConfirmed"
+          />
+        </div>
+      </template>
+    </UModal>
+
+    <UModal
+      v-model:open="timelineOpen"
+      :title="`Historial del pedido ${shortId}`"
+      description="Los pasos registrados de este pedido, del más reciente al más antiguo."
+    >
+      <template #body>
+        <div class="account-main">
+          <OrderTimelinePanel
+            v-if="timelineReady"
+            :key="cancellationRevision"
+            :order-id="originalOrderId"
+            audience="customer"
+            :scope-key="originalScope"
+            :enabled="timelineReady"
+            :pending="readState !== 'success'"
+          />
+        </div>
+      </template>
+    </UModal>
   </article>
 </template>

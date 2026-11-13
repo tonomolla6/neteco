@@ -661,8 +661,8 @@ async function revokeCloudflareSession() {
         <UBadge v-else color="neutral" variant="subtle">Desactivada</UBadge>
       </div>
 
-      <form v-if="!user?.mfaVerified && !enrollment" class="mt-4 max-w-sm space-y-3" @submit.prevent="beginMfa">
-        <fieldset class="contents" :disabled="cloudflare && !canMutate">
+      <form v-if="!user?.mfaVerified && !enrollment" class="mt-5 max-w-xl" @submit.prevent="beginMfa">
+        <fieldset class="grid min-w-0 gap-4" :disabled="cloudflare && !canMutate">
           <PasswordField
             id="account-mfa-current-password"
             v-model="mfaCurrentPassword"
@@ -670,9 +670,19 @@ async function revokeCloudflareSession() {
             autocomplete="current-password"
             required
           />
-          <UButton type="submit" :disabled="!mfaCurrentPassword || (cloudflare && !canMutate)" :loading="busy">
-            Activar verificación en dos pasos
-          </UButton>
+          <div>
+            <UButton
+              type="submit"
+              icon="i-lucide-shield-check"
+              :disabled="!mfaCurrentPassword || (cloudflare && !canMutate)"
+              :loading="busy"
+            >
+              Activar verificación en dos pasos
+            </UButton>
+            <p v-if="!mfaCurrentPassword" class="mt-2 text-xs text-[var(--text-muted)]">
+              Escribe tu contraseña actual para poder activarla.
+            </p>
+          </div>
         </fieldset>
       </form>
 

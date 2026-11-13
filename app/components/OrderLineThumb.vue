@@ -11,7 +11,7 @@ import type { OrderLine } from '~/composables/useAccount'
 const props = withDefaults(
   defineProps<{
     line: Pick<OrderLine, 'image' | 'visual' | 'name'> & { imageAlt?: string | null }
-    size?: 'sm' | 'md'
+    size?: 'sm' | 'md' | 'lg'
   }>(),
   { size: 'md' }
 )
@@ -24,7 +24,8 @@ watch(
   () => props.line.image,
   () => (failed.value = false)
 )
-const SIZE = { sm: 'size-10', md: 'size-14' }
+const SIZE = { sm: 'size-10', md: 'size-14', lg: 'size-20' }
+const PIXELS = { sm: 40, md: 56, lg: 80 }
 </script>
 
 <template>
@@ -36,9 +37,9 @@ const SIZE = { sm: 'size-10', md: 'size-14' }
       v-if="displayImage && publishedSources && !failed"
       :src="displayImage"
       :alt="line.imageAlt || line.name"
-      :sizes="size === 'sm' ? '40px' : '56px'"
-      :width="size === 'sm' ? 40 : 56"
-      :height="size === 'sm' ? 40 : 56"
+      :sizes="`${PIXELS[size]}px`"
+      :width="PIXELS[size]"
+      :height="PIXELS[size]"
       image-class="size-full object-contain"
       @error="failed = true"
     />
@@ -46,8 +47,8 @@ const SIZE = { sm: 'size-10', md: 'size-14' }
       v-else-if="displayImage && !failed"
       :src="displayImage"
       :alt="line.imageAlt || line.name"
-      :width="size === 'sm' ? 40 : 56"
-      :height="size === 'sm' ? 40 : 56"
+      :width="PIXELS[size]"
+      :height="PIXELS[size]"
       loading="lazy"
       class="size-full object-contain"
       @error="failed = true"

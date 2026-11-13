@@ -66,14 +66,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="referral-account-panel bg-white border rounded-lg p-6 max-w-2xl">
-    <div class="border-b pb-4 mb-6">
-      <h2 class="text-xl font-bold text-gray-900">Programa de referidos</h2>
-      <p class="text-sm text-gray-600 mt-1">
-        Invita a empresas y profesionales colaboradores. Recibe recompensas directamente en tu cuenta tras cumplirse la
-        ventana de devolución reglamentaria de cada pedido.
-      </p>
-    </div>
+  <div class="referral-account-panel rounded-[var(--radius-panel)] border border-[var(--border)] bg-white p-5 sm:p-6">
+    <p class="mb-5 text-sm text-[var(--text-muted)]">
+      Recibes la recompensa en tu cuenta cuando termina el plazo de devolución de cada pedido.
+    </p>
 
     <!-- Loading State -->
     <div v-if="loading" class="py-8 text-center text-gray-500 text-sm">Cargando información del programa...</div>
@@ -87,17 +83,17 @@ onMounted(() => {
     <div v-else-if="overview && !overview.enrolled" class="space-y-4">
       <div class="bg-blue-50 border border-blue-200 rounded p-4 text-sm text-blue-900">
         <h3 class="font-bold mb-1">Únete al Programa de Colaboradores</h3>
-        <p class="text-xs text-blue-800 mb-3">
+        <p class="text-sm text-blue-800 mb-3">
           Obtén 15,00 € por cada nuevo cliente profesional que complete su primera compra superior a 50,00 €. El
           referido disfrutará además de 10,00 € de descuento inmediato.
         </p>
-        <p class="text-xs text-blue-700">
+        <p class="text-sm text-blue-700">
           * Recompensa consolidada tras 14 días (ventana de devolución sin incidencias). Límite de 10 referidos activos
           por empresa.
         </p>
       </div>
 
-      <div class="border rounded p-4 bg-gray-50 text-xs text-gray-600 max-h-32 overflow-y-auto">
+      <div class="border rounded p-4 bg-gray-50 text-sm text-gray-600 max-h-32 overflow-y-auto">
         <h4 class="font-bold text-gray-800 mb-1">Términos y condiciones del programa (versión terms-2026-v1):</h4>
         <p>1. Prohibido el auto-referido mediante identidades o direcciones coincidentes.</p>
         <p>2. Aplicable exclusivamente a nuevas cuentas de clientes verificadas.</p>
@@ -131,14 +127,14 @@ onMounted(() => {
     <div v-else-if="overview && overview.enrolled" class="space-y-6">
       <!-- Referral code and link -->
       <div class="bg-gray-50 border rounded p-4">
-        <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Tu Código Exclusivo:</label>
+        <label class="block text-sm font-semibold text-gray-600 uppercase mb-1">Tu Código Exclusivo:</label>
         <div class="flex items-center gap-3">
           <span class="text-2xl font-mono font-bold text-blue-700 tracking-wider">
             {{ overview.referralCode }}
           </span>
           <button
             type="button"
-            class="text-xs bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 py-1.5 px-3 rounded font-medium transition"
+            class="text-sm bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 py-1.5 px-3 rounded font-medium transition"
             @click="copyLink"
           >
             {{ copied ? '¡Enlace copiado!' : 'Copiar enlace de invitación' }}
@@ -149,25 +145,25 @@ onMounted(() => {
       <!-- Stats Grid -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="bg-green-50 border border-green-200 rounded p-4">
-          <p class="text-xs text-green-700 font-medium">Recompensas consolidadas</p>
+          <p class="text-sm text-green-700 font-medium">Recompensas consolidadas</p>
           <p class="text-2xl font-bold text-green-900 mt-1">{{ formatCents(overview.totalRewardedCents) }}</p>
-          <p class="text-xs text-green-600 mt-1">{{ overview.rewardedCount }} pedidos completados</p>
+          <p class="text-sm text-green-600 mt-1">{{ overview.rewardedCount }} pedidos completados</p>
         </div>
 
         <div class="bg-yellow-50 border border-yellow-200 rounded p-4">
-          <p class="text-xs text-yellow-700 font-medium">En ventana de devolución</p>
+          <p class="text-sm text-yellow-700 font-medium">En ventana de devolución</p>
           <p class="text-2xl font-bold text-yellow-900 mt-1">{{ formatCents(overview.pendingRewardCents) }}</p>
-          <p class="text-xs text-yellow-600 mt-1">{{ overview.pendingWindowCount }} pedidos en periodo de garantía</p>
+          <p class="text-sm text-yellow-600 mt-1">{{ overview.pendingWindowCount }} pedidos en periodo de garantía</p>
         </div>
 
         <div class="bg-gray-50 border border-gray-200 rounded p-4">
-          <p class="text-xs text-gray-600 font-medium">Total recomendaciones</p>
+          <p class="text-sm text-gray-600 font-medium">Total recomendaciones</p>
           <p class="text-2xl font-bold text-gray-800 mt-1">{{ overview.totalAttributions }}</p>
-          <p class="text-xs text-gray-500 mt-1">Registros atribuidos</p>
+          <p class="text-sm text-gray-500 mt-1">Registros atribuidos</p>
         </div>
       </div>
 
-      <div class="text-xs text-gray-500 border-t pt-3">
+      <div class="text-sm text-gray-500 border-t pt-3">
         <p>
           <strong>Ventana de devolución:</strong> Las recompensas quedan retenidas provisionalmente hasta que transcurre
           el plazo legal de devolución (14 días desde la entrega) para evitar fraudes y cancelaciones.

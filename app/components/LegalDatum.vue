@@ -14,8 +14,8 @@ const production = useRuntimeConfig().public.appEnv === 'production'
   <mark
     v-else-if="!production"
     data-legal-pending
-    class="rounded-[var(--radius-control)] bg-amber-100 px-1 font-medium text-amber-900"
-    >[pendiente: {{ label }}]</mark
+    class="rounded-full bg-amber-50 px-2 py-0.5 text-[0.8125em] font-medium text-amber-800 ring-1 ring-inset ring-amber-200"
+    >Pendiente: {{ label }}</mark
   >
   <slot v-else />
 </template>

@@ -144,12 +144,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="mx-auto w-full min-w-0 max-w-3xl space-y-5 px-4 py-6" aria-labelledby="ap-title">
-    <h1 id="ap-title" class="text-2xl font-semibold">Revisiones de promociones y referidos</h1>
-    <p class="text-sm">
-      Revisamos manualmente las ventajas cuando varias señales coinciden. Nunca bloqueamos por una única señal, y puedes
-      apelar la decisión.
-    </p>
+  <section class="w-full min-w-0 space-y-5" aria-labelledby="ap-title">
+    <UiPageHeader
+      id="ap-title"
+      title="Revisión de promociones"
+      description="Revisamos a mano las ventajas y referidos cuando varias señales coinciden. Nunca bloqueamos por una sola señal, y puedes apelar la decisión."
+    />
     <p v-if="runtime !== 'cloudflare'" role="status">
       Esta gestión no está disponible ahora mismo. Si necesitas revisar una promoción, escríbenos desde Contacto.
     </p>
@@ -157,7 +157,13 @@ onBeforeUnmount(() => {
     <template v-else>
       <p v-if="loading" role="status">Cargando…</p>
       <p v-if="loadError" data-ap-error role="alert">{{ loadError }}</p>
-      <p v-else-if="!loading && !items.length" data-ap-empty>No tienes ninguna revisión en curso.</p>
+      <div v-else-if="!loading && !items.length" data-ap-empty class="account-card">
+        <UiEmptyState
+          icon="i-lucide-shield-check"
+          title="No tienes ninguna revisión en curso"
+          description="Si alguna vez revisamos una de tus promociones o referidos, verás aquí su estado y podrás apelar."
+        />
+      </div>
       <ul v-if="items.length" data-ap-list class="space-y-3">
         <li v-for="item in items" :key="item.id" :data-ap-case="item.id" class="min-w-0 break-words rounded border p-4">
           <p class="font-medium">{{ item.context === 'referral' ? 'Referido' : 'Promoción' }} {{ item.refId }}</p>

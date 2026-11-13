@@ -18,9 +18,13 @@ const scope = computed(() =>
 )
 </script>
 <template>
-  <main class="space-y-5">
-    <h1 class="text-2xl font-semibold">Mis reseñas y preguntas</h1>
-    <p>Puedes proponer contenido desde la ficha del producto y consultar aquí su revisión o aportar una réplica.</p>
-    <ProductContributionsPanel :enabled="enabled" :customer-enabled="enabled" :scope-key="scope" />
-  </main>
+  <div class="space-y-6">
+    <UiPageHeader
+      title="Reseñas y preguntas"
+      description="Lo que has opinado o preguntado sobre los productos. Las reseñas se escriben desde la ficha de cada producto; aquí ves su revisión y puedes responder."
+    />
+    <div class="account-card account-embedded">
+      <ProductContributionsPanel :enabled="enabled" :customer-enabled="enabled" :scope-key="scope" />
+    </div>
+  </div>
 </template>

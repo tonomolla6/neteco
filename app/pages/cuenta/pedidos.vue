@@ -168,19 +168,51 @@ async function retryRead() {
 const dialog = useTemplateRef('dialog')
 const notice = ref('')
 const query = ref('')
-const statusFilter = ref<string>('todos')
-
-const statusOptions = computed(() => [
-  { label: 'Todos los estados', value: 'todos' },
-  ...Object.entries(ORDER_STATUS)
-    .filter(([key]) => confirmedOrders.value?.some((order) => order.status === key))
-    .map(([value, meta]) => ({ label: meta.label, value }))
-])
+/**
+ * Pestañas como las de «Mis pedidos» de Amazon: grupos que el cliente entiende, no los trece
+ * estados internos. «Para devolver» es la entrada del bloque Devoluciones de la portada.
+ */
+const ORDER_TABS = [
+  { value: 'todos', label: 'Todos', statuses: null },
+  {
+    value: 'en-curso',
+    label: 'En curso',
+    statuses: [
+      'pendiente_pago',
+      'procesando_pago',
+      'pago_fallido',
+      'incidencia_stock',
+      'pendiente_transferencia',
+      'pagado',
+      'preparando',
+      'listo_recogida',
+      'enviado'
+    ]
+  },
+  { value: 'entregados', label: 'Entregados', statuses: ['entregado'] },
+  {
+    value: 'devolver',
+    label: 'Para devolver',
+    statuses: ['enviado', 'entregado', 'listo_recogida', 'reembolso_parcial']
+  },
+  { value: 'cancelados', label: 'Cancelados', statuses: ['cancelado', 'reembolsado', 'reembolso_parcial'] }
+] as const
+const route = useRoute()
+const initialTab = ORDER_TABS.find((tab) => tab.value === route.query.estado)?.value ?? 'todos'
+const statusFilter = ref<string>(initialTab)
+const activeTab = computed(() => ORDER_TABS.find((tab) => tab.value === statusFilter.value) ?? ORDER_TABS[0])
+function tabCount(tab: (typeof ORDER_TABS)[number]) {
+  const all = confirmedOrders.value ?? []
+  return tab.statuses
+    ? all.filter((order) => (tab.statuses as readonly string[]).includes(order.status)).length
+    : all.length
+}
 
 const orders = computed(() => {
   const term = query.value.trim().toLowerCase()
+  const statuses = activeTab.value.statuses as readonly string[] | null
   return (confirmedOrders.value ?? []).filter((order) => {
-    const matchesStatus = statusFilter.value === 'todos' || order.status === statusFilter.value
+    const matchesStatus = !statuses || statuses.includes(order.status)
     const matchesTerm = !term || order.id.toLowerCase().includes(term)
     return matchesStatus && matchesTerm
   })
@@ -234,28 +266,58 @@ onBeforeUnmount(() => {
       title="Mis pedidos"
       :count="readState === 'success' ? confirmedOrders?.length : undefined"
       count-label="en total"
-      description="Consulta el estado y el contenido de tus pedidos, o vuelve a pedir tus productos."
+      description="Sigue tus envíos, repite una compra, descarga la factura o solicita una devolución."
     />
 
     <AccountFeedback v-if="readState === 'success'" :notice="notice" />
 
-    <div v-if="readState === 'success' && confirmedOrders?.length" class="mb-4 mt-4 flex flex-wrap gap-3">
+    <div
+      v-if="readState === 'success' && confirmedOrders?.length"
+      class="mb-5 flex flex-col gap-3 border-b border-[var(--border)] lg:flex-row lg:items-end lg:justify-between"
+    >
+      <div
+        role="tablist"
+        aria-label="Filtrar pedidos"
+        class="-mb-px flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <button
+          v-for="tab in ORDER_TABS"
+          :key="tab.value"
+          type="button"
+          role="tab"
+          :aria-selected="statusFilter === tab.value"
+          :disabled="cancellationPending"
+          class="flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[15px] font-medium transition-colors"
+          :class="
+            statusFilter === tab.value
+              ? 'border-[var(--action)] text-[var(--text-strong)]'
+              : 'border-transparent text-[var(--link)] hover:text-[var(--action-hover)]'
+          "
+          @click="statusFilter = tab.value"
+        >
+          {{ tab.label }}
+          <span class="tabular text-xs text-[var(--text-muted)]">{{ tabCount(tab) }}</span>
+        </button>
+      </div>
       <UInput
         v-model="query"
         :disabled="cancellationPending"
         icon="i-lucide-search"
         placeholder="Buscar por número de pedido"
         aria-label="Buscar por número de pedido"
-        class="w-full sm:w-64"
-      />
-      <USelect
-        v-model="statusFilter"
-        :disabled="cancellationPending"
-        :items="statusOptions"
-        class="w-full sm:w-56"
-        aria-label="Filtrar pedidos por estado"
+        class="w-full pb-2 lg:w-72"
       />
     </div>
+    <p
+      v-if="readState === 'success' && statusFilter === 'devolver' && orders.length"
+      class="mb-4 rounded-[var(--radius-control)] border border-neteco-200 bg-neteco-50 px-4 py-3 text-sm text-[var(--text)]"
+    >
+      Elige el pedido y pulsa <strong>Devolver productos</strong>. Si eres consumidor, tienes 14 días naturales desde la
+      entrega.
+      <NuxtLink to="/devoluciones" class="font-medium text-[var(--link)] underline"
+        >Cómo funcionan las devoluciones</NuxtLink
+      >
+    </p>
 
     <div v-if="readState === 'loading'" role="status" class="space-y-3">
       <p class="sr-only">Cargando tus pedidos.</p>
@@ -293,8 +355,8 @@ onBeforeUnmount(() => {
       <UiEmptyState
         variant="filtered"
         icon="i-lucide-filter"
-        title="Ningún pedido coincide con el filtro"
-        description="Prueba con otro número o quita el filtro de estado."
+        title="No hay pedidos en esta vista"
+        description="Prueba con otro número o vuelve a ver todos tus pedidos."
       >
         <UButton
           color="neutral"
@@ -306,18 +368,16 @@ onBeforeUnmount(() => {
             }
           "
         >
-          Quitar filtros
+          Ver todos los pedidos
         </UButton>
       </UiEmptyState>
     </UiSurface>
 
-    <!-- El más reciente abierto de entrada: es el que se viene a mirar -->
-    <div v-else class="space-y-3">
+    <div v-else class="space-y-4">
       <AccountOrderRow
-        v-for="(order, index) in orders"
+        v-for="order in orders"
         :key="order.id"
         :order="order"
-        :default-open="index === 0"
         :operation-pending="
           cancellationCloudflare && (reorderActivity || cancellationOwners.some((id) => id !== order.id))
         "

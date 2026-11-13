@@ -115,11 +115,9 @@ function changePage(value: number, timeline = false) {
       no acreditan acceso.
     </p>
     <template v-else>
-      <p v-if="listLoading" data-testid="customer-support-loading" role="status">
-        Confirmando consultas vinculadas a tu cuenta…
-      </p>
+      <p v-if="listLoading" data-testid="customer-support-loading" role="status">Cargando tus consultas…</p>
       <p v-if="listFailed" data-testid="customer-support-read-error" role="alert">
-        No se ha confirmado el historial. No se interpreta como una lista vacía.
+        No hemos podido cargar tus consultas ahora mismo. Vuelve a intentarlo en unos minutos.
       </p>
       <button
         data-testid="customer-support-refresh"
@@ -129,11 +127,9 @@ function changePage(value: number, timeline = false) {
       >
         Actualizar mis consultas
       </button>
-      <a href="/contacto" class="underline">Registrar otra consulta contextual</a>
+      <a href="/contacto" class="underline">Escribir una consulta nueva</a>
       <div v-if="items">
-        <p v-if="items.pagination.total === 0">
-          No hay consultas confirmadas vinculadas a esta cuenta. Las consultas anónimas no se reclaman por correo.
-        </p>
+        <p v-if="items.pagination.total === 0">Todavía no tienes consultas en esta cuenta.</p>
         <ul>
           <li v-for="item in items.items" :key="item.publicRef" class="rounded border p-3">
             <button :disabled="pending || detailLoading" class="underline" @click="select(item.publicRef)">
@@ -150,7 +146,7 @@ function changePage(value: number, timeline = false) {
           </button>
         </nav>
       </div>
-      <p v-if="detailLoading" role="status">Confirmando conversación privada…</p>
+      <p v-if="detailLoading" role="status">Cargando la conversación…</p>
       <p v-if="detailFailed" role="alert">Ticket no confirmado: no se muestran hechos almacenados de otra lectura.</p>
       <button v-if="selected" :disabled="detailLoading || pending" class="rounded border p-2" @click="detail.refresh()">
         Actualizar conversación

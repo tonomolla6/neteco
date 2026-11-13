@@ -226,8 +226,8 @@ onBeforeUnmount(() => {
   >
     <h2 :id="prefix + '-title'" class="text-base font-semibold">Cancelación del pedido</h2>
     <p class="text-sm">
-      Sólo se ofrece cuando el servidor confirma que este pedido admite cancelación sin pago. No tramita devoluciones ni
-      reembolsos.
+      Puedes cancelar un pedido mientras no se haya pagado ni preparado. Para devolver algo que ya has recibido, usa
+      «Devolver productos».
     </p>
     <p v-if="status === 'loading'" data-cancel-loading role="status" aria-busy="true">
       Comprobando si la cancelación está disponible…
@@ -262,9 +262,7 @@ onBeforeUnmount(() => {
           class="w-full min-w-0 rounded border p-2 focus-visible:outline-2"
           :aria-describedby="prefix + '-reason-help'"
         />
-        <p :id="prefix + '-reason-help'" class="text-xs">
-          Entre 10 y 500 caracteres. No incluyas datos de pago ni información personal innecesaria.
-        </p>
+        <p :id="prefix + '-reason-help'" class="text-xs">Entre 10 y 500 caracteres. No incluyas datos de pago.</p>
       </div>
       <label class="flex items-start gap-2"
         ><input
@@ -273,7 +271,7 @@ onBeforeUnmount(() => {
           type="checkbox"
           required
           :disabled="!!intent || !!busy"
-        />Confirmo que deseo cancelar este pedido si el servidor sigue permitiéndolo.</label
+        />Confirmo que quiero cancelar este pedido.</label
       >
       <button
         data-cancel-submit

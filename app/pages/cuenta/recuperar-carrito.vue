@@ -3,8 +3,8 @@ import CartRecoveryPanel from '../../components/CartRecoveryPanel.vue'
 import { cartRecoveryResolveInputSchema } from '~~/shared/cart-recovery'
 // This capability entry must not use the account middleware: it redirects
 // fullPath and would move the secret fragment into a login query.
-definePageMeta({ layout: 'default' })
-useSeoMeta({ title: 'Recuperar carrito', robots: 'noindex, nofollow, noarchive' })
+definePageMeta({ layout: 'cuenta' })
+useSeoMeta({ title: 'Recordatorios de carrito', robots: 'noindex, nofollow, noarchive' })
 useHead({ meta: [{ name: 'referrer', content: 'no-referrer' }] })
 const auth = useUserSession(),
   runtime = useRuntimeConfig()
@@ -87,35 +87,43 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <main class="space-y-5">
-    <h1 class="text-2xl font-semibold">Recuperar carrito</h1>
-    <p>
-      Revisa los productos, precios y disponibilidad actuales antes de retomar el carrito. El enlace no reserva stock,
-      no crea un pedido ni confirma un pago.
+  <div class="space-y-6">
+    <UiPageHeader
+      title="Recordatorios de carrito"
+      description="Si dejas una compra a medias, podemos enviarte un correo para que la retomes. Antes de recuperarla verás los productos y precios actuales."
+    />
+    <p v-if="fragmentError" role="alert">El enlace no es válido. No se ha cambiado nada.</p>
+    <p v-if="pending" role="status">
+      Hay un cambio pendiente de confirmar. Espera a ver el resultado antes de repetirlo.
     </p>
-    <p v-if="fragmentError" role="alert">El enlace no es válido. No se ha enviado ninguna solicitud.</p>
-    <p v-if="pending" role="status">Hay una operación sin confirmar. Consulta su recibo antes de repetirla.</p>
     <p v-if="confirmedAction" role="status">
       {{
         confirmedAction === 'resume'
-          ? 'El carrito se ha retomado y comprobado. Revisa el envío antes de realizar un pedido.'
-          : 'La operación está confirmada.'
+          ? 'Hemos recuperado tu carrito. Revisa el envío antes de hacer el pedido.'
+          : 'Cambio guardado.'
       }}
     </p>
-    <CartRecoveryPanel
-      v-if="enabled"
-      :enabled="enabled"
-      :scope-key="scopeKey"
-      :pending="false"
-      :recovery="recovery"
-      @pending="pending = $event"
-      @confirmed="onConfirmed"
-    />
-    <p v-else>
-      Necesitas una cuenta con correo verificado.
-      <a href="/login?redirect=%2Fcuenta%2Frecuperar-carrito" class="underline">Inicia sesión</a> y reabre el enlace
-      original del correo. No se conserva el secreto durante el acceso.
-    </p>
-    <a href="/carrito" class="underline">Ir al carrito</a>
-  </main>
+    <div v-if="enabled" class="account-card account-embedded">
+      <CartRecoveryPanel
+        :enabled="enabled"
+        :scope-key="scopeKey"
+        :pending="false"
+        :recovery="recovery"
+        @pending="pending = $event"
+        @confirmed="onConfirmed"
+      />
+    </div>
+    <UiSurface v-else padding="none">
+      <UiEmptyState
+        icon="i-lucide-shopping-cart"
+        title="Inicia sesión para gestionar tus recordatorios"
+        description="Necesitas una cuenta con el correo confirmado. Si vienes de un correo nuestro, vuelve a abrir su enlace después de entrar."
+      >
+        <UButton to="/login?redirect=%2Fcuenta%2Frecuperar-carrito" external>Iniciar sesión</UButton>
+      </UiEmptyState>
+    </UiSurface>
+    <div>
+      <UButton to="/carrito" color="neutral" variant="outline" icon="i-lucide-shopping-cart">Ir a mi carrito</UButton>
+    </div>
+  </div>
 </template>

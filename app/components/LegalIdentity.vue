@@ -36,30 +36,43 @@ const rows = computed(() =>
 
 <style scoped>
 .legal-identity {
-  display: grid;
-  gap: 0.5rem;
   margin-top: 1rem;
-  padding: 1rem 1.25rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--surface);
+  overflow: hidden;
+  max-width: 44rem;
 }
 .legal-identity > div {
   display: grid;
   gap: 0.125rem;
+  padding: 0.75rem 1rem;
+}
+.legal-identity > div + div {
+  border-top: 1px solid var(--border);
 }
 @media (min-width: 640px) {
   .legal-identity > div {
-    grid-template-columns: 11rem minmax(0, 1fr);
+    grid-template-columns: 12rem minmax(0, 1fr);
     gap: 1rem;
+    padding: 0;
+  }
+  .legal-identity dt,
+  .legal-identity dd {
+    padding: 0.75rem 1rem;
+  }
+  .legal-identity dt {
+    background: var(--surface-sunken);
   }
 }
 .legal-identity dt {
-  font-weight: 600;
+  font-size: 0.875rem;
+  font-weight: 700;
   color: var(--text-strong);
 }
 .legal-identity dd {
   margin: 0;
   overflow-wrap: anywhere;
+  color: var(--text-strong);
 }
 </style>

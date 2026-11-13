@@ -28,7 +28,9 @@ const scope = computed(() => `${user.value?.id}:${session.value?.sessionId}:${se
     />
     <p v-if="!cloudflare" role="alert">Este servicio no ofrece el centro de preferencias.</p>
     <template v-else>
-      <UiSurface><PreferenceCenterPanel :key="`center:${scope}`" :enabled="enabled" /></UiSurface>
+      <UiSurface class="account-embedded"
+        ><PreferenceCenterPanel :key="`center:${scope}`" :enabled="enabled"
+      /></UiSurface>
       <UiSurface><ReplenishmentRemindersPanel :key="`replenishment:${scope}`" :enabled="enabled" /></UiSurface>
     </template>
   </div>

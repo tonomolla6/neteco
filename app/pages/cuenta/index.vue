@@ -48,12 +48,6 @@ const readState = reactive<Record<Resource | 'lines', ReadState>>({
   favorites: 'idle',
   lines: 'idle'
 })
-const resourceLabels: Record<Resource, string> = {
-  orders: 'pedidos',
-  profile: 'datos de cuenta',
-  addresses: 'direcciones',
-  favorites: 'listas'
-}
 const text = z.string().max(4096),
   nullableText = text.nullable()
 const ordersSchema = z
@@ -305,8 +299,9 @@ const lastOrderLines = cloudflare
         key: 'last-order-lines'
       })
     ).data
-const lastOrderItems = computed(() => lastOrderLines.value?.lines ?? [])
-const recentOrders = computed(() => orders.value.slice(1, 4))
+const previousOrders = computed(() => orders.value.slice(0, 3))
+const sectionGroups = computed(() => accountSectionGroups(cloudflare))
+const greetingName = computed(() => user.value?.name || user.value?.company || user.value?.email || 'cliente')
 const openOrders = computed(
   () => orders.value.filter((order) => !['entregado', 'cancelado', 'reembolsado'].includes(order.status)).length
 )
@@ -330,28 +325,7 @@ const companyExplanation = computed(() =>
   })
 )
 
-/**
- * Lo que antes eran cuatro tarjetas que repetían el menú lateral (Pedidos, Listas, Direcciones,
- * Acceso) ahora son datos: cuántos pedidos, qué listas hay y dónde se entrega. Los mismos
- * textos honestos cuando la lectura no está confirmada.
- */
-const ordersHint = computed(() =>
-  cloudflare
-    ? readState.orders === 'success' && authorized()
-      ? `${orders.value.length} consultados`
-      : 'Pedidos no confirmados'
-    : `${orders.value.length} en total`
-)
 const listsConfirmed = computed(() => !cloudflare || (readState.favorites === 'success' && authorized()))
-const listSummaries = computed(() =>
-  listsConfirmed.value
-    ? (favoriteData.value?.lists ?? []).map((list) => ({
-        id: list.id,
-        name: list.name,
-        count: `${list.items.length} ${list.items.length === 1 ? 'referencia' : 'referencias'}`
-      }))
-    : []
-)
 const listsHint = computed(() =>
   !listsConfirmed.value
     ? 'Listas no confirmadas'
@@ -368,6 +342,24 @@ const deliveryHint = computed(() =>
         : `${defaultAddress.value.city} y ${addressData?.value?.addresses.length ?? 0} más`
       : 'Sin direcciones'
 )
+
+/**
+ * Los bloques de la portada enseñan el dato real cuando ya está leído (cuántos pedidos hay en
+ * curso, dónde se entrega) y, mientras tanto, la descripción fija de la sección.
+ */
+const blockHints = computed<Record<string, string>>(() => {
+  const hints: Record<string, string> = {}
+  const ordersRead = !cloudflare || (readState.orders === 'success' && authorized())
+  if (ordersRead && orders.value.length)
+    hints['/cuenta/pedidos'] = openOrders.value
+      ? `${openOrders.value} ${openOrders.value === 1 ? 'pedido en curso' : 'pedidos en curso'}. Sigue el envío o repite una compra.`
+      : 'Repite una compra, descarga la factura o consulta un pedido anterior.'
+  if (listsConfirmed.value && favoriteCount.value)
+    hints['/cuenta/listas'] = `${listsHint.value} guardadas para volver a pedir.`
+  const addressesRead = !cloudflare || (readState.addresses === 'success' && authorized())
+  if (addressesRead && defaultAddress.value) hints['/cuenta/direcciones'] = `Entrega habitual en ${deliveryHint.value}.`
+  return hints
+})
 
 function onAdded(count: number) {
   if (cloudflare && (!authorized() || readState.orders !== 'success' || !Number.isSafeInteger(count) || count < 1))
@@ -413,112 +405,22 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <UiPageHeader title="Resumen" description="Tu último pedido, tus datos y los accesos rápidos a cada sección." />
+  <div class="space-y-8">
+    <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+      <div class="min-w-0">
+        <h1>Mi cuenta</h1>
+        <p class="mt-1.5 text-[var(--text-muted)]">
+          Hola, <span class="font-semibold text-[var(--text-strong)]">{{ greetingName }}</span
+          >. Desde aquí gestionas tus pedidos, tus datos y tus avisos.
+        </p>
+      </div>
+      <UButton to="/catalogo" color="neutral" variant="outline" icon="i-lucide-shopping-bag">Seguir comprando</UButton>
+    </div>
 
     <AccountFeedback :notice="notice" />
     <B2BCustomerTerms v-if="cloudflare" :enabled="authorized()" :scope-key="scopeKey" />
-    <div v-if="cloudflare" class="space-y-3">
-      <p v-if="!authorized()" role="status">
-        Confirma tu sesión y correo verificado para consultar el resumen privado.
-      </p>
-      <UButton :disabled="!authorized() || Object.values(readState).includes('pending')" @click="readAll"
-        >Actualizar resumen</UButton
-      >
-      <template v-for="(label, name) in resourceLabels" :key="name">
-        <section v-if="readState[name] !== 'success'" class="rounded-lg border p-3 text-sm">
-          <p v-if="readState[name] === 'pending'" :data-overview-loading="name" role="status">
-            Consultando {{ label }}…
-          </p>
-          <p v-else-if="readState[name] === 'error'" :data-overview-error="name" role="alert">
-            No se han podido confirmar {{ label }}. No se interpreta como datos vacíos.
-          </p>
-          <p v-else role="status">{{ label }} sin confirmar.</p>
-          <UButton
-            :data-overview-retry="name"
-            :disabled="!authorized() || readState[name] === 'pending'"
-            @click="readResource(name)"
-            >Volver a consultar {{ label }}</UButton
-          >
-        </section>
-      </template>
-    </div>
 
-    <!-- Lo primero de la página es la acción principal, no un formulario de perfil -->
-    <UiSurface v-if="lastOrder" tone="accent" padding="lg">
-      <div class="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-        <div class="min-w-0">
-          <p class="text-[13px] font-semibold text-[var(--text-muted)]">Tu último pedido</p>
-          <p class="tabular mt-1 text-2xl font-bold text-[var(--text-strong)]">{{ lastOrder.id }}</p>
-          <p class="mt-1 text-[var(--text-muted)]">
-            {{ formatAccountDate(lastOrder.createdAt) }} · {{ lastOrder.lines }}
-            {{ lastOrder.lines === 1 ? 'referencia' : 'referencias' }} ·
-            <span class="tabular font-semibold text-[var(--text-strong)]">{{ formatPrice(lastOrder.total) }}</span>
-          </p>
-          <UBadge
-            class="mt-3"
-            variant="subtle"
-            :color="(ORDER_STATUS[lastOrder.status] ?? ORDER_STATUS.pendiente_pago!).color"
-            :icon="(ORDER_STATUS[lastOrder.status] ?? ORDER_STATUS.pendiente_pago!).icon"
-          >
-            {{ (ORDER_STATUS[lastOrder.status] ?? ORDER_STATUS.pendiente_pago!).label }}
-          </UBadge>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <UButton
-            size="lg"
-            icon="i-lucide-rotate-cw"
-            :disabled="cloudflare && readState.lines !== 'success'"
-            @click="startReorder(lastOrder.id)"
-          >
-            Volver a pedir
-          </UButton>
-          <UButton size="lg" color="neutral" variant="outline" to="/cuenta/pedidos">Ver mis pedidos</UButton>
-        </div>
-      </div>
-      <div v-if="cloudflare && readState.lines !== 'success'" class="mt-4 rounded-lg border p-3 text-sm">
-        <p v-if="readState.lines === 'pending'" data-overview-loading="lines" role="status">
-          Consultando las referencias del último pedido…
-        </p>
-        <p v-else data-overview-error="lines" role="alert">
-          No se han podido confirmar las referencias. La recompra permanece deshabilitada.
-        </p>
-        <UButton
-          data-overview-retry="lines"
-          :disabled="!authorized() || readState.lines === 'pending'"
-          @click="readLines"
-          >Consultar referencias</UButton
-        >
-      </div>
-
-      <!-- Qué llevaba: «volver a pedir» sin enseñar el qué obliga a salir de la página -->
-      <ul v-if="lastOrderItems.length" class="mt-5 space-y-2 border-t border-neteco-200 pt-4">
-        <li v-for="line in lastOrderItems.slice(0, 4)" :key="line.sku" class="flex items-center gap-3">
-          <OrderLineThumb :line="line" size="sm" />
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-[var(--text-strong)]">{{ line.name }}</p>
-            <p class="truncate text-xs text-[var(--text-muted)]">{{ line.format }} · Ref. {{ line.sku }}</p>
-          </div>
-          <span class="tabular shrink-0 text-sm text-[var(--text-muted)]">× {{ line.quantity }}</span>
-        </li>
-        <li v-if="lastOrderItems.length > 4" class="pl-13 text-sm text-[var(--text-muted)]">
-          y {{ lastOrderItems.length - 4 }}
-          {{ lastOrderItems.length - 4 === 1 ? 'referencia más' : 'referencias más' }}
-        </li>
-      </ul>
-    </UiSurface>
-
-    <UiSurface v-else-if="!cloudflare || (authorized() && readState.orders === 'success')" padding="none">
-      <UiEmptyState
-        icon="i-lucide-package"
-        title="Aún no has hecho ningún pedido"
-        description="Cuando hagas el primero, podrás repetirlo desde aquí en un par de clics."
-      >
-        <UButton to="/catalogo" icon="i-lucide-arrow-right" trailing>Ver el catálogo</UButton>
-      </UiEmptyState>
-    </UiSurface>
-
-    <!-- Estado de la cuenta profesional: antes se leía «Estado: pending · company_admin» -->
+    <!-- Estado de la cuenta profesional -->
     <UiSurface v-if="companyStatus" padding="sm">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex flex-wrap items-center gap-2 text-sm">
@@ -540,62 +442,97 @@ onBeforeUnmount(() => {
       </p>
     </UiSurface>
 
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <UiSurface data-account-lists>
-        <div class="flex items-start justify-between gap-3">
-          <h2 class="text-lg font-bold text-[var(--text-strong)]">Tus listas</h2>
-          <NuxtLink to="/cuenta/listas" class="shrink-0 text-sm font-semibold text-[var(--link)] underline"
-            >Abrir mis listas</NuxtLink
+    <!-- Bloques clicables: cada sección de la cuenta, a un clic -->
+    <section v-for="group in sectionGroups" :key="group.title" :aria-label="group.title" data-account-blocks>
+      <h2 class="pb-3">{{ group.title }}</h2>
+      <ul class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <li v-for="section in group.sections" :key="section.to + section.label">
+          <NuxtLink
+            :to="section.to"
+            class="account-block group flex h-full items-start gap-4 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-neteco-300 hover:bg-neteco-50/40 hover:shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action)] sm:p-5"
           >
-        </div>
-        <ul v-if="listSummaries.length" class="mt-3 space-y-1.5 text-[15px]">
-          <li v-for="list in listSummaries" :key="list.id" class="flex justify-between gap-3">
-            <span class="min-w-0 truncate font-medium text-[var(--text-strong)]">{{ list.name }}</span>
-            <span class="tabular shrink-0 text-[var(--text-muted)]">{{ list.count }}</span>
-          </li>
-        </ul>
-        <p v-else class="mt-3 text-sm text-[var(--text-muted)]">{{ listsHint }}</p>
-      </UiSurface>
-      <UiSurface data-account-delivery>
-        <div class="flex items-start justify-between gap-3">
-          <h2 class="text-lg font-bold text-[var(--text-strong)]">Entrega habitual</h2>
-          <NuxtLink to="/cuenta/direcciones" class="shrink-0 text-sm font-semibold text-[var(--link)] underline"
-            >Cambiar</NuxtLink
-          >
-        </div>
-        <p class="mt-3 text-[15px] text-[var(--text)]">{{ deliveryHint }}</p>
-      </UiSurface>
-    </div>
-
-    <section v-if="recentOrders.length">
-      <div class="flex items-center justify-between pb-3">
-        <h2 class="text-lg font-bold text-[var(--text-strong)]">
-          Pedidos anteriores
-          <span class="ml-1 text-sm font-normal text-[var(--text-muted)]">{{ ordersHint }}</span>
-        </h2>
-        <UButton size="sm" color="neutral" variant="ghost" to="/cuenta/pedidos" trailing icon="i-lucide-chevron-right">
-          Ver todos
-        </UButton>
-      </div>
-      <div class="space-y-3">
-        <AccountOrderRow v-for="order in recentOrders" :key="order.id" :order="order" @reorder="startReorder" />
-      </div>
+            <span
+              class="grid size-12 shrink-0 place-items-center rounded-full bg-neteco-50 text-neteco-700 group-hover:bg-neteco-100"
+            >
+              <UIcon :name="section.icon" class="size-6" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-base font-bold text-[var(--text-strong)]">{{ section.label }}</span>
+              <span class="mt-0.5 block text-sm leading-snug text-[var(--text-muted)]">
+                {{ blockHints[section.to] ?? section.description }}
+              </span>
+            </span>
+            <UIcon
+              name="i-lucide-chevron-right"
+              class="mt-1 size-4 shrink-0 text-[var(--text-muted)] group-hover:text-neteco-700"
+            />
+          </NuxtLink>
+        </li>
+      </ul>
     </section>
 
-    <p v-if="openOrders" class="text-sm text-[var(--text-muted)]">
-      <template v-if="cloudflare"
-        >Entre los pedidos consultados hay {{ openOrders }}
-        {{ openOrders === 1 ? 'pedido en curso' : 'pedidos en curso' }}.</template
-      >
-      <template v-else
-        >Tienes {{ openOrders }} {{ openOrders === 1 ? 'pedido en curso' : 'pedidos en curso' }}.</template
-      >
-      <NuxtLink to="/cuenta/pedidos" class="font-medium text-neteco-700 underline">Seguir su estado</NuxtLink>
-    </p>
+    <!-- Pedidos anteriores: al final, como referencia; la gestión completa vive en Pedidos -->
+    <section aria-labelledby="account-previous-orders" data-account-previous-orders>
+      <div class="flex flex-wrap items-center justify-between gap-3 pb-3">
+        <h2 id="account-previous-orders">Pedidos anteriores</h2>
+        <UButton
+          v-if="orders.length"
+          size="sm"
+          color="neutral"
+          variant="ghost"
+          to="/cuenta/pedidos"
+          trailing
+          icon="i-lucide-chevron-right"
+        >
+          Ver todos los pedidos
+        </UButton>
+      </div>
 
-    <p v-if="cloudflare && orders.length === 200" role="status" class="text-sm text-[var(--text-muted)]">
-      Esta consulta muestra como máximo los 200 más recientes; no confirma el total histórico de la cuenta.
-    </p>
+      <div v-if="cloudflare && readState.orders === 'pending'" role="status" class="space-y-3">
+        <p class="sr-only" data-overview-loading="orders">Consultando pedidos…</p>
+        <div
+          v-for="row in 2"
+          :key="row"
+          class="h-40 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)]"
+          aria-hidden="true"
+        />
+      </div>
+      <UiSurface v-else-if="cloudflare && readState.orders === 'error'" padding="sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p data-overview-error="orders" class="text-sm text-[var(--text)]">
+            No hemos podido cargar tus pedidos ahora mismo.
+          </p>
+          <UButton
+            data-overview-retry="orders"
+            size="sm"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-rotate-cw"
+            :disabled="!authorized()"
+            @click="readResource('orders')"
+          >
+            Reintentar
+          </UButton>
+        </div>
+      </UiSurface>
+      <div v-else-if="previousOrders.length" class="space-y-4">
+        <AccountOrderRow v-for="order in previousOrders" :key="order.id" :order="order" @reorder="startReorder" />
+      </div>
+      <UiSurface v-else-if="!cloudflare || (authorized() && readState.orders === 'success')" padding="none">
+        <UiEmptyState
+          icon="i-lucide-package"
+          title="Aún no has hecho ningún pedido"
+          description="Cuando hagas el primero, podrás seguirlo y repetirlo desde aquí."
+        >
+          <UButton to="/catalogo" icon="i-lucide-arrow-right" trailing>Ver el catálogo</UButton>
+        </UiEmptyState>
+      </UiSurface>
+
+      <p v-if="cloudflare && orders.length === 200" role="status" class="mt-3 text-sm text-[var(--text-muted)]">
+        Se muestran como máximo los 200 pedidos más recientes.
+      </p>
+    </section>
+
     <ReorderDialog
       v-if="!cloudflare || (authorized() && readState.orders === 'success')"
       :key="cloudflare ? scopeKey : 'node'"

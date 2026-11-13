@@ -170,6 +170,34 @@ async function requestAnonymize() {
     showNotice('Solicitud registrada. Verás su estado y su plazo en esta misma página.')
   }, 'No se ha podido registrar la solicitud.')
 }
+
+/** Accesos a los demás ajustes de avisos, para no tener que buscarlos en el menú. */
+const OTHER_NOTICES = [
+  {
+    to: '/cuenta/newsletter',
+    label: 'Boletín',
+    hint: 'De qué temas te escribimos y cada cuánto.',
+    icon: 'i-lucide-mails'
+  },
+  {
+    to: '/cuenta/centro-preferencias',
+    label: 'Centro de preferencias',
+    hint: 'Frecuencia, canales y recordatorios de reposición.',
+    icon: 'i-lucide-sliders-horizontal'
+  },
+  {
+    to: '/cuenta/preferencias-mensajes',
+    label: 'SMS y WhatsApp',
+    hint: 'Tus permisos para avisos en el móvil.',
+    icon: 'i-lucide-message-circle'
+  },
+  {
+    to: '/cuenta/avisos-productos',
+    label: 'Avisos de productos',
+    hint: 'Disponibilidad y bajadas de precio.',
+    icon: 'i-lucide-bell-ring'
+  }
+]
 </script>
 
 <template>
@@ -180,46 +208,57 @@ async function requestAnonymize() {
     />
 
     <template v-if="cloudflare">
-      <UiSurface>
-        <h2 class="text-lg font-bold">Tus comunicaciones y solicitudes de privacidad</h2>
-        <p class="mt-3">
-          Guardar preferencias no envía mensajes ni activa campañas de marketing. El envío externo por ESP o SMS no está
-          habilitado aquí.
-        </p>
-        <p class="mt-3">La anonimización registra una solicitud: no confirma que tus datos se hayan anonimizado.</p>
-        <NuxtLink to="/cuenta/newsletter" class="mt-4 inline-block underline"
-          >Gestionar temas y frecuencia newsletter</NuxtLink
-        >
-        <NuxtLink to="/cuenta/centro-preferencias" class="mt-4 block underline"
-          >Centro de preferencias y recordatorios de reposición</NuxtLink
-        >
-        <p class="mt-3 text-sm">Guardar preferencias newsletter no crea consentimiento ni sustituye el doble opt-in.</p>
-      </UiSurface>
       <template v-if="settingsEnabled">
-        <AccountPreferencesPanel
-          :key="`preferences:${settingsScope}:${settingsEpoch}`"
-          runtime="cloudflare"
-          :scope-key="settingsScope"
-          :enabled="settingsEnabled"
-          :pending="privacyPending || deliveryPending"
-          @pending="pendingHandlers.preferences"
-        />
-        <AccountPrivacyPanel
-          :key="`privacy:${settingsScope}:${settingsEpoch}`"
-          :scope-key="settingsScope"
-          :enabled="settingsEnabled"
-          :pending="preferencesPending || deliveryPending"
-          @pending="pendingHandlers.privacy"
-        />
-        <DeliveryPreferencesPanel
-          :key="`delivery:${settingsScope}:${settingsEpoch}`"
-          :scope-key="settingsScope"
-          :enabled="settingsEnabled"
-          :pending="privacyPending || preferencesPending"
-          @pending="pendingHandlers.delivery"
-        />
+        <div class="account-card">
+          <AccountPreferencesPanel
+            :key="`preferences:${settingsScope}:${settingsEpoch}`"
+            runtime="cloudflare"
+            :scope-key="settingsScope"
+            :enabled="settingsEnabled"
+            :pending="privacyPending || deliveryPending"
+            @pending="pendingHandlers.preferences"
+          />
+        </div>
+        <div class="account-card">
+          <DeliveryPreferencesPanel
+            :key="`delivery:${settingsScope}:${settingsEpoch}`"
+            :scope-key="settingsScope"
+            :enabled="settingsEnabled"
+            :pending="privacyPending || preferencesPending"
+            @pending="pendingHandlers.delivery"
+          />
+        </div>
+        <div class="account-card">
+          <AccountPrivacyPanel
+            :key="`privacy:${settingsScope}:${settingsEpoch}`"
+            :scope-key="settingsScope"
+            :enabled="settingsEnabled"
+            :pending="preferencesPending || deliveryPending"
+            @pending="pendingHandlers.privacy"
+          />
+        </div>
       </template>
-      <p v-else role="status">Verifica tu sesión y tu correo para gestionar tus preferencias y solicitudes privadas.</p>
+      <p v-else role="status">Verifica tu sesión y tu correo para gestionar tus avisos y tus datos.</p>
+
+      <section aria-labelledby="more-notices">
+        <h2 id="more-notices" class="pb-3">Otros avisos</h2>
+        <ul class="grid gap-3 sm:grid-cols-2">
+          <li v-for="link in OTHER_NOTICES" :key="link.to">
+            <NuxtLink
+              :to="link.to"
+              class="group flex h-full items-start gap-3 rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-4 transition hover:border-neteco-300 hover:bg-neteco-50/40"
+            >
+              <span class="grid size-10 shrink-0 place-items-center rounded-full bg-neteco-50 text-neteco-700">
+                <UIcon :name="link.icon" class="size-5" />
+              </span>
+              <span class="min-w-0">
+                <span class="block font-semibold text-[var(--text-strong)]">{{ link.label }}</span>
+                <span class="block text-sm text-[var(--text-muted)]">{{ link.hint }}</span>
+              </span>
+            </NuxtLink>
+          </li>
+        </ul>
+      </section>
     </template>
     <template v-else-if="node">
       <AccountFeedback :notice="notice" :error="errorMessage" />

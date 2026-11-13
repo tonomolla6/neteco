@@ -113,22 +113,52 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section aria-labelledby="saved-payment-title">
-    <h1 id="saved-payment-title">Métodos de pago guardados</h1>
-    <p v-if="loading" role="status">Cargando métodos de pago…</p>
-    <p v-if="message" role="status">{{ message }}</p>
-    <div v-if="error" role="alert">
+  <section aria-labelledby="saved-payment-title" class="space-y-6">
+    <UiPageHeader
+      id="saved-payment-title"
+      title="Métodos de pago"
+      description="Las tarjetas que has guardado al pagar para no tener que escribirlas otra vez."
+    />
+    <p v-if="loading" role="status" class="text-sm text-[var(--text-muted)]">Cargando métodos de pago…</p>
+    <p
+      v-if="message"
+      role="status"
+      class="rounded-[var(--radius-control)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+    >
+      {{ message }}
+    </p>
+    <div
+      v-if="error"
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+    >
       <p>{{ error }}</p>
       <button v-if="pending" type="button" :disabled="busy" @click="remove()">Volver a comprobar</button>
       <button v-else type="button" :disabled="loading" @click="load()">Volver a cargar</button>
     </div>
-    <p v-if="!loading && !error && !tokens.length && !pendingTokens.length">No tienes métodos de pago guardados.</p>
-    <ul v-if="!loading && pendingTokens.length" aria-label="Retiradas pendientes">
-      <li v-for="item in pendingTokens" :key="item.id">Retirada pendiente de confirmación por el proveedor.</li>
-    </ul>
-    <ul v-if="!loading && tokens.length">
-      <li v-for="(token, index) in tokens" :key="token.id">
-        <span>Método guardado {{ index + 1 }}</span>
+    <UiSurface v-if="!loading && !error && !tokens.length && !pendingTokens.length" padding="none">
+      <UiEmptyState
+        icon="i-lucide-credit-card"
+        title="No tienes métodos de pago guardados"
+        description="Cuando pagues un pedido con tarjeta podrás guardarla para la próxima vez. Nunca almacenamos el número completo."
+      >
+        <UButton to="/catalogo" color="neutral" variant="outline">Ir al catálogo</UButton>
+      </UiEmptyState>
+    </UiSurface>
+    <div v-if="!loading && pendingTokens.length" class="account-card" aria-label="Retiradas pendientes">
+      <p v-for="item in pendingTokens" :key="item.id" class="text-sm text-[var(--text)]">
+        Estamos retirando una tarjeta. Falta la confirmación del banco.
+      </p>
+    </div>
+    <div v-if="!loading && tokens.length" class="grid gap-4 sm:grid-cols-2">
+      <div v-for="(token, index) in tokens" :key="token.id" class="account-card flex items-center gap-4">
+        <span class="grid size-11 shrink-0 place-items-center rounded-full bg-neteco-50 text-neteco-700">
+          <UIcon name="i-lucide-credit-card" class="size-5" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <p class="font-semibold text-[var(--text-strong)]">Tarjeta guardada {{ index + 1 }}</p>
+          <p class="text-sm text-[var(--text-muted)]">Disponible al pagar tus pedidos.</p>
+        </div>
         <button
           v-if="!pending"
           type="button"
@@ -136,9 +166,9 @@ onBeforeUnmount(() => {
           :aria-label="`Solicitar retirada del método guardado ${index + 1}`"
           @click="remove(token)"
         >
-          Solicitar retirada
+          Quitar
         </button>
-      </li>
-    </ul>
+      </div>
+    </div>
   </section>
 </template>

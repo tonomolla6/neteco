@@ -130,78 +130,60 @@ watch([activeCategory, activeStatus], () => {
 
 <template>
   <div class="space-y-6">
-    <!-- Header with title and Mark All as Read action -->
-    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-[var(--text-strong)]">Centro de notificaciones</h1>
-        <p class="mt-1 text-sm text-[var(--text-muted)]">
-          Consulta y gestiona las comunicaciones operativas de tus pedidos, facturas, alertas de stock y soporte.
-        </p>
-      </div>
-      <div v-if="hasUnread" class="flex items-center gap-2">
-        <button
-          type="button"
+    <UiPageHeader
+      title="Notificaciones"
+      description="Los mensajes sobre tus pedidos, facturas, avisos de stock y consultas, en un solo sitio."
+    >
+      <template v-if="hasUnread" #actions>
+        <UButton
           data-test="btn-mark-all-read"
+          color="neutral"
+          variant="outline"
+          icon="i-lucide-check-check"
           :disabled="markingRead"
-          class="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-1.5 text-xs font-semibold text-[var(--text-strong)] transition hover:bg-[var(--surface-raised)] disabled:opacity-50"
           @click="markAllAsRead"
         >
-          <span class="size-2 rounded-full bg-neteco-600"></span>
           Marcar todas como leídas
-        </button>
-      </div>
-    </div>
-
-    <!-- Mandatory communication alert notice -->
-    <div
-      role="note"
-      class="flex items-start gap-3 rounded-[var(--radius-control)] border border-blue-200 bg-blue-50/70 p-3.5 text-xs text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-200"
-    >
-      <div>
-        <span class="font-semibold">Aviso legal:</span> Las notificaciones obligatorias no sustituyen los envíos legales
-        por email ni documentos fiscales oficiales vinculantes.
-      </div>
-    </div>
+        </UButton>
+      </template>
+    </UiPageHeader>
 
     <!-- Category filter tabs -->
-    <div
-      class="flex flex-wrap items-center gap-2 border-b border-[var(--border)] pb-2"
-      role="tablist"
-      aria-label="Categorías de notificación"
-    >
-      <button
-        v-for="cat in categories"
-        :key="cat.id"
-        type="button"
-        role="tab"
-        :aria-selected="activeCategory === cat.id"
-        :data-test="`category-tab-${cat.id}`"
-        class="inline-flex items-center gap-1.5 rounded-[var(--radius-control)] px-3 py-1.5 text-xs font-medium transition-colors"
-        :class="
-          activeCategory === cat.id
-            ? 'bg-neteco-600 text-white shadow-xs'
-            : 'text-[var(--text-muted)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text-strong)]'
-        "
-        @click="activeCategory = cat.id"
+    <div class="flex flex-col gap-3 border-b border-[var(--border)] sm:flex-row sm:items-end sm:justify-between">
+      <div
+        class="-mb-px flex gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        role="tablist"
+        aria-label="Categorías de notificación"
       >
-        <span>{{ cat.label }}</span>
-        <span
-          v-if="getUnreadCount(cat.id) > 0"
-          class="inline-flex size-4 items-center justify-center rounded-full text-[10px] font-bold"
-          :class="activeCategory === cat.id ? 'bg-white text-neteco-700' : 'bg-red-500 text-white'"
+        <button
+          v-for="cat in categories"
+          :key="cat.id"
+          type="button"
+          role="tab"
+          :aria-selected="activeCategory === cat.id"
+          :data-test="`category-tab-${cat.id}`"
+          class="flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-[15px] font-medium transition-colors"
+          :class="
+            activeCategory === cat.id
+              ? 'border-[var(--action)] text-[var(--text-strong)]'
+              : 'border-transparent text-[var(--link)] hover:text-[var(--action-hover)]'
+          "
+          @click="activeCategory = cat.id"
         >
-          {{ getUnreadCount(cat.id) }}
-        </span>
-      </button>
+          <span>{{ cat.label }}</span>
+          <span
+            v-if="getUnreadCount(cat.id) > 0"
+            class="inline-flex size-5 items-center justify-center rounded-full bg-red-600 text-[11px] font-bold text-white"
+          >
+            {{ getUnreadCount(cat.id) }}
+          </span>
+        </button>
+      </div>
 
       <!-- Status filter toggle (Todas vs No leídas) -->
-      <div class="ml-auto flex items-center gap-1 pl-2 text-xs">
-        <label for="filter-status" class="text-[var(--text-muted)]">Ver:</label>
-        <select
-          id="filter-status"
-          v-model="activeStatus"
-          class="rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--text-strong)]"
-        >
+      <div class="flex items-center gap-2 pb-2 text-sm">
+        <label for="filter-status" class="shrink-0 text-[var(--text-muted)]">Mostrar</label>
+        <select id="filter-status" v-model="activeStatus" class="w-auto">
           <option value="all">Todas</option>
           <option value="unread">Solo no leídas</option>
           <option value="read">Leídas</option>
@@ -230,22 +212,22 @@ watch([activeCategory, activeStatus], () => {
     </div>
 
     <!-- Empty state -->
-    <div
-      v-else-if="notifications.length === 0"
-      class="flex flex-col items-center justify-center rounded-[var(--radius-control)] border border-dashed border-[var(--border)] py-12 text-center"
-    >
-      <h3 class="mt-2 text-sm font-semibold text-[var(--text-strong)]">No tienes notificaciones en esta sección</h3>
-      <p class="mt-1 text-xs text-[var(--text-muted)]">
-        Cuando se produzcan actualizaciones relevantes en tus pedidos, facturas o soporte, las verás aquí.
-      </p>
-    </div>
+    <UiSurface v-else-if="notifications.length === 0" padding="none">
+      <UiEmptyState
+        icon="i-lucide-bell"
+        title="No tienes notificaciones aquí"
+        description="Cuando haya novedades en tus pedidos, facturas o consultas, las verás en esta página."
+      >
+        <UButton to="/cuenta/pedidos" color="neutral" variant="outline">Ver mis pedidos</UButton>
+      </UiEmptyState>
+    </UiSurface>
 
     <!-- Notifications list -->
     <div v-else class="space-y-3" role="feed" aria-label="Lista de notificaciones">
       <article
         v-for="item in notifications"
         :key="item.id"
-        class="relative flex flex-col justify-between gap-3 rounded-[var(--radius-control)] border p-4 transition-all sm:flex-row sm:items-start"
+        class="relative flex flex-col justify-between gap-3 rounded-[var(--radius-panel)] border p-4 transition-all sm:flex-row sm:items-start sm:p-5"
         :class="[
           item.read
             ? 'border-[var(--border)] bg-[var(--surface)] opacity-85'
@@ -294,7 +276,7 @@ watch([activeCategory, activeStatus], () => {
           <div v-if="item.link" class="pt-1">
             <NuxtLink
               :to="item.link"
-              class="inline-flex items-center gap-1 text-xs font-semibold text-neteco-600 hover:underline dark:text-neteco-400"
+              class="inline-flex items-center gap-1 text-sm font-semibold text-[var(--link)] hover:underline"
             >
               Ver detalles →
             </NuxtLink>
@@ -306,7 +288,7 @@ watch([activeCategory, activeStatus], () => {
           <button
             type="button"
             :disabled="markingRead"
-            class="rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1 text-xs font-medium text-[var(--text-strong)] hover:bg-[var(--surface-sunken)] disabled:opacity-50"
+            class="rounded-[var(--radius-control)] border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold text-[var(--text-strong)] hover:bg-[var(--surface-sunken)] disabled:opacity-50"
             @click="markSingleAsRead(item.id)"
           >
             Marcar leída
@@ -314,5 +296,9 @@ watch([activeCategory, activeStatus], () => {
         </div>
       </article>
     </div>
+    <p class="text-xs text-[var(--text-muted)]">
+      Estas notificaciones son informativas: las comunicaciones legales y las facturas oficiales te llegan siempre por
+      correo.
+    </p>
   </div>
 </template>

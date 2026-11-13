@@ -213,22 +213,23 @@ onMounted(load)
 
 <template>
   <section class="space-y-6" :aria-labelledby="`${prefix}-h`">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 :id="`${prefix}-h`" class="text-2xl font-bold text-slate-950">Solicitudes de empresa</h1>
-        <p class="text-sm text-slate-600">
-          Presupuestos, altas de producto, documentación, crédito y reclamaciones con seguimiento y plazo.
-        </p>
-      </div>
-      <button
-        type="button"
-        data-test="new-request"
-        class="rounded-lg bg-neteco-600 px-4 py-2 text-sm font-semibold text-white"
-        @click="creating = !creating"
-      >
-        {{ creating ? 'Cerrar' : 'Nueva solicitud' }}
-      </button>
-    </div>
+    <UiPageHeader
+      :id="`${prefix}-h`"
+      title="Solicitudes de empresa"
+      description="Presupuestos, altas de producto, documentación, crédito y reclamaciones, con su seguimiento y plazo."
+    >
+      <template #actions>
+        <UButton
+          data-test="new-request"
+          :icon="creating ? 'i-lucide-x' : 'i-lucide-plus'"
+          :color="creating ? 'neutral' : 'primary'"
+          :variant="creating ? 'outline' : 'solid'"
+          @click="creating = !creating"
+        >
+          {{ creating ? 'Cerrar' : 'Nueva solicitud' }}
+        </UButton>
+      </template>
+    </UiPageHeader>
 
     <p v-if="state === 'error'" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-700">{{ errorText }}</p>
     <p v-else-if="notice" role="status" class="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">{{ notice }}</p>

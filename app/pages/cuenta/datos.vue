@@ -512,7 +512,10 @@ async function saveCompany() {
 
 <template>
   <div class="space-y-6" :aria-busy="readState === 'loading' || pendingAction || busy">
-    <UiPageHeader title="Datos y empresa" description="Tus datos de contacto y los de facturación de tu negocio." />
+    <UiPageHeader
+      title="Empresa y facturación"
+      description="Tus datos de contacto y los de facturación de tu negocio."
+    />
 
     <AccountFeedback :notice="confirmedProfile ? notice : ''" :error="errorMessage" />
 

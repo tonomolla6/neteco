@@ -10,8 +10,23 @@ function onConfirmed(receipt: SalesQuoteReceipt) {
 }
 </script>
 <template>
-  <div class="space-y-8">
-    <SalesQuotesPanel audience="customer" @confirmed="onConfirmed" />
-    <PayGoldLinkPanel :receipt="paymentReceipt" />
+  <div class="space-y-6">
+    <UiPageHeader
+      title="Presupuestos"
+      description="Consulta los presupuestos que te hemos preparado y conviértelos en pedido cuando te encajen."
+    />
+    <div class="account-card account-embedded">
+      <SalesQuotesPanel audience="customer" @confirmed="onConfirmed" />
+    </div>
+    <div class="account-card">
+      <PayGoldLinkPanel :receipt="paymentReceipt" />
+    </div>
+    <UiSurface tone="sunken" padding="sm">
+      <p class="text-sm text-[var(--text)]">
+        ¿Necesitas un presupuesto nuevo? Pídelo desde
+        <NuxtLink to="/cuenta/solicitudes-b2b">Solicitudes de empresa</NuxtLink> o
+        <NuxtLink to="/contacto">escríbenos</NuxtLink>.
+      </p>
+    </UiSurface>
   </div>
 </template>

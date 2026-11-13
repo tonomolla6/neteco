@@ -99,10 +99,10 @@ async function load() {
       confirming.value = false
       notice.value =
         parsed.revision > intent.receipt.revision
-          ? 'Comando confirmado. El estado actual incluye cambios posteriores; revisa las preferencias mostradas.'
+          ? 'Cambio guardado. Revisa las preferencias que ves ahora, porque incluyen cambios posteriores.'
           : intent.body.action === 'unsubscribe'
-            ? 'Baja confirmada y permanente. No puedes reactivarla guardando preferencias.'
-            : 'Preferencias guardadas y confirmadas. No sustituyen el doble opt-in.'
+            ? 'Te hemos dado de baja del boletín.'
+            : 'Preferencias guardadas.'
     }
     snapshot.value = parsed
     if (!pending.value) {
@@ -117,7 +117,8 @@ async function load() {
     if (turn === epoch) {
       if (newsletterHttpAuthorityLossSchema.safeParse(failure).success || !allowed()) clearPrivate()
       snapshot.value = null
-      error.value = 'No hay una lectura confirmada de tus preferencias. No se ha activado ningún consentimiento.'
+      error.value =
+        'Ahora mismo no podemos mostrar tus preferencias del boletín. No se ha cambiado nada; prueba de nuevo en unos minutos.'
     }
   } finally {
     if (turn === epoch) busy.value = false
@@ -163,11 +164,8 @@ async function send() {
       } else if (newsletterPrecommitRejectionSchema.safeParse(failure).success) {
         pending.value = null
         snapshot.value = null
-        error.value =
-          'El servidor ha rechazado el comando antes de guardarlo. Actualiza el estado confirmado antes de preparar otro intento.'
-      } else
-        error.value =
-          'Resultado no confirmado. Conservamos la misma petición y clave; comprueba el estado o reintenta manualmente.'
+        error.value = 'No se ha podido guardar el cambio. Vuelve a cargar tus preferencias e inténtalo de nuevo.'
+      } else error.value = 'No hemos podido confirmar que se haya guardado. Puedes reintentarlo sin miedo a duplicarlo.'
     }
   } finally {
     if (turn === epoch) busy.value = false
@@ -192,7 +190,7 @@ function stage(action: 'save' | 'unsubscribe') {
         }
   const parsed = newsletterPreferenceInputSchema.safeParse(body)
   if (!parsed.success) {
-    error.value = 'Elige explícitamente frecuencia y un horario válido, sin temas duplicados.'
+    error.value = 'Elige una frecuencia y, si activas las horas de silencio, un horario válido.'
     return
   }
   if (parsed.data.action === 'save') {
@@ -228,70 +226,185 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section aria-label="Preferencias newsletter" class="space-y-4">
-    <p>
-      Personalización únicamente mediante los temas y la frecuencia que elijas. No usa compras, seguimiento ni perfiles
-      inferidos.
+  <section aria-label="Preferencias del boletín" class="space-y-5">
+    <p
+      v-if="notice"
+      role="status"
+      class="rounded-[var(--radius-control)] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+    >
+      {{ notice }}
     </p>
-    <p v-if="notice" role="status">{{ notice }}</p>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <button type="button" :disabled="busy || !allowed()" @click="load">Actualizar estado confirmado</button>
-    <div v-if="pending" class="rounded border p-3">
-      <p>Hay una petición pendiente de confirmar. El reintento conserva exactamente su contenido y clave.</p>
-      <button v-if="!pending.receipt" type="button" :disabled="busy || !allowed()" @click="send">
-        Reintentar misma petición
+    <div
+      v-if="error"
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-control)] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+    >
+      <span>{{ error }}</span>
+      <button type="button" :disabled="busy || !allowed()" @click="load">Volver a cargar</button>
+    </div>
+    <div
+      v-if="pending"
+      class="rounded-[var(--radius-control)] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+    >
+      <p>Hay un cambio que todavía no se ha confirmado.</p>
+      <button v-if="!pending.receipt" type="button" class="mt-2" :disabled="busy || !allowed()" @click="send">
+        Reintentar el mismo cambio
       </button>
     </div>
+    <p v-if="busy && !snapshot" role="status" class="text-sm text-[var(--text-muted)]">Cargando tus preferencias…</p>
+
     <template v-if="snapshot">
-      <p>
-        Estado confirmado: {{ snapshot.status }} · Revisión {{ snapshot.revision }}.
-        {{ snapshot.externalDelivery ? 'Entrega externa configurada por el servidor.' : 'Envío externo desactivado.' }}
-      </p>
-      <p v-if="!snapshot.canSave">
-        Para recibir campañas necesitas una suscripción confirmada por doble opt-in. Guardar preferencias no crea
-        consentimiento; una baja no se reactiva aquí.
-      </p>
-      <form v-if="snapshot.canSave" class="space-y-3" @submit.prevent="stage('save')">
-        <fieldset :disabled="busy || !!pending || !allowed()" class="space-y-3">
-          <label
-            >Frecuencia
-            <select v-model="form.frequency" aria-label="Frecuencia newsletter" required>
-              <option value="" disabled>Elige una frecuencia</option>
-              <option value="immediate">Al publicarse, con el límite aprobado</option>
-              <option value="weekly">Como máximo semanal</option>
-              <option value="monthly">Como máximo cada 31 días</option>
-            </select></label
-          >
-          <fieldset>
-            <legend>Temas explícitos</legend>
-            <label v-for="topic in snapshot.topics" :key="topic.id" class="mr-4"
-              ><input v-model="form.topics" type="checkbox" :value="topic.code" :disabled="!topic.active" />
-              {{ topic.label }}{{ topic.active ? '' : ' (retirado)' }}</label
-            >
-          </fieldset>
-          <p class="text-sm">
-            Sin seleccionar temas eliges expresamente contenidos generales y todos los temas; la selección no se deduce
-            de tu historial.
-          </p>
-          <label><input v-model="form.quiet" type="checkbox" /> Elegir horas de silencio adicionales (Madrid)</label>
-          <div v-if="form.quiet">
-            <label>Desde <input v-model="form.start" type="time" required /></label
-            ><label>Hasta <input v-model="form.end" type="time" required /></label>
+      <!-- 1 · Estado de la suscripción, en una frase -->
+      <div class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <h2>Tu suscripción al boletín</h2>
+            <p class="mt-1 text-sm text-[var(--text-muted)]">
+              {{
+                snapshot.status === 'confirmed'
+                  ? 'Estás suscrito. Aquí decides de qué te escribimos y cada cuánto.'
+                  : snapshot.status === 'pending'
+                    ? 'Te falta confirmar la suscripción desde el correo que te enviamos.'
+                    : snapshot.status === 'unsubscribed' || snapshot.status === 'suppressed'
+                      ? 'Estás dado de baja: no te enviamos el boletín.'
+                      : 'Todavía no estás suscrito al boletín.'
+              }}
+            </p>
           </div>
-          <button type="submit">Guardar preferencias explícitas</button>
+          <span
+            class="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
+            :class="
+              snapshot.status === 'confirmed'
+                ? 'bg-emerald-100 text-emerald-800'
+                : snapshot.status === 'pending'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-100 text-slate-700'
+            "
+          >
+            {{
+              snapshot.status === 'confirmed'
+                ? 'Suscrito'
+                : snapshot.status === 'pending'
+                  ? 'Pendiente de confirmar'
+                  : snapshot.status === 'unsubscribed' || snapshot.status === 'suppressed'
+                    ? 'De baja'
+                    : 'Sin suscripción'
+            }}
+          </span>
+        </div>
+        <p v-if="!snapshot.canSave" class="mt-3 text-sm text-[var(--text)]">
+          Para elegir temas y frecuencia primero tienes que suscribirte al boletín con el formulario del pie de página y
+          confirmar el correo que recibirás.
+        </p>
+      </div>
+
+      <form v-if="snapshot.canSave" class="space-y-5" @submit.prevent="stage('save')">
+        <fieldset :disabled="busy || !!pending || !allowed()" class="space-y-5">
+          <!-- 2 · Cada cuánto -->
+          <div class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+            <h2>¿Cada cuánto quieres recibirlo?</h2>
+            <p class="mt-1 text-sm text-[var(--text-muted)]">Nunca te escribiremos más a menudo de lo que elijas.</p>
+            <div class="mt-4 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Frecuencia del boletín">
+              <label
+                v-for="option in [
+                  { value: 'immediate', title: 'Cuando haya novedades', hint: 'En cuanto publiquemos algo nuevo.' },
+                  { value: 'weekly', title: 'Una vez por semana', hint: 'Un resumen semanal como máximo.' },
+                  { value: 'monthly', title: 'Una vez al mes', hint: 'Solo lo más importante del mes.' }
+                ]"
+                :key="option.value"
+                class="flex cursor-pointer items-start gap-3 rounded-[var(--radius-surface)] border p-4 transition-colors"
+                :class="
+                  form.frequency === option.value
+                    ? 'border-[var(--action)] bg-neteco-50'
+                    : 'border-[var(--border)] hover:bg-[var(--surface-sunken)]'
+                "
+              >
+                <input
+                  v-model="form.frequency"
+                  type="radio"
+                  name="newsletter-frequency"
+                  :value="option.value"
+                  required
+                  class="mt-0.5"
+                />
+                <span>
+                  <span class="block text-sm font-semibold text-[var(--text-strong)]">{{ option.title }}</span>
+                  <span class="mt-0.5 block text-xs text-[var(--text-muted)]">{{ option.hint }}</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 3 · De qué -->
+          <div class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+            <h2>¿Qué temas te interesan?</h2>
+            <p class="mt-1 text-sm text-[var(--text-muted)]">
+              Marca los que quieras. Si no marcas ninguno, recibirás el boletín general con todos los temas.
+            </p>
+            <div class="mt-4 grid gap-2 sm:grid-cols-2">
+              <label
+                v-for="topic in snapshot.topics"
+                :key="topic.id"
+                class="flex items-center gap-3 rounded-[var(--radius-control)] border border-[var(--border)] px-3 py-2.5 text-sm"
+                :class="topic.active ? 'cursor-pointer hover:bg-[var(--surface-sunken)]' : 'opacity-60'"
+              >
+                <input v-model="form.topics" type="checkbox" :value="topic.code" :disabled="!topic.active" />
+                <span class="font-medium text-[var(--text-strong)]"
+                  >{{ topic.label }}{{ topic.active ? '' : ' (ya no disponible)' }}</span
+                >
+              </label>
+            </div>
+          </div>
+
+          <!-- 4 · Cuándo no -->
+          <div class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6">
+            <h2>Horas de silencio</h2>
+            <p class="mt-1 text-sm text-[var(--text-muted)]">
+              Si lo activas, no te enviamos el boletín dentro de esa franja (hora peninsular).
+            </p>
+            <label class="mt-4 flex items-center gap-3 text-sm font-medium text-[var(--text-strong)]">
+              <input v-model="form.quiet" type="checkbox" /> No enviarme el boletín en una franja horaria
+            </label>
+            <div v-if="form.quiet" class="mt-3 flex flex-wrap gap-4">
+              <label>Desde <input v-model="form.start" type="time" required /></label>
+              <label>Hasta <input v-model="form.end" type="time" required /></label>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <button type="submit">Guardar preferencias</button>
+            <p class="text-xs text-[var(--text-muted)]">
+              Solo usamos lo que eliges aquí: no deducimos tus intereses de tus compras.
+            </p>
+          </div>
         </fieldset>
       </form>
-      <div v-if="snapshot.canUnsubscribe">
-        <button v-if="!confirming" type="button" :disabled="busy || !!pending || !allowed()" @click="confirming = true">
-          Darme de baja
-        </button>
-        <div v-else>
-          <p>
-            La baja retira el consentimiento y mantiene la supresión. No se podrá reactivar desde estas preferencias.
-          </p>
-          <button type="button" :disabled="busy || !!pending || !allowed()" @click="stage('unsubscribe')">
-            Confirmar baja permanente</button
-          ><button type="button" @click="confirming = false">Volver</button>
+
+      <div
+        v-if="snapshot.canUnsubscribe"
+        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6"
+      >
+        <h2>Darte de baja</h2>
+        <p class="mt-1 text-sm text-[var(--text-muted)]">
+          Dejarás de recibir el boletín. Los avisos de tus pedidos y facturas no cambian.
+        </p>
+        <div class="mt-4">
+          <button
+            v-if="!confirming"
+            type="button"
+            :disabled="busy || !!pending || !allowed()"
+            @click="confirming = true"
+          >
+            Darme de baja
+          </button>
+          <div v-else class="space-y-3">
+            <p class="text-sm text-[var(--text)]">
+              ¿Seguro? Para volver a recibirlo tendrás que suscribirte de nuevo y confirmar tu correo.
+            </p>
+            <button type="button" :disabled="busy || !!pending || !allowed()" @click="stage('unsubscribe')">
+              Sí, darme de baja</button
+            ><button type="button" @click="confirming = false">Cancelar</button>
+          </div>
         </div>
       </div>
     </template>

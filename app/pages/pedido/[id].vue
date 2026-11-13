@@ -811,6 +811,29 @@ async function copyReference(value: string) {
       </div>
     </div>
 
+    <!-- Los envíos que el cliente eligió al comprar: cada uno con su fecha, estado y productos -->
+    <UiSurface
+      v-if="
+        detail?.shipmentPlan &&
+        detail.lines?.length &&
+        (detail.shipmentPlan.shipments.length > 1 ||
+          detail.shipmentPlan.shipments.some((shipment) => shipment.from || shipment.to))
+      "
+      class="mt-6"
+      data-order-shipment-plan
+    >
+      <h2 class="text-lg font-bold text-[var(--text-strong)]">
+        {{ detail.shipmentPlan.shipments.length > 1 ? 'Tus envíos' : 'Tu envío' }}
+      </h2>
+      <OrderShipmentPlan
+        class="mt-4"
+        :plan="detail.shipmentPlan"
+        :lines="detail.lines"
+        :status="order.status"
+        size="md"
+      />
+    </UiSurface>
+
     <div class="mt-6 text-center">
       <UButton to="/catalogo" variant="link" color="neutral" icon="i-lucide-arrow-left">Seguir comprando</UButton>
     </div>
