@@ -104,7 +104,9 @@ async function selected(event: Event) {
   try {
     const bytes = new Uint8Array(await file.arrayBuffer())
     if (!current(version, identity)) return
-    if (!bytes.length || bytes.length > CATALOG_TABULAR_MAX_BYTES || !import.meta.client) throw new Error('file')
+    if (!bytes.length || bytes.length > CATALOG_TABULAR_MAX_BYTES) throw new Error('file')
+    // Guarda aparte: así el paso de servidor descarta el import del lector XLSX (solo navegador).
+    if (!import.meta.client) throw new Error('file')
     const { decodeCatalogImportFile } = await import('~/utils/catalog-import-file.client')
     if (!current(version, identity)) return
     const result = await decodeCatalogImportFile(bytes, format)
