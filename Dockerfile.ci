@@ -9,7 +9,9 @@ ENV NODE_ENV=production \
     PORT=3000 \
     APP_VERSION=${APP_VERSION}
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata curl \
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+  && apt-get install -y --no-install-recommends ca-certificates tzdata curl \
   && groupadd --system --gid 10001 neteco \
   && useradd --system --no-create-home --uid 10001 --gid 10001 neteco \
   && rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \

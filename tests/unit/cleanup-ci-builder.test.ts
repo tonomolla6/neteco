@@ -4,13 +4,20 @@ import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { expect, it } from 'vitest'
 
-function runCleanup(builderName: string, artifactDir: string, exitCode = 0) {
+function runCleanup(builderName: string, artifactDir: string, exitCode = 0, standaloneAvailable = true) {
   const owned = mkdtempSync(join(tmpdir(), 'neteco-builder-cleanup-test-'))
   try {
     const capture = join(owned, 'capture')
-    writeFileSync(join(owned, 'docker'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\nexit "$FAKE_EXIT"\n', {
-      mode: 0o700
-    })
+    const captureCommand = 'printf "%s\\n" "$@" > "$CAPTURE"\n'
+    writeFileSync(join(owned, 'docker'), '#!/bin/sh\nexit 126\n', { mode: 0o700 })
+    if (standaloneAvailable)
+      writeFileSync(
+        join(owned, 'buildx'),
+        '#!/bin/sh\n[ "$DOCKER_HOST" = "unix:///run/neteco-container/docker.sock" ] || exit 125\n' +
+          captureCommand +
+          'exit "$FAKE_EXIT"\n',
+        { mode: 0o700 }
+      )
     const result = spawnSync('/bin/bash', [resolve('scripts/cleanup-ci-builder.sh')], {
       env: {
         PATH: owned + ':/usr/bin:/bin',
@@ -38,7 +45,14 @@ function runCleanup(builderName: string, artifactDir: string, exitCode = 0) {
 it('removes only the builder associated with this run and its private artifact directory', () => {
   expect(runCleanup('neteco-ci-12345-2-Ab12Cd34', '/tmp/neteco-container.Ab12Cd34')).toEqual({
     status: 0,
-    args: ['buildx', 'rm', 'neteco-ci-12345-2-Ab12Cd34']
+    args: ['rm', 'neteco-ci-12345-2-Ab12Cd34']
+  })
+})
+
+it('fails closed when the action standalone client is unavailable', () => {
+  expect(runCleanup('neteco-ci-12345-2-Ab12Cd34', '/tmp/neteco-container.Ab12Cd34', 0, false)).toEqual({
+    status: 127,
+    args: []
   })
 })
 

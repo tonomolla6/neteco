@@ -389,6 +389,8 @@ jobs:
           image-ref: neteco:${{ github.sha }}
           format: json
           output: ${{ steps.container-artifacts.outputs.directory }}/neteco-trivy.json
+          cache-dir: ${{ steps.container-artifacts.outputs.directory }}/.trivy-cache
+          cache: 'false'
           exit-code: '1'
           ignore-unfixed: true
           vuln-type: os,library
