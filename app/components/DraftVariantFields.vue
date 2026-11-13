@@ -18,27 +18,31 @@ const values = computed(() => {
     return null
   }
 })
-const identityFields = [
-  { key: 'format', label: 'Formato', maximum: 160 },
-  { key: 'ean', label: 'EAN (opcional)', maximum: 64 },
-  { key: 'gtin', label: 'GTIN (opcional)', maximum: 64 },
-  { key: 'mpn', label: 'Referencia de fabricante (opcional)', maximum: 64 },
-  { key: 'color', label: 'Color hexadecimal (opcional)', maximum: 7 }
+const identityFields: Array<{ key: string; label: string; maximum: number; help?: string; placeholder?: string }> = [
+  { key: 'format', label: 'Formato', maximum: 160, help: 'Por ejemplo, «Garrafa de 5 l».' },
+  { key: 'ean', label: 'Código de barras EAN (opcional)', maximum: 64 },
+  { key: 'gtin', label: 'Código GTIN (opcional)', maximum: 64 },
+  { key: 'mpn', label: 'Referencia del fabricante (opcional)', maximum: 64 },
+  { key: 'color', label: 'Color (opcional)', maximum: 7, help: 'Código de color web.', placeholder: '#1A7F4B' }
+]
+const unitTextFields = [
+  { key: 'unitBase', label: 'Unidad de medida', maximum: 40, help: 'En qué se mide el contenido: l, kg, ud…' },
+  { key: 'unitLabel', label: 'Nombre de la unidad', maximum: 80, help: 'Como se muestra al cliente.' }
 ]
 const unitFields = [
   { key: 'contentQuantity', label: 'Contenido por unidad', minimum: 0, nullable: false, decimal: true },
   { key: 'unitsPerCase', label: 'Unidades por caja', minimum: 1, nullable: false },
   { key: 'casesPerPallet', label: 'Cajas por palé (opcional)', minimum: 1, nullable: true },
-  { key: 'minimumQuantity', label: 'Cantidad mínima', minimum: 1, nullable: false },
-  { key: 'quantityIncrement', label: 'Incremento de cantidad', minimum: 1, nullable: false },
-  { key: 'maximumQuantity', label: 'Cantidad máxima (opcional)', minimum: 1, nullable: true }
+  { key: 'minimumQuantity', label: 'Pedido mínimo', minimum: 1, nullable: false },
+  { key: 'quantityIncrement', label: 'Se pide en múltiplos de', minimum: 1, nullable: false },
+  { key: 'maximumQuantity', label: 'Pedido máximo (opcional)', minimum: 1, nullable: true }
 ]
 const logisticsFields = [
   { key: 'weightGrams', label: 'Peso (g)', minimum: 0, nullable: false },
   { key: 'widthMm', label: 'Ancho (mm)', minimum: 0, nullable: false },
   { key: 'heightMm', label: 'Alto (mm)', minimum: 0, nullable: false },
   { key: 'depthMm', label: 'Fondo (mm)', minimum: 0, nullable: false },
-  { key: 'leadTimeDays', label: 'Plazo (días, opcional)', minimum: 0, nullable: true }
+  { key: 'leadTimeDays', label: 'Plazo de entrega en días (opcional)', minimum: 0, nullable: true }
 ]
 function change(key: string, event: Event, numeric = false, nullable = false) {
   if (props.disabled || !values.value || (key === 'sku' && props.immutableSku)) return
@@ -53,152 +57,153 @@ function change(key: string, event: Event, numeric = false, nullable = false) {
 </script>
 
 <template>
-  <div v-if="values" class="space-y-5">
-    <fieldset :disabled="disabled" class="space-y-3">
-      <legend class="font-semibold text-[var(--text-strong)]">Identidad de la variante</legend>
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label :for="`${prefix}-sku`" class="text-sm">
-          SKU {{ immutableSku ? '(fijo)' : '' }}
+  <div v-if="values" class="adm-stack">
+    <fieldset :disabled="disabled" class="adm-stack">
+      <legend class="adm-section__title">Identificación de la variante</legend>
+      <div class="adm-form-grid">
+        <AdminFormField
+          :for="`${prefix}-sku`"
+          label="Referencia (SKU)"
+          :help="immutableSku ? 'No se puede cambiar una vez creada la variante.' : undefined"
+          :required="!immutableSku"
+        >
           <input
             :id="`${prefix}-sku`"
             data-field="sku"
-            class="draft-field"
+            class="adm-input"
             :value="values.sku"
             :readonly="immutableSku"
             :required="!immutableSku"
             maxlength="64"
             @input="change('sku', $event)"
           />
-        </label>
-        <label v-for="field in identityFields" :key="field.key" :for="`${prefix}-${field.key}`" class="text-sm">
-          {{ field.label }}
+        </AdminFormField>
+        <AdminFormField
+          v-for="field in identityFields"
+          :key="field.key"
+          :for="`${prefix}-${field.key}`"
+          :label="field.label"
+          :help="field.help"
+          :required="field.key === 'format'"
+        >
           <input
             :id="`${prefix}-${field.key}`"
             :data-field="field.key"
-            class="draft-field"
+            class="adm-input"
             :value="values[field.key] ?? ''"
             :maxlength="field.maximum"
+            :placeholder="field.placeholder"
             :required="field.key === 'format'"
             @input="change(field.key, $event, false, field.key !== 'format')"
           />
-        </label>
+        </AdminFormField>
       </div>
     </fieldset>
-    <fieldset :disabled="disabled" class="space-y-3">
-      <legend class="font-semibold text-[var(--text-strong)]">Unidades y cantidades</legend>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label
-          v-for="field in [
-            { key: 'unitBase', label: 'Unidad base', maximum: 40 },
-            { key: 'unitLabel', label: 'Etiqueta de unidad', maximum: 80 }
-          ]"
+    <fieldset :disabled="disabled" class="adm-stack">
+      <legend class="adm-section__title">Unidades y cantidades</legend>
+      <div class="adm-form-grid">
+        <AdminFormField
+          v-for="field in unitTextFields"
           :key="field.key"
           :for="`${prefix}-${field.key}`"
-          class="text-sm"
+          :label="field.label"
+          :help="field.help"
+          required
         >
-          {{ field.label }}
           <input
             :id="`${prefix}-${field.key}`"
             :data-field="field.key"
-            class="draft-field"
+            class="adm-input"
             :value="values[field.key]"
             :maxlength="field.maximum"
             required
             @input="change(field.key, $event)"
           />
-        </label>
-        <label v-for="field in unitFields" :key="field.key" :for="`${prefix}-${field.key}`" class="text-sm">
-          {{ field.label }}
+        </AdminFormField>
+        <AdminFormField
+          v-for="field in unitFields"
+          :key="field.key"
+          :for="`${prefix}-${field.key}`"
+          :label="field.label"
+          :required="!field.nullable"
+        >
           <input
             :id="`${prefix}-${field.key}`"
             :data-field="field.key"
-            class="draft-field"
+            class="adm-input"
             type="number"
+            inputmode="decimal"
             :value="values[field.key] ?? ''"
             :min="field.minimum"
             :step="field.decimal ? 'any' : 1"
             :required="!field.nullable"
             @input="change(field.key, $event, true, field.nullable)"
           />
-        </label>
+        </AdminFormField>
       </div>
     </fieldset>
-    <fieldset :disabled="disabled" class="space-y-3">
-      <legend class="font-semibold text-[var(--text-strong)]">Fiscalidad y logística</legend>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label :for="`${prefix}-taxClassId`" class="text-sm">
-          Clase fiscal
+    <fieldset :disabled="disabled" class="adm-stack">
+      <legend class="adm-section__title">Impuestos y envío</legend>
+      <div class="adm-form-grid">
+        <AdminFormField :for="`${prefix}-taxClassId`" label="Tipo de IVA" required>
           <select
             :id="`${prefix}-taxClassId`"
             data-field="taxClassId"
-            class="draft-field"
+            class="adm-input"
             :value="values.taxClassId"
             required
             @change="change('taxClassId', $event)"
           >
-            <option value="">Selecciona una referencia</option>
+            <option value="">Elige una opción</option>
             <option v-for="entry in options.taxClasses" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
           </select>
-        </label>
-        <label :for="`${prefix}-shippingProfileId`" class="text-sm">
-          Perfil de envío
+        </AdminFormField>
+        <AdminFormField :for="`${prefix}-shippingProfileId`" label="Perfil de envío" required>
           <select
             :id="`${prefix}-shippingProfileId`"
             data-field="shippingProfileId"
-            class="draft-field"
+            class="adm-input"
             :value="values.shippingProfileId"
             required
             @change="change('shippingProfileId', $event)"
           >
-            <option value="">Selecciona una referencia</option>
+            <option value="">Elige una opción</option>
             <option v-for="entry in options.shippingProfiles" :key="entry.id" :value="entry.id">
               {{ entry.name }}
             </option>
           </select>
-        </label>
-        <label v-for="field in logisticsFields" :key="field.key" :for="`${prefix}-${field.key}`" class="text-sm">
-          {{ field.label }}
+        </AdminFormField>
+        <AdminFormField
+          v-for="field in logisticsFields"
+          :key="field.key"
+          :for="`${prefix}-${field.key}`"
+          :label="field.label"
+          :required="!field.nullable"
+        >
           <input
             :id="`${prefix}-${field.key}`"
             :data-field="field.key"
-            class="draft-field"
+            class="adm-input"
             type="number"
+            inputmode="numeric"
             :value="values[field.key] ?? ''"
             :min="field.minimum"
             step="1"
             :required="!field.nullable"
             @input="change(field.key, $event, true, field.nullable)"
           />
-        </label>
-        <label :for="`${prefix}-backorderAllowed`" class="flex items-center gap-2 text-sm">
-          <input
-            :id="`${prefix}-backorderAllowed`"
-            data-field="backorderAllowed"
-            type="checkbox"
-            :checked="values.backorderAllowed === true"
-            @change="change('backorderAllowed', $event)"
-          />
-          Permitir pedidos pendientes
-        </label>
+        </AdminFormField>
       </div>
+      <label :for="`${prefix}-backorderAllowed`" class="adm-check">
+        <input
+          :id="`${prefix}-backorderAllowed`"
+          data-field="backorderAllowed"
+          type="checkbox"
+          :checked="values.backorderAllowed === true"
+          @change="change('backorderAllowed', $event)"
+        />
+        Permitir pedidos aunque no queden existencias
+      </label>
     </fieldset>
   </div>
 </template>
-
-<style scoped>
-.draft-field {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  margin-top: 0.25rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  padding: 0.5rem;
-  background: var(--surface);
-  color: var(--text-strong);
-}
-.draft-field:focus-visible {
-  outline: 2px solid var(--color-neteco-600);
-  outline-offset: 1px;
-}
-</style>

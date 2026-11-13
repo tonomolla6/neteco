@@ -126,16 +126,15 @@ async function search() {
     const parsed = publicView.parse(catalogPolicyOwnJson(published.value))
     results.value = parsed.items.filter((item) => item.uuid !== props.selfId)
     message.value = results.value.length
-      ? 'Hasta 20 coincidencias; afina la búsqueda.'
-      : 'Sin coincidencias públicas en esta búsqueda.'
+      ? 'Se muestran hasta 20 productos. Si no ves el que buscas, escribe algo más concreto.'
+      : 'No hay ningún producto publicado que coincida.'
   } catch (error) {
     const status =
       error && typeof error === 'object'
         ? (Reflect.get(error, 'statusCode') ?? Reflect.get(error, 'status'))
         : undefined
     if ((status === 401 || status === 403) && alive && props.authority === owner) emit('denied')
-    else if (current())
-      message.value = 'No se han podido consultar las referencias. Reintenta la búsqueda explícitamente.'
+    else if (current()) message.value = 'No hemos podido buscar productos. Vuelve a pulsar «Buscar».'
   } finally {
     if (current()) loading.value = false
   }
@@ -156,60 +155,105 @@ function manualInput(event: Event) {
   if (!alive || !props.available) return
   emit('update:modelValue', (event.target as HTMLInputElement).value)
 }
+function clearSelection() {
+  if (!alive || !props.available) return
+  emit('update:modelValue', '')
+}
+const chosen = computed(() => String(props.modelValue ?? '').trim())
 </script>
 
 <template>
-  <div class="mt-3 space-y-2">
-    <label class="block text-sm"
-      >{{ label }}: buscar producto por nombre o SKU
-      <input
-        v-model="query"
-        data-reference-query
-        type="search"
-        maxlength="100"
-        :disabled="!available"
-        class="mt-1 block w-full rounded-lg border p-2"
-        @keydown.enter.prevent="search"
-      />
-    </label>
-    <button
-      data-reference-search
-      type="button"
-      :disabled="!available || loading || !validQuery"
-      class="rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-      @click="search"
+  <div class="mt-3 space-y-3">
+    <div
+      v-if="chosen"
+      class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2"
     >
-      {{ loading ? 'Buscando…' : 'Buscar' }}
-    </button>
-    <p v-if="message" role="status" class="text-sm">{{ message }}</p>
-    <ul v-if="results.length" class="space-y-2">
+      <UIcon name="i-lucide-package-check" class="size-4 shrink-0 text-[var(--text-muted)]" />
+      <p class="min-w-0 flex-1 break-words font-medium text-[var(--text-strong)]">
+        <template v-if="selectedName">Seleccionado: {{ selectedName }}</template>
+        <template v-else>
+          Producto ya elegido
+          <span class="whitespace-nowrap font-normal text-[var(--text-muted)]">
+            #{{ chosen.slice(0, 8).toUpperCase() }}
+          </span>
+        </template>
+      </p>
+      <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" :disabled="!available" @click="clearSelection">
+        Quitar
+      </button>
+    </div>
+    <AdminFormField
+      v-slot="{ id }"
+      :label="chosen ? `${label}: cambiar de producto` : `${label}: elige un producto`"
+      help="Busca por nombre o referencia (al menos 2 letras) y elige uno de la lista."
+    >
+      <div class="flex gap-2">
+        <input
+          :id="id"
+          v-model="query"
+          data-reference-query
+          type="search"
+          maxlength="100"
+          placeholder="Buscar producto…"
+          autocomplete="off"
+          :disabled="!available"
+          class="adm-input min-w-0 flex-1"
+          @keydown.enter.prevent="search"
+        />
+        <button
+          data-reference-search
+          type="button"
+          :disabled="!available || loading || !validQuery"
+          class="adm-btn adm-btn--secondary shrink-0"
+          @click="search"
+        >
+          <UIcon
+            :name="loading ? 'i-lucide-loader-circle' : 'i-lucide-search'"
+            class="size-4 shrink-0"
+            :class="loading && 'animate-spin'"
+          />
+          {{ loading ? 'Buscando…' : 'Buscar' }}
+        </button>
+      </div>
+    </AdminFormField>
+    <ul
+      v-if="results.length"
+      class="max-h-72 divide-y divide-[var(--border)] overflow-y-auto rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)]"
+    >
       <li v-for="item in results" :key="item.uuid">
         <button
           type="button"
           :data-reference-option="item.uuid"
           :disabled="!available"
-          class="w-full break-words rounded-lg border p-2 text-left text-sm"
+          class="flex w-full flex-wrap items-baseline gap-x-2 px-3 py-2 text-left hover:bg-[var(--surface-sunken)] disabled:opacity-50"
           @click="choose(item)"
         >
-          {{ item.name }} · {{ item.brand }}<span class="block break-all text-xs text-slate-500">{{ item.uuid }}</span>
+          <span class="break-words font-medium text-[var(--text-strong)]">{{ item.name }}</span>
+          <span v-if="item.brand" class="text-[var(--text-muted)]">{{ item.brand }}</span>
         </button>
       </li>
     </ul>
-    <p v-if="selectedName" class="text-sm">Seleccionado: {{ selectedName }}</p>
-    <label class="block text-sm"
-      >{{ label }}: UUID interno directo (no URL ni este producto)
-      <input
-        :value="modelValue"
-        :data-typed-input="definitionId"
-        type="text"
-        maxlength="36"
-        :disabled="!available"
-        class="mt-1 block w-full rounded-lg border p-2"
-        @input="manualInput"
-      />
-    </label>
-    <p class="text-xs text-slate-500">
-      La búsqueda no concede autorización. Al guardar se comprueba de nuevo la referencia vigente.
-    </p>
+    <p v-if="message" role="status" class="adm-help">{{ message }}</p>
+    <details>
+      <summary class="adm-help cursor-pointer">¿No aparece en la búsqueda? Pega su identificador</summary>
+      <AdminFormField
+        v-slot="{ id }"
+        class="mt-2"
+        :label="`${label}: identificador del producto`"
+        help="El identificador interno de otro producto, no una dirección web."
+      >
+        <input
+          :id="id"
+          :value="modelValue"
+          :data-typed-input="definitionId"
+          type="text"
+          maxlength="36"
+          :disabled="!available"
+          class="adm-input"
+          @input="manualInput"
+        />
+      </AdminFormField>
+    </details>
+    <p class="adm-help">Al guardar se comprueba de nuevo que el producto sigue disponible.</p>
   </div>
 </template>

@@ -395,246 +395,379 @@ watch(
     if (authorized() && adminInventoryVariantSchema.safeParse(props.snapshot).success) contextCurrent.value = true
   }
 )
+// ── Presentación ────────────────────────────────────────────────────────
+const mode = ref<string>('receipt')
+const modes = [
+  { value: 'receipt', label: 'Entrada de mercancía' },
+  { value: 'count', label: 'Recuento' }
+]
+const movementLabels: Record<string, string> = {
+  initial: 'Existencias iniciales',
+  receipt: 'Entrada de mercancía',
+  adjustment: 'Ajuste por recuento',
+  reserve: 'Reserva para un pedido',
+  release: 'Reserva liberada',
+  allocate: 'Asignación a un pedido',
+  ship: 'Salida por envío',
+  return: 'Devolución',
+  damage: 'Baja por daños',
+  transfer_in: 'Traslado recibido',
+  transfer_out: 'Traslado enviado'
+}
+function signed(value: number) {
+  return `${value > 0 ? '+' : ''}${value.toLocaleString('es-ES')}`
+}
+const figures = computed(() => {
+  const balance = view.value?.balance
+  if (!balance) return []
+  return [
+    { label: 'En almacén', value: balance.physicalQuantity },
+    { label: 'Bloqueadas', value: balance.blockedQuantity },
+    { label: 'Reservadas', value: balance.reservedQuantity },
+    { label: 'Mínimo de seguridad', value: balance.safetyStock },
+    { label: 'Disponibles para vender', value: balance.sellableQuantity }
+  ]
+})
+const intentTitle = computed(() =>
+  intent.value?.action === 'receipt'
+    ? 'Confirmar la entrada'
+    : intent.value?.action === 'count_propose'
+      ? 'Guardar la propuesta de recuento'
+      : 'Confirmar el ajuste'
+)
+const intentFacts = computed(() => {
+  const pending = intent.value
+  if (!pending) return []
+  const facts: Array<{ label: string; value: string }> = []
+  if (pending.action === 'receipt') {
+    facts.push(
+      { label: 'Unidades que entran', value: signed(pending.body.quantity) },
+      { label: 'Quedarán en almacén', value: pending.physicalQuantity.toLocaleString('es-ES') },
+      { label: 'Referencia de entrega', value: pending.body.reference }
+    )
+  } else if (pending.action === 'count_propose') {
+    facts.push(
+      { label: 'Total contado', value: pending.body.countedPhysicalQuantity.toLocaleString('es-ES') },
+      { label: 'Ahora en almacén', value: pending.physicalQuantity.toLocaleString('es-ES') },
+      { label: 'Referencia', value: pending.body.reference }
+    )
+  } else {
+    facts.push(
+      { label: 'Ajuste', value: `${signed(pending.physicalDelta)} unidades` },
+      { label: 'Quedarán en almacén', value: pending.physicalQuantity.toLocaleString('es-ES') }
+    )
+  }
+  facts.push({ label: 'Motivo', value: pending.body.reason })
+  return facts
+})
+type CountProposal = AdminInventoryVariant['counts']['items'][number]
+function proposalState(proposal: CountProposal): { label: string; tone: 'success' | 'warning' | 'neutral' | 'info' } {
+  if (proposal.approved) return { label: 'Aprobada', tone: 'success' }
+  if (proposal.stale) return { label: 'Desactualizada', tone: 'neutral' }
+  if (proposal.proposedBy === props.operatorId) return { label: 'Tuya: la aprueba otra persona', tone: 'info' }
+  return { label: 'Pendiente de comprobar', tone: 'warning' }
+}
 </script>
 
 <template>
-  <section v-if="authorized()" aria-label="Operaciones de inventario" class="space-y-6">
-    <div v-if="view" class="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
-      <p class="text-xs font-semibold uppercase tracking-wider text-neteco-700">
-        Único almacén · {{ view.warehouse.code }}
-      </p>
-      <h2 id="inventory-context-title" class="mt-1 text-xl font-bold text-slate-950">
-        {{ view.variant.sku }} · {{ view.variant.format }}
-      </h2>
-      <p class="mt-1 text-sm text-slate-600">
-        {{ view.warehouse.name }} · Variante {{ view.variant.id }} · Unidad base: {{ view.variant.unitLabel }} ({{
-          view.variant.unitBase
-        }})
-      </p>
-      <dl class="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-5">
-        <div>
-          <dt class="text-sm text-slate-500">Físico</dt>
-          <dd class="text-2xl font-bold tabular-nums">{{ view.balance.physicalQuantity }}</dd>
-        </div>
-        <div>
-          <dt class="text-sm text-slate-500">Bloqueado</dt>
-          <dd class="text-2xl font-bold tabular-nums">{{ view.balance.blockedQuantity }}</dd>
-        </div>
-        <div>
-          <dt class="text-sm text-slate-500">Reservado</dt>
-          <dd class="text-2xl font-bold tabular-nums">{{ view.balance.reservedQuantity }}</dd>
-        </div>
-        <div>
-          <dt class="text-sm text-slate-500">Seguridad</dt>
-          <dd class="text-2xl font-bold tabular-nums">{{ view.balance.safetyStock }}</dd>
-        </div>
-        <div>
-          <dt class="text-sm text-slate-500">Vendible</dt>
-          <dd class="text-2xl font-bold tabular-nums text-neteco-800">{{ view.balance.sellableQuantity }}</dd>
+  <section v-if="authorized()" aria-label="Operaciones de inventario" class="adm-stack">
+    <AdminCard
+      v-if="view"
+      title="Existencias"
+      :description="`${view.warehouse.name} · se cuenta en ${view.variant.unitLabel}`"
+    >
+      <dl class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-5">
+        <div v-for="figure in figures" :key="figure.label" class="min-w-0">
+          <dt class="adm-help">{{ figure.label }}</dt>
+          <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+            {{ figure.value.toLocaleString('es-ES') }}
+          </dd>
         </div>
       </dl>
-      <p v-if="view.balance.sellableQuantity === 0" role="status" class="mt-2 text-sm font-medium text-amber-800">
-        No hay unidades vendibles ahora.
-      </p>
-      <p
-        v-if="view.balance.safetyStock > 0 && view.balance.physicalQuantity <= view.balance.safetyStock"
-        role="status"
-        class="mt-2 text-sm font-medium text-amber-800"
-      >
-        El físico es igual o inferior al stock de seguridad registrado.
-      </p>
-      <p class="mt-4 text-sm text-slate-600">
-        Saldo v{{ view.balance.version }} · Conciliación confirmada con
-        {{ view.reconciliation.movementCount }} movimientos.
-      </p>
-      <p v-if="view.reconciliation.reservationExpiryPending" class="mt-2 text-sm font-medium text-amber-800">
-        {{ view.reconciliation.reservationExpiryPending }} reservas vencidas pendientes de liberar. Sus unidades siguen
-        protegidas.
-      </p>
-    </div>
-    <p class="rounded-xl bg-slate-100 p-4 text-sm text-slate-700">
-      Las cantidades son unidades base enteras de esta variante: no litros, kilos ni importe. No se modifican precios,
-      reservas, stock de seguridad ni publicación. Todos los ajustes de recuento necesitan doble control,
-      independientemente de su importe.
-    </p>
-    <p v-if="!view" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-      El saldo actual no está confirmado. No se preparan nuevas operaciones hasta una nueva consulta autorizada.
-    </p>
-    <div v-if="view && authorized() && view.capabilities.inventoryReceipt" class="grid gap-5 lg:grid-cols-2">
-      <form class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5" @submit.prevent="prepare('receipt')">
-        <h3 class="text-lg font-semibold">Entrada física</h3>
-        <p class="text-sm text-slate-600">
-          Registra mercancía recibida. La entrada aumenta el físico, sin crear una aprobación de precio.
+      <div class="mt-4 space-y-2">
+        <UAlert
+          v-if="view.balance.sellableQuantity === 0"
+          role="status"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-package-x"
+          title="Ahora no hay unidades disponibles para vender"
+        />
+        <UAlert
+          v-if="view.balance.safetyStock > 0 && view.balance.physicalQuantity <= view.balance.safetyStock"
+          role="status"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="Lo que hay en almacén ha llegado al mínimo de seguridad"
+        />
+        <UAlert
+          v-if="view.reconciliation.reservationExpiryPending"
+          role="status"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-clock"
+          :title="`${view.reconciliation.reservationExpiryPending} reservas caducadas pendientes de liberar`"
+          description="Sus unidades siguen apartadas hasta que se liberen."
+        />
+        <p class="adm-help">
+          Las cifras cuadran con los {{ view.reconciliation.movementCount.toLocaleString('es-ES') }} movimientos
+          registrados.
         </p>
-        <label class="block text-sm font-medium"
-          >Unidades recibidas<input
-            v-model="quantity"
-            data-testid="receipt-quantity"
-            inputmode="numeric"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            :disabled="busy || !!intent"
-        /></label>
-        <label class="block text-sm font-medium"
-          >Referencia de entrega<input
-            v-model="reference"
-            data-testid="inventory-reference"
-            maxlength="200"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            :disabled="busy || !!intent"
-        /></label>
-        <label class="block text-sm font-medium"
-          >Motivo<textarea
+      </div>
+    </AdminCard>
+    <AdminCard v-else>
+      <AdminEmptyState
+        compact
+        icon="i-lucide-package-search"
+        title="No hemos podido confirmar las existencias actuales"
+        description="Vuelve a consultar el producto para registrar entradas o recuentos."
+      />
+    </AdminCard>
+
+    <AdminCard
+      v-if="view && authorized() && view.capabilities.inventoryReceipt && !intent"
+      title="Registrar un cambio"
+      description="Las cantidades van en unidades enteras de este producto, no en litros, kilos ni euros."
+    >
+      <form class="adm-stack" @submit.prevent="prepare(mode === 'count' ? 'count_propose' : 'receipt')">
+        <AdminFilters v-model="mode" :options="modes" label="Qué quieres registrar" />
+        <p class="adm-help">
+          {{
+            mode === 'count'
+              ? 'Cuenta lo que hay de verdad y guarda la propuesta. Las existencias no cambian hasta que otra persona del equipo la apruebe.'
+              : 'Anota la mercancía que ha llegado. Se suma a lo que hay en almacén; no cambia precios ni reservas.'
+          }}
+        </p>
+        <div class="adm-form-grid">
+          <AdminFormField v-if="mode !== 'count'" v-slot="{ id }" label="Unidades recibidas" required>
+            <input
+              :id="id"
+              v-model="quantity"
+              data-testid="receipt-quantity"
+              inputmode="numeric"
+              class="adm-input"
+              :disabled="busy || !!intent"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-else
+            v-slot="{ id }"
+            label="Total contado"
+            help="El total que hay en almacén, no la diferencia."
+            required
+          >
+            <input
+              :id="id"
+              v-model="counted"
+              data-testid="count-quantity"
+              inputmode="numeric"
+              class="adm-input"
+              :disabled="busy || !!intent"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            :label="mode === 'count' ? 'Referencia del recuento' : 'Referencia de entrega'"
+            help="Por ejemplo, el número de albarán."
+            required
+          >
+            <input
+              :id="id"
+              v-model="reference"
+              data-testid="inventory-reference"
+              maxlength="200"
+              class="adm-input"
+              :disabled="busy || !!intent"
+            />
+          </AdminFormField>
+        </div>
+        <AdminFormField v-slot="{ id }" label="Motivo" help="Entre 10 y 500 caracteres." required>
+          <textarea
+            :id="id"
             v-model="reason"
             data-testid="inventory-reason"
             rows="3"
             maxlength="500"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            class="adm-input"
             :disabled="busy || !!intent"
           />
-        </label>
-        <UButton type="submit" data-testid="prepare-receipt" :disabled="busy || !!intent">Revisar entrada</UButton>
-      </form>
-      <form
-        class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
-        @submit.prevent="prepare('count_propose')"
-      >
-        <h3 class="text-lg font-semibold">Recuento físico</h3>
-        <p class="text-sm text-slate-600">
-          Cuenta lo que existe y guarda una propuesta. Otro operador deberá verificarla antes de mover existencias.
-        </p>
-        <label class="block text-sm font-medium"
-          >Total contado<input
-            v-model="counted"
-            data-testid="count-quantity"
-            inputmode="numeric"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+        </AdminFormField>
+        <div class="flex justify-end">
+          <AdminButton
+            v-if="mode !== 'count'"
+            type="submit"
+            variant="primary"
+            data-testid="prepare-receipt"
             :disabled="busy || !!intent"
-        /></label>
-        <p class="text-sm text-slate-600">
-          Usa el motivo y referencia del formulario de entrada para documentar este recuento. La vista previa no cambia
-          stock.
-        </p>
-        <UButton type="submit" data-testid="prepare-count" :disabled="busy || !!intent">Revisar propuesta</UButton>
+          >
+            Revisar entrada
+          </AdminButton>
+          <AdminButton v-else type="submit" variant="primary" data-testid="prepare-count" :disabled="busy || !!intent">
+            Revisar propuesta
+          </AdminButton>
+        </div>
       </form>
-    </div>
-    <div
-      v-if="intent"
-      class="rounded-2xl border border-amber-300 bg-amber-50 p-5"
-      role="region"
-      aria-label="Confirmación de operación"
-    >
-      <h3 class="font-semibold">
+    </AdminCard>
+
+    <AdminCard v-if="intent" :title="intentTitle" role="region" aria-label="Confirmación de operación">
+      <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+        <template v-for="fact in intentFacts" :key="fact.label">
+          <dt class="text-[var(--text-muted)]">{{ fact.label }}</dt>
+          <dd class="break-words text-[var(--text-strong)]">{{ fact.value }}</dd>
+        </template>
+      </dl>
+      <p class="adm-help mt-3">
         {{
-          intent.action === 'receipt'
-            ? 'Confirmar entrada'
-            : intent.action === 'count_propose'
-              ? 'Guardar propuesta sin mover stock'
-              : 'Confirmar ajuste independiente'
+          intent.action === 'count_propose'
+            ? 'Guardar la propuesta no cambia las existencias.'
+            : 'Al confirmar se vuelven a comprobar tus permisos y las existencias actuales.'
         }}
-      </h3>
-      <p class="mt-2 text-sm">
-        Variante {{ intent.variantId }} · versión esperada {{ intent.version }}. El servidor volverá a comprobar
-        identidad, permisos, reservas y conciliación.
       </p>
-      <p class="mt-2 break-words text-sm">{{ JSON.stringify(intent.body) }}</p>
-      <div class="mt-4 flex flex-wrap gap-3">
-        <UButton
-          v-if="!ambiguous"
-          data-testid="confirm-inventory"
-          :loading="busy"
-          :disabled="!authorized() || props.operatorId !== intent.operatorId"
-          @click="dispatch()"
-          >Confirmar</UButton
-        >
-        <UButton
-          v-else
-          data-testid="retry-inventory"
-          :loading="busy"
-          :disabled="!authorized() || props.operatorId !== intent.operatorId"
-          @click="dispatch(true)"
-          >Reintentar el mismo comando</UButton
-        >
-        <UButton v-if="!ambiguous" variant="outline" color="neutral" :disabled="busy" @click="cancel">Cancelar</UButton>
-      </div>
-    </div>
-    <p v-if="message" role="status" class="rounded-xl border border-slate-200 p-4 text-sm">{{ message }}</p>
-    <div v-if="view" class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 class="text-lg font-semibold">Propuestas de recuento</h3>
-      <p v-if="!view.counts.items.length" class="text-sm text-slate-600">
-        No hay propuestas en esta consulta confirmada.
-      </p>
-      <div v-for="proposal in view.counts.items" :key="proposal.id" class="rounded-xl border border-slate-200 p-4">
-        <p class="font-medium">
-          Contado: {{ proposal.countedPhysicalQuantity }} · ajuste propuesto: {{ proposal.physicalDelta > 0 ? '+' : ''
-          }}{{ proposal.physicalDelta }}
-        </p>
-        <p class="mt-1 text-sm text-slate-600">
-          {{ proposal.reference }} · {{ proposal.createdAt }} · v{{ proposal.expectedBalanceVersion }}
-        </p>
-        <p class="mt-2 break-words text-sm">{{ proposal.reason }}</p>
-        <p class="mt-2 text-sm">
-          {{
-            proposal.approved
-              ? 'Aprobada'
-              : proposal.stale
-                ? 'Desactualizada; requiere nuevo recuento'
-                : proposal.proposedBy === props.operatorId
-                  ? 'Tu propuesta: debe aprobar otro operador'
-                  : 'Pendiente de comprobación independiente'
-          }}
-        </p>
-        <UButton
-          v-if="proposal.canApprove && authorized()"
-          class="mt-3"
-          variant="outline"
-          data-testid="select-count"
-          :disabled="busy || !!intent"
-          @click="selectedCount = proposal.id"
-          >Revisar aprobación</UButton
-        >
-      </div>
-      <p v-if="view.counts.hasMore" class="text-sm text-slate-600">
-        Se muestran las 50 propuestas más recientes; no es el historial completo.
-      </p>
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-2">
+          <AdminButton v-if="!ambiguous" :disabled="busy" @click="cancel">Cancelar</AdminButton>
+          <AdminButton
+            v-if="!ambiguous"
+            variant="primary"
+            data-testid="confirm-inventory"
+            :loading="busy"
+            :disabled="!authorized() || props.operatorId !== intent.operatorId"
+            @click="dispatch()"
+          >
+            Confirmar
+          </AdminButton>
+          <AdminButton
+            v-else
+            variant="primary"
+            data-testid="retry-inventory"
+            :loading="busy"
+            :disabled="!authorized() || props.operatorId !== intent.operatorId"
+            @click="dispatch(true)"
+          >
+            Reintentar la misma operación
+          </AdminButton>
+        </div>
+      </template>
+    </AdminCard>
+
+    <UAlert v-if="message" role="status" color="info" variant="subtle" icon="i-lucide-info" :title="message" />
+
+    <AdminCard v-if="view" title="Propuestas de recuento" :flush="view.counts.items.length > 0">
+      <AdminEmptyState
+        v-if="!view.counts.items.length"
+        compact
+        icon="i-lucide-clipboard-check"
+        title="No hay propuestas de recuento"
+        description="Cuando alguien guarde un recuento aparecerá aquí para que otra persona lo apruebe."
+      />
+      <ul v-else class="adm-list">
+        <li v-for="proposal in view.counts.items" :key="proposal.id">
+          <div class="min-w-0 flex-1">
+            <p class="adm-list__title">
+              <span class="whitespace-nowrap">
+                Contado: {{ proposal.countedPhysicalQuantity.toLocaleString('es-ES') }}
+              </span>
+              <span class="whitespace-nowrap font-normal text-[var(--text-muted)]">
+                Ajuste {{ signed(proposal.physicalDelta) }}
+              </span>
+              <AdminBadge :tone="proposalState(proposal).tone" class="whitespace-nowrap">
+                {{ proposalState(proposal).label }}
+              </AdminBadge>
+            </p>
+            <p class="adm-help">
+              <span class="whitespace-nowrap">{{ adminDate(proposal.createdAt, true) }}</span> ·
+              {{ proposal.reference }}
+            </p>
+            <p class="mt-1 break-words">{{ proposal.reason }}</p>
+            <p v-if="proposal.stale && !proposal.approved" class="adm-help">
+              Las existencias han cambiado desde entonces: hay que volver a contar.
+            </p>
+          </div>
+          <AdminButton
+            v-if="proposal.canApprove && authorized()"
+            size="sm"
+            data-testid="select-count"
+            :disabled="busy || !!intent"
+            @click="selectedCount = proposal.id"
+          >
+            {{ selectedCount === proposal.id ? 'Elegida' : 'Revisar y aprobar' }}
+          </AdminButton>
+        </li>
+      </ul>
+      <p v-if="view.counts.hasMore" class="adm-help px-5 py-3">Se muestran las 50 propuestas más recientes.</p>
       <form
-        v-if="selectedCount && authorized()"
-        class="space-y-3 border-t border-slate-200 pt-4"
+        v-if="selectedCount && authorized() && !intent"
+        class="adm-stack border-t border-[var(--border)] px-5 py-4"
         @submit.prevent="prepare('count_approve')"
       >
-        <label class="block text-sm font-medium"
-          >Motivo de verificación independiente<textarea
+        <AdminFormField
+          v-slot="{ id }"
+          label="Motivo de la aprobación"
+          help="Explica cómo lo has comprobado (entre 10 y 500 caracteres)."
+          required
+        >
+          <textarea
+            :id="id"
             v-model="approvalReason"
             data-testid="approval-reason"
             rows="3"
             maxlength="500"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            class="adm-input"
             :disabled="busy || !!intent"
           />
-        </label>
-        <UButton type="submit" data-testid="prepare-approval" :disabled="busy || !!intent">Revisar ajuste</UButton>
+        </AdminFormField>
+        <div class="flex justify-end gap-2">
+          <AdminButton :disabled="busy" @click="selectedCount = ''">Cancelar</AdminButton>
+          <AdminButton type="submit" variant="primary" data-testid="prepare-approval" :disabled="busy || !!intent">
+            Revisar ajuste
+          </AdminButton>
+        </div>
       </form>
-    </div>
-    <div v-if="view" class="rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 class="text-lg font-semibold">
-        Movimientos · página {{ view.ledger.pagination.page }} de {{ view.ledger.pagination.pages || 1 }}
-      </h3>
-      <p v-if="!view.ledger.items.length" class="mt-3 text-sm text-slate-600">
-        Esta página no contiene movimientos confirmados.
-      </p>
-      <ul class="mt-4 divide-y divide-slate-200">
-        <li v-for="movement in view.ledger.items" :key="movement.id" class="py-3">
-          <p class="font-medium">
-            {{ movement.type }} · físico {{ movement.physicalDelta > 0 ? '+' : '' }}{{ movement.physicalDelta }} ·
-            reserva {{ movement.reservedDelta > 0 ? '+' : '' }}{{ movement.reservedDelta }}
-          </p>
-          <p class="mt-1 text-sm text-slate-600">
-            {{ movement.createdAt }} ·
-            {{ movement.actorId ? 'Actor registrado en auditoría' : 'Movimiento histórico: actor no documentado' }}
-          </p>
-          <p v-if="movement.reference" class="mt-1 text-sm">{{ movement.reference }}</p>
-          <p v-if="movement.reason" class="mt-1 break-words text-sm">{{ movement.reason }}</p>
-        </li>
-      </ul>
-    </div>
+    </AdminCard>
+
+    <AdminCard
+      v-if="view"
+      title="Movimientos"
+      :description="`Página ${view.ledger.pagination.page} de ${view.ledger.pagination.pages || 1}`"
+      :flush="view.ledger.items.length > 0"
+    >
+      <AdminEmptyState
+        v-if="!view.ledger.items.length"
+        compact
+        icon="i-lucide-arrow-left-right"
+        title="No hay movimientos en esta página"
+      />
+      <div v-else class="adm-table-wrap">
+        <table class="adm-table">
+          <thead>
+            <tr>
+              <th scope="col">Fecha</th>
+              <th scope="col">Movimiento</th>
+              <th scope="col" data-numeric>En almacén</th>
+              <th scope="col" data-numeric>Reservadas</th>
+              <th scope="col">Detalle</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="movement in view.ledger.items" :key="movement.id">
+              <td class="whitespace-nowrap">{{ adminDate(movement.createdAt, true) }}</td>
+              <td class="whitespace-nowrap">{{ movementLabels[movement.type] ?? adminHumanize(movement.type) }}</td>
+              <td data-numeric class="whitespace-nowrap tabular-nums">
+                {{ movement.physicalDelta ? signed(movement.physicalDelta) : '—' }}
+              </td>
+              <td data-numeric class="whitespace-nowrap tabular-nums">
+                {{ movement.reservedDelta ? signed(movement.reservedDelta) : '—' }}
+              </td>
+              <td class="min-w-48">
+                <p v-if="movement.reference">{{ movement.reference }}</p>
+                <p v-if="movement.reason" class="adm-help break-words">{{ movement.reason }}</p>
+                <p v-if="!movement.actorId" class="adm-help">Sin autor registrado</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </AdminCard>
   </section>
 </template>

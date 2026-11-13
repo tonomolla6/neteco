@@ -51,18 +51,45 @@ onBeforeUnmount(() => {
   generation++
   snapshot.value = null
 })
+const deviceLabels: Record<string, string> = {
+  responsive: 'Se adapta a la pantalla',
+  desktop: 'Ordenador',
+  mobile: 'Móvil'
+}
 const viewport = computed(() =>
   snapshot.value?.previewDevice === 'mobile' ? '375px' : snapshot.value?.previewDevice === 'desktop' ? '1024px' : '100%'
 )
 </script>
 <template>
-  <section aria-label="Vista previa confirmada" class="space-y-3">
-    <p v-if="loading" role="status">Confirmando vista previa privada…</p>
-    <p v-else-if="failed" role="alert">La vista previa no está confirmada, ha caducado o se ha revocado.</p>
+  <AdminCard
+    title="Vista previa"
+    description="Así se verá la página en la tienda. Solo la ves tú; no está publicada."
+    aria-label="Vista previa confirmada"
+  >
+    <template #actions>
+      <AdminBadge v-if="snapshot" tone="info" class="whitespace-nowrap" role="status">
+        {{ deviceLabels[snapshot.previewDevice ?? 'responsive'] ?? 'Se adapta a la pantalla' }}
+      </AdminBadge>
+    </template>
+    <p v-if="loading" role="status" class="adm-help flex items-center gap-2">
+      <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin" />Cargando la vista previa…
+    </p>
+    <AdminEmptyState
+      v-else-if="failed"
+      compact
+      icon="i-lucide-eye-off"
+      title="La vista previa ya no está disponible"
+      description="Ha caducado, se ha anulado o no se ha podido cargar. Crea una nueva para volver a verla."
+    />
     <template v-if="snapshot">
-      <p role="status">Versión {{ snapshot.version }} · {{ snapshot.previewDevice }} · segmento predeterminado</p>
-      <div class="overflow-x-auto border border-slate-300 bg-slate-100 p-3">
-        <article data-testid="cms-preview-viewport" :style="{ width: viewport }" class="mx-auto min-h-64 bg-white p-6">
+      <div
+        class="overflow-x-auto rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3"
+      >
+        <article
+          data-testid="cms-preview-viewport"
+          :style="{ width: viewport }"
+          class="mx-auto min-h-64 max-w-none rounded-[var(--radius-control)] bg-white p-6 text-slate-900"
+        >
           <PromotionalBlocks v-if="snapshot.promotional" :preview-page="snapshot" />
           <template v-else>
             <h1 class="text-3xl font-bold">{{ snapshot.title }}</h1>
@@ -91,5 +118,5 @@ const viewport = computed(() =>
         </article>
       </div>
     </template>
-  </section>
+  </AdminCard>
 </template>

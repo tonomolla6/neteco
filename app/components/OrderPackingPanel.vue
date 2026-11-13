@@ -12,6 +12,7 @@ import {
   type OrderPackingInput,
   type OrderPackingReceipt
 } from '~~/shared/order-packing'
+import type { AdminTone } from '~/utils/adminLabels'
 const props = defineProps<{ orderId: string; runtime: unknown; pending: boolean }>()
 const emit = defineEmits<{ pending: [value: boolean]; confirmed: [receipt: OrderPackingReceipt] }>()
 const { ready, loggedIn, user, session } = useUserSession()
@@ -46,7 +47,10 @@ const loading = ref(false),
   failed = ref(false),
   uncertain = ref(false),
   revoked = ref(false),
-  message = ref('')
+  message = ref(''),
+  /** Solo interfaz: panel lateral abierto y servicio no activado (la lectura responde 503). */
+  drawerOpen = ref(false),
+  unavailable = ref(false)
 const mode = ref<'pack' | 'manual_dispatch'>('pack'),
   reason = ref(''),
   actualNet = ref(''),
@@ -77,7 +81,41 @@ function actualGross(net: number, taxBps: number) {
     ? net + roundRatio(BigInt(net) * BigInt(taxBps), 10000n)
     : 0
 }
-const gross = computed(() => actualGross(Number(actualNet.value), Number(tax.value)))
+/** El comerciante teclea euros y un porcentaje; la API sigue recibiendo céntimos y puntos básicos (21 % = 2100). */
+const netCents = computed(() => adminEurosToCents(actualNet.value) ?? NaN)
+const taxBps = computed(() => adminEurosToCents(tax.value) ?? NaN)
+const costReady = computed(() => Number.isSafeInteger(netCents.value) && Number.isSafeInteger(taxBps.value))
+const gross = computed(() => actualGross(netCents.value, taxBps.value))
+const taxPercent = (bps: number) => `${(bps / 100).toLocaleString('es-ES')} %`
+const stateBadges: Record<AdminOrderPacking['state'], [string, AdminTone]> = {
+  unpacked: ['Sin embalar', 'neutral'],
+  packed: ['Embalado', 'info'],
+  manual_dispatch_recorded: ['Envío manual registrado', 'success']
+}
+const blockerLabels: Record<AdminOrderPacking['readiness']['blockers'][number], string> = {
+  order_cancelled: 'El pedido está cancelado',
+  payment_unconfirmed: 'El cobro no está confirmado',
+  inventory_unconfirmed: 'La reserva de stock no está confirmada',
+  warehouse_unavailable: 'El almacén no está disponible',
+  shipping_mode_unavailable: 'La forma de entrega no está disponible',
+  history_unconfirmed: 'El historial de la preparación no está confirmado'
+}
+const parcelFields = [
+  ['weight', 'Peso (g)'],
+  ['width', 'Ancho (mm)'],
+  ['height', 'Alto (mm)'],
+  ['depth', 'Fondo (mm)']
+] as const
+const lineName = (data: AdminOrderPacking | null, lineIndex: number) =>
+  data?.lines.find((line) => line.lineIndex === lineIndex)?.name ?? `Línea ${lineIndex + 1}`
+function openDrawer(next: 'pack' | 'manual_dispatch') {
+  mode.value = next
+  drawerOpen.value = true
+}
+function httpStatus(error: unknown): number | null {
+  const failure = error as { statusCode?: number; status?: number; response?: { status?: number } } | null
+  return failure?.statusCode ?? failure?.status ?? failure?.response?.status ?? null
+}
 function emptyParcel(): ParcelDraft {
   return { weight: '', width: '', height: '', depth: '', quantities: {} }
 }
@@ -127,6 +165,7 @@ function purge() {
   shipments.value = []
   reason.value = actualNet.value = tax.value = message.value = ''
   busy.value = loading.value = failed.value = uncertain.value = false
+  drawerOpen.value = false
 }
 function rejection(error: unknown, allowCas = false) {
   const failure = error as {
@@ -141,15 +180,14 @@ function rejection(error: unknown, allowCas = false) {
     purge()
     failed.value = true
     message.value =
-      'La versión ha cambiado y este intento se ha rechazado sin aplicarse. Actualiza el embalaje y revisa de nuevo antes de decidir.'
+      'El pedido ha cambiado mientras lo preparabas y no se ha guardado nada. Revisa el embalaje actual y vuelve a intentarlo.'
     return true
   }
   if (status !== 401 && status !== 403) return false
   purge()
   revoked.value = true
   failed.value = true
-  message.value =
-    'Acceso revocado. Se han retirado los datos privados; no se enviará ninguna operación automáticamente.'
+  message.value = 'Tu sesión ya no tiene permiso para ver estos datos. No se ha enviado nada.'
   return true
 }
 async function request(path: string, options: Record<string, unknown> = {}) {
@@ -173,6 +211,7 @@ async function read() {
   const epoch = generation
   loading.value = true
   failed.value = false
+  unavailable.value = false
   snapshot.value = null
   try {
     const data = await state(epoch)
@@ -181,7 +220,10 @@ async function read() {
       drafts(data)
     }
   } catch (error) {
-    if (current(epoch) && !rejection(error)) failed.value = true
+    if (current(epoch) && !rejection(error)) {
+      failed.value = true
+      unavailable.value = httpStatus(error) === 503
+    }
   } finally {
     if (current(epoch)) loading.value = false
   }
@@ -220,8 +262,8 @@ async function prepare() {
             trackingNumber: shipment.trackingNumber.trim(),
             externalLabelReference: shipment.externalLabelReference.trim()
           })),
-          actualNetCents: actualNet.value === '' ? NaN : Number(actualNet.value),
-          taxBps: tax.value === '' ? NaN : Number(tax.value)
+          actualNetCents: netCents.value,
+          taxBps: taxBps.value
         })
   }
   const parsed = orderPackingInputSchema.safeParse(raw)
@@ -230,7 +272,7 @@ async function prepare() {
     (mode.value === 'pack' && data.lines.some((line) => remaining(line.lineIndex, line.quantity) !== 0))
   ) {
     message.value =
-      'Completa medidas reales, cantidades exactas y un motivo de 10–500 caracteres; la expedición requiere todas las referencias y el coste real.'
+      'Completa el peso y las medidas de cada bulto, reparte todas las unidades y escribe un motivo de entre 10 y 500 caracteres. El envío manual necesita además todos los datos del transportista, el coste real y el IVA.'
     return
   }
   const epoch = generation
@@ -241,7 +283,7 @@ async function prepare() {
     if (current(epoch) && !props.pending)
       intent.value = Object.freeze({ key: crypto.randomUUID(), hash, body: freezeBody(parsed.data) })
   } catch {
-    if (current(epoch)) message.value = 'No se pudo preparar la revisión. No se ha enviado nada.'
+    if (current(epoch)) message.value = 'No se ha podido preparar el resumen. No se ha enviado nada.'
   } finally {
     if (current(epoch)) busy.value = false
   }
@@ -282,8 +324,9 @@ async function confirm(result: OrderPackingReceipt, command: Intent, epoch: numb
   intent.value = null
   uncertain.value = false
   drafts(fresh)
+  drawerOpen.value = false
   message.value =
-    'Registro confirmado. No cambia existencias, cobros ni el estado de preparación; no acredita aceptación del transportista.'
+    'Registro guardado. No cambia el stock, los cobros ni el estado de la preparación, y no avisa al transportista.'
   emit('confirmed', result)
 }
 async function send() {
@@ -302,7 +345,7 @@ async function send() {
     if (current(epoch) && intent.value === command) await confirm(receipt(raw, command), command, epoch)
   } catch (error) {
     if (current(epoch) && !rejection(error, !postResponded))
-      message.value = 'Resultado incierto. Comprueba el recibo; no se repetirá el envío.'
+      message.value = 'No sabemos si se ha guardado. Pulsa «Comprobar de nuevo»; no se enviará otra vez.'
   } finally {
     if (current(epoch)) busy.value = false
   }
@@ -322,8 +365,7 @@ async function recover() {
     await confirm(receipt(parsed.data.receipt, command), command, epoch)
   } catch (error) {
     if (current(epoch) && !rejection(error))
-      message.value =
-        'El resultado sigue sin confirmar. Desconocido no significa que no se aplicara; se conserva la intención.'
+      message.value = 'Sigue sin confirmarse. Puede que sí se haya guardado: vuelve a comprobarlo en unos segundos.'
   } finally {
     if (current(epoch)) busy.value = false
   }
@@ -334,6 +376,7 @@ watch(
   () => {
     purge()
     revoked.value = false
+    unavailable.value = false
     if (authorized.value) void read()
   },
   { immediate: true, flush: 'sync' }
@@ -349,309 +392,508 @@ defineExpose({ refresh: read })
 <template>
   <section
     v-if="runtime === 'cloudflare'"
-    aria-label="Embalaje y expedición manual"
-    class="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
+    aria-label="Embalaje y envío manual"
+    class="adm-stack min-w-0 border-t border-[var(--border)] pt-5"
   >
-    <h2 class="text-xl font-bold">Embalaje multibulto y expedición manual</h2>
-    <p class="text-sm">
-      Registro manual de contingencia: no confirma al transportista y no genera etiquetas. No cambia existencias, cobros
-      ni la preparación.
-    </p>
-    <p v-if="!authorized || revoked" role="status">
-      Confirma la sesión, el correo, MFA y los permisos vigentes para consultar datos privados.
-    </p>
-    <p v-if="loading" role="status">Consultando embalaje confirmado…</p>
-    <p v-if="failed" role="alert">No se pudo confirmar el contexto privado. No se interpreta como pedido sin bultos.</p>
-    <button
-      v-if="authorized && !intent"
-      type="button"
-      :disabled="busy || loading || pending"
-      class="rounded-lg border px-3 py-2 disabled:opacity-50"
-      @click="read"
-    >
-      Actualizar embalaje
-    </button>
-    <template v-if="snapshot && authorized && !revoked">
-      <p class="text-sm">
-        Versión de embalaje {{ snapshot.version }} · Preparación {{ snapshot.fulfillmentVersion }} · Cotización
-        histórica: {{ money(snapshot.quotedGrossCents) }} (IVA incluido)
-      </p>
-      <ul aria-label="Líneas contractuales" class="space-y-2">
-        <li v-for="line in snapshot.lines" :key="line.lineIndex" class="break-words text-sm">
-          {{ line.sku }} · {{ line.name }} · Cantidad pedida {{ line.quantity }} · Pendiente de asignar
-          {{ remaining(line.lineIndex, line.quantity) }}
-        </li>
-      </ul>
-      <ol v-if="snapshot.parcels.length" aria-label="Bultos registrados" class="space-y-2 text-sm">
-        <li v-for="(parcel, index) in snapshot.parcels" :key="index" class="break-words">
-          Bulto {{ index + 1 }} registrado: {{ parcel.weightGrams }} g · {{ parcel.widthMm }} × {{ parcel.heightMm }} ×
-          {{ parcel.depthMm }} mm
-          <ul>
-            <li v-for="content in parcel.contents" :key="content.lineIndex">
-              {{ snapshot.lines.find((line) => line.lineIndex === content.lineIndex)?.sku }} ·
-              {{ content.quantity }} unidades
-            </li>
-          </ul>
-        </li>
-      </ol>
-      <p v-if="!snapshot.readiness.ready" role="status">
-        El servidor no confirma las condiciones necesarias para operar: {{ snapshot.readiness.blockers.join(', ') }}.
-      </p>
-      <div v-if="snapshot.dispatch" class="space-y-2 break-words text-sm">
-        <p>Expedición manual registrada · Referencias no verificadas por el transportista.</p>
-        <p>
-          Coste real {{ money(snapshot.dispatch.actualGrossCents) }} · Diferencia con cotización
-          {{ money(snapshot.dispatch.varianceGrossCents) }}
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h3 class="font-semibold text-[var(--text-strong)]">Embalaje y envío manual</h3>
+        <p class="adm-help">
+          Anota los bultos del pedido y, si lo envías por tu cuenta, los datos del transportista. No genera etiquetas ni
+          avisa al transportista.
         </p>
-        <p v-for="shipment in snapshot.dispatch.shipments" :key="shipment.parcelIndex">
-          Bulto {{ shipment.parcelIndex + 1 }} · {{ shipment.carrier }} · Expedición {{ shipment.shipmentNumber }} ·
-          Seguimiento {{ shipment.trackingNumber }} · Referencia de etiqueta externa
-          {{ shipment.externalLabelReference }}
+      </div>
+      <AdminButton
+        v-if="authorized && !intent"
+        size="sm"
+        icon="i-lucide-rotate-cw"
+        :disabled="busy || loading || pending"
+        @click="read"
+      >
+        Actualizar embalaje
+      </AdminButton>
+    </div>
+    <UAlert
+      v-if="!authorized || revoked"
+      role="status"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="Confirma tu sesión para ver el embalaje"
+      description="Hace falta el correo verificado, la verificación en dos pasos y permiso de administración."
+    />
+    <p v-if="loading" role="status" class="adm-help">Cargando el embalaje…</p>
+    <div v-if="unavailable" role="status" data-testid="packing-unavailable">
+      <AdminEmptyState
+        compact
+        icon="i-lucide-package"
+        title="El registro de embalaje no está activado en esta tienda"
+        description="Cuando se active, aquí podrás anotar los bultos y los envíos hechos por tu cuenta."
+      />
+    </div>
+    <div v-else-if="failed && !revoked" role="alert">
+      <AdminEmptyState
+        variant="error"
+        compact
+        title="No hemos podido cargar el embalaje"
+        description="No significa que el pedido no tenga bultos. Vuelve a intentarlo."
+      />
+    </div>
+    <template v-if="snapshot && authorized && !revoked">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <AdminBadge :tone="stateBadges[snapshot.state][1]" class="whitespace-nowrap">
+          {{ stateBadges[snapshot.state][0] }}
+        </AdminBadge>
+        <span class="adm-help">
+          Envío presupuestado:
+          <span class="whitespace-nowrap tabular-nums">{{ money(snapshot.quotedGrossCents) }}</span> (IVA incluido)
+        </span>
+      </div>
+      <UAlert
+        v-if="!snapshot.readiness.ready"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-circle-pause"
+        title="Ahora no se puede registrar el embalaje"
+        :description="snapshot.readiness.blockers.map((blocker) => blockerLabels[blocker]).join('. ') + '.'"
+      />
+      <div v-if="snapshot.parcels.length" class="adm-table-wrap">
+        <table class="adm-table min-w-[30rem]" aria-label="Bultos registrados">
+          <thead>
+            <tr>
+              <th scope="col">Bulto</th>
+              <th scope="col" data-numeric>Peso</th>
+              <th scope="col">Medidas</th>
+              <th scope="col">Contenido</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(parcel, index) in snapshot.parcels" :key="index">
+              <td class="whitespace-nowrap font-medium text-[var(--text-strong)]">Bulto {{ index + 1 }}</td>
+              <td data-numeric class="whitespace-nowrap tabular-nums">
+                {{ parcel.weightGrams.toLocaleString('es-ES') }} g
+              </td>
+              <td class="whitespace-nowrap tabular-nums">
+                {{ parcel.widthMm }} × {{ parcel.heightMm }} × {{ parcel.depthMm }} mm
+              </td>
+              <td>
+                <ul class="space-y-0.5">
+                  <li v-for="content in parcel.contents" :key="content.lineIndex">
+                    {{ content.quantity }} × {{ lineName(snapshot, content.lineIndex) }}
+                  </li>
+                </ul>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else class="adm-help">Todavía no hay bultos anotados.</p>
+      <div v-if="snapshot.dispatch" class="adm-stack">
+        <div class="adm-table-wrap">
+          <table class="adm-table min-w-[36rem]" aria-label="Envío manual registrado">
+            <thead>
+              <tr>
+                <th scope="col">Bulto</th>
+                <th scope="col">Transportista</th>
+                <th scope="col">Número de envío</th>
+                <th scope="col">Seguimiento</th>
+                <th scope="col">Etiqueta</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="shipment in snapshot.dispatch.shipments" :key="shipment.parcelIndex">
+                <td class="whitespace-nowrap font-medium text-[var(--text-strong)]">
+                  Bulto {{ shipment.parcelIndex + 1 }}
+                </td>
+                <td>{{ shipment.carrier }}</td>
+                <td class="whitespace-nowrap tabular-nums">{{ shipment.shipmentNumber }}</td>
+                <td class="whitespace-nowrap tabular-nums">{{ shipment.trackingNumber }}</td>
+                <td class="whitespace-nowrap tabular-nums">{{ shipment.externalLabelReference }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="adm-help">
+          Anotado el <span class="whitespace-nowrap">{{ adminDate(snapshot.dispatch.recordedAt, true) }}</span> · Coste
+          real <span class="whitespace-nowrap tabular-nums">{{ money(snapshot.dispatch.actualGrossCents) }}</span> ·
+          Diferencia con lo presupuestado
+          <span class="whitespace-nowrap tabular-nums">{{ money(snapshot.dispatch.varianceGrossCents) }}</span> · Datos
+          anotados a mano, sin comprobar con el transportista.
         </p>
       </div>
       <div
         v-if="!intent && (snapshot.capabilities.packingWrite || snapshot.capabilities.manualDispatch)"
         class="flex flex-wrap gap-2"
       >
-        <button
+        <AdminButton
           v-if="snapshot.capabilities.packingWrite"
-          type="button"
+          icon="i-lucide-package"
           :disabled="locked"
-          class="rounded-lg border px-3 py-2"
-          @click="mode = 'pack'"
+          @click="openDrawer('pack')"
         >
-          Revisar embalaje
-        </button>
-        <button
+          {{ snapshot.parcels.length ? 'Cambiar embalaje' : 'Anotar embalaje' }}
+        </AdminButton>
+        <AdminButton
           v-if="snapshot.capabilities.manualDispatch"
           data-testid="packing-dispatch-mode"
-          type="button"
+          icon="i-lucide-truck"
           :disabled="locked"
-          class="rounded-lg border px-3 py-2"
-          @click="mode = 'manual_dispatch'"
+          @click="openDrawer('manual_dispatch')"
         >
-          Registrar expedición manual
-        </button>
+          Anotar envío manual
+        </AdminButton>
       </div>
-      <fieldset
-        v-if="!intent && (mode === 'pack' ? snapshot.capabilities.packingWrite : snapshot.capabilities.manualDispatch)"
-        :disabled="locked"
-        class="min-w-0 space-y-4"
-      >
-        <legend class="font-semibold">
-          {{ mode === 'pack' ? 'Contenido y medidas reales' : 'Referencias externas por bulto' }}
-        </legend>
-        <template v-if="mode === 'pack'">
-          <fieldset v-for="(parcel, index) in parcels" :key="index" class="min-w-0 space-y-3 rounded-lg border p-3">
-            <legend class="font-semibold">Bulto {{ index + 1 }}</legend>
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label v-for="field in ['weight', 'width', 'height', 'depth'] as const" :key="field" class="text-sm"
-                >{{
-                  {
-                    weight: 'Peso real (g)',
-                    width: 'Ancho real (mm)',
-                    height: 'Alto real (mm)',
-                    depth: 'Fondo real (mm)'
-                  }[field]
-                }}
-                <input
-                  v-model="parcel[field]"
-                  :data-testid="`packing-${field}-${index}`"
-                  type="number"
-                  min="1"
-                  :max="field === 'weight' ? 1000000 : 3000"
-                  step="1"
-                  class="mt-1 block w-full min-w-0 rounded border p-2"
-                />
-              </label>
-            </div>
-            <label v-for="line in snapshot.lines" :key="line.lineIndex" class="block break-words text-sm"
-              >Cantidad de {{ line.sku }} en bulto {{ index + 1 }}
-              <input
-                v-model="parcel.quantities[line.lineIndex]"
-                :data-testid="`packing-quantity-${index}-${line.lineIndex}`"
-                type="number"
-                min="0"
-                :max="line.quantity"
-                step="1"
-                class="mt-1 block w-full rounded border p-2"
-              />
-            </label>
-            <button
-              :data-testid="`packing-remove-parcel-${index}`"
-              type="button"
-              :disabled="parcels.length <= 1"
-              class="rounded border px-3 py-2"
-              @click="parcels.splice(index, 1)"
+    </template>
+    <UAlert
+      v-if="intent && authorized && !revoked && !drawerOpen"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-hourglass"
+      title="Tienes un registro sin terminar"
+      :description="
+        uncertain
+          ? 'Falta confirmar si se ha guardado. Ábrelo y compruébalo antes de salir de esta página.'
+          : 'Lo has preparado pero no lo has confirmado. Ábrelo para confirmarlo o cancelarlo.'
+      "
+    />
+    <div v-if="intent && authorized && !revoked && !drawerOpen">
+      <AdminButton variant="primary" @click="drawerOpen = true">Continuar el registro</AdminButton>
+    </div>
+    <UAlert
+      v-if="message && !drawerOpen"
+      role="status"
+      :color="uncertain ? 'warning' : 'neutral'"
+      variant="subtle"
+      :title="message"
+    />
+
+    <AdminDrawer
+      v-model:open="drawerOpen"
+      wide
+      :title="(intent ? intent.body.action : mode) === 'pack' ? 'Embalaje del pedido' : 'Envío manual'"
+      :description="
+        (intent ? intent.body.action : mode) === 'pack'
+          ? 'Anota cada bulto con su peso, sus medidas y lo que lleva dentro.'
+          : 'Anota los datos del transportista de cada bulto y lo que ha costado el envío.'
+      "
+    >
+      <div class="adm-stack">
+        <UAlert
+          v-if="message"
+          role="status"
+          :color="uncertain ? 'warning' : 'neutral'"
+          variant="subtle"
+          :title="message"
+        />
+        <fieldset
+          v-if="
+            snapshot &&
+            authorized &&
+            !revoked &&
+            !intent &&
+            (mode === 'pack' ? snapshot.capabilities.packingWrite : snapshot.capabilities.manualDispatch)
+          "
+          :disabled="locked"
+          class="adm-stack min-w-0"
+        >
+          <legend class="sr-only">
+            {{ mode === 'pack' ? 'Contenido y medidas de cada bulto' : 'Datos del transportista por bulto' }}
+          </legend>
+          <template v-if="mode === 'pack'">
+            <fieldset
+              v-for="(parcel, index) in parcels"
+              :key="index"
+              class="min-w-0 rounded-[var(--radius-control)] border border-[var(--border)] p-3"
             >
-              Quitar bulto {{ index + 1 }}
-            </button>
-          </fieldset>
-          <button
-            data-testid="packing-add-parcel"
-            type="button"
-            :disabled="parcels.length >= 20"
-            class="rounded border px-3 py-2"
-            @click="parcels.push(emptyParcel())"
+              <legend class="sr-only">Bulto {{ index + 1 }}</legend>
+              <div class="mb-3 flex items-center justify-between gap-3">
+                <p class="font-medium text-[var(--text-strong)]">Bulto {{ index + 1 }}</p>
+                <AdminButton
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-trash-2"
+                  :data-testid="`packing-remove-parcel-${index}`"
+                  :disabled="parcels.length <= 1"
+                  :aria-label="`Quitar bulto ${index + 1}`"
+                  @click="parcels.splice(index, 1)"
+                >
+                  Quitar
+                </AdminButton>
+              </div>
+              <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <AdminFormField v-for="[field, text] in parcelFields" :key="field" v-slot="{ id }" :label="text">
+                  <input
+                    :id="id"
+                    v-model="parcel[field]"
+                    :data-testid="`packing-${field}-${index}`"
+                    type="number"
+                    min="1"
+                    :max="field === 'weight' ? 1000000 : 3000"
+                    step="1"
+                    class="adm-input w-full min-w-0"
+                  />
+                </AdminFormField>
+              </div>
+              <p class="adm-label mt-4">Unidades en este bulto</p>
+              <ul class="mt-1 divide-y divide-[var(--border)]">
+                <li
+                  v-for="line in snapshot.lines"
+                  :key="line.lineIndex"
+                  class="flex items-center justify-between gap-3 py-2"
+                >
+                  <label :for="`packing-quantity-${index}-${line.lineIndex}`" class="min-w-0 break-words font-normal">
+                    {{ line.name }}
+                    <span class="block text-xs text-[var(--text-muted)]">
+                      {{ line.sku }} · {{ line.quantity }} en el pedido
+                    </span>
+                  </label>
+                  <input
+                    :id="`packing-quantity-${index}-${line.lineIndex}`"
+                    v-model="parcel.quantities[line.lineIndex]"
+                    :data-testid="`packing-quantity-${index}-${line.lineIndex}`"
+                    type="number"
+                    min="0"
+                    :max="line.quantity"
+                    step="1"
+                    placeholder="0"
+                    class="adm-input w-20 shrink-0"
+                  />
+                </li>
+              </ul>
+            </fieldset>
+            <div>
+              <AdminButton
+                size="sm"
+                icon="i-lucide-plus"
+                data-testid="packing-add-parcel"
+                :disabled="parcels.length >= 20"
+                @click="parcels.push(emptyParcel())"
+              >
+                Añadir bulto
+              </AdminButton>
+            </div>
+            <div>
+              <p class="adm-label">Unidades por repartir</p>
+              <ul aria-label="Artículos del pedido" class="mt-1 space-y-1">
+                <li
+                  v-for="line in snapshot.lines"
+                  :key="line.lineIndex"
+                  class="flex items-center justify-between gap-3"
+                >
+                  <span class="min-w-0 break-words">{{ line.name }}</span>
+                  <AdminBadge
+                    :tone="remaining(line.lineIndex, line.quantity) === 0 ? 'success' : 'warning'"
+                    class="whitespace-nowrap"
+                  >
+                    {{
+                      remaining(line.lineIndex, line.quantity) === 0
+                        ? 'Repartido'
+                        : remaining(line.lineIndex, line.quantity) > 0
+                          ? `Faltan ${remaining(line.lineIndex, line.quantity)}`
+                          : `Sobran ${-remaining(line.lineIndex, line.quantity)}`
+                    }}
+                  </AdminBadge>
+                </li>
+              </ul>
+              <p class="adm-help mt-2">
+                Cada unidad del pedido tiene que ir en un bulto, y solo en uno. Hasta 20 bultos.
+              </p>
+            </div>
+          </template>
+          <template v-else>
+            <fieldset
+              v-for="(shipment, index) in shipments"
+              :key="shipment.parcelIndex"
+              class="min-w-0 rounded-[var(--radius-control)] border border-[var(--border)] p-3"
+            >
+              <legend class="sr-only">Bulto {{ shipment.parcelIndex + 1 }}</legend>
+              <p class="mb-3 font-medium text-[var(--text-strong)]">Bulto {{ shipment.parcelIndex + 1 }}</p>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <AdminFormField v-slot="{ id }" label="Transportista">
+                  <input
+                    :id="id"
+                    v-model="shipment.carrier"
+                    :data-testid="`packing-carrier-${index}`"
+                    maxlength="100"
+                    class="adm-input w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Número de envío">
+                  <input
+                    :id="id"
+                    v-model="shipment.shipmentNumber"
+                    :data-testid="`packing-shipment-${index}`"
+                    maxlength="120"
+                    class="adm-input w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Número de seguimiento">
+                  <input
+                    :id="id"
+                    v-model="shipment.trackingNumber"
+                    :data-testid="`packing-tracking-${index}`"
+                    maxlength="120"
+                    class="adm-input w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField
+                  v-slot="{ id, describedBy }"
+                  label="Referencia de la etiqueta"
+                  help="El código de la etiqueta, no un enlace ni un archivo."
+                >
+                  <input
+                    :id="id"
+                    v-model="shipment.externalLabelReference"
+                    :aria-describedby="describedBy"
+                    :data-testid="`packing-label-${index}`"
+                    maxlength="200"
+                    class="adm-input w-full"
+                  />
+                </AdminFormField>
+              </div>
+            </fieldset>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <AdminFormField v-slot="{ id }" label="Coste real sin IVA (€)">
+                <input
+                  :id="id"
+                  v-model="actualNet"
+                  data-testid="packing-actual-net"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  placeholder="0,00"
+                  class="adm-input w-full"
+                />
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="IVA (%)">
+                <input
+                  :id="id"
+                  v-model="tax"
+                  data-testid="packing-tax"
+                  type="text"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  placeholder="21"
+                  class="adm-input w-full"
+                />
+              </AdminFormField>
+            </div>
+            <p v-if="costReady" class="text-[var(--text)]">
+              Total con IVA:
+              <span class="whitespace-nowrap font-medium tabular-nums text-[var(--text-strong)]">{{
+                money(gross)
+              }}</span>
+              · Diferencia con lo presupuestado:
+              <span class="whitespace-nowrap tabular-nums">{{ money(gross - snapshot.quotedGrossCents) }}</span>
+            </p>
+          </template>
+          <AdminFormField
+            v-slot="{ id, describedBy }"
+            label="Motivo"
+            help="Entre 10 y 500 caracteres. No escribas datos bancarios ni contraseñas."
           >
-            Añadir bulto (máximo 20)
-          </button>
-          <p class="text-xs">
-            Las medidas son límites de entrada, no certifican admisión por un transportista. Asigna todas las unidades
-            exactamente una vez entre los bultos.
-          </p>
+            <textarea
+              :id="id"
+              v-model="reason"
+              :aria-describedby="describedBy"
+              data-testid="packing-reason"
+              maxlength="500"
+              rows="2"
+              class="adm-input w-full"
+            />
+          </AdminFormField>
+        </fieldset>
+        <div v-if="intent && authorized && !revoked" class="adm-stack">
+          <UAlert
+            v-if="uncertain"
+            role="status"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            title="Falta confirmar si se ha guardado"
+            description="No se volverá a enviar. Pulsa «Comprobar de nuevo» para ver si el registro quedó guardado."
+          />
+          <div>
+            <p class="adm-help">Revisa antes de confirmar</p>
+            <h3 class="mt-0.5 text-base font-semibold text-[var(--text-strong)]">
+              {{ intent.body.action === 'pack' ? 'Embalaje del pedido' : 'Envío manual' }}
+            </h3>
+            <p class="mt-1 break-words">{{ intent.body.reason }}</p>
+          </div>
+          <ol
+            v-if="intent.body.action === 'pack'"
+            class="divide-y divide-[var(--border)] border-y border-[var(--border)]"
+          >
+            <li v-for="(parcel, index) in intent.body.parcels" :key="index" class="py-2.5">
+              <p class="font-medium text-[var(--text-strong)]">
+                Bulto {{ index + 1 }}
+                <span class="whitespace-nowrap font-normal tabular-nums text-[var(--text-muted)]">
+                  · {{ parcel.weightGrams.toLocaleString('es-ES') }} g · {{ parcel.widthMm }} × {{ parcel.heightMm }} ×
+                  {{ parcel.depthMm }} mm
+                </span>
+              </p>
+              <ul class="mt-1 space-y-0.5">
+                <li v-for="content in parcel.contents" :key="content.lineIndex">
+                  {{ content.quantity }} × {{ lineName(snapshot, content.lineIndex) }}
+                </li>
+              </ul>
+            </li>
+          </ol>
+          <template v-else>
+            <ul class="divide-y divide-[var(--border)] border-y border-[var(--border)]">
+              <li v-for="shipment in intent.body.shipments" :key="shipment.parcelIndex" class="py-2.5">
+                <p class="font-medium text-[var(--text-strong)]">
+                  Bulto {{ shipment.parcelIndex + 1 }} · {{ shipment.carrier }}
+                </p>
+                <p class="break-words text-xs text-[var(--text-muted)]">
+                  Envío {{ shipment.shipmentNumber }} · Seguimiento {{ shipment.trackingNumber }} · Etiqueta
+                  {{ shipment.externalLabelReference }}
+                </p>
+              </li>
+            </ul>
+            <p>
+              Coste real con IVA ({{ taxPercent(intent.body.taxBps) }}):
+              <span class="whitespace-nowrap font-medium tabular-nums text-[var(--text-strong)]">{{
+                money(actualGross(intent.body.actualNetCents, intent.body.taxBps))
+              }}</span>
+            </p>
+          </template>
+        </div>
+      </div>
+      <template #footer>
+        <template v-if="intent && authorized && !revoked">
+          <AdminButton v-if="!uncertain" data-testid="packing-cancel-review" :disabled="busy" @click="intent = null">
+            Volver a editar
+          </AdminButton>
+          <AdminButton
+            v-if="!uncertain"
+            variant="primary"
+            data-testid="packing-confirm"
+            :loading="busy"
+            :disabled="pending"
+            @click="send"
+          >
+            Confirmar
+          </AdminButton>
+          <AdminButton
+            v-else
+            variant="primary"
+            data-testid="packing-recover"
+            :loading="busy"
+            :disabled="pending"
+            @click="recover"
+          >
+            Comprobar de nuevo
+          </AdminButton>
         </template>
         <template v-else>
-          <fieldset
-            v-for="(shipment, index) in shipments"
-            :key="shipment.parcelIndex"
-            class="min-w-0 space-y-3 rounded-lg border p-3"
-          >
-            <legend>Bulto {{ shipment.parcelIndex + 1 }}</legend>
-            <label class="block text-sm"
-              >Transportista
-              <input
-                v-model="shipment.carrier"
-                :data-testid="`packing-carrier-${index}`"
-                maxlength="100"
-                class="block w-full rounded border p-2"
-            /></label>
-            <label class="block text-sm"
-              >Número de expedición
-              <input
-                v-model="shipment.shipmentNumber"
-                :data-testid="`packing-shipment-${index}`"
-                maxlength="120"
-                class="block w-full rounded border p-2"
-            /></label>
-            <label class="block text-sm"
-              >Número de seguimiento
-              <input
-                v-model="shipment.trackingNumber"
-                :data-testid="`packing-tracking-${index}`"
-                maxlength="120"
-                class="block w-full rounded border p-2"
-            /></label>
-            <label class="block text-sm"
-              >Referencia externa de etiqueta (no URL ni archivo)
-              <input
-                v-model="shipment.externalLabelReference"
-                :data-testid="`packing-label-${index}`"
-                maxlength="200"
-                class="block w-full rounded border p-2"
-            /></label>
-          </fieldset>
-          <label class="block text-sm"
-            >Coste real neto (céntimos EUR)
-            <input
-              v-model="actualNet"
-              data-testid="packing-actual-net"
-              type="number"
-              min="0"
-              max="1000000000"
-              step="1"
-              class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >IVA real (puntos básicos; 2100 = 21 %)
-            <input
-              v-model="tax"
-              data-testid="packing-tax"
-              type="number"
-              min="0"
-              max="10000"
-              step="1"
-              class="block w-full rounded border p-2"
-          /></label>
-          <p v-if="actualNet !== '' && tax !== ''">
-            Total real: {{ money(gross) }} · Diferencia: {{ money(gross - snapshot.quotedGrossCents) }}
-          </p>
+          <AdminButton @click="drawerOpen = false">Cancelar</AdminButton>
+          <AdminButton variant="primary" data-testid="packing-review" :disabled="locked" @click="prepare">
+            Revisar
+          </AdminButton>
         </template>
-        <label class="block text-sm"
-          >Motivo operativo (sin datos sensibles)
-          <textarea
-            v-model="reason"
-            data-testid="packing-reason"
-            maxlength="500"
-            rows="2"
-            class="block w-full rounded border p-2"
-          />
-        </label>
-        <button
-          data-testid="packing-review"
-          type="button"
-          :disabled="locked"
-          class="rounded-lg bg-neteco-700 px-4 py-2 text-white disabled:opacity-50"
-          @click="prepare"
-        >
-          Revisar registro
-        </button>
-      </fieldset>
-    </template>
-    <div v-if="intent && authorized && !revoked" class="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
-      <h3 class="font-semibold">
-        Confirmación explícita: {{ intent.body.action === 'pack' ? 'embalaje' : 'expedición manual' }}
-      </h3>
-      <p class="break-words">
-        {{ intent.body.reason }} · Versión {{ intent.body.expectedVersion }} · Preparación
-        {{ intent.body.expectedFulfillmentVersion }}
-      </p>
-      <ol v-if="intent.body.action === 'pack'" class="space-y-2 text-sm">
-        <li v-for="(parcel, index) in intent.body.parcels" :key="index">
-          Bulto {{ index + 1 }}: {{ parcel.weightGrams }} g · {{ parcel.widthMm }} × {{ parcel.heightMm }} ×
-          {{ parcel.depthMm }} mm
-          <ul>
-            <li v-for="content in parcel.contents" :key="content.lineIndex">
-              {{ snapshot?.lines.find((line) => line.lineIndex === content.lineIndex)?.sku }}:
-              {{ content.quantity }} unidades
-            </li>
-          </ul>
-        </li>
-      </ol>
-      <template v-else
-        ><p>Total real {{ money(actualGross(intent.body.actualNetCents, intent.body.taxBps)) }}</p>
-        <p v-for="shipment in intent.body.shipments" :key="shipment.parcelIndex" class="break-words text-sm">
-          Bulto {{ shipment.parcelIndex + 1 }} · {{ shipment.carrier }} · {{ shipment.shipmentNumber }} ·
-          {{ shipment.trackingNumber }} · {{ shipment.externalLabelReference }}
-        </p></template
-      >
-      <p v-if="uncertain" role="status">
-        Resultado incierto. La intención permanece bloqueada hasta comprobar recibo y estado actual; no se repetirá el
-        POST.
-      </p>
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-if="!uncertain"
-          data-testid="packing-confirm"
-          type="button"
-          :disabled="busy || pending"
-          class="rounded-lg bg-neteco-700 px-4 py-2 text-white"
-          @click="send"
-        >
-          Confirmar registro
-        </button>
-        <button
-          v-else
-          data-testid="packing-recover"
-          type="button"
-          :disabled="busy || pending"
-          class="rounded-lg border px-4 py-2"
-          @click="recover"
-        >
-          Comprobar recibo y estado actual
-        </button>
-        <button
-          v-if="!uncertain"
-          data-testid="packing-cancel-review"
-          type="button"
-          :disabled="busy"
-          class="rounded-lg border px-4 py-2"
-          @click="intent = null"
-        >
-          Cancelar revisión sin enviar
-        </button>
-      </div>
-    </div>
-    <p v-if="message" role="status" class="break-words text-sm">{{ message }}</p>
+      </template>
+    </AdminDrawer>
   </section>
 </template>

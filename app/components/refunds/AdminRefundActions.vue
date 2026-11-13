@@ -10,6 +10,7 @@ import {
   financialAccessDenied,
   financialAmount,
   integerInput,
+  refundLabel,
   type FinancialSnapshot,
   type FinancialAction,
   type FinancialReceipt
@@ -37,12 +38,20 @@ const selected = ref<FinancialAction | ''>(''),
   reason = ref(''),
   evidenceRef = ref(''),
   shipping = ref(false),
-  shippingCents = ref(''),
+  shippingEuros = ref(''),
   message = ref(''),
+  messageTone = ref<'neutral' | 'success' | 'warning' | 'error'>('neutral'),
+  drawerOpen = ref(false),
   contextCurrent = ref(true),
   denied = ref(false),
   revision = ref(0)
-const lines = ref([{ lineIndex: '', quantity: '', amountCents: '' }])
+const lines = ref([{ lineIndex: '', quantity: '', amountEuros: '' }])
+const formId = useId()
+/** El comerciante teclea euros; la API sigue recibiendo céntimos enteros. Un importe mal escrito no pasa la validación. */
+function centsInput(euros: string): string {
+  const cents = adminEurosToCents(euros)
+  return cents === null ? 'importe no válido' : String(cents)
+}
 const liveSnapshot = shallowRef<FinancialSnapshot | null>(null)
 let active = true
 const commands = new FinancialCommandSession(() => {
@@ -51,6 +60,10 @@ const commands = new FinancialCommandSession(() => {
 const state = computed(() => {
   void revision.value
   return { intent: commands.intent, busy: commands.busy, ambiguous: commands.ambiguous }
+})
+const intentTarget = computed(() => {
+  const id = state.value.intent?.refundId
+  return (id && liveSnapshot.value?.refunds.items.find((item) => item.id === id)) || null
 })
 function access() {
   try {
@@ -76,12 +89,12 @@ const view = computed(() => {
   return liveSnapshot.value
 })
 const labels: Record<FinancialAction, string> = {
-  plan: 'Preparar solicitud de reembolso',
-  confirm: 'Autorizar solicitud preparada',
-  cancel: 'Cancelar solicitud no enviada',
-  queue_credit: 'Solicitar rectificativa enlazada',
-  reconcile_refund: 'Conciliar resultado del reembolso',
-  reconcile_credit: 'Conciliar resultado de la rectificativa'
+  plan: 'Preparar un reembolso nuevo',
+  confirm: 'Autorizar un reembolso preparado',
+  cancel: 'Cancelar un reembolso que aún no se ha enviado',
+  queue_credit: 'Pedir la factura rectificativa de un reembolso',
+  reconcile_refund: 'Comprobar el resultado de un reembolso',
+  reconcile_credit: 'Comprobar el resultado de una factura rectificativa'
 }
 const targets = computed(() =>
   !view.value
@@ -91,13 +104,13 @@ const targets = computed(() =>
           .filter((item) => item.capabilities.reconcile)
           .map((item) => ({
             id: item.id,
-            text: `${item.code ?? 'Rectificativa pendiente'} · ${financialAmount(item.amountCents)}`
+            text: `${item.code ?? 'Factura rectificativa pendiente'} · ${financialAmount(item.amountCents)}`
           }))
       : view.value.refunds.items
           .filter((item) => selected.value && actionAvailable(selected.value, view.value!, item.id))
           .map((item) => ({
             id: item.id,
-            text: `${item.returnPublicRef} · ${financialAmount(item.amountCents)} · ${item.id.slice(0, 8)}`
+            text: `${financialAmount(item.amountCents)} · ${refundLabel(item)} · devolución ${item.returnPublicRef}`
           }))
 )
 const selectionAvailable = computed(
@@ -112,8 +125,8 @@ function clearFields() {
   reason.value = ''
   evidenceRef.value = ''
   shipping.value = false
-  shippingCents.value = ''
-  lines.value = [{ lineIndex: '', quantity: '', amountCents: '' }]
+  shippingEuros.value = ''
+  lines.value = [{ lineIndex: '', quantity: '', amountEuros: '' }]
 }
 watch(
   () => [
@@ -195,9 +208,13 @@ function prepare() {
               lines: lines.value.map((line) => ({
                 lineIndex: integerInput(line.lineIndex, 0, 99),
                 quantity: integerInput(line.quantity, 1, 999),
-                ...(line.amountCents ? { amountCents: integerInput(line.amountCents, 1, 1_000_000_000) } : {})
+                ...(line.amountEuros.trim()
+                  ? { amountCents: integerInput(centsInput(line.amountEuros), 1, 1_000_000_000) }
+                  : {})
               })),
-              ...(shipping.value ? { shippingCents: integerInput(shippingCents.value, 1, 1_000_000_000) } : {})
+              ...(shipping.value
+                ? { shippingCents: integerInput(centsInput(shippingEuros.value), 1, 1_000_000_000) }
+                : {})
             }
           : action === 'queue_credit'
             ? { ...common, policyId: policyId.value.trim() }
@@ -215,8 +232,9 @@ function prepare() {
       })
     )
   } catch {
+    messageTone.value = 'error'
     message.value =
-      'Completa los campos exactos de la operación: UUID de política, expediente y versión RMA, líneas y cantidades enteras, motivo (10–500 caracteres) y referencia de evidencia.'
+      'Revisa los datos: identificador de la política, referencia y versión de la devolución, líneas y unidades en números enteros, importes en euros, motivo (entre 10 y 500 caracteres) y justificante.'
   }
 }
 async function dispatch() {
@@ -251,338 +269,456 @@ async function dispatch() {
     }
   })
   if (!active || !authorized() || result.kind === 'discarded') return
+  messageTone.value = result.kind === 'confirmed' ? 'success' : result.kind === 'rejected' ? 'error' : 'warning'
   if (result.kind === 'confirmed') {
+    drawerOpen.value = false
     clearFields()
     liveSnapshot.value = result.latest
     contextCurrent.value = result.latest !== null
     message.value =
       result.receipt.action === 'confirmed'
-        ? 'Solicitud autorizada y en cola. No confirma devolución bancaria ni emisión fiscal.'
+        ? 'Reembolso autorizado y en cola. Todavía no confirma que el banco haya devuelto el dinero.'
         : result.receipt.action === 'planned'
-          ? 'Solicitud preparada y auditada. Requiere autorización; todavía no se ha enviado al banco.'
+          ? 'Reembolso preparado. Falta autorizarlo; todavía no se ha enviado al banco.'
           : result.receipt.action === 'queued'
-            ? 'Rectificativa solicitada. Todavía no confirma una factura emitida.'
+            ? 'Factura rectificativa solicitada. Todavía no está emitida.'
             : result.receipt.action === 'blocked'
-              ? 'Conciliación registrada. El resultado del proveedor continúa pendiente; no confirma una devolución bancaria.'
+              ? 'Comprobación registrada. El banco aún no ha dado un resultado: el dinero no consta como devuelto.'
               : result.receipt.action === 'cancelled'
-                ? 'Solicitud cancelada antes del envío al proveedor.'
-                : 'Conciliación administrativa confirmada. Consulta el estado financiero y fiscal actual.'
+                ? 'Reembolso cancelado antes de enviarse al banco.'
+                : 'Comprobación terminada. Revisa el estado actual del reembolso y de su factura rectificativa.'
     if (result.receipt.validationOnly)
-      message.value += ' Validación local sintética, sin movimiento bancario ni validez fiscal.'
-    if (result.latest === null) message.value += ' El recibo es histórico: el estado actual no se ha podido confirmar.'
+      message.value += ' Es una operación de prueba: no hay movimiento en el banco ni validez fiscal.'
+    if (result.latest === null) message.value += ' No hemos podido actualizar los datos del pedido: pulsa «Actualizar».'
     emit('confirmed', result.receipt)
   } else if (result.kind === 'unknown')
     message.value =
-      'Resultado no confirmado. Conservamos exactamente la misma clave y contenido. Recuperar comprueba el estado y relee el comando; no reenvía una devolución ni emite un documento.'
+      'No sabemos si la operación se ha guardado. No prepares otra: pulsa «Comprobar de nuevo» para recuperar esta misma, sin duplicar el reembolso.'
   else if (result.kind === 'not_sent')
-    message.value = 'No se ha confirmado la lectura actual. No se ha enviado ningún comando.'
+    message.value = 'No hemos podido cargar los datos actuales del pedido. No se ha enviado nada.'
   else if (result.kind === 'stale')
-    message.value =
-      'El expediente ha cambiado. Actualiza el estado antes de preparar otro comando con su nueva versión.'
+    message.value = 'El reembolso ha cambiado mientras lo preparabas. Actualiza los datos y vuelve a prepararlo.'
   else if (result.kind === 'rejected')
-    message.value = 'Comando rechazado de forma confirmada. Actualiza el estado; no se reintentará automáticamente.'
+    message.value = 'La operación se ha rechazado. Actualiza los datos y revísala; no se reintentará sola.'
 }
 function discard() {
-  if (commands.discard()) message.value = 'Preparación no enviada descartada.'
+  if (commands.discard()) {
+    messageTone.value = 'neutral'
+    message.value = 'Operación descartada. No se ha enviado nada.'
+  }
 }
 </script>
 
 <template>
-  <section aria-label="Comandos financieros administrativos" class="space-y-4 border-t border-slate-200 pt-5">
-    <h3 class="font-semibold text-slate-900">Gestión financiera documentada</h3>
-    <p v-if="!authorized()" role="status" data-testid="refund-admin-access" class="text-sm text-slate-600">
-      Requiere acceso administrativo actual, correo verificado y MFA. Clientes e invitados no pueden ejecutar estos
-      comandos.
-    </p>
+  <section aria-label="Gestión de reembolsos" class="space-y-3">
+    <UAlert
+      v-if="!authorized()"
+      role="status"
+      data-testid="refund-admin-access"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="Confirma tu sesión para gestionar reembolsos"
+      description="Solo puede hacerlo un administrador con el correo verificado y la verificación en dos pasos."
+    />
     <template v-else>
-      <p class="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
-        Preparar, autorizar o solicitar una rectificativa no ejecuta el proveedor. La política aprobada, la captura
-        histórica y la custodia se comprueban en el servidor. Nunca se modifica la factura original ni se repone
-        inventario.
-      </p>
-      <p
-        v-if="message"
+      <UAlert
+        v-if="message && !drawerOpen"
         role="status"
         data-testid="refund-admin-message"
-        class="rounded-lg border border-slate-200 p-3 text-sm"
-      >
-        {{ message }}
+        :color="messageTone"
+        variant="subtle"
+        :title="message"
+      />
+      <p v-if="!view && !state.intent" role="status" data-testid="refund-admin-read-error" class="sr-only">
+        Para gestionar reembolsos hace falta cargar antes los datos actuales del pedido.
       </p>
-      <p
-        v-if="!view && !state.intent"
-        role="status"
-        data-testid="refund-admin-read-error"
-        class="text-sm text-amber-900"
+      <UAlert
+        v-if="state.intent && !drawerOpen"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-hourglass"
+        title="Tienes una operación de reembolso sin terminar"
+        :description="
+          state.ambiguous
+            ? 'Falta confirmar su resultado. Ábrela y compruébala antes de preparar otra o de salir de esta página.'
+            : 'La has preparado pero no la has enviado. Ábrela para enviarla o descartarla.'
+        "
+      />
+      <div v-if="view || state.intent" class="flex justify-end border-t border-[var(--border)] pt-4">
+        <AdminButton
+          variant="primary"
+          icon="i-lucide-banknote"
+          data-testid="refund-admin-open"
+          @click="drawerOpen = true"
+        >
+          {{ state.intent ? 'Continuar la operación' : 'Gestionar reembolsos' }}
+        </AdminButton>
+      </div>
+
+      <AdminDrawer
+        v-model:open="drawerOpen"
+        wide
+        title="Gestionar reembolsos"
+        description="Prepara, autoriza o cancela un reembolso y pide su factura rectificativa. Antes de enviar verás un resumen."
       >
-        Comandos deshabilitados: confirma una lectura privada actual del pedido.
-      </p>
-      <form v-if="view && !state.intent" data-testid="refund-admin-form" class="space-y-4" @submit.prevent="prepare">
-        <fieldset :disabled="state.busy" class="space-y-4">
-          <legend class="sr-only">Preparar comando financiero</legend>
-          <label class="block text-sm font-medium"
-            >Operación
-            <select
-              v-model="selected"
-              data-testid="refund-admin-action"
-              class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            >
-              <option value="">Selecciona una operación</option>
-              <option
-                v-for="(label, action) in labels"
-                :key="action"
-                :value="action"
-                :disabled="action === 'plan' && !actionAvailable('plan', view)"
-              >
-                {{ label }}
-              </option>
-            </select>
-          </label>
-          <label v-if="selected && selected !== 'plan'" class="block text-sm font-medium"
-            >Solicitud o rectificativa de esta lectura
-            <select
-              v-model="targetId"
-              data-testid="refund-admin-target"
-              class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-            >
-              <option value="">Selecciona un expediente disponible</option>
-              <option v-for="target in targets" :key="target.id" :value="target.id">{{ target.text }}</option>
-            </select>
-          </label>
-          <template v-if="selected === 'plan' || selected === 'queue_credit'">
-            <label class="block text-sm font-medium"
-              >UUID de política aprobada ({{ selected === 'plan' ? 'reembolso' : 'rectificativa' }})
-              <input
-                v-model="policyId"
-                data-testid="refund-admin-policy"
-                type="text"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="00000000-0000-0000-0000-000000000000"
-                class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
+        <div class="adm-stack">
+          <UAlert
+            v-if="message"
+            role="status"
+            data-testid="refund-admin-message"
+            :color="messageTone"
+            variant="subtle"
+            :title="message"
+          />
+          <AdminEmptyState
+            v-if="!view && !state.intent"
+            compact
+            icon="i-lucide-refresh-cw"
+            title="Faltan los datos actuales del pedido"
+            description="Cierra este panel, pulsa «Actualizar» en la tarjeta de reembolsos y vuelve a abrirlo."
+          />
+          <form v-if="view && !state.intent" :id="formId" data-testid="refund-admin-form" @submit.prevent="prepare">
+            <fieldset :disabled="state.busy" class="adm-stack min-w-0">
+              <legend class="sr-only">Preparar una operación de reembolso</legend>
+              <AdminFormField v-slot="{ id }" label="Qué quieres hacer" required>
+                <select :id="id" v-model="selected" data-testid="refund-admin-action" class="adm-input w-full" required>
+                  <option value="">Elige una operación</option>
+                  <option
+                    v-for="(label, action) in labels"
+                    :key="action"
+                    :value="action"
+                    :disabled="action === 'plan' && !actionAvailable('plan', view)"
+                  >
+                    {{ label }}
+                  </option>
+                </select>
+              </AdminFormField>
+              <AdminFormField
+                v-if="selected && selected !== 'plan'"
+                v-slot="{ id }"
+                :label="selected === 'reconcile_credit' ? 'Factura rectificativa' : 'Reembolso'"
+                :help="
+                  targets.length ? undefined : 'Ahora mismo no hay ninguno al que se pueda aplicar esta operación.'
+                "
                 required
-              />
-            </label>
-          </template>
-          <fieldset v-if="selected === 'plan'" class="space-y-4 rounded-lg border border-slate-200 p-4">
-            <legend class="px-1 text-sm font-semibold">Datos explícitos del RMA y sus unidades históricas</legend>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label class="text-sm font-medium"
-                >Referencia pública RMA<input
-                  v-model="returnRef"
-                  data-testid="refund-admin-rma"
+              >
+                <select :id="id" v-model="targetId" data-testid="refund-admin-target" class="adm-input w-full" required>
+                  <option value="">Elige uno</option>
+                  <option v-for="target in targets" :key="target.id" :value="target.id">{{ target.text }}</option>
+                </select>
+              </AdminFormField>
+              <AdminFormField
+                v-if="selected === 'plan' || selected === 'queue_credit'"
+                v-slot="{ id, describedBy }"
+                :label="
+                  selected === 'plan'
+                    ? 'Identificador de la política de reembolsos aprobada'
+                    : 'Identificador de la política de rectificativas aprobada'
+                "
+                help="Pega el identificador completo de la política aprobada que ampara esta operación."
+                required
+              >
+                <input
+                  :id="id"
+                  v-model="policyId"
+                  :aria-describedby="describedBy"
+                  data-testid="refund-admin-policy"
                   type="text"
                   autocomplete="off"
                   spellcheck="false"
-                  placeholder="RMA-…"
-                  class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                  class="adm-input w-full"
                   required
-              /></label>
-              <label class="text-sm font-medium"
-                >Versión actual del RMA<input
-                  v-model="returnVersion"
-                  data-testid="refund-admin-rma-version"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  required
-              /></label>
-            </div>
-            <p class="text-xs text-slate-500">
-              Copia la versión de una lectura actual del expediente. El servidor verifica que esté preparado para
-              resolución. No se deduce de una versión del reembolso.
-            </p>
-            <div
-              v-for="(line, index) in lines"
-              :key="index"
-              class="grid gap-3 rounded-lg bg-slate-50 p-3 sm:grid-cols-3"
-            >
-              <label class="text-sm"
-                >Índice histórico de línea (0–99)<input
-                  v-model="line.lineIndex"
-                  :data-testid="`refund-line-index-${index}`"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  required
-              /></label>
-              <label class="text-sm"
-                >Cantidad (1–999)<input
-                  v-model="line.quantity"
-                  :data-testid="`refund-line-quantity-${index}`"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
-                  required
-              /></label>
-              <label class="text-sm"
-                >Compensación menor, opcional (céntimos EUR)<input
-                  v-model="line.amountCents"
-                  :data-testid="`refund-line-amount-${index}`"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="off"
-                  class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
-              /></label>
-              <button
-                v-if="lines.length > 1"
-                type="button"
-                class="min-h-11 text-left text-sm underline"
-                :aria-label="`Quitar línea ${index + 1}`"
-                @click="lines.splice(index, 1)"
-              >
-                Quitar línea
-              </button>
-            </div>
-            <button
-              type="button"
-              :disabled="lines.length >= 100"
-              data-testid="refund-add-line"
-              class="min-h-11 rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
-              @click="lines.push({ lineIndex: '', quantity: '', amountCents: '' })"
-            >
-              Añadir línea
-            </button>
-            <p class="text-xs text-slate-500">
-              Sin importe manual se usa el valor histórico exacto de las unidades. Una compensación menor consume esas
-              unidades; esta pantalla no permite completarla después sobre las mismas unidades.
-            </p>
-            <label class="flex items-center gap-2 text-sm"
-              ><input
-                v-model="shipping"
-                data-testid="refund-shipping-opt-in"
-                type="checkbox"
-                class="h-4 w-4"
-              />Solicitar portes según política explícita aprobada</label
-            >
-            <label v-if="shipping" class="block text-sm"
-              >Importe de portes (céntimos EUR)<input
-                v-model="shippingCents"
-                data-testid="refund-shipping-cents"
-                type="text"
-                inputmode="numeric"
-                autocomplete="off"
-                class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
+                />
+              </AdminFormField>
+              <fieldset v-if="selected === 'plan'" class="adm-stack min-w-0">
+                <legend class="adm-label">Devolución y artículos que se reembolsan</legend>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <AdminFormField v-slot="{ id }" label="Referencia de la devolución" required>
+                    <input
+                      :id="id"
+                      v-model="returnRef"
+                      data-testid="refund-admin-rma"
+                      type="text"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="RMA-…"
+                      class="adm-input w-full"
+                      required
+                    />
+                  </AdminFormField>
+                  <AdminFormField
+                    v-slot="{ id, describedBy }"
+                    label="Versión de la devolución"
+                    help="La verás en la ficha de la devolución, junto a su estado."
+                    required
+                  >
+                    <input
+                      :id="id"
+                      v-model="returnVersion"
+                      :aria-describedby="describedBy"
+                      data-testid="refund-admin-rma-version"
+                      type="text"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      class="adm-input w-full"
+                      required
+                    />
+                  </AdminFormField>
+                </div>
+                <div
+                  v-for="(line, index) in lines"
+                  :key="index"
+                  class="rounded-[var(--radius-control)] border border-[var(--border)] p-3"
+                >
+                  <div class="mb-3 flex items-center justify-between gap-3">
+                    <p class="font-medium text-[var(--text-strong)]">Artículo {{ index + 1 }}</p>
+                    <AdminButton
+                      v-if="lines.length > 1"
+                      variant="ghost"
+                      size="sm"
+                      icon="i-lucide-trash-2"
+                      :aria-label="`Quitar línea ${index + 1}`"
+                      @click="lines.splice(index, 1)"
+                    >
+                      Quitar
+                    </AdminButton>
+                  </div>
+                  <div class="grid gap-3 sm:grid-cols-3">
+                    <AdminFormField
+                      v-slot="{ id, describedBy }"
+                      label="Línea del pedido"
+                      help="Posición en el pedido; la primera es la 0."
+                      required
+                    >
+                      <input
+                        :id="id"
+                        v-model="line.lineIndex"
+                        :aria-describedby="describedBy"
+                        :data-testid="`refund-line-index-${index}`"
+                        type="text"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        class="adm-input w-full"
+                        required
+                      />
+                    </AdminFormField>
+                    <AdminFormField v-slot="{ id }" label="Unidades" required>
+                      <input
+                        :id="id"
+                        v-model="line.quantity"
+                        :data-testid="`refund-line-quantity-${index}`"
+                        type="text"
+                        inputmode="numeric"
+                        autocomplete="off"
+                        class="adm-input w-full"
+                        required
+                      />
+                    </AdminFormField>
+                    <AdminFormField
+                      v-slot="{ id, describedBy }"
+                      label="Importe (€)"
+                      help="Opcional. Vacío devuelve lo pagado."
+                    >
+                      <input
+                        :id="id"
+                        v-model="line.amountEuros"
+                        :aria-describedby="describedBy"
+                        :data-testid="`refund-line-amount-${index}`"
+                        type="text"
+                        inputmode="decimal"
+                        autocomplete="off"
+                        placeholder="0,00"
+                        class="adm-input w-full"
+                      />
+                    </AdminFormField>
+                  </div>
+                </div>
+                <div>
+                  <AdminButton
+                    size="sm"
+                    icon="i-lucide-plus"
+                    :disabled="lines.length >= 100"
+                    data-testid="refund-add-line"
+                    @click="lines.push({ lineIndex: '', quantity: '', amountEuros: '' })"
+                  >
+                    Añadir otro artículo
+                  </AdminButton>
+                </div>
+                <p class="adm-help">
+                  Si indicas un importe menor que lo pagado, esas unidades quedan reembolsadas: después no se podrá
+                  devolver el resto desde aquí.
+                </p>
+                <label class="adm-check">
+                  <input v-model="shipping" data-testid="refund-shipping-opt-in" type="checkbox" />
+                  Devolver también gastos de envío
+                </label>
+                <AdminFormField v-if="shipping" v-slot="{ id }" label="Gastos de envío que se devuelven (€)" required>
+                  <input
+                    :id="id"
+                    v-model="shippingEuros"
+                    data-testid="refund-shipping-cents"
+                    type="text"
+                    inputmode="decimal"
+                    autocomplete="off"
+                    placeholder="0,00"
+                    class="adm-input w-full sm:max-w-48"
+                    required
+                  />
+                </AdminFormField>
+              </fieldset>
+              <AdminFormField
+                v-slot="{ id, describedBy }"
+                label="Motivo interno"
+                help="Entre 10 y 500 caracteres. El cliente no lo ve."
                 required
-            /></label>
-          </fieldset>
-          <label class="block text-sm font-medium"
-            >Motivo interno (10–500 caracteres)<textarea
-              v-model="reason"
-              data-testid="refund-admin-reason"
-              minlength="10"
-              maxlength="500"
-              autocomplete="off"
-              rows="3"
-              class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-              required
+              >
+                <textarea
+                  :id="id"
+                  v-model="reason"
+                  :aria-describedby="describedBy"
+                  data-testid="refund-admin-reason"
+                  minlength="10"
+                  maxlength="500"
+                  autocomplete="off"
+                  rows="3"
+                  class="adm-input w-full"
+                  required
+                />
+              </AdminFormField>
+              <AdminFormField
+                v-slot="{ id, describedBy }"
+                label="Justificante"
+                help="Referencia del documento o de la conversación que respalda la operación."
+                required
+              >
+                <input
+                  :id="id"
+                  v-model="evidenceRef"
+                  :aria-describedby="describedBy"
+                  data-testid="refund-admin-evidence"
+                  type="text"
+                  maxlength="200"
+                  autocomplete="off"
+                  class="adm-input w-full"
+                  required
+                />
+              </AdminFormField>
+              <p class="adm-help">
+                Preparar o autorizar no mueve dinero al instante: el reembolso se envía al banco después. La factura
+                original no se modifica y las unidades no vuelven al stock.
+              </p>
+            </fieldset>
+          </form>
+          <div v-if="state.intent" data-testid="refund-admin-intent" class="adm-stack">
+            <UAlert
+              v-if="state.ambiguous"
+              role="alert"
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="Falta confirmar el resultado"
+              description="No prepares otra operación ni cierres la página. «Comprobar de nuevo» recupera esta misma operación; no devuelve el dinero dos veces."
             />
-          </label>
-          <label class="block text-sm font-medium"
-            >Referencia de evidencia documentada<input
-              v-model="evidenceRef"
-              data-testid="refund-admin-evidence"
-              type="text"
-              maxlength="200"
-              autocomplete="off"
-              class="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2"
-              required
-          /></label>
-          <button
-            type="submit"
-            data-testid="refund-admin-prepare"
-            :disabled="!selectionAvailable"
-            class="min-h-11 w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
-          >
-            Revisar comando antes de enviarlo
-          </button>
-        </fieldset>
-      </form>
-      <div
-        v-if="state.intent"
-        data-testid="refund-admin-intent"
-        class="space-y-3 rounded-lg border border-slate-300 p-4"
-      >
-        <p class="font-semibold">{{ labels[state.intent.action] }}</p>
-        <p class="text-sm">
-          Clave y contenido congelados. La siguiente comprobación relee el estado actual antes de enviar el comando
-          administrativo.
-        </p>
-        <p class="break-all text-xs text-slate-500">Referencia del intento: {{ state.intent.body.idempotencyKey }}</p>
-        <p v-if="state.ambiguous" role="alert" class="text-sm text-amber-900">
-          No prepares otra operación ni cierres esta pantalla sin resolver el resultado. Recuperar no ejecuta el banco
-          ni el proveedor fiscal.
-        </p>
-        <dl class="space-y-2 text-sm">
-          <div v-if="state.intent.targetId">
-            <dt class="text-slate-600">Expediente inmutable</dt>
-            <dd class="break-all">{{ state.intent.targetId }}</dd>
+            <div>
+              <p class="adm-help">Revisa antes de enviar</p>
+              <p class="mt-0.5 text-base font-semibold text-[var(--text-strong)]">{{ labels[state.intent.action] }}</p>
+            </div>
+            <dl class="divide-y divide-[var(--border)] border-y border-[var(--border)]">
+              <div v-if="state.intent.amountCents !== null" class="flex justify-between gap-4 py-2.5">
+                <dt class="text-[var(--text-muted)]">Importe</dt>
+                <dd class="whitespace-nowrap font-medium tabular-nums text-[var(--text-strong)]">
+                  {{ financialAmount(state.intent.amountCents) }}
+                </dd>
+              </div>
+              <div v-if="intentTarget" class="flex justify-between gap-4 py-2.5">
+                <dt class="text-[var(--text-muted)]">Devolución</dt>
+                <dd class="whitespace-nowrap tabular-nums">{{ intentTarget.returnPublicRef }}</dd>
+              </div>
+              <div v-if="'returnPublicRef' in state.intent.body" class="flex justify-between gap-4 py-2.5">
+                <dt class="text-[var(--text-muted)]">Devolución</dt>
+                <dd class="whitespace-nowrap tabular-nums">
+                  {{ state.intent.body.returnPublicRef }} · versión {{ state.intent.body.expectedReturnVersion }}
+                </dd>
+              </div>
+              <div v-if="'policyId' in state.intent.body" class="flex justify-between gap-4 py-2.5">
+                <dt class="text-[var(--text-muted)]">Política aprobada</dt>
+                <dd class="whitespace-nowrap tabular-nums" :title="state.intent.body.policyId">
+                  {{ adminShortId(state.intent.body.policyId) }}
+                </dd>
+              </div>
+              <div v-if="'lines' in state.intent.body" class="py-2.5">
+                <dt class="text-[var(--text-muted)]">Artículos</dt>
+                <dd>
+                  <ul class="mt-1 space-y-1">
+                    <li
+                      v-for="line in state.intent.body.lines"
+                      :key="line.lineIndex"
+                      class="flex justify-between gap-4"
+                    >
+                      <span>
+                        Línea {{ line.lineIndex }} · {{ line.quantity }}
+                        {{ line.quantity === 1 ? 'unidad' : 'unidades' }}
+                      </span>
+                      <span class="whitespace-nowrap tabular-nums">
+                        {{ line.amountCents !== undefined ? financialAmount(line.amountCents) : 'Lo pagado' }}
+                      </span>
+                    </li>
+                  </ul>
+                </dd>
+              </div>
+              <div
+                v-if="'shippingCents' in state.intent.body && state.intent.body.shippingCents !== undefined"
+                class="flex justify-between gap-4 py-2.5"
+              >
+                <dt class="text-[var(--text-muted)]">Gastos de envío</dt>
+                <dd class="whitespace-nowrap tabular-nums">{{ financialAmount(state.intent.body.shippingCents) }}</dd>
+              </div>
+              <div class="py-2.5">
+                <dt class="text-[var(--text-muted)]">Motivo interno</dt>
+                <dd class="mt-0.5 break-words">{{ state.intent.body.reason }}</dd>
+              </div>
+              <div class="py-2.5">
+                <dt class="text-[var(--text-muted)]">Justificante</dt>
+                <dd class="mt-0.5 break-words">{{ state.intent.body.evidenceRef }}</dd>
+              </div>
+            </dl>
+            <p v-if="state.intent.action === 'plan'" class="adm-help">
+              El importe exacto se calcula al enviar, con lo que se pagó por esas unidades. Preparar el reembolso
+              todavía no devuelve dinero.
+            </p>
           </div>
-          <div v-if="state.intent.amountCents !== null">
-            <dt class="text-slate-600">Importe histórico del expediente</dt>
-            <dd class="tabular-nums">{{ financialAmount(state.intent.amountCents) }}</dd>
-          </div>
-          <div v-if="'policyId' in state.intent.body">
-            <dt class="text-slate-600">Política explícita</dt>
-            <dd class="break-all">{{ state.intent.body.policyId }}</dd>
-          </div>
-          <div v-if="'returnPublicRef' in state.intent.body">
-            <dt class="text-slate-600">RMA y versión declarada</dt>
-            <dd>{{ state.intent.body.returnPublicRef }} · {{ state.intent.body.expectedReturnVersion }}</dd>
-          </div>
-          <div v-if="state.intent.generation !== null">
-            <dt class="text-slate-600">Generación comprobada</dt>
-            <dd>{{ state.intent.generation }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-600">Motivo congelado</dt>
-            <dd class="break-words">{{ state.intent.body.reason }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-600">Evidencia</dt>
-            <dd class="break-all">{{ state.intent.body.evidenceRef }}</dd>
-          </div>
-        </dl>
-        <ul v-if="'lines' in state.intent.body" class="space-y-2 text-sm">
-          <li v-for="line in state.intent.body.lines" :key="line.lineIndex">
-            Línea histórica {{ line.lineIndex }} · {{ line.quantity }} ud.<span v-if="line.amountCents !== undefined">
-              · Compensación solicitada: {{ financialAmount(line.amountCents) }}</span
-            >
-          </li>
-        </ul>
-        <p v-if="'shippingCents' in state.intent.body && state.intent.body.shippingCents !== undefined" class="text-sm">
-          Portes explícitos solicitados: {{ financialAmount(state.intent.body.shippingCents) }}
-        </p>
-        <p v-if="state.intent.action === 'plan'" class="text-xs text-slate-600">
-          El servidor calculará y verificará el importe histórico exacto. Esta preparación no reserva ni devuelve
-          dinero.
-        </p>
-        <div class="flex flex-wrap gap-3">
-          <button
-            type="button"
-            data-testid="refund-admin-send"
-            :disabled="state.busy"
-            class="min-h-11 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            @click="dispatch"
-          >
-            {{
-              state.busy ? 'Comprobando…' : state.ambiguous ? 'Recuperar mismo comando' : 'Comprobar y enviar comando'
-            }}
-          </button>
-          <button
-            v-if="!state.ambiguous"
-            type="button"
-            data-testid="refund-admin-discard"
-            :disabled="state.busy"
-            class="min-h-11 rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:opacity-50"
-            @click="discard"
-          >
-            Descartar preparación no enviada
-          </button>
         </div>
-      </div>
+        <template #footer>
+          <template v-if="state.intent">
+            <AdminButton
+              v-if="!state.ambiguous"
+              data-testid="refund-admin-discard"
+              :disabled="state.busy"
+              @click="discard"
+            >
+              Descartar
+            </AdminButton>
+            <AdminButton variant="primary" data-testid="refund-admin-send" :loading="state.busy" @click="dispatch">
+              {{ state.busy ? 'Comprobando…' : state.ambiguous ? 'Comprobar de nuevo' : 'Enviar' }}
+            </AdminButton>
+          </template>
+          <template v-else>
+            <AdminButton @click="drawerOpen = false">Cancelar</AdminButton>
+            <AdminButton
+              v-if="view"
+              variant="primary"
+              type="submit"
+              :form="formId"
+              data-testid="refund-admin-prepare"
+              :disabled="!selectionAvailable || state.busy"
+            >
+              Revisar antes de enviar
+            </AdminButton>
+          </template>
+        </template>
+      </AdminDrawer>
     </template>
   </section>
 </template>

@@ -10,6 +10,7 @@ import {
   type OrderFulfillmentState
 } from '~~/shared/order-fulfillment'
 import { catalogPolicyOwnJson, catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
+import type { AdminTone } from '~/utils/adminLabels'
 
 const props = defineProps<{
   snapshot: unknown
@@ -20,13 +21,27 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ confirmed: [receipt: FulfillmentCommandReceipt]; pending: [value: boolean] }>()
 const labels: Record<OrderFulfillmentState, string> = {
-  pending: 'Pendiente de preparación',
+  pending: 'Pendiente de preparar',
   picking: 'En preparación',
   packed: 'Embalado',
   ready_for_pickup: 'Listo para recoger',
   in_transit: 'En reparto',
   delivered: 'Entregado',
-  exception: 'Incidencia operativa'
+  exception: 'Incidencia'
+}
+const tones: Record<OrderFulfillmentState, AdminTone> = {
+  pending: 'warning',
+  picking: 'info',
+  packed: 'info',
+  ready_for_pickup: 'info',
+  in_transit: 'info',
+  delivered: 'success',
+  exception: 'danger'
+}
+const deliveryLabels: Record<string, string> = {
+  pickup: 'Recogida en almacén',
+  own_delivery: 'Reparto propio',
+  parcel: 'Envío por mensajería'
 }
 const reason = ref(''),
   evidence = ref(''),
@@ -79,7 +94,7 @@ watch(
   () => {
     generation++
     contextCurrent.value = false
-    message.value = 'Ha cambiado el acceso. No se enviará el intento de otro operador.'
+    message.value = 'Ha cambiado tu sesión. No se enviará nada que hubiera preparado otra persona.'
   }
 )
 watch(
@@ -109,7 +124,7 @@ function prepare() {
   })
   if (!input.success) {
     message.value =
-      'Indica un motivo de 10–500 caracteres. El reparto, la entrega y las incidencias necesitan evidencia operativa verificable.'
+      'Escribe un motivo de entre 10 y 500 caracteres. Para reparto, entrega e incidencias hace falta además un justificante.'
     return
   }
   intent.value = Object.freeze({
@@ -203,8 +218,7 @@ async function dispatch(replay = false) {
       intent.value = null
       ambiguous.value = false
       contextCurrent.value = false
-      message.value =
-        'La preparación ha cambiado o está bloqueada. Revisa el estado actual antes de preparar otra operación.'
+      message.value = 'La preparación ha cambiado o está bloqueada. Revisa el estado actual antes de continuar.'
       return
     }
     // A historical same-key recovery remains valid after later transitions.
@@ -240,7 +254,7 @@ async function dispatch(replay = false) {
     reason.value = ''
     evidence.value = ''
     selected.value = ''
-    message.value = 'Operación confirmada y auditada. No se ha vuelto a descontar inventario.'
+    message.value = 'Paso registrado. El stock no se ha vuelto a descontar.'
     emit('confirmed', parsed.data)
     contextCurrent.value = false
     try {
@@ -251,8 +265,7 @@ async function dispatch(replay = false) {
         throw new Error('fulfillment_context_unconfirmed')
       contextCurrent.value = true
     } catch {
-      if (current())
-        message.value += ' No se ha podido refrescar el estado: el recibo es histórico, no una consulta actual.'
+      if (current()) message.value += ' No hemos podido actualizar el estado: pulsa «Actualizar».'
     }
   } catch {
     if (!current()) return
@@ -262,12 +275,13 @@ async function dispatch(replay = false) {
     if (responseCode && definitive.has(responseCode) && !(authFailure && (sent || replay))) {
       intent.value = null
       ambiguous.value = false
-      message.value = 'La operación se ha rechazado. Refresca y revisa el pago, la asignación y la versión del pedido.'
+      message.value =
+        'No se ha podido registrar el paso. Pulsa «Actualizar» y revisa el cobro, el stock y el estado del pedido.'
     } else {
       ambiguous.value = sent || replay
       message.value = ambiguous.value
-        ? 'No hay confirmación. El envío pudo haberse guardado: conserva el mismo intento y recupéralo sin crear otra operación.'
-        : 'No se ha podido confirmar el acceso actual. Este intento no se ha enviado.'
+        ? 'No sabemos si el paso se ha guardado. No lo repitas: pulsa «Comprobar de nuevo» para recuperarlo sin duplicarlo.'
+        : 'No hemos podido confirmar tu sesión. No se ha enviado nada.'
     }
   } finally {
     if (active) busy.value = false
@@ -281,146 +295,165 @@ function label(action: OrderFulfillmentState) {
 }
 function blocked(data: AdminOrderFulfillment) {
   const text: Record<string, string> = {
-    order_cancelled: 'Pedido cancelado',
-    payment_unconfirmed: 'Pago capturado no confirmado',
-    inventory_unconfirmed: 'Asignación de inventario no conciliada',
-    warehouse_unavailable: 'Único almacén no disponible',
-    shipping_mode_unavailable: 'Modalidad de entrega no disponible',
-    history_unconfirmed: 'Historial operativo no conciliado'
+    order_cancelled: 'El pedido está cancelado',
+    payment_unconfirmed: 'El cobro no está confirmado',
+    inventory_unconfirmed: 'La reserva de stock no está confirmada',
+    warehouse_unavailable: 'El almacén no está disponible',
+    shipping_mode_unavailable: 'La forma de entrega no está disponible',
+    history_unconfirmed: 'El historial de la preparación no está confirmado'
   }
-  return data.readiness.blockers.map((value) => text[value]).join(' · ')
+  return data.readiness.blockers.map((value) => text[value]).join('. ') + '.'
 }
 </script>
 
 <template>
-  <section v-if="authorized()" aria-label="Preparación y entrega del pedido" class="space-y-4">
-    <div v-if="view" class="rounded-2xl border border-slate-200 bg-white p-5">
-      <p class="text-xs font-semibold uppercase tracking-wider text-neteco-700">
-        Único almacén · {{ view.warehouse?.code ?? 'Sin conciliar' }}
-      </p>
-      <h2 class="mt-1 text-xl font-bold text-slate-950">Preparación y entrega</h2>
-      <p class="mt-2 text-sm text-slate-700">{{ label(view.state) }} · Versión {{ view.version }}</p>
-      <p v-if="view.interruptedState" class="mt-1 text-sm text-amber-800">
-        Incidencia durante: {{ label(view.interruptedState) }}. Solo se puede retomar esa etapa.
-      </p>
-      <p class="mt-2 text-xs text-slate-500">
-        {{ view.shippingMethod === 'pickup' ? 'Recogida en almacén' : 'Entrega' }} · El inventario se asignó al capturar
-        el pago; preparar y entregar no lo descuentan de nuevo.
-      </p>
-      <p v-if="!view.readiness.ready" role="status" class="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-        {{ blocked(view) }}
-      </p>
-      <form
-        v-if="view.capabilities.fulfillmentTransitions && !intent"
-        class="mt-5 grid gap-3"
-        @submit.prevent="prepare"
-      >
-        <label class="text-sm font-medium"
-          >Siguiente operación
+  <section v-if="authorized()" aria-label="Preparación y entrega del pedido" class="adm-stack">
+    <div v-if="view" class="adm-stack">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <AdminBadge :tone="tones[view.state]" class="whitespace-nowrap">{{ label(view.state) }}</AdminBadge>
+        <span class="adm-help">
+          {{ (view.shippingMethod && deliveryLabels[view.shippingMethod]) || 'Forma de entrega sin definir' }} ·
+          <span class="whitespace-nowrap">Almacén: {{ view.warehouse?.name ?? 'sin asignar' }}</span>
+        </span>
+      </div>
+      <UAlert
+        v-if="view.interruptedState"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Hay una incidencia abierta"
+        :description="`Ocurrió durante la etapa «${label(view.interruptedState)}». Solo se puede retomar esa etapa.`"
+      />
+      <UAlert
+        v-if="!view.readiness.ready"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-circle-pause"
+        title="Ahora no se puede avanzar la preparación"
+        :description="blocked(view)"
+      />
+      <form v-if="view.capabilities.fulfillmentTransitions && !intent" class="adm-stack" @submit.prevent="prepare">
+        <AdminFormField v-slot="{ id }" label="Siguiente paso">
           <select
+            :id="id"
             v-model="selected"
             data-testid="fulfillment-action"
             :disabled="busy"
-            class="mt-1 block w-full rounded-lg border border-slate-300 p-2"
+            class="adm-input w-full sm:max-w-sm"
           >
-            <option value="">Selecciona una operación autorizada</option>
+            <option value="">Elige el siguiente paso</option>
             <option v-for="action in view.capabilities.allowedActions" :key="action" :value="action">
               {{ label(action) }}
             </option>
           </select>
-        </label>
-        <label class="text-sm font-medium"
-          >Motivo operativo
-          <textarea
-            v-model="reason"
-            data-testid="fulfillment-reason"
-            maxlength="500"
-            rows="2"
-            :disabled="busy"
-            class="mt-1 block w-full rounded-lg border border-slate-300 p-2"
-          />
-        </label>
-        <label class="text-sm font-medium"
-          >Evidencia verificable (reparto, entrega o incidencia)
-          <textarea
-            v-model="evidence"
-            data-testid="fulfillment-evidence"
-            maxlength="500"
-            rows="2"
-            :disabled="busy"
-            class="mt-1 block w-full rounded-lg border border-slate-300 p-2"
-          />
-        </label>
-        <p class="text-xs text-slate-500">
-          Registra hechos comprobados y una referencia operativa. No pegues datos bancarios, secretos ni documentación
-          sensible. Esto no crea un seguimiento de transportista.
-        </p>
-        <button
-          data-testid="fulfillment-prepare"
-          type="submit"
-          :disabled="busy || !selected"
-          class="rounded-lg bg-neteco-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          Revisar operación
-        </button>
+        </AdminFormField>
+        <div class="grid gap-4 md:grid-cols-2">
+          <AdminFormField v-slot="{ id, describedBy }" label="Motivo" help="Entre 10 y 500 caracteres.">
+            <textarea
+              :id="id"
+              v-model="reason"
+              :aria-describedby="describedBy"
+              data-testid="fulfillment-reason"
+              maxlength="500"
+              rows="2"
+              :disabled="busy"
+              class="adm-input w-full"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id, describedBy }"
+            label="Justificante"
+            help="Obligatorio para reparto, entrega e incidencias: albarán, firma o referencia que lo demuestre."
+          >
+            <textarea
+              :id="id"
+              v-model="evidence"
+              :aria-describedby="describedBy"
+              data-testid="fulfillment-evidence"
+              maxlength="500"
+              rows="2"
+              :disabled="busy"
+              class="adm-input w-full"
+            />
+          </AdminFormField>
+        </div>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <p class="adm-help max-w-prose">
+            El stock ya se reservó al cobrar el pedido: avanzar la preparación no lo descuenta otra vez ni crea un envío
+            con el transportista. No escribas datos bancarios ni contraseñas.
+          </p>
+          <AdminButton variant="primary" type="submit" data-testid="fulfillment-prepare" :disabled="busy || !selected">
+            Revisar
+          </AdminButton>
+        </div>
       </form>
-      <ol
-        v-if="view.timeline.items.length"
-        aria-label="Historial operativo"
-        class="mt-5 space-y-3 border-t border-slate-200 pt-4"
-      >
-        <li v-for="event in view.timeline.items" :key="event.commandId" class="text-sm text-slate-700">
-          <p class="font-semibold">{{ label(event.fromState) }} → {{ label(event.toState) }} · v{{ event.version }}</p>
-          <p>{{ event.reason }}</p>
-          <p v-if="event.evidence" class="text-xs text-slate-500">{{ event.evidence }}</p>
-          <time :datetime="event.createdAt" class="text-xs text-slate-500">{{ event.createdAt }}</time>
-        </li>
-      </ol>
+      <div v-if="view.timeline.items.length">
+        <h3 class="adm-label">Historial</h3>
+        <ol aria-label="Historial de la preparación" class="mt-2 space-y-3 border-l border-[var(--border)] pl-4">
+          <li v-for="event in view.timeline.items" :key="event.commandId" class="relative">
+            <span class="absolute -left-[1.3125rem] top-1.5 size-2 rounded-full bg-[var(--border-strong)]" />
+            <p class="font-medium text-[var(--text-strong)]">
+              {{ label(event.fromState) }} → {{ label(event.toState) }}
+            </p>
+            <p class="break-words text-[var(--text)]">{{ event.reason }}</p>
+            <p v-if="event.evidence" class="break-words text-xs text-[var(--text-muted)]">
+              Justificante: {{ event.evidence }}
+            </p>
+            <time :datetime="event.createdAt" class="whitespace-nowrap text-xs text-[var(--text-muted)]">
+              {{ adminDate(event.createdAt, true) }}
+            </time>
+          </li>
+        </ol>
+      </div>
     </div>
     <div
       v-if="intent"
-      class="rounded-xl border border-amber-300 bg-amber-50 p-4"
-      aria-label="Confirmar operación de preparación"
+      class="rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-4"
+      aria-label="Confirmar el paso de preparación"
     >
-      <p class="font-semibold">{{ label(intent.body.action) }} · Versión esperada {{ intent.body.expectedVersion }}</p>
-      <p class="mt-1 text-sm">{{ intent.body.reason }}</p>
-      <p v-if="intent.body.evidence" class="mt-1 text-sm">{{ intent.body.evidence }}</p>
-      <p v-if="ambiguous" role="status" class="mt-2 text-sm">
-        Resultado sin confirmar. Se conservará la misma clave para recuperar el recibo; no se crea un segundo
-        movimiento.
+      <p class="adm-help">Revisa antes de confirmar</p>
+      <p class="mt-0.5 font-semibold text-[var(--text-strong)]">{{ label(intent.body.action) }}</p>
+      <p class="mt-2 break-words">{{ intent.body.reason }}</p>
+      <p v-if="intent.body.evidence" class="mt-1 break-words text-xs text-[var(--text-muted)]">
+        Justificante: {{ intent.body.evidence }}
       </p>
-      <div class="mt-3 flex gap-2">
-        <button
+      <UAlert
+        v-if="ambiguous"
+        role="status"
+        class="mt-3"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Falta confirmar el resultado"
+        description="Puede que el paso ya esté guardado. «Comprobar de nuevo» recupera este mismo paso, sin registrarlo dos veces."
+      />
+      <div class="mt-4 flex flex-wrap justify-end gap-2">
+        <AdminButton data-testid="fulfillment-cancel" :disabled="busy || ambiguous" @click="cancel">
+          Cancelar
+        </AdminButton>
+        <AdminButton
           v-if="!ambiguous"
+          variant="primary"
           data-testid="fulfillment-confirm"
-          type="button"
-          :disabled="busy || intent.operatorId !== operatorId"
-          class="rounded-lg bg-neteco-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          :loading="busy"
+          :disabled="intent.operatorId !== operatorId"
           @click="dispatch()"
         >
-          Confirmar operación
-        </button>
-        <button
+          Confirmar
+        </AdminButton>
+        <AdminButton
           v-else
+          variant="primary"
           data-testid="fulfillment-retry"
-          type="button"
-          :disabled="busy || intent.operatorId !== operatorId"
-          class="rounded-lg bg-neteco-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          :loading="busy"
+          :disabled="intent.operatorId !== operatorId"
           @click="dispatch(true)"
         >
-          Recuperar mismo intento
-        </button>
-        <button
-          data-testid="fulfillment-cancel"
-          type="button"
-          :disabled="busy || ambiguous"
-          class="rounded-lg border border-slate-300 px-4 py-2 text-sm disabled:opacity-50"
-          @click="cancel"
-        >
-          Cancelar revisión
-        </button>
+          Comprobar de nuevo
+        </AdminButton>
       </div>
     </div>
-    <p v-if="message" role="status" class="text-sm text-slate-700">{{ message }}</p>
+    <UAlert v-if="message" role="status" :color="ambiguous ? 'warning' : 'neutral'" variant="subtle" :title="message" />
   </section>
 </template>
