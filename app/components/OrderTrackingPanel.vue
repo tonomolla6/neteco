@@ -40,10 +40,7 @@ const labels: Record<OrderTracking['fulfillment']['state'], string> = {
   exception: 'Incidencia operativa'
 }
 const methodLabels = { pickup: 'Recogida en almacén', own_delivery: 'Reparto propio', parcel: 'Paquetería' }
-const date = (instant: string) =>
-  new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(
-    new Date(instant)
-  ) + ' UTC'
+const date = (instant: string) => adminDate(instant, true)
 function purge() {
   generation++
   controller?.abort()

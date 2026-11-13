@@ -215,16 +215,22 @@ onMounted(() => {
         <AdminFormField
           v-slot="{ id }"
           label="Margen mínimo"
-          help="En centésimas de punto: 1500 equivale al 15 %. Los productos por debajo no se recomiendan."
+          help="Porcentaje, hasta 50. Los productos por debajo no se recomiendan."
         >
-          <input
-            :id="id"
-            v-model.number="policy.marginFloorBasisPoints"
-            type="number"
-            min="0"
-            max="5000"
-            data-testid="margin-floor-input"
-          />
+          <div class="flex items-center gap-2">
+            <input
+              :id="id"
+              :value="adminBpsToPercent(policy.marginFloorBasisPoints)"
+              type="text"
+              inputmode="decimal"
+              class="adm-input"
+              data-testid="margin-floor-input"
+              @change="
+                policy.marginFloorBasisPoints = adminPercentFromInput($event, policy.marginFloorBasisPoints, 5000)
+              "
+            />
+            <span class="text-[var(--text-muted)]">%</span>
+          </div>
         </AdminFormField>
         <AdminFormField
           v-slot="{ id }"

@@ -193,8 +193,8 @@ function prepare(action: 'draft' | 'approve' | 'withdraw') {
               ...common,
               operationalReference: form.operationalReference.trim(),
               legalReference: form.legalReference.trim(),
-              reviewedAt: form.reviewedAt,
-              expiresAt: form.expiresAt
+              reviewedAt: adminLocalToIso(form.reviewedAt) ?? '',
+              expiresAt: adminLocalToIso(form.expiresAt) ?? ''
             }
           : common
     )
@@ -454,13 +454,11 @@ function usePreview() {
                 </label>
                 <label class="adm-field">
                   <span class="adm-label">Fecha de la revisión</span>
-                  <input v-model="form.reviewedAt" placeholder="2026-10-08T10:00:00Z" class="w-full" />
-                  <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                  <input v-model="form.reviewedAt" type="datetime-local" class="adm-input w-full" />
                 </label>
                 <label class="adm-field">
                   <span class="adm-label">Válida hasta</span>
-                  <input v-model="form.expiresAt" placeholder="2026-11-08T10:00:00Z" class="w-full" />
-                  <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                  <input v-model="form.expiresAt" type="datetime-local" class="adm-input w-full" />
                 </label>
               </div>
               <div class="flex justify-end">

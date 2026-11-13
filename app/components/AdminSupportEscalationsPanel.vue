@@ -245,7 +245,7 @@ function prepare() {
           ownerId: form.ownerId,
           runbook: runbook ? { id: runbook.id, version: runbook.version } : null,
           nextAction: form.nextAction.trim(),
-          nextActionAt: form.nextActionAt
+          nextActionAt: adminLocalToIso(form.nextActionAt) ?? ''
         }
   )
 }
@@ -260,8 +260,8 @@ function prepareBook() {
         ? {
             ...common,
             operationalReference: bookForm.operationalReference.trim(),
-            reviewedAt: bookForm.reviewedAt,
-            expiresAt: bookForm.expiresAt
+            reviewedAt: adminLocalToIso(bookForm.reviewedAt) ?? '',
+            expiresAt: adminLocalToIso(bookForm.expiresAt) ?? ''
           }
         : common,
     true
@@ -499,8 +499,7 @@ onBeforeUnmount(() => {
               </label>
               <label class="adm-field">
                 <span class="adm-label">Fecha del siguiente paso</span>
-                <input v-model="form.nextActionAt" required placeholder="2026-10-10T10:00:00Z" class="w-full" />
-                <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                <input v-model="form.nextActionAt" type="datetime-local" required class="adm-input w-full" />
               </label>
             </template>
             <label v-else class="adm-field">
@@ -689,13 +688,11 @@ onBeforeUnmount(() => {
                   </label>
                   <label class="adm-field">
                     <span class="adm-label">Fecha de la revisión</span>
-                    <input v-model="bookForm.reviewedAt" required placeholder="2026-10-09T10:00:00Z" class="w-full" />
-                    <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                    <input v-model="bookForm.reviewedAt" type="datetime-local" required class="adm-input w-full" />
                   </label>
                   <label class="adm-field">
                     <span class="adm-label">Válido hasta</span>
-                    <input v-model="bookForm.expiresAt" required placeholder="2026-11-09T10:00:00Z" class="w-full" />
-                    <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                    <input v-model="bookForm.expiresAt" type="datetime-local" required class="adm-input w-full" />
                   </label>
                 </div>
               </template>

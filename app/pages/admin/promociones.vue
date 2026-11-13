@@ -207,7 +207,7 @@ function page(delta: number) {
 function openCreate() {
   if (!authorized.value || pending.value || readState.value !== 'ready') return
   detail.value = null
-  draft.value = { ...emptyDraft(), id: crypto.randomUUID(), startsAt: new Date().toISOString().slice(0, 19) }
+  draft.value = { ...emptyDraft(), id: crypto.randomUUID(), startsAt: adminIsoToLocal(new Date()) }
   editor.value = true
   feedback.value = ''
   intent.value = null
@@ -219,8 +219,8 @@ function fromRule(value: AdminPromotionDetail) {
     expectedVersion: rule.version,
     code: rule.code,
     status: rule.status,
-    startsAt: rule.startsAt.slice(0, 19),
-    endsAt: rule.endsAt?.slice(0, 19) ?? '',
+    startsAt: adminIsoToLocal(rule.startsAt, true, true),
+    endsAt: adminIsoToLocal(rule.endsAt, true, true),
     benefitKind: rule.benefit.kind,
     benefitValue: String(rule.benefit.kind === 'fixed' ? rule.benefit.grossCents : rule.benefit.basisPoints),
     scopeKind: rule.scope.kind,
@@ -264,8 +264,11 @@ function integer(value: string) {
   if (!/^(0|[1-9]\d*)$/.test(value)) throw Error('invalid_integer')
   return Number(value)
 }
+/** Las fechas se eligen en hora local; la API recibe el instante en UTC. */
 function utc(value: string) {
-  return new Date(value + 'Z').toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const iso = adminLocalToIso(value)
+  if (!iso) throw Error('invalid_date')
+  return iso
 }
 function input(): AdminPromotionInput {
   return adminPromotionInputSchema.parse({
@@ -1016,10 +1019,6 @@ const simulationTax = hundredths(
                     <input :id="id" v-model="draft.perCustomerLimit" type="number" min="1" step="1" class="w-full" />
                   </AdminFormField>
                 </div>
-                <p class="adm-help">
-                  Las fechas se indican en hora universal (UTC): en la península son una hora menos en invierno y dos en
-                  verano respecto a la hora local.
-                </p>
               </div>
 
               <AdminFormField

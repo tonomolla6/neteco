@@ -116,9 +116,7 @@ onBeforeUnmount(() => {
 <template>
   <section v-if="allowed" :aria-labelledby="prefix + '-title'" class="min-w-0 max-w-full space-y-3">
     <h2 :id="prefix + '-title'" class="text-base font-semibold">Actividad auditada reciente</h2>
-    <p class="text-sm text-muted">
-      Últimos cinco registros disponibles según tus permisos. Fechas del servidor en UTC.
-    </p>
+    <p class="text-sm text-muted">Últimos cinco registros disponibles según tus permisos.</p>
     <p v-if="status === 'loading'" data-activity-loading role="status" aria-busy="true" class="text-sm">
       Consultando actividad auditada…
     </p>
@@ -141,9 +139,9 @@ onBeforeUnmount(() => {
         <NuxtLink :to="item.to" class="underline focus-visible:outline-2"
           >{{ kinds[item.kind] }}: {{ actions[item.action] }}</NuxtLink
         >
-        <time :datetime="item.createdAt" class="mt-1 block text-xs text-muted"
-          >{{ item.createdAt.slice(0, 10) }} {{ item.createdAt.slice(11, 19) }} UTC</time
-        >
+        <time :datetime="item.createdAt" class="mt-1 block text-xs text-muted">{{
+          adminDate(item.createdAt, true)
+        }}</time>
       </li>
     </ol>
   </section>

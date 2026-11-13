@@ -335,9 +335,9 @@ function json(value: unknown) {
             {{ entry.after.status }}.
           </p>
           <p>
-            Precio bruto: {{ entry.claimed.priceGrossCents }} → {{ entry.after.price.grossCents }} céntimos
-            {{ entry.after.price.currency }}; comparación: {{ entry.after.price.compareAtGrossCents ?? 'null' }}.
-            Impuesto: {{ entry.after.price.taxClassId }}.
+            Precio con IVA: {{ adminMoney(entry.claimed.priceGrossCents) }} →
+            {{ adminMoney(entry.after.price.grossCents) }}; precio anterior tachado:
+            {{ adminMoney(entry.after.price.compareAtGrossCents) }}. Impuesto: {{ entry.after.price.taxClassId }}.
           </p>
           <p>
             Inicio de precio: null, fijado por el servidor al aplicar (server_on_apply); requiere autorización vigente.
@@ -348,9 +348,9 @@ function json(value: unknown) {
             stock: {{ entry.after.inventory.backorderAllowed ? 'sí' : 'no' }}.
           </p>
           <p>
-            Identificadores: EAN {{ entry.after.ean ?? 'null' }} · GTIN {{ entry.after.gtin ?? 'null' }} · MPN
-            {{ entry.after.mpn ?? 'null' }}. Explicación: {{ entry.after.identifierExceptionReason ?? 'null' }} (no
-            concede una excepción).
+            Identificadores: EAN {{ entry.after.ean ?? '—' }} · GTIN {{ entry.after.gtin ?? '—' }} · MPN
+            {{ entry.after.mpn ?? '—' }}. Explicación: {{ entry.after.identifierExceptionReason ?? '—' }} (no concede
+            una excepción).
           </p>
         </template>
         <template v-else-if="entry.kind === 'assets'">
@@ -366,7 +366,7 @@ function json(value: unknown) {
         </template>
         <template v-else>
           <p>
-            Asociación: producto {{ entry.after.productId }} · variante {{ entry.after.variantId ?? 'null' }} · archivo
+            Asociación: producto {{ entry.after.productId }} · variante {{ entry.after.variantId ?? '—' }} · archivo
             {{ entry.after.assetId }} · rol {{ entry.after.role }} · versión {{ entry.after.version }} · orden
             {{ entry.after.sortOrder }}.
           </p>

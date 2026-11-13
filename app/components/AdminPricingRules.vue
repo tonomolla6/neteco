@@ -44,11 +44,14 @@ const discountStackable = ref(false)
 // New Free Shipping Form
 const shippingName = ref('')
 const shippingZone = ref('peninsula')
-const shippingMinCents = ref<number | ''>(10000)
+// Los importes se teclean en euros; se convierten a céntimos al enviar.
+const shippingMin = ref('100,00')
+const shippingMinCents = computed(() => adminEurosToCents(shippingMin.value))
 
 // Store Credit Form
 const creditCustomerId = ref('')
-const creditAmountCents = ref<number | ''>(2500)
+const creditAmount = ref('25,00')
+const creditAmountCents = computed(() => adminEurosToCents(creditAmount.value))
 const creditReason = ref('Compensación incidencia envío')
 
 const tabs = computed(() => [
@@ -144,7 +147,11 @@ async function createDiscount() {
 }
 
 async function createShippingRule() {
-  if (!shippingName.value.trim() || !shippingMinCents.value) return
+  if (!shippingName.value.trim()) return
+  if (!shippingMinCents.value) {
+    error.value = 'Revisa el pedido mínimo: escribe un importe en euros mayor que cero, como 100,00.'
+    return
+  }
   busy.value = true
   error.value = null
   notice.value = null
@@ -174,7 +181,11 @@ async function createShippingRule() {
 }
 
 async function issueCredit() {
-  if (!creditCustomerId.value.trim() || !creditAmountCents.value) return
+  if (!creditCustomerId.value.trim()) return
+  if (!creditAmountCents.value) {
+    error.value = 'Revisa el importe: escribe los euros de saldo, como 25,00.'
+    return
+  }
   busy.value = true
   error.value = null
   notice.value = null
@@ -192,7 +203,7 @@ async function issueCredit() {
         reason: creditReason.value.trim()
       }
     })
-    notice.value = `Saldo de tienda añadido al cliente ${creditCustomerId.value}.`
+    notice.value = `Saldo de tienda añadido al cliente ${adminShortId(creditCustomerId.value.trim())}.`
     creditCustomerId.value = ''
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -389,12 +400,23 @@ onMounted(() => {
               </select>
             </AdminFormField>
             <AdminFormField
-              label="Pedido mínimo (en céntimos)"
+              label="Pedido mínimo"
               for="shipping-min"
-              :help="`Equivale a ${adminMoney(Number(shippingMinCents) || 0)}, impuestos incluidos.`"
+              help="En euros, impuestos incluidos. Puedes usar coma o punto para los decimales."
               required
             >
-              <input id="shipping-min" v-model.number="shippingMinCents" type="number" min="0" required />
+              <div class="flex items-center gap-2">
+                <input
+                  id="shipping-min"
+                  v-model="shippingMin"
+                  type="text"
+                  inputmode="decimal"
+                  class="adm-input"
+                  placeholder="0,00"
+                  required
+                />
+                <span class="text-[var(--text-muted)]">€</span>
+              </div>
             </AdminFormField>
           </div>
           <div class="flex justify-end">
@@ -421,16 +443,32 @@ onMounted(() => {
         <template #title><span id="credit-heading">Dar saldo de tienda a un cliente</span></template>
         <form class="adm-stack" @submit.prevent="issueCredit">
           <div class="adm-form-grid">
-            <AdminFormField label="Identificador del cliente" for="credit-customer" required>
-              <input id="credit-customer" v-model="creditCustomerId" type="text" required />
-            </AdminFormField>
             <AdminFormField
-              label="Importe (en céntimos)"
-              for="credit-amount"
-              :help="`Equivale a ${adminMoney(Number(creditAmountCents) || 0)}.`"
+              label="Identificador del cliente"
+              for="credit-customer"
+              help="Cópialo de la ficha del cliente (Clientes › Ficha de cliente)."
               required
             >
-              <input id="credit-amount" v-model.number="creditAmountCents" type="number" min="1" required />
+              <input id="credit-customer" v-model="creditCustomerId" type="text" class="adm-input" required />
+            </AdminFormField>
+            <AdminFormField
+              label="Importe"
+              for="credit-amount"
+              help="En euros. Puedes usar coma o punto para los decimales."
+              required
+            >
+              <div class="flex items-center gap-2">
+                <input
+                  id="credit-amount"
+                  v-model="creditAmount"
+                  type="text"
+                  inputmode="decimal"
+                  class="adm-input"
+                  placeholder="0,00"
+                  required
+                />
+                <span class="text-[var(--text-muted)]">€</span>
+              </div>
             </AdminFormField>
             <AdminFormField label="Motivo" for="credit-reason">
               <input id="credit-reason" v-model="creditReason" type="text" />

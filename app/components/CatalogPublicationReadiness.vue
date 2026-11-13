@@ -136,15 +136,7 @@ async function retry() {
     retrying.value = false
   }
 }
-const evaluatedAt = computed(() =>
-  snapshot.value
-    ? new Intl.DateTimeFormat('es-ES', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-        timeZone: 'UTC'
-      }).format(new Date(snapshot.value.evaluatedAt)) + ' UTC'
-    : ''
-)
+const evaluatedAt = computed(() => (snapshot.value ? adminDate(snapshot.value.evaluatedAt, true) : ''))
 </script>
 
 <template>

@@ -447,11 +447,11 @@ onMounted(loadAll)
           <UAlert v-if="error" role="alert" color="error" variant="subtle" :title="error" />
           <AdminFormField
             v-slot="{ id }"
-            label="Identificador del producto"
-            help="El código largo de la variante, con sus guiones."
+            label="Producto"
+            help="Busca por nombre o referencia y elige el formato."
             required
           >
-            <input :id="id" v-model="policyForm.variantId" data-testid="policy-variant-id" autocomplete="off" />
+            <AdminVariantPicker :id="id" v-model="policyForm.variantId" data-testid="policy-variant-id" required />
           </AdminFormField>
           <AdminFormField v-slot="{ id }" label="Plazo de entrega del proveedor (días)">
             <input :id="id" v-model.number="policyForm.leadTimeDays" data-testid="policy-lead-time" type="number" />
@@ -580,11 +580,11 @@ onMounted(loadAll)
           </AdminFormField>
           <AdminFormField
             v-slot="{ id }"
-            label="Identificador del producto"
-            help="El código largo de la variante, con sus guiones."
+            label="Producto"
+            help="Busca por nombre o referencia y elige el formato."
             required
           >
-            <input :id="id" v-model="taskForm.variantId" data-testid="new-task-variant" autocomplete="off" />
+            <AdminVariantPicker :id="id" v-model="taskForm.variantId" data-testid="new-task-variant" required />
           </AdminFormField>
           <AdminFormField v-slot="{ id }" label="Unidades esperadas" required>
             <input

@@ -94,8 +94,8 @@ watch(
         form.state = value.state
         form.priority = value.priority
         form.ownerId = value.ownerId ?? ''
-        form.nextActionAt = value.nextActionAt ?? ''
-        form.slaDueAt = value.slaDueAt ?? ''
+        form.nextActionAt = adminIsoToLocal(value.nextActionAt)
+        form.slaDueAt = adminIsoToLocal(value.slaDueAt)
       }
     }
   },
@@ -128,16 +128,16 @@ function prepare() {
           state: form.state,
           priority: form.priority,
           ownerId: form.ownerId || null,
-          nextActionAt: form.nextActionAt || null,
-          slaDueAt: form.slaDueAt || null,
+          nextActionAt: adminLocalToIso(form.nextActionAt),
+          slaDueAt: adminLocalToIso(form.slaDueAt),
           ...(form.resolution.trim() ? { resolution: form.resolution.trim() } : {})
         }
       : form.action === 'call'
         ? {
             ...common,
             message: form.message.trim(),
-            occurredAt: form.occurredAt,
-            nextActionAt: form.nextActionAt || null
+            occurredAt: adminLocalToIso(form.occurredAt) ?? form.occurredAt,
+            nextActionAt: adminLocalToIso(form.nextActionAt)
           }
         : {
             ...common,
@@ -285,8 +285,7 @@ function prepareAttachment() {
             </div>
             <div class="adm-field">
               <label :for="`${uid}-sla`" class="adm-label">Plazo de respuesta (opcional)</label>
-              <input :id="`${uid}-sla`" v-model="form.slaDueAt" placeholder="2026-10-04T10:00:00Z" class="w-full" />
-              <p class="adm-help">Fecha y hora universal, con este formato.</p>
+              <input :id="`${uid}-sla`" v-model="form.slaDueAt" type="datetime-local" class="adm-input w-full" />
             </div>
           </div>
           <div v-if="form.action === 'update'" class="adm-field">
@@ -302,12 +301,7 @@ function prepareAttachment() {
           <div v-if="form.action === 'update' || form.action === 'call'" class="adm-form-grid">
             <div class="adm-field">
               <label :for="`${uid}-next`" class="adm-label">Próximo seguimiento (opcional)</label>
-              <input
-                :id="`${uid}-next`"
-                v-model="form.nextActionAt"
-                placeholder="2026-10-04T10:00:00Z"
-                class="w-full"
-              />
+              <input :id="`${uid}-next`" v-model="form.nextActionAt" type="datetime-local" class="adm-input w-full" />
             </div>
             <div v-if="form.action === 'call'" class="adm-field">
               <label :for="`${uid}-occurred`" class="adm-label">Cuándo fue la llamada</label>
@@ -315,8 +309,8 @@ function prepareAttachment() {
                 :id="`${uid}-occurred`"
                 v-model="form.occurredAt"
                 required
-                placeholder="2026-10-03T10:00:00Z"
-                class="w-full"
+                type="datetime-local"
+                class="adm-input w-full"
               />
             </div>
           </div>

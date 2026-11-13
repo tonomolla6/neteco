@@ -172,7 +172,7 @@ const FIELD_LABELS: Record<string, string> = {
   customer_type: 'Tipo de cliente',
   orders_count: 'Número de pedidos',
   order_count: 'Número de pedidos',
-  total_spent_cents: 'Gasto acumulado (céntimos)',
+  total_spent_cents: 'Gasto acumulado',
   total_spent: 'Gasto acumulado',
   days_since_last_order: 'Días desde el último pedido',
   has_consent: 'Consentimiento de publicidad',
@@ -202,7 +202,9 @@ function conditionText(condition: AudienceCondition) {
         : 'no'
       : condition.field === 'customer_type'
         ? targetLabel(String(condition.value)).toLowerCase()
-        : String(condition.value)
+        : condition.field.endsWith('_cents') && Number.isFinite(Number(condition.value))
+          ? adminMoney(Number(condition.value))
+          : String(condition.value)
   return `${field} ${operator} ${value}`
 }
 const columns = [

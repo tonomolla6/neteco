@@ -470,7 +470,7 @@ function commitmentTone(item: Commitment): AdminTone {
                 <tr v-for="item in commitments" :key="item.id">
                   <td class="font-semibold text-[var(--text-strong)]">{{ item.contractRef }}</td>
                   <td data-numeric>{{ item.quantity }}</td>
-                  <td>{{ item.expiresAt.substring(0, 10) }}</td>
+                  <td>{{ adminDate(item.expiresAt) }}</td>
                   <td>
                     <AdminBadge :tone="commitmentTone(item)">{{ statusLabel(item) }}</AdminBadge>
                   </td>

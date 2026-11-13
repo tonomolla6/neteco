@@ -86,7 +86,8 @@ const traceLoading = ref(false)
 
 // Costing state
 const marginReport = ref<AnalyticalMarginReport | null>(null)
-const newCostLayerCents = ref<number | ''>('')
+// El coste se teclea en euros; se convierte a céntimos al enviar.
+const newCostLayerEuros = ref('')
 const newCostLayerQuantity = ref<number | ''>('')
 
 // Forecast state
@@ -224,7 +225,12 @@ async function searchTraceability() {
 }
 
 async function submitRecordCostLayer() {
-  if (!newCostLayerCents.value || !newCostLayerQuantity.value || !props.selectedVariantUuid) return
+  if (!newCostLayerQuantity.value || !props.selectedVariantUuid) return
+  const unitCostCents = adminEurosToCents(newCostLayerEuros.value)
+  if (!unitCostCents) {
+    errorMessage.value = 'Revisa el coste por unidad: escribe un importe en euros mayor que cero, como 4,50.'
+    return
+  }
   loading.value = true
   errorMessage.value = ''
   try {
@@ -240,14 +246,14 @@ async function submitRecordCostLayer() {
         targetId: cmdId,
         input: {
           variantId: props.selectedVariantUuid,
-          unitCostCents: Number(newCostLayerCents.value),
+          unitCostCents,
           quantity: Number(newCostLayerQuantity.value),
           reason: 'Entrada de mercancía con coste'
         }
       }
     })
     successMessage.value = 'Coste de entrada guardado.'
-    newCostLayerCents.value = ''
+    newCostLayerEuros.value = ''
     newCostLayerQuantity.value = ''
     await loadData()
   } catch {
@@ -642,11 +648,22 @@ async function ackAnomaly(anomalyId: string) {
         <UAlert v-if="errorMessage" role="alert" color="error" variant="subtle" :title="errorMessage" />
         <AdminFormField
           v-slot="{ id }"
-          label="Coste por unidad, en céntimos"
-          help="Sin decimales: 450 equivale a 4,50 €."
+          label="Coste por unidad"
+          help="En euros. Puedes usar coma o punto para los decimales."
           required
         >
-          <input :id="id" v-model.number="newCostLayerCents" type="number" min="0" required placeholder="450" />
+          <div class="flex items-center gap-2">
+            <input
+              :id="id"
+              v-model="newCostLayerEuros"
+              type="text"
+              inputmode="decimal"
+              class="adm-input"
+              placeholder="4,50"
+              required
+            />
+            <span class="text-[var(--text-muted)]">€</span>
+          </div>
         </AdminFormField>
         <AdminFormField v-slot="{ id }" label="Unidades" required>
           <input :id="id" v-model.number="newCostLayerQuantity" type="number" min="1" required />

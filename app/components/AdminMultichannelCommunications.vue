@@ -312,7 +312,7 @@ const prefChannels = computed(() =>
             data-test="customer-id"
             type="text"
             required
-            placeholder="00000000-0000-0000-0000-000000000000"
+            placeholder="Cópialo de la ficha del cliente"
           />
         </AdminFormField>
         <div class="adm-form-grid">
@@ -367,7 +367,7 @@ const prefChannels = computed(() =>
               id="prefs-customer"
               v-model="prefCustomerId"
               type="text"
-              placeholder="00000000-0000-0000-0000-000000000000"
+              placeholder="Cópialo de la ficha del cliente"
             />
           </div>
           <button type="submit" class="adm-btn adm-btn--primary" :disabled="prefLoading || !prefCustomerId">

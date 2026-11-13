@@ -387,6 +387,9 @@ async function lookup() {
   }
 }
 async function createPolicy() {
+  // Las fechas se eligen en hora local; la API recibe el instante en UTC.
+  const validFrom = adminLocalToIso(form.validFrom),
+    validUntil = adminLocalToIso(form.validUntil)
   if (
     !writable.value ||
     expectedVersion.value === null ||
@@ -398,8 +401,8 @@ async function createPolicy() {
     !unique(form.requiredFields, FIELDS) ||
     !unique(form.requiredMediaRoles, ROLES) ||
     !['true', 'false'].includes(form.exceptions) ||
-    !instant(form.validFrom) ||
-    (form.validUntil && (!instant(form.validUntil) || form.validUntil <= form.validFrom)) ||
+    !instant(validFrom) ||
+    (form.validUntil && (!instant(validUntil) || validUntil <= validFrom)) ||
     form.confirmed !== true
   ) {
     if (writable.value) error.value = 'Revisa los campos, comprueba la clave y marca la confirmación.'
@@ -412,8 +415,8 @@ async function createPolicy() {
     requiredFields: [...form.requiredFields],
     requiredMediaRoles: [...form.requiredMediaRoles],
     identifierExceptionsAllowed: form.exceptions === 'true',
-    validFrom: form.validFrom,
-    validUntil: form.validUntil || null,
+    validFrom,
+    validUntil,
     reason: form.reason
   })
   if (!parsed.success) {
@@ -804,20 +807,14 @@ onBeforeUnmount(() => {
                   <input
                     id="policy-from"
                     v-model="form.validFrom"
+                    type="datetime-local"
                     required
-                    placeholder="2026-09-30T10:00:00Z"
                     class="adm-input w-full"
                   />
-                  <p class="adm-help">Fecha y hora universal (UTC), con este formato: 2026-09-30T10:00:00Z</p>
                 </div>
                 <div class="adm-field">
                   <label for="policy-until" class="adm-label">Válida hasta (opcional)</label>
-                  <input
-                    id="policy-until"
-                    v-model="form.validUntil"
-                    placeholder="2027-09-30T10:00:00Z"
-                    class="adm-input w-full"
-                  />
+                  <input id="policy-until" v-model="form.validUntil" type="datetime-local" class="adm-input w-full" />
                   <p class="adm-help">Déjalo vacío si no tiene fecha de fin.</p>
                 </div>
               </div>

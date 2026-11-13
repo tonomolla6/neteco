@@ -87,7 +87,7 @@ function startEdit(flag: ApiFlag) {
     percentage: flag.targeting.percentage,
     rolesText: flag.targeting.roles.join(', '),
     customerIdsText: flag.targeting.customerIds.join(', '),
-    expiresAt: flag.expiresAt ? flag.expiresAt.slice(0, 16) : ''
+    expiresAt: adminIsoToLocal(flag.expiresAt)
   })
   editingKey.value = flag.key
   dialogOpen.value = true
@@ -243,9 +243,7 @@ function audience(flag: ApiFlag) {
                 <template v-if="flag.targeting.environments.length">
                   · {{ flag.targeting.environments.join(', ') }}
                 </template>
-                <template v-if="flag.expiresAt">
-                  · caduca el {{ new Date(flag.expiresAt).toLocaleDateString('es-ES') }}
-                </template>
+                <template v-if="flag.expiresAt"> · caduca el {{ adminDate(flag.expiresAt) }} </template>
               </p>
             </div>
 
@@ -329,7 +327,7 @@ function audience(flag: ApiFlag) {
               <UFormField label="Solo estos roles" hint="Separados por comas. Vacío = todos.">
                 <UInput v-model="draft.rolesText" class="w-full" placeholder="admin, staff" />
               </UFormField>
-              <UFormField label="Solo estos clientes" hint="UUID separados por comas">
+              <UFormField label="Solo estos clientes" hint="Identificadores de cliente, separados por comas">
                 <UInput v-model="draft.customerIdsText" class="w-full font-mono text-xs" />
               </UFormField>
             </div>

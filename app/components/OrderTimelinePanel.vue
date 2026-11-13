@@ -181,8 +181,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
     <p class="text-xs text-[var(--text-muted)]">
-      Hitos registrados, del más reciente al más antiguo. Fechas del servidor en UTC. No anticipa entregas ni confirma
-      liquidaciones bancarias.
+      Hitos registrados, del más reciente al más antiguo. No anticipa entregas ni confirma liquidaciones bancarias.
     </p>
     <p v-if="status === 'loading'" data-timeline-loading role="status" aria-busy="true" class="text-sm">
       Consultando historial confirmado…
@@ -218,9 +217,9 @@ onBeforeUnmount(() => {
         class="min-w-0 break-words py-3 [overflow-wrap:anywhere]"
       >
         <p class="text-sm font-medium">{{ label(item) }}</p>
-        <time :datetime="item.createdAt" class="block text-xs text-[var(--text-muted)]"
-          >{{ item.createdAt.slice(0, 10) }} {{ item.createdAt.slice(11, 19) }} UTC</time
-        >
+        <time :datetime="item.createdAt" class="block text-xs text-[var(--text-muted)]">{{
+          adminDate(item.createdAt, true)
+        }}</time>
         <p v-if="item.validationOnly === true" class="mt-1 text-sm">
           Validación local, no acredita un cobro/factura real ni un reembolso real.
         </p>

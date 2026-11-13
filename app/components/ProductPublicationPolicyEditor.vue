@@ -570,15 +570,17 @@ async function assignPolicy() {
 }
 async function createException() {
   const selected = exceptionCandidates.value.find((variant) => variant.id === exceptionForm.variantId)
+  // Las fechas se eligen en hora local; la API recibe el instante en UTC.
+  const validFrom = adminLocalToIso(exceptionForm.validFrom),
+    validUntil = adminLocalToIso(exceptionForm.validUntil)
   if (
     !writable('productIdentifierExceptionsWrite') ||
     !selected ||
     !snapshot.value?.policy ||
     !text(exceptionForm.reason, 10, 500) ||
     !text(exceptionForm.evidenceReference, 3, 200) ||
-    !instant(exceptionForm.validFrom) ||
-    (exceptionForm.validUntil &&
-      (!instant(exceptionForm.validUntil) || exceptionForm.validUntil <= exceptionForm.validFrom)) ||
+    !instant(validFrom) ||
+    (exceptionForm.validUntil && (!instant(validUntil) || validUntil <= validFrom)) ||
     exceptionForm.confirmed !== true
   )
     return
@@ -590,8 +592,8 @@ async function createException() {
       variantId: selected.id,
       reason: exceptionForm.reason,
       evidenceReference: exceptionForm.evidenceReference,
-      validFrom: exceptionForm.validFrom,
-      validUntil: exceptionForm.validUntil || null
+      validFrom,
+      validUntil
     },
     selected.id,
     snapshot.value.policy.version
@@ -929,21 +931,21 @@ onBeforeUnmount(() => {
                 />
               </div>
               <div class="adm-field">
-                <label for="identifier-exception-from" class="adm-label">Válida desde (fecha y hora UTC)</label
+                <label for="identifier-exception-from" class="adm-label">Válida desde</label
                 ><input
                   id="identifier-exception-from"
                   v-model="exceptionForm.validFrom"
+                  type="datetime-local"
                   required
-                  placeholder="2026-09-30T10:00:00Z"
                   class="adm-input"
                 />
               </div>
               <div class="adm-field">
-                <label for="identifier-exception-until" class="adm-label">Válida hasta (opcional, UTC)</label
+                <label for="identifier-exception-until" class="adm-label">Válida hasta (opcional)</label
                 ><input
                   id="identifier-exception-until"
                   v-model="exceptionForm.validUntil"
-                  placeholder="2027-09-30T10:00:00Z"
+                  type="datetime-local"
                   class="adm-input"
                 />
               </div>

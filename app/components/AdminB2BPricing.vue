@@ -52,7 +52,8 @@ const companies = ref<Company[]>([]),
 const transfers = ref<TransferOrder[]>([]),
   transfersLoaded = ref(false),
   transfersEnabled = ref(false)
-const transfer = reactive({ orderId: '', amountCents: '', bankReference: '', reason: '' })
+// Los importes se teclean en euros y las fechas en hora local; se convierten al guardar.
+const transfer = reactive({ orderId: '', amount: '', bankReference: '', reason: '' })
 const selectedCompany = ref(''),
   selectedList = ref(''),
   loading = ref(false),
@@ -61,7 +62,7 @@ const selectedCompany = ref(''),
   notice = ref('')
 const credit = reactive({
   paymentDays: 0,
-  creditLimitCents: 0,
+  creditLimit: '0,00',
   blocked: false,
   blockReason: '',
   reason: '',
@@ -77,9 +78,10 @@ const list = reactive({
   validFrom: '',
   validUntil: '',
   reason: '',
-  variantRules: [] as { variantId: string; unitGrossCents: number }[],
-  categoryRules: [] as { categoryId: string; discountBps: number }[]
+  variantRules: [] as { variantId: string; price: string }[],
+  categoryRules: [] as { categoryId: string; percent: string }[]
 })
+const categoryOptions = ref<{ id: string; label: string }[]>([])
 let generation = 0
 let pending: { url: string; body: Record<string, unknown>; key: string } | null = null
 const uncertain = ref(false)
@@ -88,7 +90,7 @@ watch(selectedCompany, () => {
   const c = currentCompany.value
   Object.assign(credit, {
     paymentDays: c?.paymentDays ?? 0,
-    creditLimitCents: c?.creditLimitCents ?? 0,
+    creditLimit: adminCentsToEuros(c?.creditLimitCents ?? 0),
     blocked: c?.blocked === 1,
     blockReason: c?.blockReason ?? '',
     reason: '',
@@ -96,7 +98,7 @@ watch(selectedCompany, () => {
   })
   Object.assign(assignment, {
     priceListId: c?.priceListId ?? '',
-    validFrom: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    validFrom: adminIsoToLocal(new Date()),
     validUntil: '',
     reason: ''
   })
@@ -108,10 +110,17 @@ watch(selectedList, () => {
     found
       ? {
           ...found,
-          validUntil: found.validUntil ?? '',
+          validFrom: adminIsoToLocal(found.validFrom),
+          validUntil: adminIsoToLocal(found.validUntil),
           reason: '',
-          variantRules: found.variantRules.map((r) => ({ ...r })),
-          categoryRules: found.categoryRules.map((r) => ({ ...r }))
+          variantRules: found.variantRules.map((r) => ({
+            variantId: r.variantId,
+            price: adminCentsToEuros(r.unitGrossCents)
+          })),
+          categoryRules: found.categoryRules.map((r) => ({
+            categoryId: r.categoryId,
+            percent: adminBpsToPercent(r.discountBps)
+          }))
         }
       : {
           id: '',
@@ -119,7 +128,7 @@ watch(selectedList, () => {
           code: '',
           name: '',
           status: 'active',
-          validFrom: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+          validFrom: adminIsoToLocal(new Date()),
           validUntil: '',
           reason: '',
           variantRules: [],
@@ -141,6 +150,20 @@ async function load(expected = generation) {
     if (expected === generation) loading.value = false
   }
 }
+/** Nombres de categoría para elegirlas de una lista; si no se pueden cargar, se teclea el identificador. */
+async function loadCategories(expected = generation) {
+  try {
+    const raw = await request<{ flat?: unknown }>('/api/admin/categories')
+    if (expected !== generation || !props.enabled) return
+    const flat = Array.isArray(raw?.flat) ? (raw.flat as { name?: unknown; authoring?: { uuid?: unknown } }[]) : []
+    categoryOptions.value = flat
+      .map((row) => ({ id: String(row?.authoring?.uuid ?? ''), label: String(row?.name ?? '') }))
+      .filter((row) => row.id && row.label)
+  } catch {
+    if (expected === generation) categoryOptions.value = []
+  }
+}
+const categoryKnown = (id: string) => !id || categoryOptions.value.some((option) => option.id === id)
 async function loadTransfers(expected = generation) {
   error.value = ''
   try {
@@ -160,7 +183,8 @@ watch(
     transfers.value = []
     transfersLoaded.value = false
     transfersEnabled.value = false
-    Object.assign(transfer, { orderId: '', amountCents: '', bankReference: '', reason: '' })
+    Object.assign(transfer, { orderId: '', amount: '', bankReference: '', reason: '' })
+    categoryOptions.value = []
     companies.value = []
     priceLists.value = []
     selectedCompany.value = ''
@@ -169,7 +193,10 @@ watch(
     uncertain.value = false
     notice.value = ''
     error.value = ''
-    if (props.enabled) void load()
+    if (props.enabled) {
+      void load()
+      void loadCategories()
+    }
   },
   { immediate: true }
 )
@@ -215,12 +242,21 @@ async function send(url?: string, body?: Record<string, unknown>) {
     if (expected === generation) saving.value = false
   }
 }
+/** Aviso de formato: no llega a enviarse nada. */
+function invalid(text: string) {
+  notice.value = ''
+  uncertain.value = false
+  error.value = text
+}
 function saveCredit() {
   if (!currentCompany.value) return
+  const creditLimitCents = adminEurosToCents(credit.creditLimit)
+  if (creditLimitCents === null)
+    return invalid('Revisa el límite de crédito: escribe un importe en euros, como 1500,00.')
   void send(`/api/admin/b2b/companies/${encodeURIComponent(currentCompany.value.id)}/credit`, {
     expectedVersion: credit.version,
     paymentDays: Number(credit.paymentDays),
-    creditLimitCents: Number(credit.creditLimitCents),
+    creditLimitCents,
     blocked: credit.blocked,
     blockReason: credit.blocked ? credit.blockReason.trim() : null,
     reason: credit.reason.trim()
@@ -228,6 +264,10 @@ function saveCredit() {
 }
 function saveAssignment(remove = false) {
   if (!currentCompany.value) return
+  const validFrom = adminLocalToIso(assignment.validFrom),
+    validUntil = adminLocalToIso(assignment.validUntil)
+  if (!remove && (!validFrom || (assignment.validUntil && !validUntil)))
+    return invalid('Revisa las fechas de validez de la tarifa.')
   void send(
     `/api/admin/b2b/companies/${encodeURIComponent(currentCompany.value.id)}/assignment`,
     remove
@@ -235,8 +275,8 @@ function saveAssignment(remove = false) {
       : {
           priceListId: assignment.priceListId,
           expectedVersion: currentCompany.value.assignmentVersion ?? 0,
-          validFrom: assignment.validFrom,
-          validUntil: assignment.validUntil || null,
+          validFrom,
+          validUntil,
           reason: assignment.reason.trim()
         }
   )
@@ -245,24 +285,41 @@ const selectedTransfer = computed(() => transfers.value.find((order) => order.or
 function reconcileTransfer() {
   const order = selectedTransfer.value
   if (!order) return
+  const amountCents = adminEurosToCents(transfer.amount)
+  if (!amountCents) return invalid('Revisa el importe: escribe los euros recibidos, como 250,00.')
   void send(`/api/admin/b2b/transfers/${encodeURIComponent(order.orderId)}`, {
     expectedOutstandingCents: order.simulatedOutstandingCents,
-    amountCents: Number(transfer.amountCents),
+    amountCents,
     bankReference: transfer.bankReference.trim(),
     reason: transfer.reason.trim()
   })
 }
 function saveList() {
+  const validFrom = adminLocalToIso(list.validFrom),
+    validUntil = adminLocalToIso(list.validUntil)
+  if (!validFrom || (list.validUntil && !validUntil)) return invalid('Revisa las fechas de validez de la tarifa.')
+  const variantRules = list.variantRules.map((r) => ({
+    variantId: r.variantId,
+    unitGrossCents: adminEurosToCents(r.price)
+  }))
+  if (variantRules.some((r) => !r.variantId || !r.unitGrossCents))
+    return invalid('Revisa los precios por producto: elige el producto y escribe un precio en euros mayor que cero.')
+  const categoryRules = list.categoryRules.map((r) => ({
+    categoryId: r.categoryId,
+    discountBps: adminPercentToBps(r.percent)
+  }))
+  if (categoryRules.some((r) => !r.categoryId || r.discountBps === null || r.discountBps > 9500))
+    return invalid('Revisa los descuentos por categoría: elige la categoría y un descuento entre 0 y 95 %.')
   void send('/api/admin/b2b/price-lists', {
     ...(list.id ? { priceListId: list.id, expectedVersion: list.version } : {}),
     code: list.code,
     name: list.name,
     status: list.status,
-    validFrom: list.validFrom,
-    validUntil: list.validUntil || null,
+    validFrom,
+    validUntil,
     reason: list.reason,
-    variantRules: list.variantRules.map((r) => ({ ...r, unitGrossCents: Number(r.unitGrossCents) })),
-    categoryRules: list.categoryRules.map((r) => ({ ...r, discountBps: Number(r.discountBps) }))
+    variantRules,
+    categoryRules
   })
 }
 
@@ -382,10 +439,22 @@ const PAYMENT_LABELS: Record<number, string> = {
                   </AdminFormField>
                   <AdminFormField
                     v-slot="{ id }"
-                    label="Límite de crédito (en céntimos)"
-                    :help="`Equivale a ${adminMoney(Number(credit.creditLimitCents) || 0)}`"
+                    label="Límite de crédito"
+                    help="En euros. Puedes usar coma o punto para los decimales."
+                    required
                   >
-                    <input :id="id" v-model.number="credit.creditLimitCents" type="number" min="0" step="1" required />
+                    <div class="flex items-center gap-2">
+                      <input
+                        :id="id"
+                        v-model="credit.creditLimit"
+                        type="text"
+                        inputmode="decimal"
+                        class="adm-input"
+                        placeholder="0,00"
+                        required
+                      />
+                      <span class="text-[var(--text-muted)]">€</span>
+                    </div>
                   </AdminFormField>
                   <label class="adm-check"><input v-model="credit.blocked" type="checkbox" /> Bloquear crédito</label>
                   <AdminFormField v-if="credit.blocked" v-slot="{ id }" label="Motivo del bloqueo" required>
@@ -418,16 +487,11 @@ const PAYMENT_LABELS: Record<number, string> = {
                     </select>
                   </AdminFormField>
                   <div class="adm-form-grid">
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Válida desde"
-                      help="Fecha y hora universal, como 2026-01-01T00:00:00Z"
-                      required
-                    >
-                      <input :id="id" v-model="assignment.validFrom" required />
+                    <AdminFormField v-slot="{ id }" label="Válida desde" required>
+                      <input :id="id" v-model="assignment.validFrom" type="datetime-local" class="adm-input" required />
                     </AdminFormField>
-                    <AdminFormField v-slot="{ id }" label="Válida hasta" help="Opcional. Mismo formato.">
-                      <input :id="id" v-model="assignment.validUntil" />
+                    <AdminFormField v-slot="{ id }" label="Válida hasta" help="Opcional. Déjalo vacío si no caduca.">
+                      <input :id="id" v-model="assignment.validUntil" type="datetime-local" class="adm-input" />
                     </AdminFormField>
                   </div>
                   <AdminFormField v-slot="{ id }" label="Motivo" help="Queda guardado en el historial." required>
@@ -475,16 +539,11 @@ const PAYMENT_LABELS: Record<number, string> = {
                     <option value="inactive">Inactiva</option>
                   </select>
                 </AdminFormField>
-                <AdminFormField
-                  v-slot="{ id }"
-                  label="Válida desde"
-                  help="Fecha y hora universal, como 2026-01-01T00:00:00Z"
-                  required
-                >
-                  <input :id="id" v-model="list.validFrom" required placeholder="2026-01-01T00:00:00Z" />
+                <AdminFormField v-slot="{ id }" label="Válida desde" required>
+                  <input :id="id" v-model="list.validFrom" type="datetime-local" class="adm-input" required />
                 </AdminFormField>
-                <AdminFormField v-slot="{ id }" label="Válida hasta" help="Opcional. Mismo formato.">
-                  <input :id="id" v-model="list.validUntil" />
+                <AdminFormField v-slot="{ id }" label="Válida hasta" help="Opcional. Déjalo vacío si no caduca.">
+                  <input :id="id" v-model="list.validUntil" type="datetime-local" class="adm-input" />
                 </AdminFormField>
               </div>
 
@@ -493,7 +552,7 @@ const PAYMENT_LABELS: Record<number, string> = {
                   <button
                     type="button"
                     class="adm-btn adm-btn--secondary adm-btn--sm"
-                    @click="list.variantRules.push({ variantId: '', unitGrossCents: 1 })"
+                    @click="list.variantRules.push({ variantId: '', price: '' })"
                   >
                     Añadir precio
                   </button>
@@ -504,14 +563,22 @@ const PAYMENT_LABELS: Record<number, string> = {
                   :key="index"
                   class="mb-3 flex flex-wrap items-end gap-3"
                 >
-                  <AdminFormField v-slot="{ id }" label="Identificador de la variante" class="min-w-0 flex-1">
-                    <input :id="id" v-model="rule.variantId" required />
+                  <AdminFormField v-slot="{ id }" label="Producto" class="min-w-0 flex-1">
+                    <AdminVariantPicker :id="id" v-model="rule.variantId" required />
                   </AdminFormField>
-                  <AdminFormField
-                    v-slot="{ id }"
-                    :label="`Precio en céntimos (${adminMoney(Number(rule.unitGrossCents) || 0)})`"
-                  >
-                    <input :id="id" v-model.number="rule.unitGrossCents" type="number" min="1" required />
+                  <AdminFormField v-slot="{ id }" label="Precio con IVA">
+                    <div class="flex items-center gap-2">
+                      <input
+                        :id="id"
+                        v-model="rule.price"
+                        type="text"
+                        inputmode="decimal"
+                        class="adm-input w-28"
+                        placeholder="0,00"
+                        required
+                      />
+                      <span class="text-[var(--text-muted)]">€</span>
+                    </div>
                   </AdminFormField>
                   <button
                     type="button"
@@ -533,7 +600,7 @@ const PAYMENT_LABELS: Record<number, string> = {
                   <button
                     type="button"
                     class="adm-btn adm-btn--secondary adm-btn--sm"
-                    @click="list.categoryRules.push({ categoryId: '', discountBps: 0 })"
+                    @click="list.categoryRules.push({ categoryId: '', percent: '' })"
                   >
                     Añadir descuento
                   </button>
@@ -544,14 +611,40 @@ const PAYMENT_LABELS: Record<number, string> = {
                   :key="index"
                   class="mb-3 flex flex-wrap items-end gap-3"
                 >
-                  <AdminFormField v-slot="{ id }" label="Identificador de la categoría" class="min-w-0 flex-1">
-                    <input :id="id" v-model="rule.categoryId" required />
-                  </AdminFormField>
                   <AdminFormField
                     v-slot="{ id }"
-                    :label="`Descuento en centésimas de % (${(Number(rule.discountBps) || 0) / 100} %)`"
+                    label="Categoría"
+                    :help="
+                      categoryOptions.length
+                        ? undefined
+                        : 'Pega el identificador de la categoría: lo encontrarás en Catálogo › Categorías.'
+                    "
+                    class="min-w-0 flex-1"
                   >
-                    <input :id="id" v-model.number="rule.discountBps" type="number" min="0" max="9500" required />
+                    <select v-if="categoryOptions.length" :id="id" v-model="rule.categoryId" class="adm-input" required>
+                      <option value="">Selecciona una categoría</option>
+                      <option v-if="!categoryKnown(rule.categoryId)" :value="rule.categoryId">
+                        Categoría {{ adminShortId(rule.categoryId) }}
+                      </option>
+                      <option v-for="option in categoryOptions" :key="option.id" :value="option.id">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                    <input v-else :id="id" v-model="rule.categoryId" class="adm-input" required />
+                  </AdminFormField>
+                  <AdminFormField v-slot="{ id }" label="Descuento">
+                    <div class="flex items-center gap-2">
+                      <input
+                        :id="id"
+                        v-model="rule.percent"
+                        type="text"
+                        inputmode="decimal"
+                        class="adm-input w-24"
+                        placeholder="0"
+                        required
+                      />
+                      <span class="text-[var(--text-muted)]">%</span>
+                    </div>
                   </AdminFormField>
                   <button
                     type="button"
@@ -630,19 +723,23 @@ const PAYMENT_LABELS: Record<number, string> = {
                 <div class="adm-form-grid">
                   <AdminFormField
                     v-slot="{ id }"
-                    label="Importe (en céntimos)"
-                    :help="`Equivale a ${adminMoney(Number(transfer.amountCents) || 0)}`"
+                    label="Importe recibido"
+                    help="En euros. Puedes usar coma o punto para los decimales."
                     required
                   >
-                    <input
-                      :id="id"
-                      v-model="transfer.amountCents"
-                      name="transfer-amount"
-                      type="number"
-                      min="1"
-                      step="1"
-                      required
-                    />
+                    <div class="flex items-center gap-2">
+                      <input
+                        :id="id"
+                        v-model="transfer.amount"
+                        name="transfer-amount"
+                        type="text"
+                        inputmode="decimal"
+                        class="adm-input"
+                        placeholder="0,00"
+                        required
+                      />
+                      <span class="text-[var(--text-muted)]">€</span>
+                    </div>
                   </AdminFormField>
                   <AdminFormField v-slot="{ id }" label="Referencia bancaria" required>
                     <input :id="id" v-model="transfer.bankReference" name="transfer-reference" required />

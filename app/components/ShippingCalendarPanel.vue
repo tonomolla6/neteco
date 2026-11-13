@@ -86,6 +86,20 @@ const profileLabels: Record<(typeof profiles)[number], string> = {
   adr: 'Mercancía peligrosa'
 }
 const endpoint = '/api/admin/shipping/calendars'
+/** Festivos como lista de fechas: `dates` sigue siendo el texto «una fecha por línea» que se envía. */
+const newClosedDate = ref<Record<number, string>>({})
+const closedDateList = (text: string) => [...new Set(text.split(/\s+/).filter(Boolean))].sort()
+function addClosedDate(calendar: { dates: string }, index: number) {
+  const value = newClosedDate.value[index]
+  if (!value) return
+  calendar.dates = [...new Set([...closedDateList(calendar.dates), value])].sort().join('\n')
+  newClosedDate.value[index] = ''
+}
+function removeClosedDate(calendar: { dates: string }, date: string) {
+  calendar.dates = closedDateList(calendar.dates)
+    .filter((item) => item !== date)
+    .join('\n')
+}
 let alive = true,
   epoch = 0,
   commandPending = false,
@@ -549,10 +563,43 @@ onBeforeUnmount(() => {
               <AdminFormField
                 v-slot="{ id }"
                 label="Festivos y cierres"
-                help="Una fecha por línea, con formato AAAA-MM-DD."
+                help="Días en los que no se prepara ni se reparte. Elige la fecha y pulsa «Añadir»."
                 :for="`${prefix}-dates-${index}`"
               >
-                <textarea :id="id" v-model="calendar.dates" :data-calendar-dates="index" rows="4" />
+                <div :data-calendar-dates="index" class="adm-stack">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <input
+                      :id="id"
+                      v-model="newClosedDate[index]"
+                      type="date"
+                      class="adm-input w-auto"
+                      @keydown.enter.prevent="addClosedDate(calendar, index)"
+                    />
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      :disabled="!newClosedDate[index]"
+                      @click="addClosedDate(calendar, index)"
+                    >
+                      Añadir
+                    </button>
+                  </div>
+                  <p v-if="!closedDateList(calendar.dates).length" class="adm-help">Sin festivos ni cierres.</p>
+                  <ul v-else class="flex flex-wrap gap-2">
+                    <li v-for="date in closedDateList(calendar.dates)" :key="date" class="adm-chip">
+                      {{ adminDate(date) }}
+                      <button
+                        type="button"
+                        class="ml-1 text-[var(--text-muted)] hover:text-[var(--text-strong)]"
+                        :aria-label="`Quitar ${adminDate(date)}`"
+                        :title="`Quitar ${adminDate(date)}`"
+                        @click="removeClosedDate(calendar, date)"
+                      >
+                        <UIcon name="i-lucide-x" class="size-3.5" />
+                      </button>
+                    </li>
+                  </ul>
+                </div>
               </AdminFormField>
               <template v-if="calendar.scope !== 'national'">
                 <AdminFormField

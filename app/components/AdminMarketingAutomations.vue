@@ -248,30 +248,47 @@ const countTotal = (counts?: Record<string, number>) =>
           />
         </AdminFormField>
         <AdminFormField
-          label="Descuento máximo (céntimos)"
+          label="Descuento máximo"
           for="welcomeDiscountMaxCents"
-          :help="`Ahora: ${adminMoney(policy.welcomeDiscountMaxCents)}`"
+          help="Tope en euros por pedido. Puedes usar coma o punto para los decimales."
         >
-          <input
-            id="welcomeDiscountMaxCents"
-            v-model.number="policy.welcomeDiscountMaxCents"
-            name="welcomeDiscountMaxCents"
-            type="number"
-            aria-label="Tope de descuento en céntimos"
-          />
+          <div class="flex items-center gap-2">
+            <input
+              id="welcomeDiscountMaxCents"
+              :value="adminCentsToEuros(policy.welcomeDiscountMaxCents)"
+              name="welcomeDiscountMaxCents"
+              type="text"
+              inputmode="decimal"
+              class="adm-input"
+              aria-label="Tope de descuento en euros"
+              @change="policy.welcomeDiscountMaxCents = adminEurosFromInput($event, policy.welcomeDiscountMaxCents)"
+            />
+            <span class="text-[var(--text-muted)]">€</span>
+          </div>
         </AdminFormField>
         <AdminFormField
-          label="Margen mínimo (centésimas de %)"
+          label="Margen mínimo"
           for="welcomeMarginFloorBasisPoints"
-          :help="`Ahora: ${policy.welcomeMarginFloorBasisPoints / 100} %. Por debajo no se aplica el descuento.`"
+          help="Porcentaje. Por debajo de este margen no se aplica el descuento."
         >
-          <input
-            id="welcomeMarginFloorBasisPoints"
-            v-model.number="policy.welcomeMarginFloorBasisPoints"
-            name="welcomeMarginFloorBasisPoints"
-            type="number"
-            aria-label="Suelo de margen en puntos básicos"
-          />
+          <div class="flex items-center gap-2">
+            <input
+              id="welcomeMarginFloorBasisPoints"
+              :value="adminBpsToPercent(policy.welcomeMarginFloorBasisPoints)"
+              name="welcomeMarginFloorBasisPoints"
+              type="text"
+              inputmode="decimal"
+              class="adm-input"
+              aria-label="Margen mínimo en porcentaje"
+              @change="
+                policy.welcomeMarginFloorBasisPoints = adminPercentFromInput(
+                  $event,
+                  policy.welcomeMarginFloorBasisPoints
+                )
+              "
+            />
+            <span class="text-[var(--text-muted)]">%</span>
+          </div>
         </AdminFormField>
       </div>
       <UAlert

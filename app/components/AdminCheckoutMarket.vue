@@ -195,29 +195,59 @@ async function save() {
           <AdminFormField
             v-slot="{ id }"
             label="Impuesto de los productos"
-            help="En centésimas de punto: 2100 equivale al 21 %."
+            help="Porcentaje, por ejemplo 21."
             required
             for="goods-tax"
           >
-            <input :id="id" v-model.number="form.goodsTaxBps" type="number" min="0" max="10000" required />
+            <div class="flex items-center gap-2">
+              <input
+                :id="id"
+                :value="adminBpsToPercent(form.goodsTaxBps)"
+                type="text"
+                inputmode="decimal"
+                class="adm-input"
+                required
+                @change="form.goodsTaxBps = adminPercentFromInput($event, form.goodsTaxBps)"
+              />
+              <span class="text-[var(--text-muted)]">%</span>
+            </div>
           </AdminFormField>
           <AdminFormField
             v-slot="{ id }"
             label="Coste de envío sin impuestos"
-            help="En céntimos de la moneda del mercado: 595 equivale a 5,95."
+            help="En la moneda del mercado, con decimales: por ejemplo 5,95."
             required
             for="shipping-net"
           >
-            <input :id="id" v-model.number="form.shippingNetMinor" type="number" min="0" max="100000000" required />
+            <input
+              :id="id"
+              :value="adminCentsToEuros(form.shippingNetMinor)"
+              type="text"
+              inputmode="decimal"
+              class="adm-input"
+              required
+              @change="form.shippingNetMinor = adminEurosFromInput($event, form.shippingNetMinor)"
+            />
           </AdminFormField>
           <AdminFormField
             v-slot="{ id }"
             label="Impuesto del envío"
-            help="En centésimas de punto: 2100 equivale al 21 %."
+            help="Porcentaje, por ejemplo 21."
             required
             for="shipping-tax"
           >
-            <input :id="id" v-model.number="form.shippingTaxBps" type="number" min="0" max="10000" required />
+            <div class="flex items-center gap-2">
+              <input
+                :id="id"
+                :value="adminBpsToPercent(form.shippingTaxBps)"
+                type="text"
+                inputmode="decimal"
+                class="adm-input"
+                required
+                @change="form.shippingTaxBps = adminPercentFromInput($event, form.shippingTaxBps)"
+              />
+              <span class="text-[var(--text-muted)]">%</span>
+            </div>
           </AdminFormField>
         </div>
       </AdminCard>

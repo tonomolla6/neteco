@@ -247,9 +247,7 @@ onBeforeUnmount(() => {
     </div>
     <div v-else-if="receipt" data-cancel-receipt role="status" class="space-y-2">
       <p>Cancelación confirmada en el registro del pedido.</p>
-      <time :datetime="receipt.updatedAt"
-        >{{ receipt.updatedAt.slice(0, 10) }} {{ receipt.updatedAt.slice(11, 19) }} UTC</time
-      >
+      <time :datetime="receipt.updatedAt">{{ adminDate(receipt.updatedAt, true) }}</time>
       <p>No acredita movimientos de pago ni un reembolso.</p>
     </div>
     <p v-else-if="eligibility && !eligibility.eligible" data-cancel-blocker role="status">

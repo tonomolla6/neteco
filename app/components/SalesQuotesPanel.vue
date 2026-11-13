@@ -361,7 +361,7 @@ function edit(fresh = true) {
   city.value = existing?.destination.city ?? ''
   postalCode.value = existing?.destination.postalCode ?? ''
   method.value = existing?.shippingMethod ?? 'pickup'
-  validUntil.value = existing?.validUntil.slice(0, 16) ?? ''
+  validUntil.value = adminIsoToLocal(existing?.validUntil)
   selected.value =
     existing?.lines.map((line) => ({
       variantId: line.variantId,
@@ -444,13 +444,15 @@ function review(action: SalesQuoteAction) {
         target = null
         expectedVersion = 0
       }
-      if (!validUntil.value) throw Error('invalid_expiration')
+      // La vigencia se elige en hora local; la API recibe el instante en UTC.
+      const validUntilIso = adminLocalToIso(validUntil.value)
+      if (!validUntilIso) throw Error('invalid_expiration')
       const raw = {
         customerId: customerId.value,
         lines: selected.value.map((line) => ({ variantId: line.variantId, quantity: Number(line.quantity) })),
         destination: { city: city.value, postalCode: postalCode.value },
         shippingMethod: method.value,
-        validUntil: new Date(`${validUntil.value}:00Z`).toISOString().replace('.000Z', 'Z'),
+        validUntil: validUntilIso,
         reason: reason.value
       }
       body =
@@ -471,7 +473,7 @@ function review(action: SalesQuoteAction) {
     proposed.value = { action, target, body, expectedVersion, scope: scope.value }
     message.value = 'Revisa la operación. No reserva stock ni cobra ningún importe.'
   } catch {
-    message.value = 'Completa los campos y revisa cantidades, destinatario y vigencia UTC.'
+    message.value = 'Completa los campos y revisa cantidades, destinatario y fecha de validez.'
   }
 }
 async function confirmReceipt(receipt: SalesQuoteReceipt, frozen: Intent, task: ReturnType<typeof job>) {
@@ -1162,8 +1164,7 @@ const money = (value: number) =>
                 :disabled="locked || !!proposed"
                 class="adm-input w-full"
                 required
-              /><span class="adm-help">Hora universal (UTC).</span></label
-            >
+            /></label>
           </div>
         </form>
 
@@ -1302,7 +1303,7 @@ const money = (value: number) =>
         @submit.prevent="review(detail ? 'revise' : 'create')"
       >
         <label class="block"
-          >ID interno del cliente (si se conoce)<input
+          >Identificador del cliente<input
             v-model="customerId"
             data-testid="sales-quote-customer"
             :disabled="locked || !!proposed || !!detail"
@@ -1407,7 +1408,7 @@ const money = (value: number) =>
             </select></label
           >
           <label
-            >Vigencia hasta (UTC)<input
+            >Válido hasta<input
               v-model="validUntil"
               type="datetime-local"
               data-testid="sales-quote-valid-until"

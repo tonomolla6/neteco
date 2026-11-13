@@ -31,7 +31,8 @@ const supplierId = ref('')
 const notes = ref('')
 const lineVariantId = ref('')
 const lineQuantity = ref<number | ''>(10)
-const lineUnitCost = ref<number | ''>(1000)
+// El coste se teclea en euros; se convierte a céntimos al enviar.
+const lineUnitCost = ref('10,00')
 
 const ERROR_TEXT: Record<string, string> = {
   invalid_input: 'Falta algún dato o no es válido. Revisa el formulario y vuelve a intentarlo.',
@@ -129,9 +130,9 @@ async function createOrder() {
   }
 
   const qty = Number(lineQuantity.value)
-  const cost = Number(lineUnitCost.value)
-  if (!qty || qty <= 0 || cost < 0) {
-    createError.value = 'Las unidades deben ser más de 0 y el coste no puede ser negativo.'
+  const cost = adminEurosToCents(lineUnitCost.value)
+  if (!qty || qty <= 0 || cost === null) {
+    createError.value = 'Las unidades deben ser más de 0 y el coste, un importe en euros como 10,00.'
     return
   }
 
@@ -274,7 +275,7 @@ onMounted(() => {
           <input id="po-number" v-model="poNumber" data-test="po-number" type="text" required placeholder="PO-2026-…" />
         </div>
         <div class="adm-field">
-          <label for="supplier-id" class="adm-label">Identificador del proveedor</label>
+          <label for="supplier-id" class="adm-label">Proveedor (identificador)</label>
           <input
             id="supplier-id"
             v-model="supplierId"
@@ -283,7 +284,9 @@ onMounted(() => {
             required
             autocomplete="off"
           />
-          <p class="adm-help">El código largo del proveedor, con sus guiones.</p>
+          <p class="adm-help">
+            Pega el código largo del proveedor, con sus guiones. Todavía no hay un listado para elegirlo aquí.
+          </p>
         </div>
         <div class="adm-field">
           <label for="notes" class="adm-label">Notas internas</label>
@@ -293,15 +296,8 @@ onMounted(() => {
         <fieldset class="adm-stack border-t border-[var(--border)] pt-4">
           <legend class="adm-label">Producto que pides</legend>
           <div class="adm-field">
-            <label for="variant-id" class="adm-label">Identificador del producto</label>
-            <input
-              id="variant-id"
-              v-model="lineVariantId"
-              data-test="line-variant-id"
-              type="text"
-              required
-              autocomplete="off"
-            />
+            <label for="variant-id" class="adm-label">Producto</label>
+            <AdminVariantPicker id="variant-id" v-model="lineVariantId" data-test="line-variant-id" required />
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div class="adm-field">
@@ -316,16 +312,20 @@ onMounted(() => {
               />
             </div>
             <div class="adm-field">
-              <label for="unit-cost" class="adm-label">Coste por unidad (céntimos)</label>
-              <input
-                id="unit-cost"
-                v-model.number="lineUnitCost"
-                data-test="line-unit-cost"
-                type="number"
-                min="0"
-                required
-              />
-              <p class="adm-help">1000 equivale a 10,00 €.</p>
+              <label for="unit-cost" class="adm-label">Coste por unidad</label>
+              <div class="flex items-center gap-2">
+                <input
+                  id="unit-cost"
+                  v-model="lineUnitCost"
+                  data-test="line-unit-cost"
+                  type="text"
+                  inputmode="decimal"
+                  class="adm-input"
+                  placeholder="0,00"
+                  required
+                />
+                <span class="text-[var(--text-muted)]">€</span>
+              </div>
             </div>
           </div>
         </fieldset>

@@ -35,7 +35,7 @@ const statusLabels = {
 const statusTones = { pending_review: 'warning', approved: 'success', rejected: 'neutral', applied: 'info' } as const
 const FIELD_LABELS: Record<string, string> = {
   name: 'Nombre',
-  priceCents: 'Precio (céntimos)',
+  priceCents: 'Precio',
   stockQuantity: 'Stock',
   leadTimeDays: 'Plazo de entrega (días)',
   categoryName: 'Categoría',
@@ -44,6 +44,13 @@ const FIELD_LABELS: Record<string, string> = {
   discontinued: 'Descatalogado'
 }
 const fieldLabel = (field: string) => FIELD_LABELS[field] ?? adminHumanize(String(field))
+/** Los importes llegan en céntimos y los sí/no como booleanos: en pantalla, euros y palabras. */
+function fieldValue(field: string, value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No'
+  if (/Cents$/.test(String(field)) && Number.isFinite(Number(value))) return adminMoney(Number(value))
+  return String(value)
+}
 const columns = [
   { key: 'supplierSku', label: 'Referencia del proveedor', sortable: true },
   { key: 'diffType', label: 'Tipo', sortable: true },
@@ -235,8 +242,11 @@ onMounted(() => {
         <div v-else-if="row.diffType === 'cambio'">
           <template v-if="row.diffDetails?.changedFields">
             <span v-for="ch in row.diffDetails.changedFields as any[]" :key="ch.field" class="block">
-              {{ fieldLabel(ch.field) }}: <del class="text-[var(--text-muted)]">{{ ch.before }}</del> →
-              <ins class="font-semibold text-[var(--text-strong)] no-underline">{{ ch.after }}</ins>
+              {{ fieldLabel(ch.field) }}:
+              <del class="text-[var(--text-muted)]">{{ fieldValue(ch.field, ch.before) }}</del> →
+              <ins class="font-semibold text-[var(--text-strong)] no-underline">{{
+                fieldValue(ch.field, ch.after)
+              }}</ins>
             </span>
           </template>
         </div>

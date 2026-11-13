@@ -323,16 +323,26 @@ const decisionColumns = [
         <UAlert v-if="errorMessage" role="alert" color="error" variant="subtle" :title="errorMessage" />
         <AdminFormField
           v-slot="{ id }"
-          label="Grupo de control (centésimas de %)"
-          :help="`1000 = 10 %. Ahora: ${(Number(editHoldoutBp) / 100).toLocaleString('es-ES')} % de los clientes no recibe el envío.`"
+          label="Grupo de control"
+          help="Porcentaje de clientes que no recibe el envío, para comparar resultados. Hasta 50."
         >
-          <input :id="id" v-model.number="editHoldoutBp" type="number" min="0" max="5000" />
+          <div class="flex items-center gap-2">
+            <input
+              :id="id"
+              :value="adminBpsToPercent(editHoldoutBp)"
+              type="text"
+              inputmode="decimal"
+              class="adm-input"
+              @change="editHoldoutBp = adminPercentFromInput($event, editHoldoutBp, 5000)"
+            />
+            <span class="text-[var(--text-muted)]">%</span>
+          </div>
         </AdminFormField>
         <div class="adm-form-grid">
-          <AdminFormField v-slot="{ id }" label="Hora de inicio (UTC)">
+          <AdminFormField v-slot="{ id }" label="Hora de inicio" help="De 0 a 23, en hora universal.">
             <input :id="id" v-model.number="editStartHour" type="number" min="0" max="23" />
           </AdminFormField>
-          <AdminFormField v-slot="{ id }" label="Hora de fin (UTC)">
+          <AdminFormField v-slot="{ id }" label="Hora de fin" help="De 1 a 24, en hora universal.">
             <input :id="id" v-model.number="editEndHour" type="number" min="1" max="24" />
           </AdminFormField>
         </div>
