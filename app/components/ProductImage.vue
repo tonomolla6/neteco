@@ -18,7 +18,7 @@
  * Si la foto falla al cargar (fichero pendiente, ruta rota), cae también a la ilustración.
  * Mientras baja, un esqueleto ocupa su hueco para que no salte la maquetación.
  * Las publicaciones gobernadas sirven AVIF/WebP/JPEG desde el Worker.
- * Las fotos del perfil Node mantienen su transformación @nuxt/image existente.
+ * Los endpoints de medios Node se sirven directamente: IPX solo transforma ficheros estáticos.
  */
 const props = withDefaults(
   defineProps<{
@@ -43,6 +43,11 @@ const imageClass = computed(() =>
 const publishedSources = computed(() => publishedImageSources(props.product.image))
 const governedMedia = useRuntimeConfig().public.mediaGoverned
 const displayImage = computed(() => (governedMedia && !publishedSources.value ? null : props.product.image))
+const nodeMediaAsset = computed(
+  () =>
+    !governedMedia &&
+    /^\/media\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(displayImage.value ?? '')
+)
 
 const failed = ref(false)
 const loaded = ref(false)
@@ -73,6 +78,19 @@ onMounted(() => {
       :alt="product.imageAlt || product.name || ''"
       :sizes="sizes"
       :image-class="imageClass"
+      @load="loaded = true"
+      @error="failed = true"
+    />
+    <img
+      v-else-if="nodeMediaAsset"
+      ref="el"
+      :src="displayImage || undefined"
+      :alt="product.imageAlt || product.name || ''"
+      width="800"
+      height="800"
+      loading="lazy"
+      decoding="async"
+      :class="imageClass"
       @load="loaded = true"
       @error="failed = true"
     />

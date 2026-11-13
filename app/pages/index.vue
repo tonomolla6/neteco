@@ -17,6 +17,8 @@ useSeoMeta({
   twitterDescription: homeDescription
 })
 
+// Keep Worker bindings and request context on the SSR subrequests below.
+const catalogFetch = useRequestFetch()
 const { data: catData } = await useFetch<CategoryResponse>('/api/categories', { key: 'categories' })
 const { data: featured } = await useFetch<ProductListResponse>('/api/products', {
   key: 'featured',
@@ -155,7 +157,9 @@ const { data: familyRows } = await useAsyncData('home-family-strips', async () =
   const picked = families.value.slice(0, 4)
   const results = await Promise.all(
     picked.map((family) =>
-      $fetch<ProductListResponse>('/api/products', { params: { category: family.slug, limit: 12 } }).catch(() => null)
+      catalogFetch<ProductListResponse>('/api/products', { params: { category: family.slug, limit: 12 } }).catch(
+        () => null
+      )
     )
   )
   return picked.map((family, index) => ({
@@ -187,7 +191,9 @@ const { data: tileSamples } = await useAsyncData('home-family-tile-samples', asy
   const missing = tileCategories.value.filter((category) => !familyPhoto(category.slug))
   const results = await Promise.all(
     missing.map((category) =>
-      $fetch<ProductListResponse>('/api/products', { params: { category: category.slug, limit: 12 } }).catch(() => null)
+      catalogFetch<ProductListResponse>('/api/products', { params: { category: category.slug, limit: 12 } }).catch(
+        () => null
+      )
     )
   )
   return missing.map((category, index) => ({
