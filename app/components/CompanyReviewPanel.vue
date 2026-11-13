@@ -48,6 +48,12 @@ const labels: Record<CompanyReviewItem['status'], string> = {
   rejected: 'No aprobada',
   suspended: 'Suspendida'
 }
+const tones: Record<CompanyReviewItem['status'], 'warning' | 'success' | 'danger' | 'neutral'> = {
+  pending: 'warning',
+  approved: 'success',
+  rejected: 'danger',
+  suspended: 'neutral'
+}
 const snapshot = shallowRef<ReturnType<typeof companyReviewListSchema.parse> | null>(null),
   receipt = shallowRef<CompanyReviewReceipt | null>(null)
 const query = ref(''),
@@ -339,147 +345,392 @@ function discard() {
   message.value =
     'Se ha descartado sólo la intención local; no se ha deshecho ni confirmado ningún cambio del servidor.'
 }
+/* --- Estado de interfaz: panel lateral de revisión y confirmación del rechazo --- */
+const pageCount = computed(() => (snapshot.value ? Math.max(1, Math.ceil(snapshot.value.total / 20)) : 1))
+const drawerOpen = computed({
+  get: () => target.value !== null && !unknown.value,
+  set: (value: boolean) => {
+    if (!value && !locked.value && !busy.value) clearForm()
+  }
+})
+const confirmReject = ref(false)
+function requestSubmit() {
+  if (selectedStatus.value === 'rejected' && target.value?.status !== 'rejected') confirmReject.value = true
+  else void submit()
+}
+function confirmRejection() {
+  confirmReject.value = false
+  void submit()
+}
+function clearFilters() {
+  query.value = ''
+  filterStatus.value = ''
+  filter()
+}
+function customerLink(item: CompanyReviewItem) {
+  return { path: '/admin/clientes/contexto', query: { q: item.legalName.slice(0, 80) } }
+}
 </script>
 <template>
-  <section aria-label="Revisión de cuentas profesionales" class="space-y-4 min-w-0">
-    <UiPageHeader
-      title="Clientes profesionales"
-      description="Revisión administrativa del perfil de empresa. No concede crédito ni acredita validación fiscal externa."
+  <section aria-label="Revisión de cuentas profesionales" class="adm-stack min-w-0">
+    <UAlert
+      v-if="!actor"
+      role="status"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="No puedes revisar empresas con esta sesión"
+      description="Hace falta haber iniciado sesión con el correo verificado, la verificación en dos pasos y permiso de administración."
     />
-    <p v-if="!actor" role="status">
-      Se necesita una sesión vigente, correo verificado, MFA y permiso de administración.
-    </p>
     <template v-else>
-      <form data-company-filter class="flex flex-wrap items-end gap-3" @submit.prevent="filter">
-        <label :for="`${prefix}-query`"
-          >Empresa o NIF<input
-            :id="`${prefix}-query`"
-            v-model="query"
-            data-company-query
-            maxlength="100"
-            class="block w-full rounded border p-2"
-            :disabled="locked || !!busy"
-        /></label>
-        <label :for="`${prefix}-status`"
-          >Estado<select
-            :id="`${prefix}-status`"
-            v-model="filterStatus"
-            data-company-filter-status
-            class="block rounded border p-2"
-            :disabled="locked || !!busy"
-          >
-            <option value="">Todos</option>
-            <option v-for="status in COMPANY_STATUSES" :key="status" :value="status">{{ labels[status] }}</option>
-          </select></label
-        >
-        <button type="submit" :disabled="locked || !!busy" class="rounded border px-3 py-2">Aplicar filtros</button>
-      </form>
-      <p v-if="message" role="alert" class="break-words">{{ message }}</p>
-      <p v-if="receipt" data-company-confirmed role="status">
-        Revisión registrada: {{ labels[receipt.status] }}. El estado actual se consulta por separado.
-      </p>
-      <div v-if="unknown" data-company-unknown role="alert" class="space-y-2 rounded border p-3">
-        <p>Resultado pendiente de verificar. La ausencia de recibo no demuestra ausencia de cambios.</p>
-        <button type="button" data-company-check :disabled="!!busy" class="rounded border p-2" @click="check">
-          Consultar recibo
-        </button>
-        <button
-          v-if="retryReady"
-          type="button"
-          data-company-replay
-          :disabled="!!busy"
-          class="rounded border p-2"
-          @click="replay"
-        >
-          Repetir exactamente la misma revisión
-        </button>
-        <button
-          v-if="canDiscard"
-          type="button"
-          data-company-discard
-          :disabled="!!busy"
-          class="rounded border p-2"
-          @click="discard"
-        >
-          Descartar intención local (no deshace cambios)
-        </button>
-      </div>
-      <div v-if="readStatus === 'error'" data-company-read-error role="alert">
-        <p>No se han podido verificar las empresas. No es una lista vacía confirmada.</p>
-        <button type="button" data-company-retry :disabled="locked || !!busy" @click="load()">
-          Volver a consultar
-        </button>
-      </div>
-      <p v-else-if="readStatus === 'pending'" role="status">Consultando empresas…</p>
-      <p v-else-if="snapshot && snapshot.items.length === 0" data-company-empty>
-        No hay empresas en esta página para los filtros aplicados.
-      </p>
-      <div v-if="snapshot" class="space-y-3">
-        <p>{{ snapshot.total }} empresas · Página {{ snapshot.page }}</p>
-        <article v-for="item in snapshot.items" :key="item.id" class="min-w-0 rounded border p-3 break-words">
-          <h2 class="font-semibold">{{ item.legalName }}</h2>
-          <p v-if="item.tradeName">{{ item.tradeName }}</p>
-          <p>{{ item.countryCode }} · {{ item.taxId || 'Sin identificador fiscal' }}</p>
-          <p v-if="item.contactEmail">{{ item.contactEmail }}</p>
-          <p>{{ labels[item.status] }}</p>
-          <p v-if="item.reviewedAt">Revisión administrativa: {{ item.reviewedAt }}</p>
-          <p v-if="item.rejectionReason">{{ item.rejectionReason }}</p>
-          <button
-            type="button"
-            data-company-review
-            :disabled="locked || !!busy"
-            class="rounded border p-2"
-            @click="begin(item)"
-          >
-            Revisar cuenta
+      <UAlert
+        v-if="message && !drawerOpen"
+        role="alert"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        class="break-words"
+        :title="message"
+      />
+      <UAlert
+        v-if="receipt"
+        data-company-confirmed
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="`Revisión guardada: ${labels[receipt.status].toLowerCase()}`"
+      />
+      <AdminCard
+        v-if="unknown"
+        data-company-unknown
+        role="alert"
+        title="No sabemos si el cambio se ha guardado"
+        description="La conexión falló al guardar. Comprueba el resultado antes de volver a intentarlo, para no aplicar el cambio dos veces."
+      >
+        <div class="flex flex-wrap gap-2">
+          <button type="button" data-company-check :disabled="!!busy" class="adm-btn adm-btn--primary" @click="check">
+            Comprobar si se guardó
           </button>
-        </article>
-        <div class="flex flex-wrap gap-3">
-          <button type="button" data-company-prev :disabled="page <= 1 || locked || !!busy" @click="move(-1)">
-            Anterior</button
-          ><button
+          <button
+            v-if="retryReady"
             type="button"
-            data-company-next
-            :disabled="page * 20 >= snapshot.total || locked || !!busy"
-            @click="move(1)"
+            data-company-replay
+            :disabled="!!busy"
+            class="adm-btn adm-btn--secondary"
+            @click="replay"
           >
-            Siguiente
+            Repetir el mismo cambio
+          </button>
+          <button
+            v-if="canDiscard"
+            type="button"
+            data-company-discard
+            :disabled="!!busy"
+            class="adm-btn adm-btn--ghost"
+            @click="discard"
+          >
+            Dejarlo como está
           </button>
         </div>
-      </div>
-      <form v-if="target" data-company-command class="space-y-3 rounded border p-3" @submit.prevent="submit">
-        <h2>Revisar {{ target.legalName }}</h2>
-        <p>
-          Estado leído: {{ labels[target.status] }}. Si el cliente modifica el perfil, esta revisión debe volver a
-          prepararse.
-        </p>
-        <label :for="`${prefix}-target`"
-          >Nuevo estado<select
-            :id="`${prefix}-target`"
-            v-model="selectedStatus"
-            data-company-target-status
-            :disabled="locked || !!busy"
-            class="block rounded border p-2"
-          >
-            <option v-for="status in transitions" :key="status" :value="status">{{ labels[status] }}</option>
-          </select></label
+      </AdminCard>
+
+      <div class="adm-card adm-tablecard">
+        <div class="adm-tablecard__bar">
+          <form data-company-filter class="adm-toolbar" role="search" @submit.prevent="filter">
+            <label class="adm-toolbar__search" :for="`${prefix}-query`">
+              <span class="sr-only">Buscar por nombre, NIF o correo</span>
+              <UIcon name="i-lucide-search" class="size-4" />
+              <input
+                :id="`${prefix}-query`"
+                v-model="query"
+                data-company-query
+                type="search"
+                maxlength="100"
+                placeholder="Buscar por nombre, NIF o correo"
+                :disabled="locked || !!busy"
+              />
+            </label>
+            <select
+              :id="`${prefix}-status`"
+              v-model="filterStatus"
+              data-company-filter-status
+              class="adm-input"
+              aria-label="Filtrar por estado"
+              :disabled="locked || !!busy"
+            >
+              <option value="">Todos los estados</option>
+              <option v-for="status in COMPANY_STATUSES" :key="status" :value="status">{{ labels[status] }}</option>
+            </select>
+            <button type="submit" :disabled="locked || !!busy" class="adm-btn adm-btn--secondary">Filtrar</button>
+            <button
+              v-if="appliedQuery || appliedStatus"
+              type="button"
+              :disabled="locked || !!busy"
+              class="adm-btn adm-btn--ghost"
+              @click="clearFilters"
+            >
+              Quitar filtros
+            </button>
+          </form>
+        </div>
+
+        <AdminEmptyState
+          v-if="readStatus === 'error'"
+          data-company-read-error
+          role="alert"
+          variant="error"
+          title="No se han podido cargar las empresas"
+          description="Puede ser un fallo de conexión o de permisos. Vuelve a intentarlo."
         >
-        <label :for="`${prefix}-reason`"
-          >Motivo privado auditado<textarea
-            :id="`${prefix}-reason`"
-            v-model="reason"
-            data-company-reason
-            maxlength="500"
-            rows="3"
+          <button
+            type="button"
+            data-company-retry
             :disabled="locked || !!busy"
-            class="block w-full rounded border p-2"
+            class="adm-btn adm-btn--secondary"
+            @click="load()"
+          >
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Reintentar
+          </button>
+        </AdminEmptyState>
+        <div v-else-if="readStatus === 'pending' || !snapshot" class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only" role="status">Cargando empresas…</span>
+          <div v-for="row in 6" :key="row"><i /><i /><i /><i /></div>
+        </div>
+        <AdminEmptyState
+          v-else-if="snapshot.items.length === 0"
+          data-company-empty
+          :variant="appliedQuery || appliedStatus ? 'filtered' : 'empty'"
+          icon="i-lucide-building-2"
+          :title="
+            appliedQuery || appliedStatus ? 'Ninguna empresa con estos filtros' : 'Todavía no hay empresas registradas'
+          "
+          :description="
+            appliedQuery || appliedStatus
+              ? 'Prueba con otra búsqueda o quita algún filtro.'
+              : 'Cuando un cliente pida cuenta de empresa, aparecerá aquí para que la revises.'
+          "
+        />
+        <template v-else>
+          <div class="adm-table-wrap hidden md:block">
+            <table class="adm-table">
+              <caption class="sr-only">
+                Empresas y estado de su validación
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Empresa</th>
+                  <th scope="col">NIF</th>
+                  <th scope="col">Contacto</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Alta</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in snapshot.items" :key="item.id">
+                  <td>
+                    <p class="font-semibold text-[var(--text-strong)]">{{ item.legalName }}</p>
+                    <p v-if="item.tradeName" class="text-xs text-[var(--text-muted)]">{{ item.tradeName }}</p>
+                  </td>
+                  <td class="tabular-nums">{{ item.taxId ? `${item.countryCode} · ${item.taxId}` : 'Sin NIF' }}</td>
+                  <td class="break-all">{{ item.contactEmail || 'Sin correo' }}</td>
+                  <td>
+                    <AdminBadge :tone="tones[item.status]">{{ labels[item.status] }}</AdminBadge>
+                    <p v-if="item.rejectionReason" class="mt-1 max-w-xs text-xs text-[var(--text-muted)]">
+                      {{ item.rejectionReason }}
+                    </p>
+                  </td>
+                  <td class="whitespace-nowrap">{{ adminDate(item.createdAt) }}</td>
+                  <td data-numeric class="adm-table__actions">
+                    <NuxtLink :to="customerLink(item)" class="adm-btn adm-btn--ghost adm-btn--sm">
+                      Ficha de cliente
+                    </NuxtLink>
+                    <button
+                      type="button"
+                      data-company-review
+                      :disabled="locked || !!busy"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      @click="begin(item)"
+                    >
+                      Revisar
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ul class="adm-table-cards md:hidden">
+            <li v-for="item in snapshot.items" :key="item.id">
+              <dl>
+                <div>
+                  <dt>Empresa</dt>
+                  <dd>{{ item.legalName }}</dd>
+                </div>
+                <div>
+                  <dt>NIF</dt>
+                  <dd>{{ item.taxId ? `${item.countryCode} · ${item.taxId}` : 'Sin NIF' }}</dd>
+                </div>
+                <div>
+                  <dt>Contacto</dt>
+                  <dd class="break-all">{{ item.contactEmail || 'Sin correo' }}</dd>
+                </div>
+                <div>
+                  <dt>Estado</dt>
+                  <dd>
+                    <AdminBadge :tone="tones[item.status]">{{ labels[item.status] }}</AdminBadge>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Alta</dt>
+                  <dd>{{ adminDate(item.createdAt) }}</dd>
+                </div>
+              </dl>
+              <div class="adm-table-cards__actions">
+                <NuxtLink :to="customerLink(item)" class="adm-btn adm-btn--ghost adm-btn--sm">
+                  Ficha de cliente
+                </NuxtLink>
+                <button
+                  type="button"
+                  :disabled="locked || !!busy"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="begin(item)"
+                >
+                  Revisar
+                </button>
+              </div>
+            </li>
+          </ul>
+        </template>
+        <div v-if="snapshot" class="adm-pagination">
+          <p>
+            {{ snapshot.total }} {{ snapshot.total === 1 ? 'empresa' : 'empresas' }}
+            <template v-if="pageCount > 1"> · página {{ snapshot.page }} de {{ pageCount }}</template>
+          </p>
+          <div v-if="pageCount > 1 || page > 1" class="flex items-center gap-2">
+            <button
+              type="button"
+              data-company-prev
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="page <= 1 || locked || !!busy"
+              @click="move(-1)"
+            >
+              <UIcon name="i-lucide-chevron-left" class="size-4" />Anterior
+            </button>
+            <button
+              type="button"
+              data-company-next
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="page * 20 >= snapshot.total || locked || !!busy"
+              @click="move(1)"
+            >
+              Siguiente<UIcon name="i-lucide-chevron-right" class="size-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <AdminDrawer
+        v-model:open="drawerOpen"
+        :title="target ? `Revisar ${target.legalName}` : 'Revisar empresa'"
+        description="El motivo queda guardado en el historial con tu usuario."
+      >
+        <form
+          v-if="target"
+          :id="`${prefix}-form`"
+          data-company-command
+          class="adm-stack"
+          @submit.prevent="requestSubmit"
+        >
+          <UAlert
+            v-if="message"
+            role="alert"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            class="break-words"
+            :title="message"
           />
-        </label>
-        <button type="submit" :disabled="locked || !!busy || reason.trim().length < 3" class="rounded border p-2">
-          Confirmar revisión administrativa
-        </button>
-        <button type="button" :disabled="locked || !!busy" @click="clearForm">Cerrar sin enviar</button>
-      </form>
+          <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
+            <dt class="text-[var(--text-muted)]">Estado actual</dt>
+            <dd>
+              <AdminBadge :tone="tones[target.status]">{{ labels[target.status] }}</AdminBadge>
+            </dd>
+            <template v-if="target.tradeName">
+              <dt class="text-[var(--text-muted)]">Nombre comercial</dt>
+              <dd>{{ target.tradeName }}</dd>
+            </template>
+            <dt class="text-[var(--text-muted)]">NIF</dt>
+            <dd class="tabular-nums">
+              {{ target.taxId ? `${target.countryCode} · ${target.taxId}` : 'Sin NIF' }}
+            </dd>
+            <dt class="text-[var(--text-muted)]">Contacto</dt>
+            <dd class="break-all">{{ target.contactEmail || 'Sin correo' }}</dd>
+            <dt class="text-[var(--text-muted)]">Alta</dt>
+            <dd>{{ adminDate(target.createdAt) }}</dd>
+            <template v-if="target.reviewedAt">
+              <dt class="text-[var(--text-muted)]">Última revisión</dt>
+              <dd>{{ adminDate(target.reviewedAt, true) }}</dd>
+            </template>
+            <template v-if="target.rejectionReason">
+              <dt class="text-[var(--text-muted)]">Motivo anterior</dt>
+              <dd class="break-words">{{ target.rejectionReason }}</dd>
+            </template>
+          </dl>
+          <div class="adm-field">
+            <label :for="`${prefix}-target`" class="adm-label">Nuevo estado</label>
+            <select
+              :id="`${prefix}-target`"
+              v-model="selectedStatus"
+              data-company-target-status
+              class="adm-input w-full"
+              :disabled="locked || !!busy"
+            >
+              <option v-for="status in transitions" :key="status" :value="status">{{ labels[status] }}</option>
+            </select>
+          </div>
+          <div class="adm-field">
+            <label :for="`${prefix}-reason`" class="adm-label">
+              Motivo<span class="text-red-700" aria-hidden="true"> *</span>
+            </label>
+            <textarea
+              :id="`${prefix}-reason`"
+              v-model="reason"
+              data-company-reason
+              class="adm-input w-full"
+              maxlength="500"
+              rows="3"
+              placeholder="Por ejemplo: NIF comprobado en el registro mercantil"
+              :disabled="locked || !!busy"
+            />
+            <p class="adm-help">Entre 3 y 500 caracteres. Solo lo ve el equipo.</p>
+          </div>
+          <p class="adm-help">Si el cliente cambia sus datos mientras revisas, habrá que abrir la revisión de nuevo.</p>
+        </form>
+        <template #footer>
+          <AdminButton :disabled="locked || !!busy" @click="clearForm">Cancelar</AdminButton>
+          <button
+            type="submit"
+            :form="`${prefix}-form`"
+            class="adm-btn"
+            :class="selectedStatus === 'rejected' ? 'adm-btn--danger' : 'adm-btn--primary'"
+            :disabled="locked || !!busy || reason.trim().length < 3"
+          >
+            {{
+              busy === 'put' ? 'Guardando…' : selectedStatus === 'rejected' ? 'Rechazar empresa' : 'Guardar revisión'
+            }}
+          </button>
+        </template>
+      </AdminDrawer>
+
+      <AdminConfirm
+        v-model:open="confirmReject"
+        title="Rechazar empresa"
+        :description="`«${target?.legalName ?? ''}» no tendrá condiciones de cliente profesional. Podrás volver a revisarla más adelante.`"
+        confirm-label="Rechazar"
+        danger
+        @confirm="confirmRejection"
+      />
     </template>
   </section>
 </template>

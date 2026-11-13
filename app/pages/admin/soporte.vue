@@ -61,7 +61,7 @@ async function save() {
       method: 'PUT',
       body: form
     })
-    toast.add({ title: 'Ticket actualizado', icon: 'i-lucide-check', color: 'success' })
+    toast.add({ title: 'Consulta actualizada', icon: 'i-lucide-check', color: 'success' })
     form.message = ''
     form.reason = ''
     await Promise.all([refresh(), refreshDetail()])
@@ -120,171 +120,170 @@ function ticketStatus(value: string) {
 </script>
 
 <template>
-  <AdminSupportSection v-if="nativeSupport" :runtime="supportRuntime.public.serverRuntime" />
-  <div v-else>
-    <UiPageHeader
-      title="Soporte e incidencias"
-      :count="items.length"
-      :count-label="items.length === 1 ? 'ticket' : 'tickets'"
-      description="Cola única con compromiso de respuesta, contexto del pedido y conversación auditada."
-    />
+  <AdminPage
+    :count="nativeSupport ? undefined : items.length"
+    :count-label="items.length === 1 ? 'consulta' : 'consultas'"
+  >
+    <AdminSupportSection v-if="nativeSupport" :runtime="supportRuntime.public.serverRuntime" />
+    <div v-else class="adm-stack">
+      <UAlert
+        v-if="overdueCount"
+        role="alert"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-alarm-clock"
+        :title="`${overdueCount} ${overdueCount === 1 ? 'consulta ha superado' : 'consultas han superado'} su plazo de respuesta`"
+        description="Son los primeros que hay que atender: el compromiso con el cliente ya está incumplido."
+      />
 
-    <UAlert
-      v-if="overdueCount"
-      class="mb-4"
-      role="alert"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-alarm-clock"
-      :title="`${overdueCount} ${overdueCount === 1 ? 'ticket ha superado' : 'tickets han superado'} su plazo de respuesta`"
-      description="Son los primeros que hay que atender: el compromiso con el cliente ya está incumplido."
-    />
-
-    <div class="mb-4 flex flex-wrap gap-3">
-      <UInput v-model="q" icon="i-lucide-search" placeholder="Referencia o asunto" class="w-full sm:w-72" />
-      <USelect v-model="status" :items="statusOptions" class="w-full sm:w-52" aria-label="Filtrar por estado" />
-      <USelect v-model="category" :items="categoryOptions" class="w-full sm:w-48" aria-label="Filtrar por motivo" />
-    </div>
-
-    <div class="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)]">
-      <div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-        <table class="w-full min-w-[760px] text-sm">
-          <thead>
-            <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th class="px-4 py-3">Ticket</th>
-              <th class="px-4 py-3">Cliente / contexto</th>
-              <th class="px-4 py-3">Estado</th>
-              <th class="px-4 py-3">SLA</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="ticket in items"
-              :key="ticket.id"
-              class="cursor-pointer border-b border-slate-100 align-top hover:bg-slate-50"
-              :class="{ 'bg-neteco-50': selectedId === ticket.id }"
-              @click="select(ticket)"
-            >
-              <td class="px-4 py-3">
-                <p class="font-mono text-xs font-semibold">{{ ticket.id }}</p>
-                <p class="mt-1 max-w-xs font-medium text-slate-800">{{ ticket.subject }}</p>
-                <p class="text-xs text-slate-500">
-                  {{ TICKET_CATEGORY[ticket.category] ?? ticket.category }} · {{ ticket.messages }}
-                  {{ ticket.messages === 1 ? 'mensaje' : 'mensajes' }}
-                </p>
-              </td>
-              <td class="px-4 py-3">
-                <p>{{ ticket.requesterName }}</p>
-                <p class="text-xs text-slate-500">{{ ticket.requesterEmail }}</p>
-                <p v-if="ticket.orderNumber" class="mt-1 font-mono text-xs">Pedido {{ ticket.orderNumber }}</p>
-              </td>
-              <td class="px-4 py-3">
-                <UBadge :color="ticketStatus(ticket.status).color" variant="subtle">
-                  {{ ticketStatus(ticket.status).label }}
-                </UBadge>
-                <p class="mt-1 text-xs text-slate-500">
-                  {{ TICKET_PRIORITY[ticket.priority] ?? ticket.priority }}
-                </p>
-              </td>
-              <td class="px-4 py-3" :class="overdue(ticket) ? 'font-semibold text-red-700' : 'text-slate-600'">
-                {{ new Date(ticket.slaDueAt).toLocaleString('es-ES') }}
-              </td>
-            </tr>
-            <tr v-if="!items.length">
-              <td colspan="4" class="p-0">
-                <UiEmptyState
-                  :variant="q || status || category ? 'filtered' : 'empty'"
-                  icon="i-lucide-life-buoy"
-                  :title="
-                    q || status || category ? 'Ningún ticket coincide con los filtros' : 'No hay tickets abiertos'
-                  "
-                  :description="
-                    q || status || category
-                      ? 'Prueba con otra referencia o quita algún filtro.'
-                      : 'Cuando un cliente escriba desde su pedido o desde contacto, el ticket entrará en esta cola.'
-                  "
-                >
-                  <UButton
-                    v-if="q || status || category"
-                    color="neutral"
-                    variant="outline"
-                    @click="
-                      () => {
-                        q = ''
-                        status = ''
-                        category = ''
-                      }
-                    "
-                  >
-                    Quitar filtros
-                  </UButton>
-                </UiEmptyState>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="flex flex-wrap gap-3">
+        <UInput v-model="q" icon="i-lucide-search" placeholder="Referencia o asunto" class="w-full sm:w-72" />
+        <USelect v-model="status" :items="statusOptions" class="w-full sm:w-52" aria-label="Filtrar por estado" />
+        <USelect v-model="category" :items="categoryOptions" class="w-full sm:w-48" aria-label="Filtrar por motivo" />
       </div>
 
-      <aside v-if="detail" class="rounded-2xl border border-slate-200 bg-white p-5">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <p class="font-mono text-xs text-slate-500">{{ detail.id }}</p>
-            <h2 class="font-bold text-slate-900">{{ detail.subject }}</h2>
-            <p class="mt-1 text-sm text-slate-600">{{ detail.requesterName }} · {{ detail.requesterEmail }}</p>
-          </div>
-          <UButton v-if="detail.orderId" :to="`/pedido/${detail.orderId}`" target="_blank" size="xs" variant="soft"
-            >Pedido</UButton
-          >
+      <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)]">
+        <div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <table class="w-full min-w-[760px] text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                <th class="px-4 py-3">Consulta</th>
+                <th class="px-4 py-3">Cliente</th>
+                <th class="px-4 py-3">Estado</th>
+                <th class="px-4 py-3">Plazo de respuesta</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="ticket in items"
+                :key="ticket.id"
+                class="cursor-pointer border-b border-slate-100 align-top hover:bg-slate-50"
+                :class="{ 'bg-neteco-50': selectedId === ticket.id }"
+                @click="select(ticket)"
+              >
+                <td class="px-4 py-3">
+                  <p class="font-mono text-xs font-semibold">{{ ticket.id }}</p>
+                  <p class="mt-1 max-w-xs font-medium text-slate-800">{{ ticket.subject }}</p>
+                  <p class="text-xs text-slate-500">
+                    {{ TICKET_CATEGORY[ticket.category] ?? ticket.category }} · {{ ticket.messages }}
+                    {{ ticket.messages === 1 ? 'mensaje' : 'mensajes' }}
+                  </p>
+                </td>
+                <td class="px-4 py-3">
+                  <p>{{ ticket.requesterName }}</p>
+                  <p class="text-xs text-slate-500">{{ ticket.requesterEmail }}</p>
+                  <p v-if="ticket.orderNumber" class="mt-1 font-mono text-xs">Pedido {{ ticket.orderNumber }}</p>
+                </td>
+                <td class="px-4 py-3">
+                  <UBadge :color="ticketStatus(ticket.status).color" variant="subtle">
+                    {{ ticketStatus(ticket.status).label }}
+                  </UBadge>
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ TICKET_PRIORITY[ticket.priority] ?? ticket.priority }}
+                  </p>
+                </td>
+                <td class="px-4 py-3" :class="overdue(ticket) ? 'font-semibold text-red-700' : 'text-slate-600'">
+                  {{ adminDate(ticket.slaDueAt, true) }}
+                </td>
+              </tr>
+              <tr v-if="!items.length">
+                <td colspan="4" class="p-0">
+                  <UiEmptyState
+                    :variant="q || status || category ? 'filtered' : 'empty'"
+                    icon="i-lucide-life-buoy"
+                    :title="
+                      q || status || category
+                        ? 'Ninguna consulta coincide con los filtros'
+                        : 'No hay consultas abiertas'
+                    "
+                    :description="
+                      q || status || category
+                        ? 'Prueba con otra referencia o quita algún filtro.'
+                        : 'Cuando un cliente escriba desde su pedido o desde contacto, su consulta aparecerá aquí.'
+                    "
+                  >
+                    <UButton
+                      v-if="q || status || category"
+                      color="neutral"
+                      variant="outline"
+                      @click="
+                        () => {
+                          q = ''
+                          status = ''
+                          category = ''
+                        }
+                      "
+                    >
+                      Quitar filtros
+                    </UButton>
+                  </UiEmptyState>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
 
-        <ol class="mt-5 max-h-96 space-y-3 overflow-y-auto" aria-label="Conversación del ticket">
-          <li v-for="message in detail.timeline" :key="message.id" class="rounded-xl border border-slate-200 p-3">
-            <div class="flex justify-between gap-2 text-xs text-slate-500">
-              <span
-                >{{ message.authorName || message.authorType }}
-                <strong v-if="message.private">· nota privada</strong></span
-              >
-              <time>{{ new Date(message.createdAt).toLocaleString('es-ES') }}</time>
+        <aside v-if="detail" class="rounded-2xl border border-slate-200 bg-white p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="font-mono text-xs text-slate-500">{{ detail.id }}</p>
+              <h2 class="font-bold text-slate-900">{{ detail.subject }}</h2>
+              <p class="mt-1 text-sm text-slate-600">{{ detail.requesterName }} · {{ detail.requesterEmail }}</p>
             </div>
-            <p class="mt-1 whitespace-pre-wrap text-sm text-slate-700">{{ message.body }}</p>
-          </li>
-        </ol>
-
-        <form class="mt-5 space-y-3 border-t border-slate-200 pt-4" @submit.prevent="save">
-          <div class="grid grid-cols-2 gap-3">
-            <UFormField label="Estado">
-              <select v-model="form.status" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                <option value="open">Abierto</option>
-                <option value="waiting_customer">Esperando cliente</option>
-                <option value="waiting_provider">Esperando proveedor</option>
-                <option value="resolved">Resuelto</option>
-                <option value="closed">Cerrado</option>
-              </select>
-            </UFormField>
-            <UFormField label="Prioridad">
-              <select v-model="form.priority" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                <option value="low">Baja</option>
-                <option value="normal">Normal</option>
-                <option value="high">Alta</option>
-                <option value="urgent">Urgente</option>
-              </select>
-            </UFormField>
+            <UButton v-if="detail.orderId" :to="`/pedido/${detail.orderId}`" target="_blank" size="xs" variant="soft"
+              >Pedido</UButton
+            >
           </div>
-          <UFormField label="Respuesta o nota" hint="La respuesta pública se envía por correo">
-            <UTextarea v-model="form.message" :rows="4" class="w-full" />
-          </UFormField>
-          <label class="flex items-center gap-2 text-sm text-slate-700">
-            <input v-model="form.private" type="checkbox" class="size-4" /> Nota interna: no enviar al cliente
-          </label>
-          <UFormField label="Motivo operativo" required>
-            <UInput v-model="form.reason" class="w-full" placeholder="Acción realizada y siguiente paso" required />
-          </UFormField>
-          <UButton type="submit" icon="i-lucide-send" :loading="saving">Guardar y enviar</UButton>
-        </form>
-      </aside>
-      <aside v-else class="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
-        Selecciona un ticket para ver su conversación y contexto.
-      </aside>
+
+          <ol class="mt-5 max-h-96 space-y-3 overflow-y-auto" aria-label="Conversación de la consulta">
+            <li v-for="message in detail.timeline" :key="message.id" class="rounded-xl border border-slate-200 p-3">
+              <div class="flex justify-between gap-2 text-xs text-slate-500">
+                <span
+                  >{{ message.authorName || message.authorType }}
+                  <strong v-if="message.private">· nota privada</strong></span
+                >
+                <time>{{ adminDate(message.createdAt, true) }}</time>
+              </div>
+              <p class="mt-1 whitespace-pre-wrap text-sm text-slate-700">{{ message.body }}</p>
+            </li>
+          </ol>
+
+          <form class="mt-5 space-y-3 border-t border-slate-200 pt-4" @submit.prevent="save">
+            <div class="grid grid-cols-2 gap-3">
+              <UFormField label="Estado">
+                <select v-model="form.status" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                  <option value="open">Abierto</option>
+                  <option value="waiting_customer">Esperando cliente</option>
+                  <option value="waiting_provider">Esperando proveedor</option>
+                  <option value="resolved">Resuelto</option>
+                  <option value="closed">Cerrado</option>
+                </select>
+              </UFormField>
+              <UFormField label="Prioridad">
+                <select v-model="form.priority" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                  <option value="low">Baja</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">Alta</option>
+                  <option value="urgent">Urgente</option>
+                </select>
+              </UFormField>
+            </div>
+            <UFormField label="Respuesta o nota" hint="La respuesta pública se envía por correo">
+              <UTextarea v-model="form.message" :rows="4" class="w-full" />
+            </UFormField>
+            <label class="flex items-center gap-2 text-sm text-slate-700">
+              <input v-model="form.private" type="checkbox" class="size-4" /> Nota interna: no enviar al cliente
+            </label>
+            <UFormField label="Motivo" required>
+              <UInput v-model="form.reason" class="w-full" placeholder="Acción realizada y siguiente paso" required />
+            </UFormField>
+            <UButton type="submit" icon="i-lucide-send" :loading="saving">Guardar y enviar</UButton>
+          </form>
+        </aside>
+        <aside v-else class="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+          Selecciona una consulta para ver su conversación.
+        </aside>
+      </div>
     </div>
-  </div>
+  </AdminPage>
 </template>

@@ -24,6 +24,23 @@ const library = shallowRef<SupportMacroLibrary | null>(null),
   status = ref(''),
   selectedId = ref(''),
   preview = shallowRef<ReturnType<typeof supportMacroPreviewSchema.parse> | null>(null)
+const uid = useId()
+const stateLabels: Record<string, string> = {
+  draft: 'Borrador',
+  approved: 'Aprobada',
+  withdrawn: 'Retirada',
+  expired: 'Caducada'
+}
+const stateTones: Record<string, 'neutral' | 'success' | 'warning'> = {
+  draft: 'warning',
+  approved: 'success',
+  withdrawn: 'neutral'
+}
+const actionLabels: Record<string, string> = {
+  draft: 'Guardar borrador',
+  approve: 'Aprobar borrador',
+  withdraw: 'Retirar respuesta guardada'
+}
 const personalizations = reactive<Record<string, string>>({})
 const form = reactive({
   title: '',
@@ -115,7 +132,8 @@ async function load(afterMacroId?: string) {
       selectedId.value = ''
     }
   } catch {
-    if (epoch === generation && allowed()) status.value = 'No se ha podido confirmar la biblioteca. Vuelve a cargarla.'
+    if (epoch === generation && allowed())
+      status.value = 'No se han podido cargar las respuestas guardadas. Vuelve a intentarlo.'
   } finally {
     if (active) busy.value = false
   }
@@ -138,7 +156,7 @@ async function loadHistory(beforeVersion?: number) {
         macros: library.value.macros.map((m) => (m.macroId === detail.macroId ? detail : m))
       }
   } catch {
-    if (epoch === generation && allowed()) status.value = 'No se ha confirmado el historial. Vuelve a consultarlo.'
+    if (epoch === generation && allowed()) status.value = 'No se ha podido cargar el historial. Vuelve a intentarlo.'
   } finally {
     if (active) busy.value = false
   }
@@ -189,7 +207,7 @@ function prepare(action: 'draft' | 'approve' | 'withdraw') {
     status.value = ''
   } catch {
     status.value =
-      'Revisa contenido, variables, campos declarados y referencias/fechas UTC. No se ha preparado ninguna operación.'
+      'Revisa el texto, los campos, las referencias y las fechas (formato 2026-10-08T10:00:00Z). No se ha guardado nada.'
   }
 }
 async function dispatch(recovery = false) {
@@ -206,7 +224,8 @@ async function dispatch(recovery = false) {
       (fresh.macros.find((m) => m.macroId === pending.macroId)?.version ?? 0) !== pending.body.expectedVersion
     ) {
       intent.value = null
-      status.value = 'La versión ha cambiado. Revisa la biblioteca antes de preparar otra operación.'
+      status.value =
+        'Otra persona ha cambiado esta respuesta guardada. Actualiza la lista antes de volver a intentarlo.'
       return
     }
     sent = true
@@ -223,7 +242,7 @@ async function dispatch(recovery = false) {
       throw new Error('receipt_unconfirmed')
     intent.value = null
     uncertain.value = false
-    status.value = 'Operación registrada. La referencia de revisión no sustituye una aprobación legal real.'
+    status.value = 'Cambio guardado. Anotar una referencia no sustituye a la revisión legal real.'
     const latest = await read('/api/admin/support/macros/' + pending.macroId)
     if (epoch !== generation || !allowed()) return
     library.value = latest
@@ -231,8 +250,8 @@ async function dispatch(recovery = false) {
   } catch {
     if (epoch === generation && allowed())
       status.value = sent
-        ? 'Resultado incierto. No cambies el contenido: recupera manualmente el mismo intento tras consultar la biblioteca.'
-        : 'No se ha confirmado la biblioteca; no se ha enviado la operación.'
+        ? 'Resultado incierto: no sabemos si se ha guardado. No cambies nada y pulsa «Comprobar y recuperar el envío».'
+        : 'No se han podido comprobar las respuestas guardadas; no se ha enviado nada.'
   } finally {
     if (active) busy.value = false
   }
@@ -265,7 +284,7 @@ async function makePreview() {
   } catch {
     if (epoch === generation && allowed())
       status.value =
-        'No se ha confirmado la plantilla. Comprueba personalización, revisión vigente y contexto del ticket.'
+        'No se ha podido previsualizar. Revisa los campos y que la respuesta guardada siga aprobada y vigente.'
   } finally {
     if (active) busy.value = false
   }
@@ -275,197 +294,274 @@ function usePreview() {
 }
 </script>
 <template>
-  <UiSurface v-if="allowed()" class="space-y-3" aria-label="Plantillas de soporte revisadas">
-    <h3 class="text-lg font-semibold">Plantillas revisadas</h3>
-    <p class="text-sm">
-      Sin envío automático. Sólo se permiten variables del ticket y campos declarados; no incluyas secretos ni datos
-      personales innecesarios. No hay textos legales preaprobados.
-    </p>
-    <button
-      type="button"
-      data-testid="macros-load"
-      :disabled="busy || !!intent || !!preview"
-      class="rounded border p-2"
-      @click="load()"
-    >
-      {{ busy ? 'Cargando…' : 'Consultar biblioteca' }}
-    </button>
-    <p v-if="status" role="status">{{ status }}</p>
-    <template v-if="library">
-      <p v-if="!library.macros.length">
-        No hay plantillas. Crea un borrador y solicita una revisión operativa y legal real.
-      </p>
-      <p v-if="library.truncated" role="status">Página parcial: se muestran hasta 50 plantillas.</p>
+  <AdminCard
+    v-if="allowed()"
+    aria-label="Plantillas de soporte revisadas"
+    title="Respuestas guardadas"
+    description="Textos revisados para contestar más rápido. Nada se envía sin que lo confirmes."
+  >
+    <template #actions>
       <button
-        v-if="library.nextMacroId"
         type="button"
-        data-testid="macros-next"
+        data-testid="macros-load"
         :disabled="busy || !!intent || !!preview"
-        class="rounded border p-2"
-        @click="load(library.nextMacroId)"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        @click="load()"
       >
-        Siguiente página de plantillas
+        {{ busy ? 'Cargando…' : library ? 'Actualizar lista' : 'Ver respuestas guardadas' }}
       </button>
-      <label class="block"
-        >Plantilla<select v-model="selectedId" :disabled="!!intent || busy || !!preview" class="rounded border p-2">
-          <option value="">Nuevo borrador</option>
-          <option v-for="macro in library.macros" :key="macro.macroId" :value="macro.macroId">
-            {{ macro.snapshot.content.title }} · {{ macro.state }} · v{{ macro.version }}
-          </option>
-        </select></label
-      >
-      <template v-if="selected?.state === 'approved' && !intent">
-        <p>Tono: {{ selected.snapshot.content.tone }}</p>
-        <p>Revisión: {{ selected.snapshot.review?.reviewedAt }} · Caduca: {{ selected.snapshot.review?.expiresAt }}</p>
-        <label v-for="field in selected.snapshot.content.personalizations" :key="field.key" class="block"
-          >{{ field.label }} {{ field.required ? '(obligatorio)' : '(opcional)'
-          }}<input
-            v-model="personalizations[field.key]"
-            :required="field.required"
-            maxlength="300"
-            class="w-full rounded border p-2"
-        /></label>
-        <button
-          type="button"
-          :disabled="busy"
-          data-testid="macro-preview"
-          class="rounded border p-2"
-          @click="makePreview"
-        >
-          Previsualizar en este ticket
-        </button>
-        <div v-if="preview" class="space-y-2">
-          <p class="whitespace-pre-wrap">{{ preview.message }}</p>
-          <button type="button" data-testid="macro-use" class="rounded border p-2" @click="usePreview">
-            Usar esta respuesta y revisar envío
-          </button>
-          <button type="button" class="rounded border p-2" @click="preview = null">Descartar previsualización</button>
-        </div>
-      </template>
-      <details v-if="!intent">
-        <summary>Editar borrador y documentar revisión</summary>
-        <div class="space-y-3">
-          <label class="block"
-            >Título<input v-model="form.title" maxlength="120" class="w-full rounded border p-2"
-          /></label>
-          <label class="block"
-            >Texto fijo revisable<textarea
-              v-model="form.body"
-              rows="5"
-              maxlength="4000"
-              class="w-full rounded border p-2"
-            />
-          </label>
-          <p class="text-sm">
-            Variables: ticket.reference, ticket.category, ticket.state y personal.clave, entre dobles llaves. Sólo los
-            campos personales se editan al responder; alterar texto fijo exige nueva revisión.
-          </p>
-          <label class="block"
-            >Guía de tono<input v-model="form.tone" maxlength="300" class="w-full rounded border p-2"
-          /></label>
-          <label class="block"
-            >Campos: clave|Etiqueta|required u optional (una línea por campo)<textarea
-              v-model="form.slots"
-              rows="3"
-              class="w-full rounded border p-2"
-            />
-          </label>
-          <label class="block"
-            >Motivo documentado<input v-model="form.reason" maxlength="500" class="w-full rounded border p-2"
-          /></label>
-          <button type="button" data-testid="macro-draft" class="rounded border p-2" @click="prepare('draft')">
-            Preparar borrador
-          </button>
-          <template v-if="selected?.state === 'draft'">
-            <p>
-              La revisión aprueba el borrador guardado, no las ediciones sin guardar de este formulario. Verifica el
-              historial antes de confirmar.
-            </p>
-            <label class="block"
-              >Referencia operativa<input
-                v-model="form.operationalReference"
-                maxlength="300"
-                class="w-full rounded border p-2"
-            /></label>
-            <label class="block"
-              >Referencia de revisión legal<input
-                v-model="form.legalReference"
-                maxlength="300"
-                class="w-full rounded border p-2"
-            /></label>
-            <label class="block"
-              >Fecha revisión UTC<input
-                v-model="form.reviewedAt"
-                placeholder="2026-10-08T10:00:00Z"
-                class="w-full rounded border p-2"
-            /></label>
-            <label class="block"
-              >Caducidad UTC<input
-                v-model="form.expiresAt"
-                placeholder="2026-11-08T10:00:00Z"
-                class="w-full rounded border p-2"
-            /></label>
-            <button type="button" data-testid="macro-approve" class="rounded border p-2" @click="prepare('approve')">
-              Preparar aprobación documentada
-            </button>
-          </template>
-          <button
-            v-if="selected?.state === 'approved'"
-            type="button"
-            data-testid="macro-withdraw"
-            class="rounded border p-2"
-            @click="prepare('withdraw')"
-          >
-            Preparar retirada
-          </button>
-        </div>
-      </details>
-      <details v-if="selected">
-        <summary>Historial inmutable · {{ selected.history.length }} revisiones</summary>
-        <p v-if="selected.historyTruncated">Historial parcial. Consulta hasta 20 versiones por página.</p>
-        <button
-          type="button"
-          data-testid="macro-history-load"
-          :disabled="busy || !!intent || !!preview"
-          class="rounded border p-2"
-          @click="loadHistory()"
-        >
-          Consultar historial actual
-        </button>
-        <button
-          v-if="selected.historyNextBefore"
-          type="button"
-          data-testid="macro-history-older"
-          :disabled="busy || !!intent || !!preview"
-          class="rounded border p-2"
-          @click="loadHistory(selected.historyNextBefore)"
-        >
-          Cargar versiones anteriores
-        </button>
-        <article v-for="entry in selected.history" :key="entry.commandId" class="border-b py-3">
-          <p>v{{ entry.version }} · {{ entry.state }} · {{ entry.createdAt }} · {{ entry.reason }}</p>
-          <p class="whitespace-pre-wrap">{{ entry.snapshot.content.body }}</p>
-          <p v-if="entry.snapshot.review">
-            Operación: {{ entry.snapshot.review.operationalReference }} · Legal:
-            {{ entry.snapshot.review.legalReference }}
-          </p>
-        </article>
-      </details>
     </template>
-    <div v-if="intent" class="rounded border p-3 space-y-2">
-      <p>Acción: {{ intent.body.action }} · versión {{ intent.body.expectedVersion }}. Contenido y clave congelados.</p>
-      <pre class="whitespace-pre-wrap break-words">{{ JSON.stringify(intent.body, null, 2) }}</pre>
-      <button
-        type="button"
-        data-testid="macro-confirm"
-        :disabled="busy"
-        class="rounded border p-2"
-        @click="dispatch(uncertain)"
+    <div class="adm-stack">
+      <UAlert v-if="status" role="status" color="info" variant="subtle" icon="i-lucide-info" :title="status" />
+      <template v-if="library">
+        <p v-if="!library.macros.length" class="adm-help">
+          Todavía no hay respuestas guardadas. Crea un borrador y pide que lo revisen.
+        </p>
+        <p v-if="library.truncated" role="status" class="adm-help">Se muestran las primeras 50 respuestas guardadas.</p>
+        <div class="adm-field">
+          <label :for="`${uid}-macro`" class="adm-label">Respuesta guardada</label>
+          <div class="flex flex-wrap items-center gap-2">
+            <select
+              :id="`${uid}-macro`"
+              v-model="selectedId"
+              :disabled="!!intent || busy || !!preview"
+              class="min-w-0 flex-1"
+            >
+              <option value="">Nuevo borrador</option>
+              <option v-for="macro in library.macros" :key="macro.macroId" :value="macro.macroId">
+                {{ macro.snapshot.content.title }} · {{ stateLabels[macro.state] ?? 'Otro estado' }}
+              </option>
+            </select>
+            <button
+              v-if="library.nextMacroId"
+              type="button"
+              data-testid="macros-next"
+              :disabled="busy || !!intent || !!preview"
+              class="adm-btn adm-btn--ghost adm-btn--sm"
+              @click="load(library.nextMacroId)"
+            >
+              Ver más
+            </button>
+          </div>
+        </div>
+        <template v-if="selected?.state === 'approved' && !intent">
+          <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+            <dt class="text-[var(--text-muted)]">Tono</dt>
+            <dd>{{ selected.snapshot.content.tone }}</dd>
+            <dt class="text-[var(--text-muted)]">Revisada</dt>
+            <dd>{{ adminDate(selected.snapshot.review?.reviewedAt, true) }}</dd>
+            <dt class="text-[var(--text-muted)]">Válida hasta</dt>
+            <dd>{{ adminDate(selected.snapshot.review?.expiresAt, true) }}</dd>
+          </dl>
+          <label v-for="field in selected.snapshot.content.personalizations" :key="field.key" class="adm-field">
+            <span class="adm-label">{{ field.label }} {{ field.required ? '(obligatorio)' : '(opcional)' }}</span>
+            <input v-model="personalizations[field.key]" :required="field.required" maxlength="300" class="w-full" />
+          </label>
+          <div>
+            <button
+              type="button"
+              :disabled="busy"
+              data-testid="macro-preview"
+              class="adm-btn adm-btn--secondary"
+              @click="makePreview"
+            >
+              Previsualizar en esta consulta
+            </button>
+          </div>
+          <div
+            v-if="preview"
+            class="adm-stack rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3"
+          >
+            <p class="whitespace-pre-wrap break-words">{{ preview.message }}</p>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" @click="preview = null">
+                Descartar
+              </button>
+              <button
+                type="button"
+                data-testid="macro-use"
+                class="adm-btn adm-btn--primary adm-btn--sm"
+                @click="usePreview"
+              >
+                Usar esta respuesta
+              </button>
+            </div>
+          </div>
+        </template>
+        <details v-if="!intent">
+          <summary class="adm-btn adm-btn--ghost adm-btn--sm">Crear o editar una respuesta guardada</summary>
+          <div class="adm-stack mt-3">
+            <label class="adm-field">
+              <span class="adm-label">Título</span>
+              <input v-model="form.title" maxlength="120" class="w-full" />
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Texto de la respuesta</span>
+              <textarea v-model="form.body" rows="5" maxlength="4000" class="w-full" />
+              <span class="adm-help">
+                Puedes insertar entre dobles llaves la referencia, el motivo y el estado de la consulta
+                (ticket.reference, ticket.category, ticket.state) y tus campos propios (personal.clave). Cambiar el
+                texto exige una nueva revisión.
+              </span>
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Tono recomendado</span>
+              <input v-model="form.tone" maxlength="300" class="w-full" />
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Campos que se rellenan al responder</span>
+              <textarea v-model="form.slots" rows="3" class="w-full" placeholder="paso|Siguiente paso|required" />
+              <span class="adm-help">
+                Uno por línea, con este formato: clave|Nombre del campo|required (obligatorio) u optional (opcional).
+              </span>
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Motivo del cambio</span>
+              <input v-model="form.reason" maxlength="500" class="w-full" />
+            </label>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button
+                v-if="selected?.state === 'approved'"
+                type="button"
+                data-testid="macro-withdraw"
+                class="adm-btn adm-btn--danger-soft"
+                @click="prepare('withdraw')"
+              >
+                Retirar respuesta
+              </button>
+              <button
+                type="button"
+                data-testid="macro-draft"
+                class="adm-btn adm-btn--secondary"
+                @click="prepare('draft')"
+              >
+                Guardar borrador
+              </button>
+            </div>
+            <template v-if="selected?.state === 'draft'">
+              <p class="adm-help">
+                Se aprueba el borrador guardado, no los cambios sin guardar de este formulario. Repasa el historial
+                antes de aprobar.
+              </p>
+              <div class="adm-form-grid">
+                <label class="adm-field">
+                  <span class="adm-label">Quién la ha revisado (atención al cliente)</span>
+                  <input v-model="form.operationalReference" maxlength="300" class="w-full" />
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Referencia de la revisión legal</span>
+                  <input v-model="form.legalReference" maxlength="300" class="w-full" />
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Fecha de la revisión</span>
+                  <input v-model="form.reviewedAt" placeholder="2026-10-08T10:00:00Z" class="w-full" />
+                  <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Válida hasta</span>
+                  <input v-model="form.expiresAt" placeholder="2026-11-08T10:00:00Z" class="w-full" />
+                  <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                </label>
+              </div>
+              <div class="flex justify-end">
+                <button
+                  type="button"
+                  data-testid="macro-approve"
+                  class="adm-btn adm-btn--secondary"
+                  @click="prepare('approve')"
+                >
+                  Aprobar borrador
+                </button>
+              </div>
+            </template>
+          </div>
+        </details>
+        <details v-if="selected">
+          <summary class="adm-btn adm-btn--ghost adm-btn--sm">
+            Historial de cambios ({{ selected.history.length }})
+          </summary>
+          <div class="adm-stack mt-3">
+            <p v-if="selected.historyTruncated" class="adm-help">Se muestran hasta 20 cambios por página.</p>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-testid="macro-history-load"
+                :disabled="busy || !!intent || !!preview"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                @click="loadHistory()"
+              >
+                Actualizar historial
+              </button>
+              <button
+                v-if="selected.historyNextBefore"
+                type="button"
+                data-testid="macro-history-older"
+                :disabled="busy || !!intent || !!preview"
+                class="adm-btn adm-btn--ghost adm-btn--sm"
+                @click="loadHistory(selected.historyNextBefore)"
+              >
+                Ver cambios anteriores
+              </button>
+            </div>
+            <article
+              v-for="entry in selected.history"
+              :key="entry.commandId"
+              class="border-t border-[var(--border)] pt-3"
+            >
+              <p class="flex flex-wrap items-center gap-2">
+                <AdminBadge :tone="stateTones[entry.state] ?? 'neutral'">
+                  {{ stateLabels[entry.state] ?? 'Otro estado' }}
+                </AdminBadge>
+                <span class="adm-help">{{ adminDate(entry.createdAt, true) }}</span>
+              </p>
+              <p class="mt-1 break-words">{{ entry.reason }}</p>
+              <p class="mt-1 whitespace-pre-wrap break-words text-[var(--text-muted)]">
+                {{ entry.snapshot.content.body }}
+              </p>
+              <p v-if="entry.snapshot.review" class="adm-help mt-1 break-words">
+                Revisión de atención al cliente: {{ entry.snapshot.review.operationalReference }} · revisión legal:
+                {{ entry.snapshot.review.legalReference }}
+              </p>
+            </article>
+          </div>
+        </details>
+      </template>
+      <div
+        v-if="intent"
+        class="adm-stack rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3"
       >
-        {{ uncertain ? 'Consultar y recuperar mismo intento' : 'Confirmar operación de plantilla' }}</button
-      ><button v-if="!uncertain" type="button" :disabled="busy" class="rounded border p-2" @click="intent = null">
-        Cancelar sin enviar
-      </button>
+        <p class="font-semibold text-[var(--text-strong)]">
+          {{ uncertain ? 'No sabemos si se ha guardado' : 'Revisa y confirma' }}
+        </p>
+        <p class="break-words">
+          {{ actionLabels[String(intent.body.action)] ?? 'Cambio' }}
+          <template v-if="typeof intent.body.title === 'string'">: «{{ intent.body.title }}»</template>
+          <template v-if="typeof intent.body.reason === 'string'"> · Motivo: {{ intent.body.reason }}</template>
+        </p>
+        <p v-if="typeof intent.body.body === 'string'" class="whitespace-pre-wrap break-words text-[var(--text-muted)]">
+          {{ intent.body.body }}
+        </p>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button
+            v-if="!uncertain"
+            type="button"
+            :disabled="busy"
+            class="adm-btn adm-btn--secondary"
+            @click="intent = null"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            data-testid="macro-confirm"
+            :disabled="busy"
+            class="adm-btn adm-btn--primary"
+            @click="dispatch(uncertain)"
+          >
+            {{ uncertain ? 'Comprobar y recuperar el envío' : 'Confirmar y guardar' }}
+          </button>
+        </div>
+      </div>
     </div>
-  </UiSurface>
+  </AdminCard>
 </template>

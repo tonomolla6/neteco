@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 const requestFetch = useRequestFetch()
 
@@ -55,10 +55,50 @@ const form = ref({
 
 const categoryLabels: Record<RcaItem['incidentCategory'], string> = {
   damage: 'Daño en mercancía',
-  picking_error: 'Error de picking',
-  delay: 'Atraso / Retraso',
+  picking_error: 'Error al preparar el pedido',
+  delay: 'Retraso en la entrega',
   stock_discrepancy: 'Descuadre de stock',
-  documentation: 'Documentación / Etiquetado'
+  documentation: 'Documentación o etiquetado'
+}
+
+const actionLabels: Record<string, string> = {
+  packaging_update: 'Embalaje reforzado',
+  process_change: 'Cambio de proceso',
+  training: 'Formación del equipo',
+  inventory_audit: 'Revisión de inventario',
+  documentation_template: 'Plantilla de documentación'
+}
+const severityLabels: Record<string, string> = { low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' }
+const severityTones: Record<string, 'neutral' | 'warning' | 'danger'> = {
+  low: 'neutral',
+  medium: 'warning',
+  high: 'danger',
+  critical: 'danger'
+}
+const columns = [
+  { key: 'title', label: 'Incidencia' },
+  { key: 'incidentCategory', label: 'Tipo' },
+  { key: 'severity', label: 'Gravedad', hideOnMobile: true },
+  { key: 'preventiveActions', label: 'Medidas preventivas' },
+  { key: 'verificationStatus', label: 'Verificación' },
+  { key: 'createdAt', label: 'Alta', hideOnMobile: true }
+]
+const search = ref('')
+const categoryFilter = ref('')
+const filteredItems = computed(() => {
+  const term = search.value.toLowerCase()
+  return items.value.filter(
+    (rca) =>
+      (!categoryFilter.value || rca.incidentCategory === categoryFilter.value) &&
+      (!term ||
+        rca.title.toLowerCase().includes(term) ||
+        rca.publicRef.toLowerCase().includes(term) ||
+        (rca.rootCauseSummary ?? '').toLowerCase().includes(term))
+  )
+})
+function clearFilters() {
+  search.value = ''
+  categoryFilter.value = ''
 }
 
 async function loadRcas() {
@@ -68,7 +108,7 @@ async function loadRcas() {
     const res = (await requestFetch('/api/admin/support/rca')) as { items: RcaItem[] }
     items.value = res?.items ?? []
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al cargar los análisis RCA'
+    errorMessage.value = err instanceof Error ? err.message : 'No se han podido cargar los análisis de causas'
   } finally {
     loading.value = false
   }
@@ -85,7 +125,7 @@ async function submitRca() {
         id: crypto.randomUUID(),
         actionType: form.value.actionType,
         description: form.value.actionDescription,
-        assignee: form.value.actionAssignee || 'Responsable de Calidad',
+        assignee: form.value.actionAssignee || 'Responsable de calidad',
         targetDate: form.value.actionTargetDate,
         status: 'pending'
       })
@@ -103,11 +143,11 @@ async function submitRca() {
       }
     })
 
-    successMessage.value = 'RCA y plan preventivo creados correctamente'
+    successMessage.value = 'Análisis y medida preventiva guardados'
     isCreating.value = false
     await loadRcas()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al registrar el RCA'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido guardar el análisis'
   } finally {
     saving.value = false
   }
@@ -127,9 +167,9 @@ async function verifyRca(rca: RcaItem) {
     })
     rca.verificationStatus = 'verified_effective'
     rca.status = 'verified'
-    successMessage.value = 'Acciones preventivas verificadas con éxito'
+    successMessage.value = 'Medidas preventivas verificadas'
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al verificar eficacia'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido registrar la verificación'
   } finally {
     saving.value = false
   }
@@ -141,209 +181,191 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between border-b pb-4">
-      <div>
-        <h2 class="text-xl font-bold tracking-tight text-slate-900">Análisis de Causa Raíz (RCA)</h2>
-        <p class="text-sm text-slate-500">
-          SUP-018: Metodología sistemática para incidencias de daño, error de picking, atraso, stock y documentación.
-        </p>
-      </div>
+  <div class="adm-stack">
+    <AdminPageActions>
       <button
         data-test="open-create-rca"
         type="button"
-        class="inline-flex items-center gap-2 rounded-lg bg-neteco-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-neteco-700"
+        class="adm-btn adm-btn--primary"
         @click="isCreating = !isCreating"
       >
-        {{ isCreating ? 'Cancelar' : 'Nuevo RCA Operativo' }}
+        Nuevo análisis
       </button>
-    </div>
+    </AdminPageActions>
 
-    <!-- Alert / Messages -->
-    <div v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-700">
-      {{ errorMessage }}
-    </div>
-    <div v-if="successMessage" role="status" class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-700">
-      {{ successMessage }}
-    </div>
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    >
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" @click="loadRcas">Reintentar</AdminButton>
+      </template>
+    </UAlert>
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
 
-    <!-- Create Form -->
-    <div v-if="isCreating" class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 class="mb-4 text-base font-semibold text-slate-900">Registrar Análisis de Incidencia Operativa</h3>
-      <form class="space-y-4" @submit.prevent="submitRca">
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label class="block text-xs font-semibold uppercase text-slate-500">Categoría Obligatoria</label>
-            <select
-              v-model="form.incidentCategory"
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-              required
-            >
-              <option value="damage">Daño (Rotura / embalaje)</option>
-              <option value="picking_error">Error de picking</option>
-              <option value="delay">Atraso en expedición</option>
+    <AdminTable
+      :rows="filteredItems"
+      :columns="columns"
+      :row-key="(rca) => rca.id"
+      :status="loading ? 'pending' : 'idle'"
+      :filtered="Boolean(search || categoryFilter)"
+      empty-icon="i-lucide-search-check"
+      empty-title="Todavía no hay análisis de causas"
+      empty-description="Registra aquí por qué ocurrió una incidencia (daños, errores de preparación, retrasos…) y qué se hará para que no se repita."
+      @clear-filters="clearFilters"
+    >
+      <template #toolbar>
+        <AdminToolbar v-model:search="search" placeholder="Buscar por incidencia o referencia">
+          <select v-model="categoryFilter" class="adm-input w-auto" aria-label="Filtrar por tipo de incidencia">
+            <option value="">Todos los tipos</option>
+            <option v-for="(label, value) in categoryLabels" :key="value" :value="value">{{ label }}</option>
+          </select>
+        </AdminToolbar>
+      </template>
+
+      <template #cell-title="{ row }">
+        <p class="font-medium text-[var(--text-strong)]">{{ row.title }}</p>
+        <p class="adm-help break-words">{{ row.rootCauseSummary }}</p>
+        <p class="adm-help">{{ row.publicRef }}</p>
+      </template>
+      <template #cell-incidentCategory="{ row }">
+        {{ categoryLabels[row.incidentCategory] || 'Otra incidencia' }}
+      </template>
+      <template #cell-severity="{ row }">
+        <AdminBadge :tone="severityTones[row.severity] ?? 'neutral'">
+          {{ severityLabels[row.severity] ?? 'Sin indicar' }}
+        </AdminBadge>
+      </template>
+      <template #cell-preventiveActions="{ row }">
+        <ul v-if="row.preventiveActions && row.preventiveActions.length > 0" class="space-y-1">
+          <li v-for="act in row.preventiveActions" :key="act.id">
+            {{ act.description }}
+            <span class="adm-help">
+              {{ actionLabels[act.actionType] ?? 'Otra medida' }} · Responsable: {{ act.assignee }}
+            </span>
+          </li>
+        </ul>
+        <span v-else class="adm-help">Sin medidas</span>
+      </template>
+      <template #cell-verificationStatus="{ row }">
+        <AdminBadge :tone="row.verificationStatus === 'verified_effective' ? 'success' : 'warning'">
+          {{ row.verificationStatus === 'verified_effective' ? 'Verificado: funciona' : 'Pendiente de verificar' }}
+        </AdminBadge>
+      </template>
+      <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt) }}</template>
+      <template #actions="{ row }">
+        <button
+          v-if="row.verificationStatus !== 'verified_effective'"
+          data-test="verify-rca"
+          type="button"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          :disabled="saving"
+          @click="verifyRca(row)"
+        >
+          Marcar como verificado
+        </button>
+      </template>
+    </AdminTable>
+
+    <AdminDrawer
+      v-model:open="isCreating"
+      title="Nuevo análisis de causas"
+      description="Qué pasó, por qué y qué se hará para que no se repita."
+      wide
+    >
+      <form id="rca-create-form" class="adm-stack" @submit.prevent="submitRca">
+        <div class="adm-form-grid">
+          <AdminFormField v-slot="{ id }" label="Tipo de incidencia" required>
+            <select :id="id" v-model="form.incidentCategory" class="adm-input" required>
+              <option value="damage">Daño (rotura o embalaje)</option>
+              <option value="picking_error">Error al preparar el pedido</option>
+              <option value="delay">Retraso en la entrega</option>
               <option value="stock_discrepancy">Descuadre de stock</option>
-              <option value="documentation">Documentación / FDS</option>
+              <option value="documentation">Documentación o etiquetado</option>
             </select>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold uppercase text-slate-500">Severidad</label>
-            <select
-              v-model="form.severity"
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            >
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Gravedad">
+            <select :id="id" v-model="form.severity" class="adm-input">
               <option value="low">Baja</option>
               <option value="medium">Media</option>
               <option value="high">Alta</option>
               <option value="critical">Crítica</option>
             </select>
-          </div>
+          </AdminFormField>
         </div>
 
-        <div>
-          <label class="block text-xs font-semibold uppercase text-slate-500">Título de la Incidencia</label>
+        <AdminFormField v-slot="{ id }" label="Qué ha pasado" required>
           <input
+            :id="id"
             v-model="form.title"
             name="rcaTitle"
             type="text"
             required
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Ej: Rotura de garrafas en transporte paletizado"
+            class="adm-input"
+            placeholder="Por ejemplo: rotura de garrafas en transporte paletizado"
           />
-        </div>
+        </AdminFormField>
 
-        <div>
-          <label class="block text-xs font-semibold uppercase text-slate-500">Causa Raíz Diagnosticada</label>
+        <AdminFormField v-slot="{ id }" label="Por qué ha pasado" required>
           <textarea
+            :id="id"
             v-model="form.rootCauseSummary"
-            rows="2"
+            rows="3"
             required
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
-            placeholder="Explicación técnica de la causa primaria identificada"
+            class="adm-input"
+            placeholder="La causa principal que habéis identificado"
           />
-        </div>
+        </AdminFormField>
 
-        <div class="rounded-lg bg-slate-50 p-4">
-          <h4 class="mb-2 text-xs font-bold uppercase text-slate-700">Acción Preventiva / Correctora (CAPA)</h4>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label class="block text-xs text-slate-500">Tipo de Acción</label>
-              <select
-                v-model="form.actionType"
-                class="mt-1 block w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs"
-              >
-                <option value="packaging_update">Cantoneras / Embalaje reforzado</option>
+        <AdminCard title="Medida preventiva" description="Opcional: qué se hará para que no vuelva a ocurrir.">
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Tipo de medida">
+              <select :id="id" v-model="form.actionType" class="adm-input">
+                <option value="packaging_update">Embalaje reforzado</option>
                 <option value="process_change">Cambio de proceso</option>
-                <option value="training">Formación de operarios</option>
-                <option value="inventory_audit">Auditoría de inventario</option>
-                <option value="documentation_template">Plantilla documental / FDS</option>
+                <option value="training">Formación del equipo</option>
+                <option value="inventory_audit">Revisión de inventario</option>
+                <option value="documentation_template">Plantilla de documentación</option>
               </select>
-            </div>
-            <div>
-              <label class="block text-xs text-slate-500">Descripción de la Medida Preventiva</label>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Descripción">
               <input
+                :id="id"
                 v-model="form.actionDescription"
                 type="text"
-                class="mt-1 block w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-xs"
-                placeholder="Ej: Incorporar cantoneras rígidas y fleje calibrado"
+                class="adm-input"
+                placeholder="Por ejemplo: añadir cantoneras rígidas y fleje"
               />
-            </div>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Responsable">
+              <input :id="id" v-model="form.actionAssignee" type="text" class="adm-input" />
+            </AdminFormField>
           </div>
-        </div>
-
-        <div class="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            class="rounded-lg border px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            @click="isCreating = false"
-          >
-            Cancelar
-          </button>
-          <button
-            data-test="submit-rca"
-            type="submit"
-            :disabled="saving"
-            class="rounded-lg bg-neteco-600 px-4 py-2 text-sm font-semibold text-white hover:bg-neteco-700 disabled:opacity-50"
-          >
-            {{ saving ? 'Guardando...' : 'Guardar Análisis y Plan' }}
-          </button>
-        </div>
+        </AdminCard>
       </form>
-    </div>
-
-    <!-- Loading State -->
-    <div v-if="loading" class="p-8 text-center text-sm text-slate-500">Cargando registro sistemático de RCA...</div>
-
-    <!-- Empty State -->
-    <div v-else-if="items.length === 0" class="rounded-xl border border-dashed border-slate-300 p-8 text-center">
-      <p class="text-sm font-medium text-slate-600">No hay análisis RCA registrados todavía.</p>
-      <p class="mt-1 text-xs text-slate-400">
-        Las incidencias de daño, picking, retrasos o stock deben vincularse a acciones preventivas.
-      </p>
-    </div>
-
-    <!-- List State -->
-    <div v-else class="space-y-4">
-      <div
-        v-for="rca in items"
-        :key="rca.id"
-        class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-all hover:border-slate-300"
-      >
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="rounded bg-slate-100 px-2 py-0.5 font-mono text-xs text-slate-600">
-                {{ rca.publicRef }}
-              </span>
-              <span
-                class="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700"
-              >
-                {{ categoryLabels[rca.incidentCategory] || rca.incidentCategory }}
-              </span>
-              <span
-                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                :class="
-                  rca.verificationStatus === 'verified_effective'
-                    ? 'bg-emerald-50 text-emerald-700'
-                    : 'bg-amber-50 text-amber-700'
-                "
-              >
-                {{ rca.verificationStatus === 'verified_effective' ? 'Verificado Efectivo' : 'Pendiente Verificación' }}
-              </span>
-            </div>
-            <h3 class="mt-2 text-base font-semibold text-slate-900">{{ rca.title }}</h3>
-            <p class="mt-1 text-sm text-slate-600">{{ rca.rootCauseSummary }}</p>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <button
-              v-if="rca.verificationStatus !== 'verified_effective'"
-              data-test="verify-rca"
-              type="button"
-              class="inline-flex items-center rounded-lg border border-emerald-600 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
-              @click="verifyRca(rca)"
-            >
-              Verificar Eficacia
-            </button>
-            <span v-else class="text-xs font-semibold text-emerald-600"> ✓ Verificado </span>
-          </div>
-        </div>
-
-        <!-- Preventive Actions Table -->
-        <div v-if="rca.preventiveActions && rca.preventiveActions.length > 0" class="mt-4 border-t pt-3">
-          <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-500">Acciones Preventivas Vinculadas</h4>
-          <ul class="mt-2 space-y-1">
-            <li
-              v-for="act in rca.preventiveActions"
-              :key="act.id"
-              class="flex items-center justify-between text-xs text-slate-700"
-            >
-              <span>• {{ act.description }} ({{ act.actionType }})</span>
-              <span class="font-medium text-slate-500">Resp: {{ act.assignee }}</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
+      <template #footer>
+        <AdminButton @click="isCreating = false">Cancelar</AdminButton>
+        <button
+          data-test="submit-rca"
+          type="submit"
+          form="rca-create-form"
+          :disabled="saving"
+          class="adm-btn adm-btn--primary"
+        >
+          {{ saving ? 'Guardando…' : 'Guardar análisis' }}
+        </button>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

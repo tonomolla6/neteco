@@ -3,7 +3,7 @@ import { z } from 'zod'
 import AdminB2BPricing from '~/components/AdminB2BPricing.vue'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Tarifas y crédito B2B · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Tarifas y crédito de empresas · Admin', robots: 'noindex, nofollow' })
 const runtime = useRuntimeConfig(),
   navigation = useAdminNavigation()
 const { ready, loggedIn, user, session } = useUserSession()
@@ -38,8 +38,7 @@ const scope = computed(() =>
 )
 </script>
 <template>
-  <main class="space-y-5">
-    <h1 class="text-2xl font-semibold">Tarifas y crédito B2B</h1>
+  <AdminPage>
     <AdminB2BPricing :enabled="enabled" :scope-key="scope" />
-  </main>
+  </AdminPage>
 </template>

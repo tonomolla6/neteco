@@ -60,8 +60,24 @@ let epoch = 0,
 const active = computed(() => props.enabled && !!props.scopeKey && supportRef.safeParse(props.publicRef).success)
 const availableBooks = computed(() => snapshot.value?.runbooks.filter((book) => book.queue === form.queue) ?? [])
 const selectedBook = computed(() => books.value?.items.find((book) => book.id === bookForm.id))
-const queues = { payment: 'Pago', stock: 'Existencias', transport: 'Transporte', beply: 'Beply / fiscal' }
+const queues = { payment: 'Pagos', stock: 'Existencias', transport: 'Transporte', beply: 'Facturación' }
 const severityLabels = { normal: 'Normal', high: 'Alta', critical: 'Crítica' }
+const bookStateLabels: Record<string, string> = { draft: 'Borrador', approved: 'Aprobado', withdrawn: 'Retirado' }
+const actionLabels: Record<string, string> = {
+  handoff: 'Pasar a otro equipo',
+  update: 'Cambiar la derivación',
+  resolve: 'Dar la derivación por resuelta',
+  draft: 'Guardar borrador de procedimiento',
+  approve: 'Aprobar procedimiento',
+  withdraw: 'Retirar la aprobación del procedimiento'
+}
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-/i
+function shortRef(value: string) {
+  return uuidPattern.test(value) ? '#' + value.slice(0, 8).toUpperCase() : value
+}
+function staffName(id: string) {
+  return snapshot.value?.staff.find((staff) => staff.id === id)?.label ?? 'Equipo ' + shortRef(id)
+}
 function purge() {
   epoch++
   controller?.abort()
@@ -108,12 +124,12 @@ function failure(error: unknown, generation: number) {
   const value = error as { status?: number; statusCode?: number }
   if ([401, 403].includes(value.statusCode ?? value.status ?? 0)) {
     purge()
-    message.value = 'Autorización revocada. Se han retirado los datos privados.'
+    message.value = 'Autorización revocada: ya no tienes permiso. Se han ocultado los datos.'
     return
   }
   message.value = intent.value?.sent
-    ? 'Resultado incierto. Comprueba el recibo; no vuelvas a enviar la operación.'
-    : 'No se ha podido consultar o preparar la operación. No se supone ningún resultado.'
+    ? 'Resultado incierto: no sabemos si se ha guardado. Compruébalo antes de volver a intentarlo.'
+    : 'No se ha podido cargar o preparar el cambio. No se ha guardado nada.'
   if (intent.value?.sent) uncertain.value = true
 }
 async function read(target: string, page = 1) {
@@ -284,7 +300,7 @@ async function send(recover = false) {
       if (!permitted(generation)) return
       if (response.outcome === 'unknown') {
         uncertain.value = true
-        message.value = 'Resultado incierto. No hay recibo confirmado; no se vuelve a enviar.'
+        message.value = 'Resultado incierto: todavía no consta que se haya guardado. No se ha vuelto a enviar.'
         return
       }
       result = receipt(response.receipt, current)
@@ -356,7 +372,7 @@ async function send(recover = false) {
     uncertain.value = false
     form.reason = ''
     bookForm.reason = ''
-    message.value = 'Operación interna confirmada con recibo y lectura actual.'
+    message.value = 'Cambio guardado.'
     emit('pending', false)
     emit('confirmed', result)
   } catch (error) {
@@ -373,7 +389,7 @@ async function send(recover = false) {
       books.value = null
       uncertain.value = false
       message.value =
-        'La versión ha cambiado y este envío fue rechazado. Consulta el estado vigente antes de preparar otra operación.'
+        'Otra persona ha cambiado esta derivación y el envío se ha rechazado. Actualiza antes de volver a intentarlo.'
       emit('pending', false)
     } else failure(error, generation)
   } finally {
@@ -399,292 +415,328 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section v-if="active" aria-label="Escalado interno de incidencias" class="min-w-0 space-y-4 rounded border p-4">
-    <h3 class="font-semibold">Escalado humano interno</h3>
-    <p>
-      Sin cambios en cobros, existencias ni mensajes al cliente. La cola y su resolución no cambian el estado del
-      ticket.
-    </p>
-    <p v-if="message" role="status">{{ message }}</p>
-    <p v-if="busy" role="status">Consultando o registrando la operación…</p>
-    <button type="button" :disabled="busy || pending || !!intent" class="rounded border p-2" @click="load()">
-      Consultar escalado del ticket
-    </button>
-    <form v-if="!pending && !intent" class="flex flex-wrap gap-2" @submit.prevent="loadQueue()">
-      <label
-        >Cola
-        <select v-model="filters.queue" class="rounded border p-2">
-          <option value="">Todas</option>
-          <option v-for="(label, key) in queues" :key="key" :value="key">{{ label }}</option>
-        </select></label
-      >
-      <label
-        >Estado
-        <select v-model="filters.state" class="rounded border p-2">
-          <option value="">Todos</option>
-          <option value="open">Abierto</option>
-          <option value="resolved">Resuelto</option>
-        </select></label
-      >
-      <label
-        >Severidad
-        <select v-model="filters.severity" class="rounded border p-2">
-          <option value="">Todas</option>
-          <option v-for="(label, key) in severityLabels" :key="key" :value="key">{{ label }}</option>
-        </select></label
-      >
-      <label
-        >Responsable
-        <select v-model="filters.owner" class="rounded border p-2">
-          <option value="">Todos</option>
-          <option value="me">Asignados a mí</option>
-          <option v-for="staff in snapshot?.staff ?? []" :key="staff.id" :value="staff.id">{{ staff.label }}</option>
-        </select></label
-      >
-      <button :disabled="busy || pending || !!intent" class="rounded border p-2">Consultar cola</button>
-    </form>
-    <div v-if="queue">
-      <p v-if="!queue.items.length">No hay escalados con estos filtros confirmados.</p>
-      <ul class="space-y-2">
-        <li v-for="item in queue.items" :key="item.publicRef" class="break-words">
-          <button
-            type="button"
-            :disabled="busy || pending || !!intent"
-            class="rounded border p-2"
-            @click="load(item.publicRef)"
-          >
-            {{ item.publicRef }} · {{ queues[item.queue] }} · {{ severityLabels[item.severity] }} ·
-            {{ item.state === 'open' ? 'Abierto' : 'Resuelto' }}
-          </button>
-          <p>{{ item.nextAction }} · {{ item.nextActionAt }}</p>
-        </li>
-      </ul>
-      <button :disabled="busy || pending || !!intent || queue.page === 1" @click="loadQueue(queue.page - 1)">
-        Página anterior
-      </button>
+  <AdminCard
+    v-if="active"
+    aria-label="Escalado interno de incidencias"
+    class="min-w-0"
+    title="Pasar a otro equipo"
+    description="Gestión interna: no cambia cobros, existencias, el estado de la consulta ni envía mensajes al cliente."
+  >
+    <template #actions>
       <button
-        :disabled="busy || pending || !!intent || queue.page * queue.perPage >= queue.total"
-        @click="loadQueue(queue.page + 1)"
+        type="button"
+        :disabled="busy || pending || !!intent"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        @click="load()"
       >
-        Página siguiente
+        Ver derivación de esta consulta
       </button>
-    </div>
-    <div v-if="snapshot" class="space-y-3">
-      <h4 class="break-words">Expediente {{ snapshot.publicRef }} · versión del ticket {{ snapshot.ticketVersion }}</h4>
-      <p v-if="snapshot.escalation">
-        Escalado {{ snapshot.escalation.state === 'open' ? 'abierto' : 'resuelto' }} · revisión
-        {{ snapshot.escalation.version }}
-      </p>
-      <p v-else>Sin escalado registrado.</p>
-      <form
-        v-if="snapshot.escalation?.state !== 'resolved' && !intent && !pending"
-        class="space-y-3"
-        @submit.prevent="prepare"
-      >
-        <fieldset :disabled="busy || pending" class="space-y-3">
-          <label class="block"
-            >Acción
-            <select v-model="form.action">
-              <option v-if="!snapshot.escalation" value="handoff">Escalar</option>
-              <option v-if="snapshot.escalation" value="update">Reasignar / actualizar</option>
-              <option v-if="snapshot.escalation" value="resolve">Resolver escalado</option>
-            </select></label
-          >
-          <template v-if="form.action !== 'resolve'">
-            <label class="block"
-              >Destino
-              <select v-model="form.queue">
-                <option v-for="(label, key) in queues" :key="key" :value="key">{{ label }}</option>
-              </select></label
-            >
-            <label class="block"
-              >Severidad
-              <select v-model="form.severity">
-                <option v-for="(label, key) in severityLabels" :key="key" :value="key">{{ label }}</option>
-              </select></label
-            >
-            <label class="block"
-              >Responsable elegible
-              <select v-model="form.ownerId" required>
-                <option value="">Selecciona responsable</option>
-                <option v-for="staff in snapshot.staff" :key="staff.id" :value="staff.id">{{ staff.label }}</option>
-              </select></label
-            >
-            <label class="block"
-              >Runbook interno aprobado
-              <select v-model="form.runbookId" required>
-                <option value="">Selecciona revisión vigente</option>
-                <option v-for="book in availableBooks" :key="book.id" :value="book.id">
-                  {{ book.title }} · v{{ book.version }}
-                </option>
-              </select></label
-            >
-            <p class="whitespace-pre-wrap break-words">
-              {{ availableBooks.find((book) => book.id === form.runbookId)?.body }}
-            </p>
-            <label class="block"
-              >Siguiente acción
-              <textarea
-                v-model="form.nextAction"
-                required
-                minlength="10"
-                maxlength="1000"
-                class="w-full rounded border p-2"
-              />
+    </template>
+    <div class="adm-stack">
+      <UAlert v-if="message" role="status" color="info" variant="subtle" icon="i-lucide-info" :title="message" />
+      <p v-if="busy" role="status" class="adm-help">Cargando…</p>
+
+      <div v-if="snapshot" class="adm-stack">
+        <p class="flex flex-wrap items-center gap-2 break-words">
+          <span class="font-semibold text-[var(--text-strong)]">Consulta {{ snapshot.publicRef }}</span>
+          <AdminBadge v-if="snapshot.escalation" :tone="snapshot.escalation.state === 'open' ? 'warning' : 'success'">
+            {{ snapshot.escalation.state === 'open' ? 'Derivación abierta' : 'Derivación resuelta' }}
+          </AdminBadge>
+          <AdminBadge v-else tone="neutral" plain>Sin derivación</AdminBadge>
+        </p>
+        <form
+          v-if="snapshot.escalation?.state !== 'resolved' && !intent && !pending"
+          class="adm-stack"
+          @submit.prevent="prepare"
+        >
+          <fieldset :disabled="busy || pending" class="adm-stack">
+            <label class="adm-field">
+              <span class="adm-label">Qué quieres hacer</span>
+              <select v-model="form.action" class="w-full">
+                <option v-if="!snapshot.escalation" value="handoff">Pasar a otro equipo</option>
+                <option v-if="snapshot.escalation" value="update">Cambiar equipo, responsable o siguiente paso</option>
+                <option v-if="snapshot.escalation" value="resolve">Dar la derivación por resuelta</option>
+              </select>
             </label>
-            <label class="block"
-              >Fecha de siguiente acción UTC
-              <input
-                v-model="form.nextActionAt"
-                required
-                placeholder="2026-10-10T10:00:00Z"
-                class="max-w-full rounded border p-2"
-            /></label>
-          </template>
-          <label v-else class="block"
-            >Resolución interna
-            <textarea
-              v-model="form.resolution"
-              required
-              minlength="10"
-              maxlength="2000"
-              class="w-full rounded border p-2"
-            />
-          </label>
-          <label class="block"
-            >Motivo documentado
-            <textarea v-model="form.reason" required minlength="10" maxlength="500" class="w-full rounded border p-2" />
-          </label>
-          <button class="rounded border p-2">Revisar escalado</button>
-        </fieldset>
-      </form>
-      <ol>
-        <li v-for="item in snapshot.history" :key="item.receipt.commandId" class="break-words border-t py-2">
-          Revisión {{ item.receipt.version }} · {{ item.receipt.recordedAt }} · {{ item.actorId }}
-          <p>{{ item.reason }}</p>
-          <p>{{ item.snapshot.nextAction }}</p>
-          <p v-if="item.snapshot.resolution">{{ item.snapshot.resolution }}</p>
-        </li>
-      </ol>
-      <button
-        :disabled="busy || pending || !!intent || snapshot.page === 1"
-        @click="load(selectedRef, snapshot.page - 1)"
-      >
-        Historia anterior</button
-      ><button
-        :disabled="busy || pending || !!intent || snapshot.page * snapshot.perPage >= snapshot.total"
-        @click="load(selectedRef, snapshot.page + 1)"
-      >
-        Más historia
-      </button>
-    </div>
-    <details>
-      <summary>Biblioteca de runbooks internos (no respuestas al cliente)</summary>
-      <button type="button" :disabled="busy || pending || !!intent" class="rounded border p-2" @click="loadBooks">
-        Consultar runbooks y revisiones
-      </button>
-      <form v-if="books && !intent && !pending" class="space-y-3" @submit.prevent="prepareBook">
-        <fieldset :disabled="busy || pending" class="space-y-3">
-          <label class="block"
-            >Runbook
-            <select v-model="bookForm.id">
-              <option value="">Nuevo runbook</option>
-              <option v-for="book in books.items" :key="book.id" :value="book.id">
-                {{ book.title }} · v{{ book.version }} · {{ book.state }}
+            <template v-if="form.action !== 'resolve'">
+              <div class="adm-form-grid">
+                <label class="adm-field">
+                  <span class="adm-label">Equipo</span>
+                  <select v-model="form.queue" class="w-full">
+                    <option v-for="(label, key) in queues" :key="key" :value="key">{{ label }}</option>
+                  </select>
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Gravedad</span>
+                  <select v-model="form.severity" class="w-full">
+                    <option v-for="(label, key) in severityLabels" :key="key" :value="key">{{ label }}</option>
+                  </select>
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Responsable</span>
+                  <select v-model="form.ownerId" required class="w-full">
+                    <option value="">Elige una persona</option>
+                    <option v-for="staff in snapshot.staff" :key="staff.id" :value="staff.id">{{ staff.label }}</option>
+                  </select>
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Procedimiento a seguir</span>
+                  <select v-model="form.runbookId" required class="w-full">
+                    <option value="">Elige un procedimiento aprobado</option>
+                    <option v-for="book in availableBooks" :key="book.id" :value="book.id">{{ book.title }}</option>
+                  </select>
+                </label>
+              </div>
+              <p
+                v-if="availableBooks.find((book) => book.id === form.runbookId)?.body"
+                class="whitespace-pre-wrap break-words rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3 text-[var(--text-muted)]"
+              >
+                {{ availableBooks.find((book) => book.id === form.runbookId)?.body }}
+              </p>
+              <label class="adm-field">
+                <span class="adm-label">Siguiente paso</span>
+                <textarea v-model="form.nextAction" required minlength="10" maxlength="1000" class="w-full" />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Fecha del siguiente paso</span>
+                <input v-model="form.nextActionAt" required placeholder="2026-10-10T10:00:00Z" class="w-full" />
+                <span class="adm-help">Fecha y hora universal, con este formato.</span>
+              </label>
+            </template>
+            <label v-else class="adm-field">
+              <span class="adm-label">Cómo se ha resuelto (nota interna)</span>
+              <textarea v-model="form.resolution" required minlength="10" maxlength="2000" class="w-full" />
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Motivo (queda en el historial interno)</span>
+              <textarea v-model="form.reason" required minlength="10" maxlength="500" class="w-full" />
+            </label>
+            <div class="flex justify-end">
+              <button class="adm-btn adm-btn--primary">Continuar</button>
+            </div>
+          </fieldset>
+        </form>
+        <ol v-if="snapshot.history.length" class="adm-list" aria-label="Historial de la derivación">
+          <li v-for="item in snapshot.history" :key="item.receipt.commandId" class="break-words">
+            <div class="min-w-0 flex-1">
+              <p class="adm-help">{{ adminDate(item.receipt.recordedAt, true) }} · {{ staffName(item.actorId) }}</p>
+              <p>{{ item.reason }}</p>
+              <p class="text-[var(--text-muted)]">Siguiente paso: {{ item.snapshot.nextAction }}</p>
+              <p v-if="item.snapshot.resolution">Resolución: {{ item.snapshot.resolution }}</p>
+            </div>
+          </li>
+        </ol>
+        <div v-if="snapshot.total > snapshot.perPage" class="flex flex-wrap justify-end gap-2">
+          <button
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="busy || pending || !!intent || snapshot.page === 1"
+            @click="load(selectedRef, snapshot.page - 1)"
+          >
+            Anterior
+          </button>
+          <button
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="busy || pending || !!intent || snapshot.page * snapshot.perPage >= snapshot.total"
+            @click="load(selectedRef, snapshot.page + 1)"
+          >
+            Siguiente
+          </button>
+        </div>
+      </div>
+
+      <details>
+        <summary class="adm-btn adm-btn--ghost adm-btn--sm">Otras consultas derivadas</summary>
+        <div class="adm-stack mt-3">
+          <form v-if="!pending && !intent" class="adm-toolbar" @submit.prevent="loadQueue()">
+            <select v-model="filters.queue" aria-label="Equipo">
+              <option value="">Todos los equipos</option>
+              <option v-for="(label, key) in queues" :key="key" :value="key">{{ label }}</option>
+            </select>
+            <select v-model="filters.state" aria-label="Estado">
+              <option value="">Todos los estados</option>
+              <option value="open">Abiertas</option>
+              <option value="resolved">Resueltas</option>
+            </select>
+            <select v-model="filters.severity" aria-label="Gravedad">
+              <option value="">Cualquier gravedad</option>
+              <option v-for="(label, key) in severityLabels" :key="key" :value="key">{{ label }}</option>
+            </select>
+            <select v-model="filters.owner" aria-label="Responsable">
+              <option value="">Cualquier responsable</option>
+              <option value="me">Asignadas a mí</option>
+              <option v-for="staff in snapshot?.staff ?? []" :key="staff.id" :value="staff.id">
+                {{ staff.label }}
               </option>
-            </select></label
-          >
-          <div v-if="selectedBook" class="space-y-2 break-words rounded border p-2">
-            <p>Cola: {{ queues[selectedBook.queue] }} · revisión {{ selectedBook.version }}</p>
-            <p class="whitespace-pre-wrap">{{ selectedBook.body }}</p>
-            <p v-if="selectedBook.operationalReference">
-              Referencia de revisión: {{ selectedBook.operationalReference }} · revisado {{ selectedBook.reviewedAt }} ·
-              vigente hasta {{ selectedBook.expiresAt }}
-            </p>
-            <p v-else>Borrador sin aprobación operativa.</p>
+            </select>
+            <button :disabled="busy || pending || !!intent" class="adm-btn adm-btn--secondary">Buscar</button>
+          </form>
+          <template v-if="queue">
+            <p v-if="!queue.items.length" class="adm-help">No hay consultas derivadas con estos filtros.</p>
+            <ul v-else class="adm-list">
+              <li v-for="item in queue.items" :key="item.publicRef" class="break-words">
+                <div class="min-w-0 flex-1">
+                  <p class="adm-list__title">
+                    {{ item.publicRef }}
+                    <AdminBadge :tone="item.state === 'open' ? 'warning' : 'success'">
+                      {{ item.state === 'open' ? 'Abierta' : 'Resuelta' }}
+                    </AdminBadge>
+                  </p>
+                  <p class="adm-help">
+                    {{ queues[item.queue] }} · gravedad {{ severityLabels[item.severity].toLowerCase() }} ·
+                    {{ item.nextAction }} · {{ adminDate(item.nextActionAt, true) }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  :disabled="busy || pending || !!intent"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="load(item.publicRef)"
+                >
+                  Ver
+                </button>
+              </li>
+            </ul>
+            <div v-if="queue.total > queue.perPage" class="flex flex-wrap justify-end gap-2">
+              <button
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || pending || !!intent || queue.page === 1"
+                @click="loadQueue(queue.page - 1)"
+              >
+                Anterior
+              </button>
+              <button
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || pending || !!intent || queue.page * queue.perPage >= queue.total"
+                @click="loadQueue(queue.page + 1)"
+              >
+                Siguiente
+              </button>
+            </div>
+          </template>
+        </div>
+      </details>
+
+      <details>
+        <summary class="adm-btn adm-btn--ghost adm-btn--sm">Procedimientos internos</summary>
+        <div class="adm-stack mt-3">
+          <p class="adm-help">Instrucciones para el equipo; no son respuestas para el cliente.</p>
+          <div>
+            <button
+              type="button"
+              :disabled="busy || pending || !!intent"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="loadBooks"
+            >
+              Ver procedimientos
+            </button>
           </div>
-          <label class="block"
-            >Operación
-            <select v-model="bookForm.action">
-              <option value="draft">Registrar borrador</option>
-              <option value="approve">Aprobar revisión interna</option>
-              <option value="withdraw">Retirar aprobación</option>
-            </select></label
-          >
-          <template v-if="bookForm.action === 'draft'"
-            ><label class="block"
-              >Cola
-              <select v-model="bookForm.queue">
-                <option v-for="(label, key) in queues" :key="key" :value="key">{{ label }}</option>
-              </select></label
-            ><label class="block"
-              >Título
-              <input
-                v-model="bookForm.title"
-                required
-                minlength="3"
-                maxlength="120"
-                class="max-w-full rounded border p-2" /></label
-            ><label class="block"
-              >Instrucciones internas
-              <textarea
-                v-model="bookForm.body"
-                required
-                minlength="10"
-                maxlength="4000"
-                class="w-full rounded border p-2"
-              /></label
-          ></template>
-          <template v-if="bookForm.action === 'approve'"
-            ><p>Documenta una revisión humana ya realizada, no una aprobación ficticia ni una promesa de proveedor.</p>
-            <label class="block"
-              >Referencia operativa
-              <input
-                v-model="bookForm.operationalReference"
-                required
-                maxlength="200"
-                class="max-w-full rounded border p-2" /></label
-            ><label class="block"
-              >Revisado UTC
-              <input
-                v-model="bookForm.reviewedAt"
-                required
-                placeholder="2026-10-09T10:00:00Z"
-                class="max-w-full rounded border p-2" /></label
-            ><label class="block"
-              >Vigente hasta UTC
-              <input
-                v-model="bookForm.expiresAt"
-                required
-                placeholder="2026-11-09T10:00:00Z"
-                class="max-w-full rounded border p-2" /></label
-          ></template>
-          <label class="block"
-            >Motivo de la revisión
-            <textarea
-              v-model="bookForm.reason"
-              required
-              minlength="10"
-              maxlength="500"
-              class="w-full rounded border p-2"
-            /></label
-          ><button class="rounded border p-2">Revisar operación de runbook</button>
-        </fieldset>
-      </form>
-    </details>
-    <div v-if="intent" class="space-y-2 rounded border p-3">
-      <p>
-        Revisión explícita: {{ intent.body.action }} · {{ intent.target }} · versión {{ intent.body.expectedVersion }}.
-        {{ intent.body.reason }}
-      </p>
-      <p v-if="uncertain">Resultado incierto: conserva esta pestaña para recuperar el recibo.</p>
-      <button v-if="!intent.sent" :disabled="busy || pending" class="rounded border p-2" @click="send()">
-        Confirmar operación interna</button
-      ><button v-else :disabled="busy || pending" class="rounded border p-2" @click="send(true)">
-        Comprobar operación interna</button
-      ><button v-if="!intent.sent" :disabled="busy" class="rounded border p-2" @click="cancel">
-        Cancelar revisión no enviada
-      </button>
+          <form v-if="books && !intent && !pending" class="adm-stack" @submit.prevent="prepareBook">
+            <fieldset :disabled="busy || pending" class="adm-stack">
+              <label class="adm-field">
+                <span class="adm-label">Procedimiento</span>
+                <select v-model="bookForm.id" class="w-full">
+                  <option value="">Nuevo procedimiento</option>
+                  <option v-for="book in books.items" :key="book.id" :value="book.id">
+                    {{ book.title }} · {{ bookStateLabels[book.state] ?? 'Otro estado' }}
+                  </option>
+                </select>
+              </label>
+              <div
+                v-if="selectedBook"
+                class="adm-stack break-words rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3"
+              >
+                <p class="adm-help">Equipo: {{ queues[selectedBook.queue] }}</p>
+                <p class="whitespace-pre-wrap">{{ selectedBook.body }}</p>
+                <p v-if="selectedBook.operationalReference" class="adm-help">
+                  Revisado por {{ selectedBook.operationalReference }} el
+                  {{ adminDate(selectedBook.reviewedAt, true) }} · válido hasta
+                  {{ adminDate(selectedBook.expiresAt, true) }}
+                </p>
+                <p v-else class="adm-help">Borrador sin aprobar.</p>
+              </div>
+              <label class="adm-field">
+                <span class="adm-label">Qué quieres hacer</span>
+                <select v-model="bookForm.action" class="w-full">
+                  <option value="draft">Guardar borrador</option>
+                  <option value="approve">Aprobar</option>
+                  <option value="withdraw">Retirar la aprobación</option>
+                </select>
+              </label>
+              <template v-if="bookForm.action === 'draft'">
+                <div class="adm-form-grid">
+                  <label class="adm-field">
+                    <span class="adm-label">Equipo</span>
+                    <select v-model="bookForm.queue" class="w-full">
+                      <option v-for="(label, key) in queues" :key="key" :value="key">{{ label }}</option>
+                    </select>
+                  </label>
+                  <label class="adm-field">
+                    <span class="adm-label">Título</span>
+                    <input v-model="bookForm.title" required minlength="3" maxlength="120" class="w-full" />
+                  </label>
+                </div>
+                <label class="adm-field">
+                  <span class="adm-label">Instrucciones para el equipo</span>
+                  <textarea v-model="bookForm.body" required minlength="10" maxlength="4000" class="w-full" />
+                </label>
+              </template>
+              <template v-if="bookForm.action === 'approve'">
+                <p class="adm-help">Anota una revisión que ya haya hecho una persona del equipo.</p>
+                <div class="adm-form-grid">
+                  <label class="adm-field">
+                    <span class="adm-label">Quién lo ha revisado</span>
+                    <input v-model="bookForm.operationalReference" required maxlength="200" class="w-full" />
+                  </label>
+                  <label class="adm-field">
+                    <span class="adm-label">Fecha de la revisión</span>
+                    <input v-model="bookForm.reviewedAt" required placeholder="2026-10-09T10:00:00Z" class="w-full" />
+                    <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                  </label>
+                  <label class="adm-field">
+                    <span class="adm-label">Válido hasta</span>
+                    <input v-model="bookForm.expiresAt" required placeholder="2026-11-09T10:00:00Z" class="w-full" />
+                    <span class="adm-help">Fecha y hora universal, con este formato.</span>
+                  </label>
+                </div>
+              </template>
+              <label class="adm-field">
+                <span class="adm-label">Motivo del cambio</span>
+                <textarea v-model="bookForm.reason" required minlength="10" maxlength="500" class="w-full" />
+              </label>
+              <div class="flex justify-end">
+                <button class="adm-btn adm-btn--secondary">Continuar</button>
+              </div>
+            </fieldset>
+          </form>
+        </div>
+      </details>
+
+      <div
+        v-if="intent"
+        class="adm-stack rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3"
+      >
+        <p class="font-semibold text-[var(--text-strong)]">
+          {{ intent.sent ? 'No sabemos si se ha guardado' : 'Revisa y confirma' }}
+        </p>
+        <p class="break-words">
+          {{ actionLabels[intent.body.action] ?? 'Cambio' }} · {{ shortRef(intent.target) }} · Motivo:
+          {{ intent.body.reason }}
+        </p>
+        <p v-if="uncertain" class="adm-help">
+          Resultado incierto: no cierres esta pestaña hasta comprobar si se ha guardado.
+        </p>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button v-if="!intent.sent" :disabled="busy" class="adm-btn adm-btn--secondary" @click="cancel">
+            Cancelar
+          </button>
+          <button v-if="!intent.sent" :disabled="busy || pending" class="adm-btn adm-btn--primary" @click="send()">
+            Confirmar y guardar
+          </button>
+          <button v-else :disabled="busy || pending" class="adm-btn adm-btn--primary" @click="send(true)">
+            Comprobar si se guardó
+          </button>
+        </div>
+      </div>
     </div>
-  </section>
+  </AdminCard>
 </template>

@@ -13,10 +13,10 @@ const customerId = ref(props.customerId ?? ''),
   busy = ref(false),
   message = ref('')
 const MESSAGES: Record<string, string> = {
-  forbidden: 'Tu rol no permite suplantar a clientes.',
+  forbidden: 'Tu perfil no tiene permiso para ver la tienda como un cliente.',
   mfa_required: 'Necesitas una sesión con verificación en dos pasos.',
-  not_found: 'No hay un ticket abierto de ese cliente con esa referencia.',
-  conflict: 'Ya tienes una suplantación abierta. Termínala antes de iniciar otra.',
+  not_found: 'No hay una consulta abierta de ese cliente con esa referencia.',
+  conflict: 'Ya estás viendo la tienda como otro cliente. Termina esa sesión antes de empezar otra.',
   invalid_input:
     'Revisa los datos: el motivo debe tener entre 10 y 300 caracteres y la duración máxima es de 15 minutos.'
 }
@@ -41,11 +41,11 @@ async function start() {
       )
     )
     reason.value = ''
-    message.value = 'Suplantación iniciada. Verás el aviso permanente en la parte superior.'
+    message.value = 'Ya estás viendo la tienda como el cliente. Verás un aviso permanente en la parte superior.'
     emit('started', session)
   } catch (cause) {
     const code = (cause as { data?: { error?: { code?: string } } })?.data?.error?.code ?? ''
-    message.value = MESSAGES[code] ?? 'No se ha podido iniciar la suplantación.'
+    message.value = MESSAGES[code] ?? 'No se ha podido empezar la sesión. Vuelve a intentarlo.'
   } finally {
     busy.value = false
   }
@@ -53,40 +53,54 @@ async function start() {
 </script>
 
 <template>
-  <form class="space-y-3" aria-labelledby="imp-title" @submit.prevent="start">
-    <h2 id="imp-title" class="text-lg font-bold">Actuar como cliente (suplantación de soporte)</h2>
-    <p class="text-sm">
-      Sesión corta (máximo 15 minutos) ligada a un ticket abierto. Cada acción queda registrada y nunca se permiten
-      cambios de credenciales, MFA ni pagos.
-    </p>
-    <label class="block"
-      >ID del cliente
-      <input v-model="customerId" data-imp-customer class="block w-full border px-2 py-1" required />
-    </label>
-    <label class="block"
-      >Referencia del ticket
-      <input v-model="ticketRef" data-imp-ticket class="block w-full border px-2 py-1" required />
-    </label>
-    <label class="block"
-      >Motivo
-      <textarea
-        v-model="reason"
-        data-imp-reason
-        class="block w-full border px-2 py-1"
-        minlength="10"
-        maxlength="300"
-        required
-      />
-    </label>
-    <label class="block"
-      >Duración
-      <select v-model="minutes" data-imp-minutes class="block border px-2 py-1">
-        <option :value="5">5 minutos</option>
-        <option :value="10">10 minutos</option>
-        <option :value="15">15 minutos</option>
-      </select>
-    </label>
-    <p v-if="message" data-imp-message role="status">{{ message }}</p>
-    <button data-imp-start type="submit" class="rounded border px-4 py-2" :disabled="busy">Iniciar suplantación</button>
+  <form class="adm-stack max-w-2xl" aria-labelledby="imp-title" @submit.prevent="start">
+    <AdminCard
+      description="Sesión corta (máximo 15 minutos) ligada a una consulta abierta. Todo lo que hagas queda registrado y no se pueden cambiar contraseñas, la verificación en dos pasos ni los pagos."
+    >
+      <template #title><span id="imp-title">Ver la tienda como el cliente</span></template>
+      <div class="adm-stack">
+        <div class="adm-form-grid">
+          <AdminFormField v-slot="{ id }" label="Identificador del cliente" help="Lo encuentras en su ficha." required>
+            <input :id="id" v-model="customerId" data-imp-customer class="adm-input" required />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Referencia de la consulta" required>
+            <input :id="id" v-model="ticketRef" data-imp-ticket class="adm-input" required />
+          </AdminFormField>
+        </div>
+        <AdminFormField v-slot="{ id }" label="Motivo" help="Entre 10 y 300 caracteres. Queda en el registro." required>
+          <textarea
+            :id="id"
+            v-model="reason"
+            data-imp-reason
+            class="adm-input"
+            rows="3"
+            minlength="10"
+            maxlength="300"
+            required
+          />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Duración">
+          <select :id="id" v-model="minutes" data-imp-minutes class="adm-input w-auto">
+            <option :value="5">5 minutos</option>
+            <option :value="10">10 minutos</option>
+            <option :value="15">15 minutos</option>
+          </select>
+        </AdminFormField>
+        <UAlert
+          v-if="message"
+          data-imp-message
+          role="status"
+          color="neutral"
+          variant="subtle"
+          icon="i-lucide-info"
+          :title="message"
+        />
+      </div>
+      <template #footer>
+        <button data-imp-start type="submit" class="adm-btn adm-btn--primary" :disabled="busy">
+          Ver como este cliente
+        </button>
+      </template>
+    </AdminCard>
   </form>
 </template>

@@ -93,108 +93,177 @@ onBeforeUnmount(() => {
   purge()
   active = false
 })
+/** Las referencias de entrega son identificadores largos: se enseñan abreviados. */
+function shortRef(id: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id) ? `#${id.slice(0, 8).toUpperCase()}` : id
+}
 </script>
 <template>
-  <section v-if="enabled" aria-label="Satisfacción de clientes" class="min-w-0 space-y-3 rounded border p-4">
-    <h2 class="text-lg font-semibold">Satisfacción de clientes</h2>
-    <p>
-      Valoraciones voluntarias. Los segmentos no identifican clientes; los comentarios sólo se consultan expresamente.
-    </p>
-    <form data-testid="satisfaction-admin-filters" class="flex flex-wrap gap-3" @submit.prevent="apply">
-      <label
-        >Servicio<select v-model="filters.source" data-testid="satisfaction-source" :disabled="loading || pending">
-          <option value="">Todos</option>
-          <option value="support">Soporte</option>
-          <option value="delivery">Entrega</option>
-        </select></label
-      >
-      <label
-        >Motivo<select v-model="filters.category" data-testid="satisfaction-category" :disabled="loading || pending">
-          <option value="">Todos</option>
-          <option v-for="(label, key) in supportCategoryLabels" :key="key" :value="key">{{ label }}</option>
-        </select></label
-      >
-      <label
-        >Modalidad<select
-          v-model="filters.shippingMethod"
-          data-testid="satisfaction-shipping"
-          :disabled="loading || pending"
-        >
-          <option value="">Todas</option>
-          <option v-for="(label, key) in shipping" :key="key" :value="key">{{ label }}</option>
-        </select></label
-      >
-      <label
-        >Puntuación<select
-          v-model="filters.score"
-          data-testid="satisfaction-score-filter"
-          :disabled="loading || pending"
-        >
-          <option value="">Todas</option>
-          <option v-for="value in 5" :key="value" :value="String(value)">{{ value }} de 5</option>
-        </select></label
-      >
-      <label
-        ><input
-          v-model="filters.comments"
-          data-testid="satisfaction-comments-optin"
-          type="checkbox"
-          :disabled="loading || pending"
+  <section v-if="enabled" aria-label="Satisfacción de clientes" class="adm-stack min-w-0">
+    <div v-if="snapshot" class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)]">
+      <AdminStat label="Valoraciones" :value="snapshot.stats.count" icon="i-lucide-message-square-heart" />
+      <AdminStat
+        label="Nota media"
+        :value="
+          snapshot.stats.average === null
+            ? null
+            : snapshot.stats.average.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        "
+        :hint="snapshot.stats.average === null ? 'Sin valoraciones' : 'sobre 5'"
+        icon="i-lucide-star"
+      />
+      <AdminCard title="Reparto de puntuaciones" aria-label="Distribución de puntuaciones">
+        <AdminBreakdown
+          :items="snapshot.stats.byScore.map((entry) => ({ label: `${entry.score} de 5`, value: entry.count }))"
         />
-        Consultar comentarios privados</label
+      </AdminCard>
+    </div>
+
+    <div class="adm-card adm-tablecard">
+      <div class="adm-tablecard__bar">
+        <form data-testid="satisfaction-admin-filters" class="adm-toolbar" @submit.prevent="apply">
+          <select
+            v-model="filters.source"
+            data-testid="satisfaction-source"
+            aria-label="Servicio valorado"
+            :disabled="loading || pending"
+          >
+            <option value="">Atención y entregas</option>
+            <option value="support">Solo atención</option>
+            <option value="delivery">Solo entregas</option>
+          </select>
+          <select
+            v-model="filters.category"
+            data-testid="satisfaction-category"
+            aria-label="Motivo de la consulta"
+            :disabled="loading || pending"
+          >
+            <option value="">Todos los motivos</option>
+            <option v-for="(label, key) in supportCategoryLabels" :key="key" :value="key">{{ label }}</option>
+          </select>
+          <select
+            v-model="filters.shippingMethod"
+            data-testid="satisfaction-shipping"
+            aria-label="Forma de entrega"
+            :disabled="loading || pending"
+          >
+            <option value="">Todas las entregas</option>
+            <option v-for="(label, key) in shipping" :key="key" :value="key">{{ label }}</option>
+          </select>
+          <select
+            v-model="filters.score"
+            data-testid="satisfaction-score-filter"
+            aria-label="Puntuación"
+            :disabled="loading || pending"
+          >
+            <option value="">Todas las notas</option>
+            <option v-for="value in 5" :key="value" :value="String(value)">{{ value }} de 5</option>
+          </select>
+          <label class="adm-check">
+            <input
+              v-model="filters.comments"
+              data-testid="satisfaction-comments-optin"
+              type="checkbox"
+              :disabled="loading || pending"
+            />
+            Ver comentarios
+          </label>
+          <button :disabled="loading || pending" class="adm-btn adm-btn--secondary">Filtrar</button>
+          <div class="adm-toolbar__end">
+            <button
+              type="button"
+              data-testid="satisfaction-admin-refresh"
+              :disabled="loading || pending"
+              class="adm-btn adm-btn--secondary"
+              @click="read()"
+            >
+              <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <AdminEmptyState
+        v-if="failed"
+        role="alert"
+        variant="error"
+        title="No se han podido cargar las valoraciones"
+        description="Puede ser un fallo de conexión o de permisos. Vuelve a intentarlo."
       >
-      <button :disabled="loading || pending" class="rounded border p-2">Aplicar segmentos</button>
-    </form>
-    <p v-if="loading" role="status">Confirmando valoraciones y permisos actuales…</p>
-    <p v-if="failed" role="alert">No se ha confirmado el resumen. Un error no equivale a cero valoraciones.</p>
-    <button
-      data-testid="satisfaction-admin-refresh"
-      :disabled="loading || pending"
-      class="rounded border p-2"
-      @click="read()"
-    >
-      Actualizar resumen
-    </button>
-    <div v-if="snapshot" class="space-y-3">
-      <p>
-        {{ snapshot.stats.count }} valoraciones · Media:
-        {{ snapshot.stats.average === null ? 'Sin valoraciones' : snapshot.stats.average.toFixed(2) + ' de 5' }}
-      </p>
-      <ul aria-label="Distribución de puntuaciones">
-        <li v-for="entry in snapshot.stats.byScore" :key="entry.score">{{ entry.score }} de 5: {{ entry.count }}</li>
-      </ul>
-      <p v-if="!snapshot.items.length">Consulta confirmada sin valoraciones coincidentes.</p>
-      <ul class="space-y-2">
-        <li
-          v-for="item in snapshot.items"
-          :key="item.target.kind + ':' + item.target.id"
-          class="min-w-0 break-words rounded border p-3"
-        >
+        <AdminButton icon="i-lucide-rotate-cw" :disabled="loading || pending" @click="read()">Reintentar</AdminButton>
+      </AdminEmptyState>
+      <div v-else-if="loading || !snapshot" class="adm-table-skeleton" aria-busy="true">
+        <span v-if="loading" class="sr-only" role="status">Cargando valoraciones…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+      </div>
+      <template v-else>
+        <AdminEmptyState
+          v-if="!snapshot.items.length"
+          icon="i-lucide-star"
+          title="No hay valoraciones con estos filtros"
+          description="Los clientes valoran de forma voluntaria al cerrar una consulta o recibir un pedido."
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <caption class="sr-only">
+              Valoraciones de clientes
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Servicio</th>
+                <th scope="col">Referencia</th>
+                <th scope="col" data-numeric>Nota</th>
+                <th scope="col">Detalle</th>
+                <th v-if="snapshot.commentsIncluded" scope="col">Comentario</th>
+                <th scope="col">Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in snapshot.items" :key="item.target.kind + ':' + item.target.id">
+                <td>{{ item.target.kind === 'support' ? 'Atención' : 'Entrega' }}</td>
+                <td class="tabular-nums">{{ shortRef(item.target.id) }}</td>
+                <td data-numeric>
+                  <AdminBadge :tone="item.score >= 4 ? 'success' : item.score === 3 ? 'warning' : 'danger'" plain>
+                    {{ item.score }} de 5
+                  </AdminBadge>
+                </td>
+                <td>
+                  <template v-if="item.category">{{ supportCategoryLabels[item.category] }}</template>
+                  <template v-else-if="item.shippingMethod">{{ shipping[item.shippingMethod] }}</template>
+                  <template v-else>—</template>
+                </td>
+                <td v-if="snapshot.commentsIncluded" class="max-w-sm break-words">{{ item.comment ?? '—' }}</td>
+                <td class="whitespace-nowrap">{{ adminDate(item.submittedAt, true) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <nav aria-label="Páginas de valoraciones" class="adm-pagination">
           <p>
-            {{ item.target.kind === 'support' ? 'Soporte' : 'Entrega' }} · {{ item.target.id }} · {{ item.score }} de 5
-            · {{ item.submittedAt }}
+            {{ snapshot.total }} {{ snapshot.total === 1 ? 'resultado' : 'resultados' }} · página {{ snapshot.page }}
           </p>
-          <p v-if="item.category">{{ supportCategoryLabels[item.category] }}</p>
-          <p v-if="item.shippingMethod">{{ shipping[item.shippingMethod] }}</p>
-          <p v-if="snapshot.commentsIncluded && item.comment">{{ item.comment }}</p>
-        </li>
-      </ul>
-      <nav aria-label="Páginas de valoraciones" class="flex flex-wrap gap-3">
-        <button
-          data-testid="satisfaction-admin-previous"
-          :disabled="loading || pending || snapshot.page <= 1"
-          @click="move(-1)"
-        >
-          Anterior</button
-        ><span>Página {{ snapshot.page }} · {{ snapshot.total }} resultados</span
-        ><button
-          data-testid="satisfaction-admin-next"
-          :disabled="loading || pending || snapshot.page * snapshot.perPage >= snapshot.total"
-          @click="move(1)"
-        >
-          Siguiente
-        </button>
-      </nav>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="satisfaction-admin-previous"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="loading || pending || snapshot.page <= 1"
+              @click="move(-1)"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              data-testid="satisfaction-admin-next"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="loading || pending || snapshot.page * snapshot.perPage >= snapshot.total"
+              @click="move(1)"
+            >
+              Siguiente
+            </button>
+          </div>
+        </nav>
+      </template>
     </div>
   </section>
 </template>

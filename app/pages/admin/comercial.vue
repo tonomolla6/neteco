@@ -1,10 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Panel Comercial de Presupuestos y Cuentas · Admin' })
+useSeoMeta({ title: 'Oportunidades comerciales · Admin' })
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminCommercialPipelinePanel />
-  </div>
+  </AdminPage>
 </template>

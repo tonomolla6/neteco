@@ -4,7 +4,9 @@ import AdminSatisfactionPanel from './AdminSatisfactionPanel.vue'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 import { supportAdminListSchema, supportAdminTicketSchema, supportRef, supportUuid } from '~~/shared/support-operations'
 import { useSupportRead } from './support/state'
-import { supportCategoryLabels, supportStateLabels } from './support/labels'
+import { supportCategoryLabels, supportPriorityLabels, supportStateLabels } from './support/labels'
+import type { SupportAdminList } from '~~/shared/support-operations'
+import type { AdminTone } from '~/utils/adminLabels'
 const props = defineProps<{ runtime: unknown }>()
 const { ready, loggedIn, user, session } = useUserSession(),
   requestFetch = useRequestFetch()
@@ -136,99 +138,288 @@ function changePage(value: number, timeline = false) {
 function confirmed() {
   list.refresh()
 }
+/* --- Estado de interfaz: apartados, columnas, filtros en línea y panel lateral de detalle --- */
+type SupportRow = SupportAdminList['items'][number]
+const view = ref('queue')
+const views = [
+  { value: 'queue', label: 'Bandeja' },
+  { value: 'ratings', label: 'Valoraciones de la atención' }
+]
+watch(
+  () => satisfactionAuthorized(),
+  (allowed) => {
+    if (!allowed) view.value = 'queue'
+  }
+)
+const columns = [
+  { key: 'subject', label: 'Asunto' },
+  { key: 'customer', label: 'Cliente', hideOnMobile: true },
+  { key: 'state', label: 'Estado' },
+  { key: 'priority', label: 'Prioridad' },
+  { key: 'slaDueAt', label: 'Plazo de respuesta' },
+  { key: 'updatedAt', label: 'Última actividad', hideOnMobile: true }
+]
+const stateSegments: Record<string, string> = {
+  open: 'Abiertas',
+  waiting_customer: 'Esperando al cliente',
+  waiting_provider: 'Esperando a terceros',
+  resolved: 'Resueltas',
+  closed: 'Cerradas'
+}
+const stateOptions = computed(() => [
+  { value: '', label: 'Todas', disabled: listLoading.value || pending.value },
+  ...Object.entries(stateSegments).map(([value, label]) => ({
+    value,
+    label,
+    disabled: listLoading.value || pending.value
+  }))
+])
+const stateTones: Record<string, AdminTone> = {
+  open: 'warning',
+  waiting_customer: 'info',
+  waiting_provider: 'info',
+  resolved: 'success',
+  closed: 'neutral'
+}
+const priorityTones: Record<string, AdminTone> = {
+  low: 'neutral',
+  normal: 'neutral',
+  high: 'warning',
+  urgent: 'danger'
+}
+const hasFilters = computed(() => Object.keys(applied).length > 0)
+const openedAt = Date.now()
+function overdue(row: SupportRow) {
+  return (
+    row.slaDueAt !== null && !['resolved', 'closed'].includes(row.state) && new Date(row.slaDueAt).getTime() < openedAt
+  )
+}
+function applyFilter(key: 'state', value: string) {
+  if (pending.value || listLoading.value) return
+  filters[key] = value
+  search()
+}
+function clearFilters() {
+  if (pending.value || listLoading.value) return
+  filters.q = ''
+  filters.state = ''
+  filters.category = ''
+  filters.owner = ''
+  search()
+}
+const drawerOpen = computed({
+  get: () => selected.value !== null,
+  set: (value: boolean) => {
+    if (value || pending.value) return
+    selected.value = null
+    detail.reset()
+  }
+})
 </script>
 <template>
-  <section aria-label="Cola operativa de soporte" class="space-y-4">
-    <h1 class="text-2xl font-bold">Soporte e incidencias</h1>
-    <AdminSatisfactionPanel :scope-key="satisfactionScope" :enabled="satisfactionAuthorized()" :pending="pending" />
-    <p v-if="!authorize()" role="status">
-      Acceso con cuenta verificada y MFA. El servidor exige el permiso vigente support.manage; no se concede por entrar
-      en esta página.
-    </p>
-    <template v-else>
-      <form class="flex flex-wrap gap-3" @submit.prevent="search">
-        <input v-model="filters.q" aria-label="Buscar consulta" maxlength="100" class="rounded border p-2" />
-        <select v-model="filters.state" aria-label="Filtrar estado" class="rounded border p-2">
-          <option value="">Todos los estados</option>
-          <option v-for="(label, state) in supportStateLabels" :key="state" :value="state">{{ label }}</option>
-        </select>
-        <select v-model="filters.category" aria-label="Filtrar motivo" class="rounded border p-2">
-          <option value="">Todos los motivos</option>
-          <option v-for="(label, category) in supportCategoryLabels" :key="category" :value="category">
-            {{ label }}
-          </option>
-        </select>
-        <input
-          v-model="filters.owner"
-          aria-label="UUID de responsable"
-          placeholder="UUID de responsable"
-          class="rounded border p-2"
-        />
-        <button :disabled="listLoading || pending" class="rounded border p-2">Aplicar filtros</button>
-      </form>
-      <p v-if="listLoading" data-testid="admin-support-loading" role="status">Confirmando cola e identidad vigente…</p>
-      <p v-if="listFailed" data-testid="admin-support-read-error" role="alert">
-        No se ha confirmado la cola. Un error o permiso denegado no equivale a cero tickets.
-      </p>
-      <button
-        data-testid="admin-support-refresh"
-        :disabled="listLoading"
-        class="rounded border p-2"
-        @click="list.refresh()"
-      >
-        Actualizar cola
-      </button>
-      <div v-if="items">
-        <p v-if="items.pagination.total === 0">Cola confirmada sin coincidencias.</p>
-        <ul>
-          <li v-for="item in items.items" :key="item.publicRef" class="rounded border p-3">
-            <button :disabled="pending || detailLoading" class="underline" @click="select(item.publicRef)">
-              {{ item.publicRef }} · {{ item.subject }}
+  <section aria-label="Cola operativa de soporte" class="adm-stack">
+    <AdminTabs v-if="satisfactionAuthorized()" v-model="view" :tabs="views" label="Apartados de consultas" />
+    <div v-show="view === 'ratings'">
+      <AdminSatisfactionPanel :scope-key="satisfactionScope" :enabled="satisfactionAuthorized()" :pending="pending" />
+    </div>
+    <div v-show="view === 'queue'" class="adm-stack">
+      <UAlert
+        v-if="!authorize()"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="No puedes ver las consultas con esta sesión"
+        description="Hace falta una cuenta con el correo verificado, la verificación en dos pasos y permiso de atención al cliente."
+      />
+      <template v-else>
+        <p v-if="listLoading" data-testid="admin-support-loading" role="status" class="sr-only">Cargando consultas…</p>
+        <p v-if="listFailed" data-testid="admin-support-read-error" role="alert" class="sr-only">
+          No se han podido cargar las consultas.
+        </p>
+        <AdminTable
+          :rows="items?.items ?? []"
+          :columns="columns"
+          :row-key="(row) => row.publicRef"
+          :status="listFailed ? 'error' : listLoading ? 'pending' : 'idle'"
+          :total="items ? items.pagination.total : page * 25"
+          :per-page="25"
+          :page="page"
+          :filtered="hasFilters"
+          caption="Consultas de clientes"
+          empty-icon="i-lucide-life-buoy"
+          empty-title="No hay consultas"
+          empty-description="Cuando un cliente escriba desde su pedido o desde el formulario de contacto, su consulta aparecerá aquí."
+          error-message="Puede ser un fallo de conexión o de permisos. Vuelve a intentarlo."
+          @update:page="changePage($event)"
+          @retry="list.refresh()"
+          @clear-filters="clearFilters"
+          @row-click="select($event.publicRef)"
+        >
+          <template #toolbar>
+            <form class="adm-toolbar" role="search" @submit.prevent="search">
+              <label class="adm-toolbar__search">
+                <span class="sr-only">Buscar consulta</span>
+                <UIcon name="i-lucide-search" class="size-4" />
+                <input
+                  v-model="filters.q"
+                  type="search"
+                  aria-label="Buscar consulta"
+                  maxlength="100"
+                  placeholder="Buscar por asunto o referencia"
+                />
+              </label>
+              <AdminFilters
+                :model-value="filters.state"
+                :options="stateOptions"
+                label="Filtrar estado"
+                @update:model-value="applyFilter('state', $event)"
+              />
+              <select
+                v-model="filters.category"
+                aria-label="Filtrar motivo"
+                class="adm-input"
+                :disabled="listLoading || pending"
+                @change="search"
+              >
+                <option value="">Todos los motivos</option>
+                <option v-for="(label, category) in supportCategoryLabels" :key="category" :value="category">
+                  {{ label }}
+                </option>
+              </select>
+              <select
+                v-model="filters.owner"
+                aria-label="Filtrar responsable"
+                class="adm-input"
+                :disabled="listLoading || pending"
+                @change="search"
+              >
+                <option value="">Cualquier responsable</option>
+                <option :value="operatorId">Asignadas a mí</option>
+              </select>
+              <button type="submit" :disabled="listLoading || pending" class="sr-only">Aplicar filtros</button>
+              <div class="adm-toolbar__end">
+                <button
+                  type="button"
+                  data-testid="admin-support-refresh"
+                  :disabled="listLoading"
+                  class="adm-btn adm-btn--secondary"
+                  @click="list.refresh()"
+                >
+                  <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+                </button>
+              </div>
+            </form>
+          </template>
+          <template #cell-subject="{ row }">
+            <button
+              type="button"
+              :disabled="pending || detailLoading"
+              class="block max-w-md text-left font-semibold text-[var(--text-strong)] hover:underline"
+              @click="select(row.publicRef)"
+            >
+              {{ row.subject }}
+              <span class="block text-xs font-normal text-[var(--text-muted)]">
+                {{ row.publicRef }} · {{ supportCategoryLabels[row.category] ?? 'Otra consulta' }}
+              </span>
             </button>
-            <p>
-              {{ supportStateLabels[item.state] }} · {{ item.priority
-              }}<span v-if="item.ownerId"> · Responsable {{ item.ownerId }}</span
-              ><span v-if="item.nextActionAt"> · Acción {{ item.nextActionAt }}</span>
+          </template>
+          <template #cell-customer="{ row }">
+            <AdminBadge :tone="row.identityStatus === 'verified_customer' ? 'success' : 'neutral'" plain>
+              {{ row.identityStatus === 'verified_customer' ? 'Cliente registrado' : 'Contacto sin verificar' }}
+            </AdminBadge>
+            <p v-if="row.ownerId" class="mt-1 text-xs text-[var(--text-muted)]">
+              {{ row.ownerId === operatorId ? 'Asignada a mí' : 'Con responsable' }}
             </p>
-          </li>
-        </ul>
-        <nav v-if="items.pagination.pages > 1" aria-label="Páginas de cola">
-          <button :disabled="page <= 1 || listLoading || pending" @click="changePage(page - 1)">Anterior</button>
-          {{ page }} / {{ items.pagination.pages }}
-          <button :disabled="page >= items.pagination.pages || listLoading || pending" @click="changePage(page + 1)">
-            Siguiente
+          </template>
+          <template #cell-state="{ row }">
+            <AdminBadge :tone="stateTones[row.state] ?? 'neutral'">{{ supportStateLabels[row.state] }}</AdminBadge>
+          </template>
+          <template #cell-priority="{ row }">
+            <AdminBadge :tone="priorityTones[row.priority] ?? 'neutral'" plain>
+              {{ supportPriorityLabels[row.priority] }}
+            </AdminBadge>
+          </template>
+          <template #cell-slaDueAt="{ row }">
+            <span v-if="!row.slaDueAt" class="text-[var(--text-muted)]">Sin plazo</span>
+            <span v-else :class="overdue(row as Parameters<typeof overdue>[0]) && 'font-semibold text-red-700'">
+              <template v-if="overdue(row as Parameters<typeof overdue>[0])">Vencido · </template
+              >{{ adminDate(row.slaDueAt, true) }}
+            </span>
+          </template>
+          <template #cell-updatedAt="{ row }">{{ adminDate(row.updatedAt, true) }}</template>
+        </AdminTable>
+      </template>
+    </div>
+
+    <AdminDrawer
+      v-model:open="drawerOpen"
+      wide
+      :title="ticket?.subject ?? 'Consulta'"
+      :description="selected ? `Consulta ${selected}` : undefined"
+    >
+      <div class="adm-stack">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <p v-if="detailLoading" role="status" class="adm-help">Cargando la consulta…</p>
+          <span v-else />
+          <button
+            v-if="selected"
+            type="button"
+            :disabled="detailLoading"
+            class="adm-btn adm-btn--ghost adm-btn--sm"
+            @click="detail.refresh()"
+          >
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar consulta
           </button>
+        </div>
+        <UAlert
+          v-if="detailFailed"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="No se ha podido cargar esta consulta"
+          description="Puede ser un fallo de conexión o de permisos."
+          :actions="[{ label: 'Reintentar', color: 'neutral', variant: 'outline', onClick: () => detail.refresh() }]"
+        />
+        <AdminSupportPanel
+          v-if="actorKey && selected"
+          :key="actorKey + ':' + selected"
+          :snapshot="ticket"
+          :public-ref="selected"
+          :operator-id="operatorId"
+          :runtime="runtime"
+          :authorize="authorize"
+          :reload="detail.reload"
+          @pending="pending = $event"
+          @confirmed="confirmed"
+        />
+        <nav
+          v-if="ticket && ticket.pagination.pages > 1"
+          aria-label="Páginas de historial"
+          class="flex flex-wrap items-center justify-between gap-2 text-[0.8125rem] text-[var(--text-muted)]"
+        >
+          <span>Historial: página {{ timelinePage }} de {{ ticket.pagination.pages }}</span>
+          <span class="flex gap-2">
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="timelinePage <= 1 || detailLoading || pending"
+              @click="changePage(timelinePage - 1, true)"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="timelinePage >= ticket.pagination.pages || detailLoading || pending"
+              @click="changePage(timelinePage + 1, true)"
+            >
+              Siguiente
+            </button>
+          </span>
         </nav>
       </div>
-      <p v-if="detailLoading" role="status">Confirmando conversación seleccionada…</p>
-      <p v-if="detailFailed" role="alert">No se ha confirmado este ticket; los hechos anteriores se han ocultado.</p>
-      <button v-if="selected" :disabled="detailLoading" class="rounded border p-2" @click="detail.refresh()">
-        Actualizar ticket
-      </button>
-    </template>
-    <AdminSupportPanel
-      v-if="actorKey && selected"
-      :key="actorKey + ':' + selected"
-      :snapshot="ticket"
-      :public-ref="selected"
-      :operator-id="operatorId"
-      :runtime="runtime"
-      :authorize="authorize"
-      :reload="detail.reload"
-      @pending="pending = $event"
-      @confirmed="confirmed"
-    />
-    <nav v-if="ticket && ticket.pagination.pages > 1" aria-label="Páginas de historial">
-      <button :disabled="timelinePage <= 1 || detailLoading || pending" @click="changePage(timelinePage - 1, true)">
-        Anterior
-      </button>
-      {{ timelinePage }} / {{ ticket.pagination.pages }}
-      <button
-        :disabled="timelinePage >= ticket.pagination.pages || detailLoading || pending"
-        @click="changePage(timelinePage + 1, true)"
-      >
-        Siguiente
-      </button>
-    </nav>
+    </AdminDrawer>
   </section>
 </template>

@@ -29,7 +29,7 @@ const activeSession = ref<QueueSession | null>(null)
 const messages = ref<LiveChatMessageRecord[]>([])
 const replyText = ref('')
 
-const operatorName = ref('Operador Soporte')
+const operatorName = ref('Atención al cliente')
 const handoffDept = ref<'general' | 'technical' | 'logistics' | 'sales' | 'billing'>('technical')
 const handoffNote = ref('')
 const escalateSummary = ref('')
@@ -42,7 +42,7 @@ async function fetchQueue() {
     const res = await requestFetch<{ queue: QueueSession[] }>('/api/admin/support/live-chat/queue')
     queue.value = res.queue
   } catch {
-    error.value = 'No se ha podido cargar la cola de chats en espera.'
+    error.value = 'No se han podido cargar las conversaciones en espera.'
   } finally {
     loading.value = false
   }
@@ -63,7 +63,8 @@ async function claimSession(s: QueueSession) {
     await loadTranscript(s.id)
     await fetchQueue()
   } catch {
-    error.value = 'No se ha podido reclamar la sesión de chat (posible conflicto CAS).'
+    error.value =
+      'No se ha podido abrir la conversación: puede que otra persona ya la esté atendiendo. Actualiza la lista.'
   } finally {
     loading.value = false
   }
@@ -97,7 +98,7 @@ async function sendReply() {
     )
     messages.value.push(res.message)
   } catch {
-    error.value = 'Error al enviar el mensaje de respuesta.'
+    error.value = 'No se ha podido enviar la respuesta. Vuelve a intentarlo.'
   }
 }
 
@@ -116,7 +117,7 @@ async function executeHandoff() {
     handoffNote.value = ''
     await fetchQueue()
   } catch {
-    error.value = 'Error al realizar el handoff del chat.'
+    error.value = 'No se ha podido pasar la conversación a otro equipo.'
   }
 }
 
@@ -134,7 +135,7 @@ async function executeEscalate() {
     escalateSummary.value = ''
     await fetchQueue()
   } catch {
-    error.value = 'Error al escalar el chat a ticket oficial.'
+    error.value = 'No se ha podido convertir la conversación en consulta.'
   }
 }
 
@@ -151,8 +152,20 @@ async function executeClose() {
     activeSession.value = null
     await fetchQueue()
   } catch {
-    error.value = 'Error al cerrar la sesión de chat.'
+    error.value = 'No se ha podido cerrar la conversación.'
   }
+}
+
+const DEPARTMENTS: Record<string, string> = {
+  general: 'General',
+  technical: 'Técnico',
+  logistics: 'Logística',
+  sales: 'Ventas',
+  billing: 'Facturación'
+}
+function waited(seconds: number | null) {
+  if (seconds === null || seconds === undefined) return ''
+  return seconds < 60 ? `${seconds} s en espera` : `${Math.round(seconds / 60)} min en espera`
 }
 
 onMounted(() => {
@@ -161,174 +174,147 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between border-b border-slate-200 pb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Panel de Chat Humano (SUP-011)</h1>
-        <p class="text-sm text-slate-500">Gestión de colas, atención con contexto y handoff sin simulación de bots.</p>
-      </div>
-      <button
-        type="button"
-        class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-        @click="fetchQueue"
-      >
-        Actualizar cola
-      </button>
-    </div>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton icon="i-lucide-rotate-cw" :loading="loading" @click="fetchQueue">Actualizar</AdminButton>
+    </AdminPageActions>
 
-    <div v-if="error" class="rounded-lg bg-rose-50 p-4 text-sm text-rose-800" role="alert">
-      {{ error }}
-    </div>
+    <UAlert v-if="error" role="alert" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="error">
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" @click="fetchQueue">Reintentar</AdminButton>
+      </template>
+    </UAlert>
 
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <!-- Waiting queue column -->
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 class="text-base font-semibold text-slate-900 mb-3 flex items-center justify-between">
-          <span>Cola de espera</span>
-          <span class="rounded-full bg-indigo-100 px-2.5 py-0.5 text-xs font-bold text-indigo-800">{{
-            queue.length
-          }}</span>
-        </h2>
-
-        <div v-if="queue.length === 0" class="text-center py-8 text-sm text-slate-500">
-          No hay chats en cola de espera actualmente.
+    <div class="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <AdminCard flush>
+        <template #title>
+          En espera <AdminBadge :tone="queue.length ? 'warning' : 'neutral'" plain>{{ queue.length }}</AdminBadge>
+        </template>
+        <div v-if="loading && queue.length === 0" class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="row in 3" :key="row"><i /><i /></div>
         </div>
-
-        <ul v-else class="divide-y divide-slate-100 space-y-3">
-          <li v-for="s in queue" :key="s.id" class="pt-3 first:pt-0">
-            <div class="flex items-start justify-between">
-              <div>
-                <span class="font-bold text-xs text-indigo-600">{{ s.publicRef }}</span>
-                <span
-                  class="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] uppercase font-semibold text-slate-600"
-                >
-                  {{ s.department }}
-                </span>
-                <div v-if="s.context?.productSlug" class="text-xs text-slate-600 mt-0.5">
-                  Producto: <span class="font-medium">{{ s.context.productSlug }}</span>
-                </div>
-                <div v-if="s.context?.orderReference" class="text-xs text-slate-600">
-                  Pedido: <span class="font-medium">{{ s.context.orderReference }}</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                class="rounded bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700"
-                @click="claimSession(s)"
-              >
-                Atender
-              </button>
+        <AdminEmptyState
+          v-else-if="queue.length === 0"
+          compact
+          icon="i-lucide-messages-square"
+          title="Nadie está esperando"
+          description="Cuando un cliente abra el chat de la tienda, aparecerá aquí."
+        />
+        <ul v-else class="adm-list">
+          <li v-for="s in queue" :key="s.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                <span class="break-all">{{ s.publicRef }}</span>
+                <AdminBadge tone="neutral" plain>{{ DEPARTMENTS[s.department] ?? 'General' }}</AdminBadge>
+              </p>
+              <p v-if="s.context?.productSlug" class="adm-help break-words">Producto: {{ s.context.productSlug }}</p>
+              <p v-if="s.context?.orderReference" class="adm-help break-words">
+                Pedido: {{ s.context.orderReference }}
+              </p>
+              <p v-if="waited(s.waitedSeconds)" class="adm-help">{{ waited(s.waitedSeconds) }}</p>
             </div>
+            <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm" @click="claimSession(s)">
+              Atender
+            </button>
           </li>
         </ul>
-      </div>
+      </AdminCard>
 
-      <!-- Active conversation area -->
-      <div class="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-        <div v-if="!activeSession" class="text-center py-16 text-sm text-slate-400">
-          Selecciona una sesión de la cola para comenzar a atender.
-        </div>
+      <AdminCard
+        class="lg:col-span-2"
+        :title="activeSession ? `Conversación ${activeSession.publicRef}` : 'Conversación'"
+      >
+        <template v-if="activeSession" #actions>
+          <AdminButton size="sm" @click="executeClose">Cerrar conversación</AdminButton>
+        </template>
 
-        <div v-else class="space-y-4">
-          <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div>
-              <span class="text-xs text-slate-500 uppercase font-bold tracking-wider">Conversación activa</span>
-              <h3 class="text-base font-bold text-slate-900">{{ activeSession.publicRef }}</h3>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-                @click="executeClose"
-              >
-                Cerrar chat
-              </button>
-            </div>
-          </div>
+        <AdminEmptyState
+          v-if="!activeSession"
+          icon="i-lucide-message-circle"
+          title="Ninguna conversación abierta"
+          description="Pulsa «Atender» en una conversación en espera para empezar."
+        />
 
-          <!-- Messages stream -->
-          <div class="h-72 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-3">
+        <div v-else class="adm-stack">
+          <div
+            class="h-72 space-y-3 overflow-y-auto rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-4"
+            aria-label="Mensajes de la conversación"
+          >
             <div
               v-for="m in messages"
               :key="m.sequence"
               :class="[
-                'max-w-[85%] rounded-lg p-3 text-sm shadow-sm',
+                'max-w-[85%] rounded-[var(--radius-control)] p-3',
                 m.senderType === 'operator'
-                  ? 'ml-auto bg-indigo-600 text-white'
+                  ? 'ml-auto bg-neteco-50 text-[var(--text-strong)]'
                   : m.senderType === 'system'
-                    ? 'mx-auto bg-slate-200 text-slate-700 text-xs italic text-center'
-                    : 'mr-auto bg-white text-slate-900 border border-slate-200'
+                    ? 'mx-auto text-center text-xs text-[var(--text-muted)]'
+                    : 'mr-auto border border-[var(--border)] bg-[var(--surface)] text-[var(--text-strong)]'
               ]"
             >
-              <div class="mb-1 text-xs opacity-75 font-medium">{{ m.senderName }}</div>
-              <div class="whitespace-pre-wrap">{{ m.message }}</div>
+              <div class="mb-1 text-xs font-medium text-[var(--text-muted)]">{{ m.senderName }}</div>
+              <div class="whitespace-pre-wrap break-words">{{ m.message }}</div>
             </div>
           </div>
 
-          <!-- Reply form -->
-          <form class="flex gap-2" @submit.prevent="sendReply">
+          <form class="flex flex-wrap gap-2" @submit.prevent="sendReply">
             <input
               v-model="replyText"
               type="text"
-              class="flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              placeholder="Escribe respuesta como operador humano..."
+              class="adm-input min-w-0 flex-1"
+              aria-label="Respuesta al cliente"
+              placeholder="Escribe tu respuesta…"
             />
-            <button
-              type="submit"
-              class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-            >
-              Responder
-            </button>
+            <button type="submit" class="adm-btn adm-btn--primary">Responder</button>
           </form>
 
-          <!-- Handoff & Escalate controls -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-slate-100">
-            <!-- Handoff form -->
-            <div class="rounded-lg bg-slate-50 p-3 space-y-2">
-              <span class="text-xs font-bold text-slate-700 block">Transferir / Handoff</span>
-              <div class="flex gap-2">
-                <select v-model="handoffDept" class="rounded border border-slate-300 px-2 py-1 text-xs">
+          <div class="grid grid-cols-1 gap-5 border-t border-[var(--border)] pt-4 md:grid-cols-2">
+            <div class="adm-stack">
+              <AdminFormField v-slot="{ id }" label="Pasar a otro equipo">
+                <select :id="id" v-model="handoffDept" class="adm-input">
                   <option value="technical">Técnico</option>
                   <option value="logistics">Logística</option>
                   <option value="sales">Ventas</option>
                   <option value="billing">Facturación</option>
                 </select>
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="Motivo" required>
                 <input
+                  :id="id"
                   v-model="handoffNote"
                   type="text"
-                  placeholder="Motivo de handoff"
-                  class="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                  class="adm-input"
+                  placeholder="Qué necesita el cliente"
                 />
+              </AdminFormField>
+              <div>
+                <AdminButton :disabled="!handoffNote.trim()" @click="executeHandoff">Pasar conversación</AdminButton>
               </div>
-              <button
-                type="button"
-                class="w-full rounded bg-slate-700 px-2 py-1 text-xs font-semibold text-white hover:bg-slate-800"
-                @click="executeHandoff"
-              >
-                Transferir chat
-              </button>
             </div>
 
-            <!-- Escalate to Ticket -->
-            <div class="rounded-lg bg-slate-50 p-3 space-y-2">
-              <span class="text-xs font-bold text-slate-700 block">Escalar a Ticket oficial</span>
-              <input
-                v-model="escalateSummary"
-                type="text"
-                placeholder="Resumen para ticket SOP"
-                class="w-full rounded border border-slate-300 px-2 py-1 text-xs"
-              />
-              <button
-                type="button"
-                class="w-full rounded bg-amber-600 px-2 py-1 text-xs font-semibold text-white hover:bg-amber-700"
-                @click="executeEscalate"
+            <div class="adm-stack">
+              <AdminFormField
+                v-slot="{ id }"
+                label="Convertir en consulta"
+                help="Para seguir el caso por correo cuando no se resuelve en el chat."
+                required
               >
-                Escalar a ticket formal
-              </button>
+                <input
+                  :id="id"
+                  v-model="escalateSummary"
+                  type="text"
+                  class="adm-input"
+                  placeholder="Resumen del caso"
+                />
+              </AdminFormField>
+              <div>
+                <AdminButton :disabled="!escalateSummary.trim()" @click="executeEscalate"> Crear consulta </AdminButton>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      </AdminCard>
     </div>
   </div>
 </template>

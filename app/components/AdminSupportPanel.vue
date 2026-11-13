@@ -22,6 +22,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ confirmed: [receipt: SupportReceipt]; pending: [value: boolean] }>()
 const escalationPending = ref(false)
+const uid = useId()
 const form = reactive({
   action: 'reply',
   reason: '',
@@ -116,7 +117,7 @@ function prepare() {
   const data = view.value
   if (!data?.capabilities.manage) return
   if (form.action === 'reply' && !data.capabilities.reply) {
-    validation.value = 'El ticket no admite nuevas respuestas en su estado confirmado.'
+    validation.value = 'Esta consulta ya no admite respuestas en su estado actual.'
     return
   }
   const common = { action: form.action, expectedVersion: data.version, reason: form.reason.trim() }
@@ -148,7 +149,7 @@ function prepare() {
   const parsed = supportAdminInputSchema.safeParse(raw)
   if (!parsed.success) {
     validation.value =
-      'Comprueba motivo, contenido y fechas UTC completas. Resolver o cerrar exige un resumen público documentado.'
+      'Revisa el motivo, el texto y las fechas (formato 2026-10-04T10:00:00Z). Para resolver o cerrar hace falta un resumen para el cliente.'
     return
   }
   validation.value = ''
@@ -163,7 +164,7 @@ function prepareAttachment() {
   const data = view.value
   if (!data?.capabilities.attachments || !file.value) return
   if (file.value.size < 1 || file.value.size > 10485760) {
-    validation.value = 'El archivo debe tener entre 1 byte y 10 MB.'
+    validation.value = 'El archivo no puede estar vacío ni pesar más de 10 MB.'
     return
   }
   validation.value = ''
@@ -171,110 +172,178 @@ function prepareAttachment() {
 }
 </script>
 <template>
-  <section aria-label="Gestión operativa del ticket" class="space-y-4">
-    <p v-if="message && command.authorize()" data-testid="admin-support-message" role="status">{{ message }}</p>
-    <p v-if="validation && command.authorize()" role="alert">{{ validation }}</p>
-    <div v-if="view" data-testid="admin-support-facts" class="space-y-4">
-      <p>
-        Contacto: {{ view.requester.name }} · {{ view.requester.email
-        }}<span v-if="view.requester.phone"> · {{ view.requester.phone }}</span>
-      </p>
-      <p v-if="view.declaredOrderReference">
-        Referencia declarada (no acredita propiedad): {{ view.declaredOrderReference }}
-      </p>
+  <section aria-label="Gestión operativa del ticket" class="adm-stack">
+    <UAlert
+      v-if="message && command.authorize()"
+      data-testid="admin-support-message"
+      role="status"
+      color="info"
+      variant="subtle"
+      icon="i-lucide-info"
+      :title="message"
+    />
+    <UAlert
+      v-if="validation && command.authorize()"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="validation"
+    />
+    <div v-if="view" data-testid="admin-support-facts" class="adm-stack">
+      <AdminCard title="Cliente">
+        <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+          <dt class="text-[var(--text-muted)]">Nombre</dt>
+          <dd>{{ view.requester.name }}</dd>
+          <dt class="text-[var(--text-muted)]">Correo</dt>
+          <dd class="break-all">{{ view.requester.email }}</dd>
+          <template v-if="view.requester.phone">
+            <dt class="text-[var(--text-muted)]">Teléfono</dt>
+            <dd>{{ view.requester.phone }}</dd>
+          </template>
+          <template v-if="view.declaredOrderReference">
+            <dt class="text-[var(--text-muted)]">Pedido que indica</dt>
+            <dd>
+              {{ view.declaredOrderReference }}
+              <span class="adm-help block">Lo ha escrito el cliente; no está comprobado que sea suyo.</span>
+            </dd>
+          </template>
+        </dl>
+      </AdminCard>
       <SupportTicketFacts :snapshot="view" administrative />
-      <p v-if="view.ownerId && !view.staff.some((staff) => staff.id === view?.ownerId)" role="status">
-        El responsable anterior ya no es elegible según sus permisos actuales. La referencia histórica se conserva;
-        puedes documentar una reasignación.
-      </p>
-      <form v-if="view.capabilities.manage && !intent" class="space-y-3" @submit.prevent="prepare">
-        <label class="block"
-          >Acción
-          <select v-model="form.action" data-testid="admin-support-action" class="rounded border p-2">
-            <option value="reply">Respuesta pública</option>
-            <option value="note">Nota interna</option>
-            <option value="call">Anotar llamada ya realizada</option>
-            <option value="update">Estado, prioridad, responsable y agenda</option>
-          </select></label
-        >
-        <p v-if="form.action === 'reply'" class="rounded border p-3">
-          La respuesta será pública. Las notas internas nunca se incluyen en ella. Si el contacto no está verificado, no
-          comuniques datos privados de pedidos.
-        </p>
-        <p v-if="form.action === 'note' || form.action === 'call'">
-          Anotación INTERNA: sólo personal autorizado. Minimiza datos personales y no almacenes secretos.
-        </p>
-        <label class="block"
-          >Motivo de operación
-          <input
-            v-model="form.reason"
-            data-testid="admin-support-reason"
-            required
-            minlength="3"
-            maxlength="500"
-            class="rounded border p-2"
-        /></label>
-        <label v-if="form.action !== 'update'" class="block"
-          >Contenido
-          <textarea
-            v-model="form.message"
-            data-testid="admin-support-body"
-            required
-            maxlength="5000"
-            rows="5"
-            :readonly="form.action === 'reply' && !!macroPreview"
-            class="w-full rounded border p-2"
-          />
-        </label>
-        <p v-if="form.action === 'reply' && macroPreview">
-          Texto fijo de revisión inmutable. Para personalizar, cambia los campos declarados y vuelve a previsualizar.
-          <button type="button" class="rounded border p-2" @click="discardMacro">
-            Descartar plantilla y redactar respuesta libre
-          </button>
-        </p>
-        <template v-if="form.action === 'update'">
-          <label class="block"
-            >Estado
-            <select v-model="form.state" data-testid="admin-support-state" class="rounded border p-2">
-              <option v-for="(label, state) in supportStateLabels" :key="state" :value="state">{{ label }}</option>
-            </select></label
-          >
-          <label class="block"
-            >Prioridad
-            <select v-model="form.priority" class="rounded border p-2">
-              <option v-for="(label, priority) in supportPriorityLabels" :key="priority" :value="priority">
-                {{ label }}
-              </option>
-            </select></label
-          >
-          <label class="block"
-            >Responsable actual autorizado
-            <select v-model="form.ownerId" class="rounded border p-2">
-              <option value="">Sin asignar</option>
-              <option v-for="staff in view.staff" :key="staff.id" :value="staff.id">{{ staff.label }}</option>
-            </select></label
-          >
-          <label class="block"
-            >SLA documentado UTC, opcional
-            <input v-model="form.slaDueAt" placeholder="2026-10-04T10:00:00Z" class="rounded border p-2"
-          /></label>
-          <label class="block"
-            >Resumen público al resolver/cerrar
-            <textarea v-model="form.resolution" minlength="10" maxlength="1000" class="w-full rounded border p-2" />
-          </label>
-        </template>
-        <label v-if="form.action === 'update' || form.action === 'call'" class="block"
-          >Siguiente acción UTC, opcional
-          <input v-model="form.nextActionAt" placeholder="2026-10-04T10:00:00Z" class="rounded border p-2"
-        /></label>
-        <label v-if="form.action === 'call'" class="block"
-          >Fecha de la llamada ya realizada UTC
-          <input v-model="form.occurredAt" required placeholder="2026-10-03T10:00:00Z" class="rounded border p-2"
-        /></label>
-        <button data-testid="admin-support-prepare" :disabled="busy || escalationPending" class="rounded border p-2">
-          Revisar acción
-        </button>
-      </form>
+      <UAlert
+        v-if="view.ownerId && !view.staff.some((staff) => staff.id === view?.ownerId)"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-user-x"
+        title="El responsable anterior ya no puede atender consultas"
+        description="Se conserva en el historial. Asigna la consulta a otra persona."
+      />
+      <AdminCard v-if="view.capabilities.manage && !intent" title="Responder o gestionar">
+        <form class="adm-stack" @submit.prevent="prepare">
+          <div class="adm-field">
+            <label :for="`${uid}-action`" class="adm-label">Qué quieres hacer</label>
+            <select :id="`${uid}-action`" v-model="form.action" data-testid="admin-support-action" class="w-full">
+              <option value="reply">Responder al cliente</option>
+              <option value="note">Añadir una nota interna</option>
+              <option value="call">Anotar una llamada ya hecha</option>
+              <option value="update">Cambiar estado, prioridad, responsable o fechas</option>
+            </select>
+            <p v-if="form.action === 'reply'" class="adm-help">
+              El cliente verá esta respuesta. Si su contacto no está verificado, no incluyas datos privados de pedidos.
+            </p>
+            <p v-if="form.action === 'note' || form.action === 'call'" class="adm-help">
+              Solo lo ve el equipo. Evita datos personales innecesarios y nunca guardes contraseñas.
+            </p>
+          </div>
+          <div v-if="form.action !== 'update'" class="adm-field">
+            <label :for="`${uid}-body`" class="adm-label">
+              {{ form.action === 'reply' ? 'Respuesta' : form.action === 'call' ? 'Resumen de la llamada' : 'Nota' }}
+            </label>
+            <textarea
+              :id="`${uid}-body`"
+              v-model="form.message"
+              data-testid="admin-support-body"
+              required
+              maxlength="5000"
+              rows="5"
+              :readonly="form.action === 'reply' && !!macroPreview"
+              class="w-full"
+            />
+            <div v-if="form.action === 'reply' && macroPreview" class="flex flex-wrap items-center gap-2">
+              <p class="adm-help">
+                Texto de una respuesta guardada: no se puede editar aquí. Para personalizarlo, cambia sus campos y
+                vuelve a previsualizarla.
+              </p>
+              <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm" @click="discardMacro">
+                Quitar y escribir a mano
+              </button>
+            </div>
+          </div>
+          <div v-if="form.action === 'update'" class="adm-form-grid">
+            <div class="adm-field">
+              <label :for="`${uid}-state`" class="adm-label">Estado</label>
+              <select :id="`${uid}-state`" v-model="form.state" data-testid="admin-support-state" class="w-full">
+                <option v-for="(label, state) in supportStateLabels" :key="state" :value="state">{{ label }}</option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label :for="`${uid}-priority`" class="adm-label">Prioridad</label>
+              <select :id="`${uid}-priority`" v-model="form.priority" class="w-full">
+                <option v-for="(label, priority) in supportPriorityLabels" :key="priority" :value="priority">
+                  {{ label }}
+                </option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label :for="`${uid}-owner`" class="adm-label">Responsable</label>
+              <select :id="`${uid}-owner`" v-model="form.ownerId" class="w-full">
+                <option value="">Sin asignar</option>
+                <option v-for="staff in view.staff" :key="staff.id" :value="staff.id">{{ staff.label }}</option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label :for="`${uid}-sla`" class="adm-label">Plazo de respuesta (opcional)</label>
+              <input :id="`${uid}-sla`" v-model="form.slaDueAt" placeholder="2026-10-04T10:00:00Z" class="w-full" />
+              <p class="adm-help">Fecha y hora universal, con este formato.</p>
+            </div>
+          </div>
+          <div v-if="form.action === 'update'" class="adm-field">
+            <label :for="`${uid}-resolution`" class="adm-label">Resumen para el cliente al resolver o cerrar</label>
+            <textarea
+              :id="`${uid}-resolution`"
+              v-model="form.resolution"
+              minlength="10"
+              maxlength="1000"
+              class="w-full"
+            />
+          </div>
+          <div v-if="form.action === 'update' || form.action === 'call'" class="adm-form-grid">
+            <div class="adm-field">
+              <label :for="`${uid}-next`" class="adm-label">Próximo seguimiento (opcional)</label>
+              <input
+                :id="`${uid}-next`"
+                v-model="form.nextActionAt"
+                placeholder="2026-10-04T10:00:00Z"
+                class="w-full"
+              />
+            </div>
+            <div v-if="form.action === 'call'" class="adm-field">
+              <label :for="`${uid}-occurred`" class="adm-label">Cuándo fue la llamada</label>
+              <input
+                :id="`${uid}-occurred`"
+                v-model="form.occurredAt"
+                required
+                placeholder="2026-10-03T10:00:00Z"
+                class="w-full"
+              />
+            </div>
+          </div>
+          <div class="adm-field">
+            <label :for="`${uid}-reason`" class="adm-label">Motivo (queda en el historial interno)</label>
+            <input
+              :id="`${uid}-reason`"
+              v-model="form.reason"
+              data-testid="admin-support-reason"
+              required
+              minlength="3"
+              maxlength="500"
+              placeholder="Qué has hecho y cuál es el siguiente paso"
+              class="w-full"
+            />
+          </div>
+          <div class="flex justify-end">
+            <button
+              data-testid="admin-support-prepare"
+              :disabled="busy || escalationPending"
+              class="adm-btn adm-btn--primary"
+            >
+              Continuar
+            </button>
+          </div>
+        </form>
+      </AdminCard>
       <AdminSupportMacrosPanel
         v-if="view.capabilities.manage && !intent"
         :public-ref="publicRef"
@@ -283,47 +352,77 @@ function prepareAttachment() {
         :authorize="authorize"
         @selected="selectMacro"
       />
-      <div v-if="view.capabilities.attachments && !intent" class="space-y-2">
-        <label class="block"
-          >Evidencia JPEG, PNG o PDF, máximo 10 MB
-          <input type="file" accept="image/png,image/jpeg,application/pdf" @change="chooseFile"
-        /></label>
-        <label
-          >Visibilidad
-          <select v-model="visibility">
-            <option value="public">Visible para el cliente verificado</option>
-            <option value="internal">Interno</option>
-          </select></label
+      <AdminCard
+        v-if="view.capabilities.attachments && !intent"
+        title="Adjuntar un archivo"
+        description="Imagen JPEG o PNG, o un PDF, de 10 MB como máximo."
+      >
+        <div class="adm-form-grid">
+          <div class="adm-field">
+            <label :for="`${uid}-file`" class="adm-label">Archivo</label>
+            <input :id="`${uid}-file`" type="file" accept="image/png,image/jpeg,application/pdf" @change="chooseFile" />
+          </div>
+          <div class="adm-field">
+            <label :for="`${uid}-visibility`" class="adm-label">Quién lo ve</label>
+            <select :id="`${uid}-visibility`" v-model="visibility" class="w-full">
+              <option value="public">El cliente y el equipo</option>
+              <option value="internal">Solo el equipo</option>
+            </select>
+          </div>
+        </div>
+        <template #footer>
+          <button
+            type="button"
+            :disabled="busy || escalationPending || !file"
+            class="adm-btn adm-btn--secondary"
+            @click="prepareAttachment()"
+          >
+            Adjuntar
+          </button>
+        </template>
+      </AdminCard>
+    </div>
+    <AdminCard
+      v-if="intent && command.authorize()"
+      :title="ambiguous ? 'No sabemos si se ha guardado' : 'Revisa y confirma'"
+      :description="
+        ambiguous
+          ? 'La conexión falló al enviar. Recupera el mismo envío para no duplicarlo.'
+          : 'Todavía no se ha enviado nada. Al confirmar se guardará tal como lo has escrito.'
+      "
+    >
+      <div class="flex flex-wrap justify-end gap-2">
+        <button
+          v-if="!ambiguous"
+          type="button"
+          :disabled="busy"
+          class="adm-btn adm-btn--secondary"
+          @click="command.cancel()"
         >
-        <button :disabled="busy || escalationPending || !file" class="rounded border p-2" @click="prepareAttachment()">
-          Preparar adjunto privado
+          Cancelar
+        </button>
+        <button
+          v-if="!ambiguous"
+          type="button"
+          data-testid="admin-support-send"
+          :disabled="busy || escalationPending"
+          class="adm-btn adm-btn--primary"
+          @click="command.dispatch()"
+        >
+          Confirmar y guardar
+        </button>
+        <button
+          v-else
+          type="button"
+          data-testid="admin-support-recover"
+          :disabled="busy || escalationPending"
+          class="adm-btn adm-btn--primary"
+          @click="command.dispatch(true)"
+        >
+          Recuperar el envío
         </button>
       </div>
-    </div>
-    <div v-if="intent && command.authorize()" class="rounded border p-3">
-      <p>Operación preparada con contenido y clave estables.</p>
-      <button
-        v-if="!ambiguous"
-        data-testid="admin-support-send"
-        :disabled="busy || escalationPending"
-        class="rounded border p-2"
-        @click="command.dispatch()"
-      >
-        Confirmar operación
-      </button>
-      <button
-        v-else
-        data-testid="admin-support-recover"
-        :disabled="busy || escalationPending"
-        class="rounded border p-2"
-        @click="command.dispatch(true)"
-      >
-        Recuperar mismo intento
-      </button>
-      <button v-if="!ambiguous" :disabled="busy" class="rounded border p-2" @click="command.cancel()">
-        Cancelar intento no enviado
-      </button>
-    </div>
+    </AdminCard>
     <AdminSupportEscalationsPanel
       v-if="runtime === 'cloudflare'"
       :public-ref="publicRef"

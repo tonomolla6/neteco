@@ -3,7 +3,7 @@ import { z } from 'zod'
 import Customer360Panel from '~/components/Customer360Panel.vue'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Contexto de cliente 360 · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Ficha de cliente · Admin', robots: 'noindex, nofollow' })
 const runtime = useRuntimeConfig(),
   navigation = useAdminNavigation()
 const { ready, loggedIn, user, session } = useUserSession()
@@ -38,9 +38,7 @@ const scope = computed(() =>
 )
 </script>
 <template>
-  <main class="space-y-5">
-    <h1 class="text-2xl font-semibold">Vista cliente 360</h1>
-    <p>Pedidos, incidencias, facturas y preferencias, con visibilidad limitada por los permisos actuales.</p>
+  <AdminPage>
     <Customer360Panel :scope-key="scope" :enabled="enabled" />
-  </main>
+  </AdminPage>
 </template>

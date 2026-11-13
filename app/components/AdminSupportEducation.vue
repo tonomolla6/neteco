@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { randomId } from '../utils/uuid'
-import { SLA_CLASSES, SLA_LABELS, formatBp, formatInstant } from '../utils/support-insights-labels'
+import { SLA_LABELS, formatBp } from '../utils/support-insights-labels'
 
 /**
  * SUP-015: repeated questions -> expert review -> guide/FAQ/PDP -> measured deflection.
@@ -95,8 +95,8 @@ async function post(url: string, body: Record<string, unknown>, done: string) {
       code === 'concurrency_conflict'
         ? 'Otra persona ha modificado este elemento. Se ha recargado la lista.'
         : code === 'target_unavailable'
-          ? 'El destino no está publicado como contenido aprobado.'
-          : 'No se pudo completar la acción.'
+          ? 'Esa página o producto no está publicado en la tienda. Revisa el dato.'
+          : 'No se ha podido completar la acción. Vuelve a intentarlo.'
     if (code === 'concurrency_conflict') await load()
   } finally {
     busy.value = false
@@ -106,13 +106,13 @@ const detect = () =>
   post(
     '/api/admin/support/education/detect',
     { from: day(-30), to: day(1), minOccurrences: 3 },
-    'Detección completada.'
+    'Búsqueda de preguntas repetidas terminada.'
   )
 const candidateCommand = (c: Candidate, body: Record<string, unknown>) =>
   post(
     `/api/admin/support/education/candidates/${c.id}/commands`,
     { ...body, expectedVersion: c.version },
-    'Candidato actualizado.'
+    'Pregunta actualizada.'
   )
 function approve(c: Candidate) {
   const f = formOf(c.id)
@@ -136,219 +136,256 @@ async function measure(c: Candidate) {
   try {
     deflections[c.id] = (await request(`/api/admin/support/education/candidates/${c.id}/deflection`)) as Deflection
   } catch {
-    notice.value = 'No se pudo medir la deflexión.'
+    notice.value = 'No se ha podido calcular el resultado.'
   }
 }
 const handoffCommand = (h: Handoff, action: 'claim' | 'resolve') =>
   post(
     `/api/admin/support/assistant/handoffs/${h.id}/commands`,
     { action, expectedVersion: h.version },
-    'Derivación actualizada.'
+    'Consulta actualizada.'
   )
+const statusTones: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+  detected: 'warning',
+  in_review: 'info',
+  approved: 'success',
+  published: 'success',
+  rejected: 'danger'
+}
+const slaTones: Record<string, 'neutral' | 'success' | 'warning' | 'danger'> = {
+  on_track: 'success',
+  at_risk: 'warning',
+  met: 'neutral',
+  breached: 'danger'
+}
 const approvable = (c: Candidate) => formOf(c.id).notes.trim().length >= 10 && formOf(c.id).safety
 onMounted(load)
 </script>
 
 <template>
-  <section class="space-y-8">
-    <div>
-      <h2 class="text-xl font-bold text-slate-900">Asistente y educación de soporte</h2>
-      <p class="text-sm text-slate-500">SUP-012 / SUP-015: preguntas repetidas, revisión experta y deflexión medida.</p>
+  <section class="adm-stack">
+    <AdminPageActions>
+      <button type="button" data-test="detect" :disabled="busy" class="adm-btn adm-btn--primary" @click="detect">
+        Buscar preguntas repetidas
+      </button>
+    </AdminPageActions>
+
+    <UAlert
+      v-if="state === 'error'"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="No hemos podido cargar las respuestas y guías"
+    >
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" @click="load">Reintentar</AdminButton>
+      </template>
+    </UAlert>
+    <UAlert v-else-if="notice" role="status" color="neutral" variant="subtle" icon="i-lucide-info" :title="notice" />
+    <div v-if="state === 'loading'" class="adm-card">
+      <div class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /></div>
+      </div>
     </div>
-    <p v-if="state === 'error'" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-700">
-      No hemos podido cargar los datos del asistente.
-    </p>
-    <p v-else-if="notice" role="status" class="rounded-lg bg-slate-50 p-3 text-sm">{{ notice }}</p>
-    <p v-if="state === 'loading'" class="text-sm text-slate-500">Cargando…</p>
 
     <template v-if="state === 'ready'">
-      <dl v-if="stats" class="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <div class="rounded-xl border bg-white p-4">
-          <dt class="text-xs uppercase text-slate-500">Consultas (30 días)</dt>
-          <dd class="text-2xl font-bold">{{ stats.turns }}</dd>
-        </div>
-        <div class="rounded-xl border bg-white p-4">
-          <dt class="text-xs uppercase text-slate-500">Respondidas con fuente</dt>
-          <dd class="text-2xl font-bold">{{ formatBp(stats.answeredRateBp) }}</dd>
-        </div>
-        <div class="rounded-xl border bg-white p-4">
-          <dt class="text-xs uppercase text-slate-500">Sin información aprobada</dt>
-          <dd class="text-2xl font-bold">{{ stats.uncertain }}</dd>
-        </div>
-        <div class="rounded-xl border bg-white p-4">
-          <dt class="text-xs uppercase text-slate-500">Derivadas a una persona</dt>
-          <dd class="text-2xl font-bold">{{ formatBp(stats.handoffRateBp) }}</dd>
-        </div>
-      </dl>
+      <div v-if="stats" class="grid grid-cols-2 gap-5 lg:grid-cols-4">
+        <AdminStat label="Preguntas al asistente" :value="stats.turns" hint="Últimos 30 días" />
+        <AdminStat label="Respondidas" :value="formatBp(stats.answeredRateBp)" hint="Con información aprobada" />
+        <AdminStat label="Sin respuesta" :value="stats.uncertain" hint="Faltaba información aprobada" />
+        <AdminStat label="Pasadas a una persona" :value="formatBp(stats.handoffRateBp)" />
+      </div>
 
-      <div class="space-y-3">
-        <div class="flex items-center justify-between">
-          <h3 class="text-lg font-semibold">Preguntas repetidas</h3>
-          <button
-            type="button"
-            data-test="detect"
-            :disabled="busy"
-            class="rounded-lg bg-neteco-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-            @click="detect"
-          >
-            Detectar preguntas repetidas
-          </button>
-        </div>
-        <p
+      <AdminCard
+        title="Preguntas repetidas"
+        description="Lo que más preguntan los clientes: revísalo y publícalo como respuesta, guía o en la ficha del producto."
+        flush
+      >
+        <AdminEmptyState
           v-if="candidates.length === 0"
-          class="rounded-xl border border-dashed p-6 text-center text-sm text-slate-600"
-        >
-          No hay preguntas repetidas pendientes de revisar.
-        </p>
-        <article v-for="c in candidates" :key="c.id" class="rounded-xl border bg-white p-4">
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <span class="rounded-full bg-blue-50 px-2 py-0.5 font-semibold text-blue-700">{{
-              statusLabels[c.status]
-            }}</span>
-            <span>{{ c.occurrences }} veces</span>
-          </div>
-          <p class="mt-2 font-medium">{{ c.sampleQuestion }}</p>
+          compact
+          icon="i-lucide-message-circle-question"
+          title="No hay preguntas repetidas pendientes de revisar"
+          description="Pulsa «Buscar preguntas repetidas» para analizar los últimos 30 días."
+        />
+        <ul v-else class="adm-list">
+          <li v-for="c in candidates" :key="c.id">
+            <div class="min-w-0 flex-1 space-y-3">
+              <div>
+                <p class="adm-list__title">
+                  {{ c.sampleQuestion }}
+                  <AdminBadge :tone="statusTones[c.status] ?? 'neutral'">{{ statusLabels[c.status] }}</AdminBadge>
+                </p>
+                <p class="adm-help">{{ c.occurrences }} veces</p>
+              </div>
 
-          <button
-            v-if="c.status === 'detected'"
-            type="button"
-            data-test="candidate-start-review"
-            :disabled="busy"
-            class="mt-3 rounded border px-3 py-1 text-sm"
-            @click="candidateCommand(c, { action: 'start_review' })"
-          >
-            Iniciar revisión experta
-          </button>
+              <div v-if="c.status === 'detected'">
+                <button
+                  type="button"
+                  data-test="candidate-start-review"
+                  :disabled="busy"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="candidateCommand(c, { action: 'start_review' })"
+                >
+                  Empezar revisión
+                </button>
+              </div>
 
-          <div v-if="c.status === 'in_review'" class="mt-3 space-y-2">
-            <label class="block text-xs font-semibold uppercase text-slate-500"
-              >Notas de la revisión experta
-              <textarea
-                v-model="formOf(c.id).notes"
-                name="reviewNotes"
-                rows="2"
-                class="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-sm normal-case"
-              />
-            </label>
-            <label class="block text-xs font-semibold uppercase text-slate-500"
-              >Destino
-              <select
-                v-model="formOf(c.id).kind"
-                class="mt-1 block rounded border border-slate-300 px-2 py-1 text-sm normal-case"
-              >
-                <option value="faq">FAQ</option>
-                <option value="guide">Guía</option>
-                <option value="pdp">Ficha de producto</option>
-              </select>
-            </label>
-            <label class="flex items-center gap-2 text-sm"
-              ><input v-model="formOf(c.id).safety" name="safetyReviewed" type="checkbox" /> He revisado que no contiene
-              indicaciones químicas sin validar</label
-            >
-            <div class="flex gap-2">
-              <button
-                type="button"
-                data-test="candidate-approve"
-                :disabled="busy || !approvable(c)"
-                class="rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50"
-                @click="approve(c)"
-              >
-                Aprobar
-              </button>
-              <button
-                type="button"
-                data-test="candidate-reject"
-                :disabled="busy || formOf(c.id).notes.trim().length < 10"
-                class="rounded border px-3 py-1 text-sm disabled:opacity-50"
-                @click="candidateCommand(c, { action: 'reject', reviewNotes: formOf(c.id).notes.trim() })"
-              >
-                Rechazar
-              </button>
+              <div v-if="c.status === 'in_review'" class="adm-stack max-w-2xl">
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Notas de la revisión"
+                  help="Mínimo 10 caracteres: qué respuesta es la correcta y quién la ha validado."
+                  required
+                >
+                  <textarea :id="id" v-model="formOf(c.id).notes" name="reviewNotes" rows="2" class="adm-input" />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Dónde se publicará">
+                  <select :id="id" v-model="formOf(c.id).kind" class="adm-input w-auto">
+                    <option value="faq">Preguntas frecuentes</option>
+                    <option value="guide">Guía</option>
+                    <option value="pdp">Ficha de producto</option>
+                  </select>
+                </AdminFormField>
+                <label class="adm-check"
+                  ><input v-model="formOf(c.id).safety" name="safetyReviewed" type="checkbox" /> He revisado que no
+                  contiene indicaciones químicas sin validar</label
+                >
+                <div class="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    data-test="candidate-approve"
+                    :disabled="busy || !approvable(c)"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    @click="approve(c)"
+                  >
+                    Aprobar
+                  </button>
+                  <button
+                    type="button"
+                    data-test="candidate-reject"
+                    :disabled="busy || formOf(c.id).notes.trim().length < 10"
+                    class="adm-btn adm-btn--ghost adm-btn--sm"
+                    @click="candidateCommand(c, { action: 'reject', reviewNotes: formOf(c.id).notes.trim() })"
+                  >
+                    Rechazar
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="c.status === 'approved'" class="flex max-w-2xl flex-wrap items-end gap-2">
+                <AdminFormField
+                  v-slot="{ id }"
+                  class="min-w-0 flex-1"
+                  :label="
+                    c.targetKind === 'pdp' ? 'Producto donde se ha publicado' : 'Página de ayuda donde se ha publicado'
+                  "
+                  :help="
+                    c.targetKind === 'pdp'
+                      ? 'El nombre del producto tal como aparece en su dirección web.'
+                      : 'El identificador de la página de ayuda ya publicada.'
+                  "
+                >
+                  <input :id="id" v-model="formOf(c.id).target" name="target" type="text" class="adm-input" />
+                </AdminFormField>
+                <button
+                  type="button"
+                  data-test="candidate-publish"
+                  :disabled="busy || !formOf(c.id).target.trim()"
+                  class="adm-btn adm-btn--secondary"
+                  @click="publish(c)"
+                >
+                  Marcar como publicada
+                </button>
+              </div>
+
+              <div v-if="c.status === 'published'" class="space-y-2">
+                <button
+                  type="button"
+                  data-test="candidate-deflection"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="measure(c)"
+                >
+                  Ver resultado
+                </button>
+                <template v-if="deflections[c.id]">
+                  <p v-if="deflections[c.id]!.status === 'insufficient_data'" class="adm-help">
+                    Todavía no hay datos suficientes: {{ deflections[c.id]!.observedDays }} días observados (mínimo 7) o
+                    pocas preguntas previas.
+                  </p>
+                  <p v-else>
+                    Consultas evitadas: <strong>{{ formatBp(deflections[c.id]!.deflectionBp) }}</strong>
+                  </p>
+                  <p class="adm-help">
+                    Preguntas antes de publicar: {{ deflections[c.id]!.before.turns }} ({{
+                      formatBp(deflections[c.id]!.before.rateBp)
+                    }}
+                    necesitaron a una persona)
+                  </p>
+                  <p class="adm-help">
+                    Preguntas después: {{ deflections[c.id]!.after.turns }} ({{
+                      formatBp(deflections[c.id]!.after.rateBp)
+                    }}
+                    necesitaron a una persona)
+                  </p>
+                </template>
+              </div>
             </div>
-          </div>
+          </li>
+        </ul>
+      </AdminCard>
 
-          <div v-if="c.status === 'approved'" class="mt-3 flex flex-wrap items-end gap-2">
-            <label class="text-xs font-semibold uppercase text-slate-500"
-              >{{ c.targetKind === 'pdp' ? 'Slug del producto publicado' : 'Id de la página de ayuda publicada' }}
-              <input
-                v-model="formOf(c.id).target"
-                name="target"
-                type="text"
-                class="mt-1 block rounded border border-slate-300 px-2 py-1 text-sm normal-case"
-              />
-            </label>
+      <AdminCard
+        title="Preguntas que necesitan a una persona"
+        description="El asistente no pudo responderlas y el cliente espera contestación."
+        flush
+      >
+        <AdminEmptyState
+          v-if="handoffs.length === 0"
+          compact
+          icon="i-lucide-user-check"
+          title="No hay preguntas esperando a una persona"
+        />
+        <ul v-else class="adm-list">
+          <li v-for="h in handoffs" :key="h.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                <span class="break-words">{{ h.question }}</span>
+                <AdminBadge :tone="slaTones[h.slaState] ?? 'neutral'">
+                  {{ SLA_LABELS[h.slaState] ?? 'Sin plazo' }}
+                </AdminBadge>
+              </p>
+              <p class="adm-help break-words">
+                Responder antes del {{ adminDate(h.slaDueAt, true) }} ·
+                {{ h.status === 'open' ? 'Sin asignar' : 'En curso' }}
+                <template v-if="h.contactEmail"> · {{ h.contactEmail }}</template>
+              </p>
+            </div>
             <button
+              v-if="h.status === 'open'"
               type="button"
-              data-test="candidate-publish"
-              :disabled="busy || !formOf(c.id).target.trim()"
-              class="rounded bg-neteco-600 px-3 py-1 text-sm font-semibold text-white disabled:opacity-50"
-              @click="publish(c)"
+              data-test="handoff-claim"
+              :disabled="busy"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="handoffCommand(h, 'claim')"
             >
-              Registrar publicación
+              Me encargo yo
             </button>
-          </div>
-
-          <div v-if="c.status === 'published'" class="mt-3 space-y-2 text-sm">
-            <button type="button" data-test="candidate-deflection" class="rounded border px-3 py-1" @click="measure(c)">
-              Medir deflexión
-            </button>
-            <template v-if="deflections[c.id]">
-              <p v-if="deflections[c.id]!.status === 'insufficient_data'">
-                Datos insuficientes: {{ deflections[c.id]!.observedDays }} días observados (mínimo 7) o pocas consultas
-                previas.
-              </p>
-              <p v-else>
-                Deflexión real: <strong>{{ formatBp(deflections[c.id]!.deflectionBp) }}</strong>
-              </p>
-              <p>
-                Consultas antes de publicar: {{ deflections[c.id]!.before.turns }} ({{
-                  formatBp(deflections[c.id]!.before.rateBp)
-                }}
-                necesitaron a una persona)
-              </p>
-              <p>
-                Consultas después: {{ deflections[c.id]!.after.turns }} ({{ formatBp(deflections[c.id]!.after.rateBp) }}
-                necesitaron a una persona)
-              </p>
-            </template>
-          </div>
-        </article>
-      </div>
-
-      <div class="space-y-3">
-        <h3 class="text-lg font-semibold">Derivaciones a una persona</h3>
-        <p v-if="handoffs.length === 0" class="text-sm text-slate-500">No hay derivaciones pendientes.</p>
-        <article v-for="h in handoffs" :key="h.id" class="rounded-xl border bg-white p-4 text-sm">
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <span class="rounded-full px-2 py-0.5 font-semibold" :class="SLA_CLASSES[h.slaState]"
-              >{{ SLA_LABELS[h.slaState] }} · {{ formatInstant(h.slaDueAt) }}</span
+            <button
+              v-if="h.status === 'claimed'"
+              type="button"
+              data-test="handoff-resolve"
+              :disabled="busy"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="handoffCommand(h, 'resolve')"
             >
-            <span>{{ h.status === 'open' ? 'Sin asignar' : 'En curso' }}</span>
-            <span v-if="h.contactEmail">{{ h.contactEmail }}</span>
-          </div>
-          <p class="mt-2">{{ h.question }}</p>
-          <button
-            v-if="h.status === 'open'"
-            type="button"
-            data-test="handoff-claim"
-            :disabled="busy"
-            class="mt-2 rounded border px-3 py-1"
-            @click="handoffCommand(h, 'claim')"
-          >
-            Asignármela
-          </button>
-          <button
-            v-if="h.status === 'claimed'"
-            type="button"
-            data-test="handoff-resolve"
-            :disabled="busy"
-            class="mt-2 rounded border px-3 py-1"
-            @click="handoffCommand(h, 'resolve')"
-          >
-            Marcar resuelta
-          </button>
-        </article>
-      </div>
+              Marcar como resuelta
+            </button>
+          </li>
+        </ul>
+      </AdminCard>
     </template>
   </section>
 </template>

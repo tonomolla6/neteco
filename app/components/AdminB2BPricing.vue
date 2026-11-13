@@ -204,11 +204,12 @@ async function send(url?: string, body?: Record<string, unknown>) {
       uncertain.value = false
       error.value =
         status === 409
-          ? 'Las condiciones han cambiado; recarga y revisa la versión.'
+          ? 'Alguien ha cambiado estos datos mientras los editabas. Vuelve a cargar y revisa los valores.'
           : 'No se han podido guardar los cambios.'
     } else {
       uncertain.value = true
-      error.value = 'No se ha confirmado el resultado. Reintenta la misma operación.'
+      error.value =
+        'No sabemos si el cambio ha llegado a guardarse. Pulsa «Reintentar operación» para repetirlo sin duplicarlo.'
     }
   } finally {
     if (expected === generation) saving.value = false
@@ -264,144 +265,409 @@ function saveList() {
     categoryRules: list.categoryRules.map((r) => ({ ...r, discountBps: Number(r.discountBps) }))
   })
 }
+
+/* --- Presentación --- */
+const prefix = useId()
+const tab = ref('empresa')
+const TABS = [
+  { value: 'empresa', label: 'Condiciones por empresa' },
+  { value: 'tarifas', label: 'Tarifas' },
+  { value: 'transferencias', label: 'Transferencias' }
+]
+const COMPANY_STATUS_LABELS: Record<string, string> = {
+  pending: 'En revisión',
+  approved: 'Aprobada',
+  rejected: 'No aprobada',
+  suspended: 'Suspendida'
+}
+const removeOpen = ref(false)
+function confirmRemove() {
+  removeOpen.value = false
+  saveAssignment(true)
+}
+const PAYMENT_LABELS: Record<number, string> = {
+  0: 'Pago inmediato',
+  15: 'Transferencia a 15 días',
+  30: 'Transferencia a 30 días',
+  60: 'Transferencia a 60 días'
+}
 </script>
 <template>
-  <section class="space-y-5">
-    <p v-if="!enabled">Necesitas permiso de administración comercial y una sesión verificada.</p>
+  <section class="adm-stack">
+    <AdminEmptyState
+      v-if="!enabled"
+      icon="i-lucide-lock"
+      title="No tienes acceso a las tarifas"
+      description="Necesitas permiso de administración comercial y una sesión verificada."
+    />
     <template v-else>
-      <p v-if="loading" role="status">Cargando tarifas y condiciones…</p>
-      <p v-if="error" role="alert">{{ error }}</p>
-      <p v-if="notice" role="status">{{ notice }}</p>
-      <button v-if="uncertain" type="button" :disabled="saving" @click="send()">Reintentar operación</button>
-      <fieldset :disabled="loading || saving || uncertain" class="space-y-5">
-        <div>
-          <label
-            >Empresa
-            <select v-model="selectedCompany" name="company">
-              <option value="">Selecciona una empresa</option>
-              <option v-for="company in companies" :key="company.id" :value="company.id">
-                {{ company.legalName }} ({{ company.status }})
-              </option>
-            </select></label
+      <UAlert v-if="error" role="alert" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="error">
+        <template #actions>
+          <button
+            v-if="uncertain"
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="saving"
+            @click="send()"
           >
-        </div>
-        <template v-if="currentCompany">
-          <p>Exposición: {{ (currentCompany.exposureCents / 100).toFixed(2) }} €</p>
-          <form data-test="credit-form" class="space-y-2" @submit.prevent="saveCredit">
-            <h2>Condiciones y límite</h2>
-            <label
-              >Pago
-              <select v-model.number="credit.paymentDays">
-                <option :value="0">Inmediato</option>
-                <option :value="15">Transferencia a 15 días</option>
-                <option :value="30">Transferencia a 30 días</option>
-                <option :value="60">Transferencia a 60 días</option>
-              </select></label
-            >
-            <label
-              >Límite en céntimos
-              <input v-model.number="credit.creditLimitCents" type="number" min="0" step="1" required
-            /></label>
-            <label><input v-model="credit.blocked" type="checkbox" /> Bloquear crédito</label>
-            <label v-if="credit.blocked">Motivo del bloqueo <input v-model="credit.blockReason" required /></label>
-            <label>Motivo del cambio <input v-model="credit.reason" name="reason" minlength="3" required /></label>
-            <button type="submit">Guardar condiciones</button>
-          </form>
-          <form class="space-y-2" @submit.prevent="saveAssignment()">
-            <h2>Asignación de tarifa</h2>
-            <label
-              >Tarifa
-              <select v-model="assignment.priceListId" required>
-                <option value="">Selecciona</option>
-                <option v-for="tariff in priceLists" :key="tariff.id" :value="tariff.id">{{ tariff.name }}</option>
-              </select></label
-            >
-            <label>Válida desde (UTC) <input v-model="assignment.validFrom" required /></label
-            ><label>Hasta (UTC, opcional) <input v-model="assignment.validUntil" /></label
-            ><label>Motivo <input v-model="assignment.reason" minlength="3" required /></label>
-            <button type="submit">Asignar tarifa</button
-            ><button v-if="currentCompany.assignmentActive === 1" type="button" @click="saveAssignment(true)">
-              Retirar tarifa
-            </button>
-          </form>
-        </template>
-        <form class="space-y-2" @submit.prevent="saveList">
-          <h2>Tarifas profesionales</h2>
-          <label
-            >Tarifa
-            <select v-model="selectedList">
-              <option value="">Nueva tarifa</option>
-              <option v-for="tariff in priceLists" :key="tariff.id" :value="tariff.id">{{ tariff.name }}</option>
-            </select></label
-          >
-          <label>Código <input v-model="list.code" required /></label
-          ><label>Nombre <input v-model="list.name" required /></label
-          ><label
-            >Estado
-            <select v-model="list.status">
-              <option value="active">Activa</option>
-              <option value="inactive">Inactiva</option>
-            </select></label
-          >
-          <label
-            >Válida desde (UTC) <input v-model="list.validFrom" required placeholder="2026-01-01T00:00:00Z" /></label
-          ><label>Hasta (UTC, opcional) <input v-model="list.validUntil" /></label>
-          <div v-for="(rule, index) in list.variantRules" :key="index">
-            <label>Variante <input v-model="rule.variantId" required /></label
-            ><label
-              >Precio en céntimos <input v-model.number="rule.unitGrossCents" type="number" min="1" required /></label
-            ><button type="button" @click="list.variantRules.splice(index, 1)">Quitar variante</button>
-          </div>
-          <button type="button" @click="list.variantRules.push({ variantId: '', unitGrossCents: 1 })">
-            Añadir precio por variante
+            Reintentar operación
           </button>
-          <div v-for="(rule, index) in list.categoryRules" :key="index">
-            <label>Categoría <input v-model="rule.categoryId" required /></label
-            ><label
-              >Descuento en puntos básicos
-              <input v-model.number="rule.discountBps" type="number" min="0" max="9500" required /></label
-            ><button type="button" @click="list.categoryRules.splice(index, 1)">Quitar categoría</button>
+          <AdminButton v-else size="sm" icon="i-lucide-rotate-cw" :loading="loading" @click="load()">
+            Reintentar
+          </AdminButton>
+        </template>
+      </UAlert>
+      <UAlert
+        v-if="notice"
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="notice"
+      />
+      <p v-if="loading" role="status" class="adm-help">Cargando tarifas y condiciones…</p>
+
+      <AdminTabs v-model="tab" :tabs="TABS" label="Apartados de tarifas y crédito" />
+
+      <fieldset :disabled="loading || saving || uncertain" class="adm-stack m-0 min-w-0 border-0 p-0">
+        <div v-show="tab === 'empresa'" class="adm-stack">
+          <div class="adm-card adm-tablecard">
+            <div class="adm-tablecard__bar">
+              <div class="adm-toolbar">
+                <label :for="`${prefix}-company`" class="adm-label">Empresa</label>
+                <select :id="`${prefix}-company`" v-model="selectedCompany" name="company" class="min-w-0 sm:w-80">
+                  <option value="">Selecciona una empresa</option>
+                  <option v-for="company in companies" :key="company.id" :value="company.id">
+                    {{ company.legalName }} ({{
+                      COMPANY_STATUS_LABELS[company.status] ?? adminHumanize(company.status)
+                    }})
+                  </option>
+                </select>
+              </div>
+            </div>
+            <AdminEmptyState
+              v-if="!currentCompany"
+              compact
+              icon="i-lucide-building-2"
+              title="Elige una empresa"
+              description="Verás su crédito, su forma de pago y la tarifa que tiene asignada."
+            />
           </div>
-          <button type="button" @click="list.categoryRules.push({ categoryId: '', discountBps: 0 })">
-            Añadir descuento por categoría</button
-          ><label>Motivo <input v-model="list.reason" minlength="3" required /></label
-          ><button type="submit">Guardar tarifa</button>
-        </form>
-        <section class="space-y-2" aria-label="Conciliación de transferencias">
-          <h2>Transferencias de crédito B2B</h2>
-          <button type="button" data-test="load-transfers" @click="loadTransfers()">Cargar transferencias</button>
-          <template v-if="transfersLoaded">
-            <p v-if="!transfersEnabled">
-              La conciliación real de transferencias bancarias aún no está disponible; solo existe una simulación en
-              entorno local.
-            </p>
-            <template v-else>
-              <p>Simulación local: no se registra ningún cobro real ni se modifica ningún pedido.</p>
-              <p v-if="!transfers.length">No hay pedidos a crédito pendientes de transferencia.</p>
-              <form v-else data-test="transfer-form" class="space-y-2" @submit.prevent="reconcileTransfer">
-                <label
-                  >Pedido
-                  <select v-model="transfer.orderId" name="transfer-order" required>
+
+          <template v-if="currentCompany">
+            <div class="adm-grid">
+              <AdminStat
+                label="Crédito utilizado"
+                :value="adminMoney(currentCompany.exposureCents)"
+                hint="Pedidos pendientes de cobro"
+              />
+              <AdminStat label="Límite de crédito" :value="adminMoney(currentCompany.creditLimitCents ?? 0)" />
+              <AdminStat
+                label="Forma de pago"
+                :value="PAYMENT_LABELS[currentCompany.paymentDays ?? 0] ?? `${currentCompany.paymentDays} días`"
+                :hint="currentCompany.blocked === 1 ? 'Crédito bloqueado' : undefined"
+              />
+            </div>
+
+            <div class="grid items-start gap-5 lg:grid-cols-2">
+              <AdminCard title="Crédito y forma de pago">
+                <form :id="`${prefix}-credit`" data-test="credit-form" class="adm-stack" @submit.prevent="saveCredit">
+                  <AdminFormField v-slot="{ id }" label="Forma de pago">
+                    <select :id="id" v-model.number="credit.paymentDays">
+                      <option :value="0">Inmediato</option>
+                      <option :value="15">Transferencia a 15 días</option>
+                      <option :value="30">Transferencia a 30 días</option>
+                      <option :value="60">Transferencia a 60 días</option>
+                    </select>
+                  </AdminFormField>
+                  <AdminFormField
+                    v-slot="{ id }"
+                    label="Límite de crédito (en céntimos)"
+                    :help="`Equivale a ${adminMoney(Number(credit.creditLimitCents) || 0)}`"
+                  >
+                    <input :id="id" v-model.number="credit.creditLimitCents" type="number" min="0" step="1" required />
+                  </AdminFormField>
+                  <label class="adm-check"><input v-model="credit.blocked" type="checkbox" /> Bloquear crédito</label>
+                  <AdminFormField v-if="credit.blocked" v-slot="{ id }" label="Motivo del bloqueo" required>
+                    <input :id="id" v-model="credit.blockReason" required />
+                  </AdminFormField>
+                  <AdminFormField
+                    v-slot="{ id }"
+                    label="Motivo del cambio"
+                    help="Queda guardado en el historial."
+                    required
+                  >
+                    <input :id="id" v-model="credit.reason" name="reason" minlength="3" required />
+                  </AdminFormField>
+                </form>
+                <template #footer>
+                  <button type="submit" :form="`${prefix}-credit`" class="adm-btn adm-btn--primary">
+                    Guardar condiciones
+                  </button>
+                </template>
+              </AdminCard>
+
+              <AdminCard title="Tarifa asignada">
+                <form :id="`${prefix}-assignment`" class="adm-stack" @submit.prevent="saveAssignment()">
+                  <AdminFormField v-slot="{ id }" label="Tarifa" required>
+                    <select :id="id" v-model="assignment.priceListId" required>
+                      <option value="">Selecciona una tarifa</option>
+                      <option v-for="tariff in priceLists" :key="tariff.id" :value="tariff.id">
+                        {{ tariff.name }}
+                      </option>
+                    </select>
+                  </AdminFormField>
+                  <div class="adm-form-grid">
+                    <AdminFormField
+                      v-slot="{ id }"
+                      label="Válida desde"
+                      help="Fecha y hora universal, como 2026-01-01T00:00:00Z"
+                      required
+                    >
+                      <input :id="id" v-model="assignment.validFrom" required />
+                    </AdminFormField>
+                    <AdminFormField v-slot="{ id }" label="Válida hasta" help="Opcional. Mismo formato.">
+                      <input :id="id" v-model="assignment.validUntil" />
+                    </AdminFormField>
+                  </div>
+                  <AdminFormField v-slot="{ id }" label="Motivo" help="Queda guardado en el historial." required>
+                    <input :id="id" v-model="assignment.reason" minlength="3" required />
+                  </AdminFormField>
+                </form>
+                <template #footer>
+                  <button
+                    v-if="currentCompany.assignmentActive === 1"
+                    type="button"
+                    class="adm-btn adm-btn--danger-soft"
+                    @click="removeOpen = true"
+                  >
+                    Retirar tarifa
+                  </button>
+                  <button type="submit" :form="`${prefix}-assignment`" class="adm-btn adm-btn--secondary">
+                    Asignar tarifa
+                  </button>
+                </template>
+              </AdminCard>
+            </div>
+          </template>
+        </div>
+
+        <div v-show="tab === 'tarifas'">
+          <AdminCard title="Tarifas profesionales" description="Precios especiales y descuentos para empresas.">
+            <template #actions>
+              <label :for="`${prefix}-list`" class="adm-label">Editar</label>
+              <select :id="`${prefix}-list`" v-model="selectedList">
+                <option value="">Nueva tarifa</option>
+                <option v-for="tariff in priceLists" :key="tariff.id" :value="tariff.id">{{ tariff.name }}</option>
+              </select>
+            </template>
+            <form :id="`${prefix}-tariff`" class="adm-stack" @submit.prevent="saveList">
+              <div class="adm-form-grid">
+                <AdminFormField v-slot="{ id }" label="Nombre" required>
+                  <input :id="id" v-model="list.name" required />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Referencia" help="Nombre corto para identificarla." required>
+                  <input :id="id" v-model="list.code" required />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Estado">
+                  <select :id="id" v-model="list.status">
+                    <option value="active">Activa</option>
+                    <option value="inactive">Inactiva</option>
+                  </select>
+                </AdminFormField>
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Válida desde"
+                  help="Fecha y hora universal, como 2026-01-01T00:00:00Z"
+                  required
+                >
+                  <input :id="id" v-model="list.validFrom" required placeholder="2026-01-01T00:00:00Z" />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Válida hasta" help="Opcional. Mismo formato.">
+                  <input :id="id" v-model="list.validUntil" />
+                </AdminFormField>
+              </div>
+
+              <AdminSection title="Precios por producto" description="Precio fijo con IVA para una variante concreta.">
+                <template #actions>
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    @click="list.variantRules.push({ variantId: '', unitGrossCents: 1 })"
+                  >
+                    Añadir precio
+                  </button>
+                </template>
+                <p v-if="!list.variantRules.length" class="adm-help">Esta tarifa no tiene precios por producto.</p>
+                <div
+                  v-for="(rule, index) in list.variantRules"
+                  :key="index"
+                  class="mb-3 flex flex-wrap items-end gap-3"
+                >
+                  <AdminFormField v-slot="{ id }" label="Identificador de la variante" class="min-w-0 flex-1">
+                    <input :id="id" v-model="rule.variantId" required />
+                  </AdminFormField>
+                  <AdminFormField
+                    v-slot="{ id }"
+                    :label="`Precio en céntimos (${adminMoney(Number(rule.unitGrossCents) || 0)})`"
+                  >
+                    <input :id="id" v-model.number="rule.unitGrossCents" type="number" min="1" required />
+                  </AdminFormField>
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--ghost"
+                    aria-label="Quitar variante"
+                    title="Quitar variante"
+                    @click="list.variantRules.splice(index, 1)"
+                  >
+                    <UIcon name="i-lucide-trash-2" class="size-4" />
+                  </button>
+                </div>
+              </AdminSection>
+
+              <AdminSection
+                title="Descuentos por categoría"
+                description="Descuento sobre el precio normal de toda una categoría."
+              >
+                <template #actions>
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    @click="list.categoryRules.push({ categoryId: '', discountBps: 0 })"
+                  >
+                    Añadir descuento
+                  </button>
+                </template>
+                <p v-if="!list.categoryRules.length" class="adm-help">Esta tarifa no tiene descuentos por categoría.</p>
+                <div
+                  v-for="(rule, index) in list.categoryRules"
+                  :key="index"
+                  class="mb-3 flex flex-wrap items-end gap-3"
+                >
+                  <AdminFormField v-slot="{ id }" label="Identificador de la categoría" class="min-w-0 flex-1">
+                    <input :id="id" v-model="rule.categoryId" required />
+                  </AdminFormField>
+                  <AdminFormField
+                    v-slot="{ id }"
+                    :label="`Descuento en centésimas de % (${(Number(rule.discountBps) || 0) / 100} %)`"
+                  >
+                    <input :id="id" v-model.number="rule.discountBps" type="number" min="0" max="9500" required />
+                  </AdminFormField>
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--ghost"
+                    aria-label="Quitar categoría"
+                    title="Quitar categoría"
+                    @click="list.categoryRules.splice(index, 1)"
+                  >
+                    <UIcon name="i-lucide-trash-2" class="size-4" />
+                  </button>
+                </div>
+              </AdminSection>
+
+              <AdminFormField v-slot="{ id }" label="Motivo" help="Queda guardado en el historial." required>
+                <input :id="id" v-model="list.reason" minlength="3" required />
+              </AdminFormField>
+            </form>
+            <template #footer>
+              <button type="submit" :form="`${prefix}-tariff`" class="adm-btn adm-btn--primary">Guardar tarifa</button>
+            </template>
+          </AdminCard>
+        </div>
+
+        <section v-show="tab === 'transferencias'" aria-label="Conciliación de transferencias">
+          <AdminCard
+            title="Transferencias de pedidos a crédito"
+            description="Pedidos de empresas pendientes de cobro por transferencia."
+          >
+            <template #actions>
+              <button
+                type="button"
+                data-test="load-transfers"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                @click="loadTransfers()"
+              >
+                {{ transfersLoaded ? 'Actualizar' : 'Ver transferencias pendientes' }}
+              </button>
+            </template>
+            <AdminEmptyState
+              v-if="!transfersLoaded"
+              compact
+              icon="i-lucide-landmark"
+              title="Todavía no se han consultado"
+              description="Pulsa «Ver transferencias pendientes» para cargarlas."
+            />
+            <UAlert
+              v-else-if="!transfersEnabled"
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-info"
+              title="Aún no disponible"
+              description="La conciliación real de transferencias bancarias todavía no está disponible; solo existe una simulación en el entorno de pruebas."
+            />
+            <div v-else class="adm-stack">
+              <UAlert
+                color="warning"
+                variant="subtle"
+                icon="i-lucide-flask-conical"
+                title="Simulación local"
+                description="No se registra ningún cobro real ni se modifica ningún pedido."
+              />
+              <AdminEmptyState
+                v-if="!transfers.length"
+                compact
+                title="No hay pedidos a crédito pendientes de transferencia"
+              />
+              <form v-else data-test="transfer-form" class="adm-stack" @submit.prevent="reconcileTransfer">
+                <AdminFormField v-slot="{ id }" label="Pedido" required>
+                  <select :id="id" v-model="transfer.orderId" name="transfer-order" required>
                     <option value="">Selecciona un pedido</option>
                     <option v-for="order in transfers" :key="order.orderId" :value="order.orderId">
-                      {{ order.companyName }} · pendiente {{ (order.simulatedOutstandingCents / 100).toFixed(2) }} €
+                      {{ order.companyName }} · pendiente {{ adminMoney(order.simulatedOutstandingCents) }}
                     </option>
-                  </select></label
-                >
-                <label
-                  >Importe en céntimos
-                  <input v-model="transfer.amountCents" name="transfer-amount" type="number" min="1" step="1" required
-                /></label>
-                <label
-                  >Referencia bancaria <input v-model="transfer.bankReference" name="transfer-reference" required
-                /></label>
-                <label>Motivo <input v-model="transfer.reason" name="transfer-reason" minlength="3" required /></label>
-                <button type="submit">Simular conciliación</button>
+                  </select>
+                </AdminFormField>
+                <div class="adm-form-grid">
+                  <AdminFormField
+                    v-slot="{ id }"
+                    label="Importe (en céntimos)"
+                    :help="`Equivale a ${adminMoney(Number(transfer.amountCents) || 0)}`"
+                    required
+                  >
+                    <input
+                      :id="id"
+                      v-model="transfer.amountCents"
+                      name="transfer-amount"
+                      type="number"
+                      min="1"
+                      step="1"
+                      required
+                    />
+                  </AdminFormField>
+                  <AdminFormField v-slot="{ id }" label="Referencia bancaria" required>
+                    <input :id="id" v-model="transfer.bankReference" name="transfer-reference" required />
+                  </AdminFormField>
+                </div>
+                <AdminFormField v-slot="{ id }" label="Motivo" required>
+                  <input :id="id" v-model="transfer.reason" name="transfer-reason" minlength="3" required />
+                </AdminFormField>
+                <div>
+                  <button type="submit" class="adm-btn adm-btn--primary">Simular conciliación</button>
+                </div>
               </form>
-            </template>
-          </template>
+            </div>
+          </AdminCard>
         </section>
       </fieldset>
+
+      <AdminConfirm
+        v-model:open="removeOpen"
+        title="Retirar tarifa"
+        :description="`${currentCompany?.legalName ?? 'La empresa'} volverá a los precios normales. Se usará el motivo escrito en el formulario.`"
+        confirm-label="Retirar tarifa"
+        danger
+        @confirm="confirmRemove"
+      />
     </template>
   </section>
 </template>

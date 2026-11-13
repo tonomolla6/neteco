@@ -2,11 +2,11 @@
 import AdminSupportRca from '~/components/AdminSupportRca.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'support-access' })
-useSeoMeta({ title: 'RCA Incidencias Operativas · Admin' })
+useSeoMeta({ title: 'Causas de incidencias · Admin' })
 </script>
 
 <template>
-  <div class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+  <AdminPage>
     <AdminSupportRca />
-  </div>
+  </AdminPage>
 </template>

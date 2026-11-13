@@ -53,7 +53,7 @@ async function generateDraft() {
     draft.value = res
     editableReply.value = draft.value?.proposedReply || ''
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al generar borrador con el copiloto'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido preparar la propuesta de respuesta'
   } finally {
     loading.value = false
   }
@@ -78,9 +78,9 @@ async function approveDraft() {
     )) as { approvalStatus: string }
 
     draft.value.approvalStatus = res.approvalStatus || 'approved'
-    statusMessage.value = 'Respuesta aprobada por el operador'
+    statusMessage.value = 'Respuesta aprobada'
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al registrar la aprobación'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido registrar la aprobación'
   } finally {
     approving.value = false
   }
@@ -100,9 +100,9 @@ async function rejectDraft() {
       }
     })
     draft.value.approvalStatus = 'rejected'
-    statusMessage.value = 'Borrador descartado por el operador'
+    statusMessage.value = 'Propuesta descartada'
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al descartar el borrador'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido descartar la propuesta'
   } finally {
     approving.value = false
   }
@@ -125,87 +125,98 @@ async function rateAccuracy(score: number) {
     // Non blocking evaluation error
   }
 }
+const sourceLabels: Record<string, string> = {
+  order: 'Pedido',
+  shipment: 'Envío',
+  tracking: 'Seguimiento',
+  product: 'Producto',
+  policy: 'Condiciones',
+  invoice: 'Factura',
+  payment: 'Pago',
+  customer: 'Cliente',
+  ticket: 'Consulta'
+}
+const approvalLabels: Record<string, { label: string; tone: 'neutral' | 'success' | 'warning' | 'danger' }> = {
+  pending: { label: 'Pendiente de revisar', tone: 'warning' },
+  approved: { label: 'Aprobada', tone: 'success' },
+  modified_and_approved: { label: 'Aprobada con cambios', tone: 'success' },
+  rejected: { label: 'Descartada', tone: 'neutral' }
+}
 </script>
 
 <template>
-  <div class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div class="flex items-center justify-between border-b pb-3">
-      <div class="flex items-center gap-2">
-        <span
-          class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-xs font-bold text-indigo-700"
-        >
-          AI
-        </span>
-        <div>
-          <h3 class="text-sm font-bold text-slate-900">Copiloto de Soporte Neteco (SUP-019)</h3>
-          <p class="text-xs text-slate-500">Genera propuesta citando datos objetivos; requiere aprobación humana</p>
-        </div>
-      </div>
+  <AdminCard
+    title="Asistente de respuestas"
+    description="Propone una respuesta a partir de los datos del pedido. Siempre la revisa una persona antes de enviarla."
+  >
+    <template #actions>
       <button
         data-test="generate-copilot-draft"
         type="button"
         :disabled="loading"
-        class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
         @click="generateDraft"
       >
-        {{ loading ? 'Consultando datos...' : 'Proponer Respuesta' }}
+        {{ loading ? 'Consultando datos…' : 'Proponer respuesta' }}
       </button>
-    </div>
+    </template>
 
-    <!-- Error message -->
-    <div v-if="errorMessage" role="alert" class="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-700">
-      {{ errorMessage }}
-    </div>
+    <div class="adm-stack">
+      <UAlert
+        v-if="errorMessage"
+        role="alert"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        :title="errorMessage"
+      />
+      <UAlert
+        v-if="statusMessage"
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="statusMessage"
+      />
 
-    <!-- Status message -->
-    <div
-      v-if="statusMessage"
-      role="status"
-      class="mt-3 rounded-lg bg-emerald-50 p-3 text-xs font-medium text-emerald-800"
-    >
-      ✓ {{ statusMessage }}
-    </div>
+      <p v-if="!draft && !errorMessage" class="adm-help">
+        Pulsa «Proponer respuesta» para preparar un borrador que podrás editar.
+      </p>
 
-    <!-- Draft Content -->
-    <div v-if="draft" class="mt-4 space-y-4">
-      <!-- Grounded Citations Box -->
-      <div class="rounded-lg bg-slate-50 p-3">
-        <h4 class="text-xs font-bold uppercase tracking-wider text-slate-600">
-          Citas de datos verificadas (Fuente D1)
-        </h4>
-        <ul class="mt-2 space-y-1.5">
-          <li v-for="cit in draft.citations" :key="cit.id" class="flex items-start gap-2 text-xs text-slate-700">
-            <span class="rounded bg-indigo-100 px-1 py-0.5 font-mono text-[10px] font-bold text-indigo-800">
-              [{{ cit.sourceType }}]
-            </span>
-            <span>{{ cit.citationText }}</span>
-          </li>
-        </ul>
-      </div>
-
-      <!-- Proposed / Editable Reply -->
-      <div>
-        <div class="mb-1.5 flex items-center justify-between">
-          <label class="text-xs font-bold text-slate-700"> Respuesta propuesta (Editable antes de aprobar) </label>
-          <span class="text-[11px] text-slate-400"> Estado: {{ draft.approvalStatus }} </span>
+      <template v-if="draft">
+        <div class="rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3">
+          <p class="adm-label">Citas de datos verificadas</p>
+          <ul class="mt-2 space-y-1.5">
+            <li v-for="cit in draft.citations" :key="cit.id" class="flex flex-wrap items-start gap-2">
+              <AdminBadge tone="info" plain>{{
+                sourceLabels[cit.sourceType] ?? adminHumanize(cit.sourceType)
+              }}</AdminBadge>
+              <span class="min-w-0 break-words">{{ cit.citationText }}</span>
+            </li>
+          </ul>
         </div>
-        <textarea
-          v-model="editableReply"
-          rows="5"
-          :disabled="draft.approvalStatus !== 'pending'"
-          class="block w-full rounded-lg border border-slate-300 p-3 text-sm text-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-50"
-        />
-      </div>
 
-      <!-- Approval Actions -->
-      <div v-if="draft.approvalStatus === 'pending'" class="flex items-center justify-between border-t pt-3">
-        <span class="text-xs text-slate-500"> Supervisión humana obligatoria según política SUP-019 </span>
-        <div class="flex items-center gap-2">
+        <AdminFormField v-slot="{ id }" label="Respuesta propuesta" help="Puedes editarla antes de aprobarla.">
+          <textarea
+            :id="id"
+            v-model="editableReply"
+            rows="5"
+            :disabled="draft.approvalStatus !== 'pending'"
+            class="adm-input"
+          />
+        </AdminFormField>
+        <div>
+          <AdminBadge :tone="approvalLabels[draft.approvalStatus]?.tone ?? 'neutral'">
+            {{ approvalLabels[draft.approvalStatus]?.label ?? adminHumanize(draft.approvalStatus) }}
+          </AdminBadge>
+        </div>
+
+        <div v-if="draft.approvalStatus === 'pending'" class="flex flex-wrap justify-end gap-2">
           <button
             data-test="reject-draft"
             type="button"
             :disabled="approving"
-            class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+            class="adm-btn adm-btn--secondary"
             @click="rejectDraft"
           >
             Descartar
@@ -214,32 +225,30 @@ async function rateAccuracy(score: number) {
             data-test="approve-draft"
             type="button"
             :disabled="approving"
-            class="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+            class="adm-btn adm-btn--primary"
             @click="approveDraft"
           >
-            Aprobar y Enviar
+            Aprobar y enviar
           </button>
         </div>
-      </div>
 
-      <!-- Accuracy Evaluation -->
-      <div v-else class="rounded-lg border border-slate-100 bg-slate-50 p-3">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-medium text-slate-600"> Evaluación de exactitud de la propuesta: </span>
-          <div class="flex items-center gap-1">
+        <div v-else class="flex flex-wrap items-center justify-between gap-2">
+          <span class="adm-label">¿Era correcta la propuesta?</span>
+          <div class="flex items-center gap-1" role="group" aria-label="Valoración de 1 a 5">
             <button
               v-for="s in [1, 2, 3, 4, 5]"
               :key="s"
               type="button"
-              class="px-1.5 py-0.5 text-xs font-bold"
-              :class="draft.accuracyScore === s ? 'text-indigo-600' : 'text-slate-400 hover:text-indigo-500'"
+              class="adm-chip"
+              :aria-pressed="draft.accuracyScore === s"
+              :aria-label="`${s} de 5`"
               @click="rateAccuracy(s)"
             >
-              ★ {{ s }}
+              {{ s }}
             </button>
           </div>
         </div>
-      </div>
+      </template>
     </div>
-  </div>
+  </AdminCard>
 </template>
