@@ -12,6 +12,10 @@ export interface AdminColumn<Row> {
   hideOnMobile?: boolean
   /** Anchura fija opcional (p. ej. '8rem'). */
   width?: string
+  /** Columna secundaria: empieza oculta y se activa desde «Columnas». */
+  secondary?: boolean
+  /** El contenido puede ocupar varias líneas (nombres largos); el resto de celdas cortas no salta. */
+  wrap?: boolean
   value?: (row: Row) => unknown
 }
 
@@ -34,6 +38,10 @@ const props = withDefaults(
     filtered?: boolean
     errorMessage?: string
     caption?: string
+    /** Selector «Columnas»: por defecto aparece con seis o más columnas o si alguna es secundaria. */
+    columnPicker?: boolean
+    /** Clave para recordar en este navegador las columnas elegidas (por defecto, la ruta). */
+    columnsKey?: string
   }>(),
   {
     status: 'idle',
@@ -46,7 +54,9 @@ const props = withDefaults(
     emptyIcon: 'i-lucide-inbox',
     filtered: false,
     errorMessage: 'No hemos podido cargar estos datos. Vuelve a intentarlo.',
-    caption: undefined
+    caption: undefined,
+    columnPicker: undefined,
+    columnsKey: undefined
   }
 )
 const emit = defineEmits<{
@@ -61,6 +71,42 @@ const sortKey = defineModel<string>('sortKey', { default: '' })
 const sortDir = defineModel<'asc' | 'desc'>('sortDir', { default: 'asc' })
 
 const remote = computed(() => props.total !== undefined)
+
+// Columnas visibles: las secundarias empiezan ocultas; la elección se recuerda por pantalla.
+const route = useRoute()
+const storageKey = computed(() => 'neteco-admin-columns:' + (props.columnsKey ?? route.path))
+const hidden = ref<string[]>([])
+hidden.value = props.columns.filter((column) => column.secondary).map((column) => column.key)
+const defaultHidden = () => props.columns.filter((column) => column.secondary).map((column) => column.key)
+function restoreColumns() {
+  hidden.value = defaultHidden()
+  if (!import.meta.client) return
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(storageKey.value) ?? 'null')
+    if (Array.isArray(saved)) hidden.value = saved.filter((key): key is string => typeof key === 'string')
+  } catch {
+    // Sin almacenamiento disponible se usan las columnas por defecto.
+  }
+}
+onMounted(restoreColumns)
+watch(storageKey, restoreColumns)
+const shown = computed(() => {
+  const list = props.columns.filter((column) => !hidden.value.includes(column.key))
+  return list.length ? list : props.columns.slice(0, 1)
+})
+const pickable = computed(
+  () => props.columnPicker ?? (props.columns.length >= 6 || props.columns.some((column) => column.secondary))
+)
+function toggleColumn(key: string) {
+  const next = hidden.value.includes(key) ? hidden.value.filter((entry) => entry !== key) : [...hidden.value, key]
+  if (next.length >= props.columns.length) return
+  hidden.value = next
+  try {
+    window.localStorage.setItem(storageKey.value, JSON.stringify(next))
+  } catch {
+    // La elección vale para esta visita aunque no se pueda guardar.
+  }
+}
 function cell(row: T, column: AdminColumn<T>): unknown {
   return column.value ? column.value(row) : row[column.key]
 }
@@ -116,12 +162,15 @@ function open(row: T, event: MouseEvent) {
   const target = props.rowTo?.(row)
   if (target) void router.push(target)
 }
-const mobileColumns = computed(() => props.columns.filter((column) => !column.hideOnMobile))
+const mobileColumns = computed(() => shown.value.filter((column) => !column.hideOnMobile))
 </script>
 
 <template>
   <div class="adm-card adm-tablecard">
-    <div v-if="$slots.toolbar || (selectable && selected.length)" class="adm-tablecard__bar">
+    <div
+      v-if="$slots.toolbar || pickable || (selectable && selected.length)"
+      class="adm-tablecard__bar adm-tablecard__bar--split"
+    >
       <div v-if="selectable && selected.length" class="adm-toolbar">
         <p class="font-semibold text-[var(--text-strong)]">
           {{ selected.length }} seleccionado{{ selected.length === 1 ? '' : 's' }}
@@ -131,7 +180,24 @@ const mobileColumns = computed(() => props.columns.filter((column) => !column.hi
           <AdminButton variant="ghost" size="sm" @click="selected = []">Quitar selección</AdminButton>
         </div>
       </div>
-      <slot v-else name="toolbar" />
+      <div v-else><slot name="toolbar" /></div>
+      <UPopover v-if="pickable && rows.length" :content="{ align: 'end' }">
+        <AdminButton icon="i-lucide-columns-3" class="hidden md:inline-flex">Columnas</AdminButton>
+        <template #content>
+          <fieldset class="adm-columns">
+            <legend class="adm-label">Columnas visibles</legend>
+            <label v-for="column in columns" :key="column.key" class="adm-check">
+              <input
+                type="checkbox"
+                :checked="!hidden.includes(column.key)"
+                :disabled="shown.length === 1 && !hidden.includes(column.key)"
+                @change="toggleColumn(column.key)"
+              />
+              <span>{{ column.label }}</span>
+            </label>
+          </fieldset>
+        </template>
+      </UPopover>
     </div>
 
     <div v-if="status === 'pending' && !rows.length" class="adm-table-skeleton" aria-busy="true">
@@ -178,7 +244,7 @@ const mobileColumns = computed(() => props.columns.filter((column) => !column.hi
                 />
               </th>
               <th
-                v-for="column in columns"
+                v-for="column in shown"
                 :key="column.key"
                 scope="col"
                 :data-numeric="column.numeric ? '' : undefined"
@@ -220,7 +286,12 @@ const mobileColumns = computed(() => props.columns.filter((column) => !column.hi
                   @change="toggleRow(rowKey(row))"
                 />
               </td>
-              <td v-for="column in columns" :key="column.key" :data-numeric="column.numeric ? '' : undefined">
+              <td
+                v-for="column in shown"
+                :key="column.key"
+                :data-numeric="column.numeric ? '' : undefined"
+                :class="column.wrap ? 'adm-table__main' : undefined"
+              >
                 <slot :name="`cell-${column.key}`" :row="row" :value="cell(row, column)">
                   {{ cell(row, column) ?? '—' }}
                 </slot>

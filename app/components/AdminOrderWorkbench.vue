@@ -263,13 +263,15 @@ function selectPage() {
     selectedRows.value.length === snapshot.value.items.length ? [] : snapshot.value.items.map((row) => row.id)
   batchCompleted.value = false
 }
-const columns = ref<Array<(typeof ADMIN_ORDER_VIEW_COLUMNS)[number]>>([...ADMIN_ORDER_VIEW_COLUMNS])
+// «Factura» es secundaria: empieza oculta para que la tabla quepa sin desplazamiento; se activa en «Columnas».
+const DEFAULT_COLUMNS = ADMIN_ORDER_VIEW_COLUMNS.filter((column) => column !== 'invoiceStatus')
+const columns = ref<Array<(typeof ADMIN_ORDER_VIEW_COLUMNS)[number]>>([...DEFAULT_COLUMNS])
 const columnLabels = {
   createdAt: 'Fecha',
   customer: 'Cliente',
   total: 'Total',
   paymentStatus: 'Pago',
-  fulfillmentStatus: 'Estado de preparación',
+  fulfillmentStatus: 'Preparación',
   shippingMethod: 'Entrega',
   invoiceStatus: 'Factura'
 }
@@ -505,7 +507,7 @@ watch(
   (next) => {
     purge()
     Object.assign(filters, defaults())
-    columns.value = [...ADMIN_ORDER_VIEW_COLUMNS]
+    columns.value = [...DEFAULT_COLUMNS]
     lastQuery = initialQuery()
     if (next && !initialReadStarted) {
       initialReadStarted = true
@@ -837,7 +839,7 @@ onBeforeUnmount(() => {
                   >
                     {{ columnLabels[column] }}
                   </th>
-                  <th scope="col" data-numeric>Preparación</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -870,7 +872,13 @@ onBeforeUnmount(() => {
                     v-for="column in columns"
                     :key="column"
                     :data-numeric="column === 'total' ? '' : undefined"
-                    :class="column === 'createdAt' || column === 'total' ? 'whitespace-nowrap' : 'max-w-64'"
+                    :class="
+                      column === 'customer'
+                        ? 'adm-table__main'
+                        : column === 'shippingMethod'
+                          ? undefined
+                          : 'whitespace-nowrap'
+                    "
                   >
                     <AdminBadge v-if="cellTone(order, column)" :tone="cellTone(order, column) ?? undefined">
                       {{ cell(order, column) }}

@@ -1554,3 +1554,162 @@ a.adm-breakdown__row:hover .adm-breakdown__label {
   padding-left: 2rem !important;
   width: 100%;
 }
+
+/* ── Tablas: ninguna parte palabras ni se corta ──────────────────────────
+   Las celdas solo saltan de línea entre palabras; importes, fechas cortas, estados y
+   botones no saltan nunca. Si aun así no cabe, la tabla se desplaza dentro de su marco
+   (nunca la página) con una barra fina. */
+.adm-table :is(th, td),
+.adm-body table :is(th, td),
+.adm-body table :is(th, td) [class*='break-'] {
+  overflow-wrap: normal !important;
+  word-break: normal !important;
+  hyphens: manual;
+}
+.adm-table :is(th, td)[data-numeric],
+.adm-body table :is(th, td):is(.text-right, .tabular-nums),
+.adm-body table td :is(.adm-badge, .adm-btn, .adm-chip, time, code, kbd, .tabular-nums, .font-mono) {
+  white-space: nowrap;
+}
+.adm-table td.adm-table__main {
+  min-width: 11rem;
+  max-width: 18rem;
+}
+.adm-table-wrap,
+.adm-body :where(div, section, article, li, form, details, fieldset):has(> table) {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  overscroll-behavior-x: contain;
+}
+.adm-table-wrap:focus-visible {
+  outline: 2px solid var(--color-neteco-600);
+  outline-offset: -2px;
+}
+/* Cifras y referencias: nunca en dos líneas. */
+.adm-stat__value,
+.adm-page__count,
+.adm-body :is(.tabular-nums, [data-nowrap]) {
+  white-space: nowrap;
+}
+/* Selector de columnas de AdminTable. */
+.adm-tablecard__bar--split {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+.adm-tablecard__bar--split > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.adm-columns {
+  display: grid;
+  gap: 0.375rem;
+  min-width: 12rem;
+  padding: 0.75rem;
+}
+
+/* ── Ajustes en solo lectura (nombre y ayuda a la izquierda, valor en vigor a la derecha) ── */
+.adm-settings__row {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 0.25rem 1.5rem;
+  align-items: start;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+.adm-settings__row:last-child {
+  border-bottom: 0;
+}
+.adm-settings__label {
+  display: block;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+.adm-settings__help {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+.adm-settings__row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.375rem 1rem;
+  min-width: 0;
+}
+.adm-settings__value {
+  min-width: 0;
+  color: var(--text-strong);
+  overflow-wrap: anywhere;
+}
+.adm-settings__missing {
+  color: var(--text-muted);
+}
+.adm-settings__variable {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+.adm-settings__skeleton {
+  display: block;
+  width: 9rem;
+  height: 1rem;
+  border-radius: 0.25rem;
+  background: var(--surface-sunken);
+}
+.adm-settings-notice {
+  display: flex;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+.adm-settings-notice strong {
+  color: var(--text-strong);
+}
+.adm-settings-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+@media (max-width: 47.99rem) {
+  .adm-settings__row {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.75rem 1rem;
+  }
+  .adm-settings__variable {
+    margin-left: 0;
+    text-align: left;
+    flex-basis: 100%;
+  }
+}
+/* Celdas algo más juntas en horizontal: caben más columnas sin desplazamiento. */
+.adm-table :is(th, td) {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+.adm-table :is(th, td):first-child {
+  padding-left: 1rem;
+}
+.adm-table :is(th, td):last-child {
+  padding-right: 1rem;
+}
+/* El nombre de la variable va siempre en su propia línea, bajo el valor, y solo salta por los guiones bajos. */
+.adm-settings__row dd {
+  justify-content: flex-start;
+}
+.adm-settings__variable {
+  flex-basis: 100%;
+  margin-left: 0;
+  text-align: left;
+  overflow-wrap: break-word;
+}

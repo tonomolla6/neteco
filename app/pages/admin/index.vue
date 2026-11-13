@@ -422,18 +422,25 @@ const shortcuts = computed(() =>
               @retry="refreshOrders()"
             >
               <template #cell-id="{ row }">
-                <NuxtLink :to="`/admin/pedidos/${row.id}`" class="font-semibold text-[var(--link)] hover:underline">
+                <NuxtLink
+                  :to="`/admin/pedidos/${row.id}`"
+                  class="font-semibold whitespace-nowrap text-[var(--link)] hover:underline"
+                >
                   #{{ row.id.slice(0, 8).toUpperCase() }}
                 </NuxtLink>
               </template>
               <template #cell-customer="{ row }">{{ row.company || row.name || '—' }}</template>
-              <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt, true) }}</template>
+              <template #cell-createdAt="{ row }">
+                <span class="whitespace-nowrap">{{ adminDate(row.createdAt, true) }}</span>
+              </template>
               <template #cell-status="{ row }">
                 <AdminBadge :tone="STATUS_TONE[ORDER_STATUS[row.status]?.color ?? 'neutral'] ?? 'neutral'">
                   {{ ORDER_STATUS[row.status]?.label ?? adminStatusLabel(row.status) }}
                 </AdminBadge>
               </template>
-              <template #cell-total="{ row }">{{ adminMoney(row.total) }}</template>
+              <template #cell-total="{ row }">
+                <span class="whitespace-nowrap">{{ adminMoney(row.total) }}</span>
+              </template>
             </AdminTable>
           </AdminSection>
         </div>
