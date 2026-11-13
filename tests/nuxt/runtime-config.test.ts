@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { useNuxtApp, useRuntimeConfig } from '#app'
 import { validateRuntimeConfiguration } from '../../server/utils/runtime-config'
 
 const localConfiguration = {
@@ -100,6 +101,27 @@ const productionConfiguration = {
 } as const
 
 describe('runtime configuration', () => {
+  it('injects the real Nuxt public configuration without private provider or storage fields', () => {
+    const config = useRuntimeConfig()
+    expect(useNuxtApp().$config).toBe(config)
+    expect(config.public).toMatchObject({
+      appEnv: expect.stringMatching(/^(local|test|demo|preview|production)$/),
+      baseUrl: expect.stringMatching(/^https?:\/\//),
+      priceDisplayMode: expect.stringMatching(/^(gross|net)$/)
+    })
+    for (const key of [
+      'databaseUrl',
+      'redisUrl',
+      'auth.tokenPepper',
+      'auth.encryptionKey',
+      'redsys.secretKey',
+      'beply.token',
+      'session.password'
+    ]) {
+      expect(config.public).not.toHaveProperty(key)
+    }
+  })
+
   it('allows only safe mocks outside production', () => {
     expect(validateRuntimeConfiguration(localConfiguration).appEnv).toBe('local')
   })

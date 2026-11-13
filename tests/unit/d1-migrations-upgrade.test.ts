@@ -71,11 +71,18 @@ function existingData(sqlite: DatabaseSync) {
       (c) => c.name
     )
     const query = `SELECT ${columns.map(ident).join(',')} FROM ${ident(name)} ORDER BY ${columns.map(ident).join(',')}`
-    return { query, rows: sqlite.prepare(query).all() }
+    return { name, query, rows: sqlite.prepare(query).all() }
   })
 }
 function preserved(sqlite: DatabaseSync, before: ReturnType<typeof existingData>) {
-  for (const table of before) expect(sqlite.prepare(table.query).all(), table.query).toEqual(table.rows)
+  for (const table of before) {
+    // 0156 explicitly enables selling with supplier lead time. Compare every
+    // historical field while requiring this one authorized data transition.
+    const expected =
+      table.name === 'variants' ? table.rows.map((row) => ({ ...row, backorder_allowed: 1 })) : table.rows
+    expect(sqlite.prepare(table.query).all(), table.query).toEqual(expected)
+  }
+  expect(sqlite.prepare('SELECT count(*) n FROM variants WHERE backorder_allowed<>1').get()).toEqual({ n: 0 })
   expect(sqlite.prepare('PRAGMA foreign_keys').get()).toEqual({ foreign_keys: 1 })
   expect(sqlite.prepare('PRAGMA foreign_key_check').all()).toEqual([])
   expect(sqlite.prepare('PRAGMA integrity_check').all()).toEqual([{ integrity_check: 'ok' }])
@@ -242,7 +249,7 @@ it('applies the complete current chain to empty SQLite with D1 limits and valid 
     sqlite.close()
   }
 })
-it('upgrades populated 0055 through current preserving historical colors, quotes, governed prices, stock and every original field', async () => {
+it('upgrades populated 0055 through current preserving historical colors, quotes, governed prices, stock and every field except the approved backorder transition', async () => {
   const sqlite = sqliteDatabase(),
     db = d1OverSqlite(sqlite)
   try {

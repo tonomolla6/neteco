@@ -360,6 +360,8 @@ describe('commerce transaction spine', () => {
   })
 
   it('serializes the last unit, decrements physical stock once and rejects overselling', async () => {
+    // This counterexample explicitly forbids backorders; migration 0030 enables them by default.
+    await sql`UPDATE variants SET backorder_allowed=false WHERE id=${stock.variantId}`
     await sql`
       UPDATE inventory_balances SET physical_quantity = 1
       WHERE variant_id = ${stock.variantId} AND location_id = ${stock.locationId}
@@ -418,6 +420,33 @@ describe('commerce transaction spine', () => {
     expect(state).toEqual({ physical: 0, reservations: 1, allocations: 1, allocatedQuantity: -1, invoicesQueued: 1 })
 
     await expect(createOrder(await cartInput())).rejects.toMatchObject({ statusCode: 409 })
+  })
+
+  it('accepts concurrent permitted backorders without changing physical stock or allocating unpaid orders', async () => {
+    await sql`UPDATE variants SET backorder_allowed=true WHERE id=${stock.variantId}`
+    await sql`UPDATE inventory_balances SET physical_quantity=1 WHERE variant_id=${stock.variantId} AND location_id=${stock.locationId}`
+    const inputs = await Promise.all([cartInput(), cartInput()])
+    const orders = await Promise.all(inputs.map((input) => createOrder(input)))
+    expect(new Set(orders.map((order) => order.id)).size).toBe(2)
+    const [state] = await sql<
+      {
+        physical: number
+        orders: number
+        reservations: number
+        reservedQuantity: number
+        allocations: number
+        invoices: number
+      }[]
+    >`
+      SELECT
+        (SELECT physical_quantity FROM inventory_balances WHERE variant_id=${stock.variantId} AND location_id=${stock.locationId})::int AS physical,
+        (SELECT count(*) FROM orders WHERE cart_id IN ${sql(inputs.map((input) => input.cartId))})::int AS orders,
+        (SELECT count(*) FROM inventory_reservations WHERE variant_id=${stock.variantId} AND status='active')::int AS reservations,
+        (SELECT COALESCE(sum(quantity),0) FROM inventory_reservations WHERE variant_id=${stock.variantId} AND status='active')::int AS "reservedQuantity",
+        (SELECT count(*) FROM inventory_movements WHERE variant_id=${stock.variantId} AND movement_type='allocate')::int AS allocations,
+        (SELECT count(*) FROM outbox_events event JOIN orders ON orders.id=event.aggregate_id WHERE orders.cart_id IN ${sql(inputs.map((input) => input.cartId))} AND event.event_type='invoice.issue.requested')::int AS invoices
+    `
+    expect(state).toEqual({ physical: 1, orders: 2, reservations: 2, reservedQuantity: 2, allocations: 0, invoices: 0 })
   })
 
   it('deduplicates provider event IDs and ignores stale failures after capture', async () => {

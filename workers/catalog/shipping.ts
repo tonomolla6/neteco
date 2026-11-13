@@ -161,8 +161,7 @@ export async function resolveShippingOptions(
               COALESCE(sp.kind, 'parcel') AS profileKind,
               (SELECT TOTAL(${sellableExpression()}) FROM inventory_balances b WHERE b.variant_id=v.id) AS availableQuantity,
               v.backorder_allowed AS backorderAllowed,v.lead_time_days AS leadTimeDays,
-              v.sku AS sku,
-              (SELECT restock_default_days FROM fulfillment_lead_time_policy WHERE id = 1) AS defaultRestockDays
+              v.sku AS sku
        FROM cart_lines cl
        LEFT JOIN variants v ON v.id = cl.variant_id
        LEFT JOIN products p ON p.id = v.product_id
@@ -177,6 +176,17 @@ export async function resolveShippingOptions(
     if (!line.published) throw new ShippingError('variant_not_available', 'Cart contains an unpublished variant')
 
   if (lines.results.some((line) => line.profileKind === 'adr')) return { destinationHash: hash, options: [] }
+
+  // A checkout created before migration 0156 has no shipment-plan tables. Keep
+  // its legacy snapshot shape; a partial migration must never offer a plan that
+  // cannot be persisted atomically with the order.
+  const { results: fulfillmentTables } = await database
+    .prepare(
+      "SELECT name FROM sqlite_schema WHERE type='table' AND name IN('fulfillment_lead_time_policy','order_shipment_plans')"
+    )
+    .all<{ name: string }>()
+  const shipmentPlansEnabled = fulfillmentTables.length === 2
+  if (fulfillmentTables.length !== 0 && !shipmentPlansEnabled) throw new Error('incomplete_fulfillment_schema')
 
   const { results } = await prepareShippingRatesStatement(database).all<RateRow>()
   let options = mapShippingOptions(lines.results, results, input.destination)
@@ -196,6 +206,16 @@ export async function resolveShippingOptions(
   const calendar = await readD1ShippingCalendarConfiguration(database)
   // Plazo de cada línea: 0 con existencias; si no, su reposición (variante o plazo por defecto).
   // Una variante que no admite pedido sin existencias deja la fecha sin estimar, como antes.
+  const needsDefaultRestock = lines.results.some(
+    (line) => Number(line.availableQuantity) < line.quantity && line.leadTimeDays == null
+  )
+  const restockPolicy =
+    shipmentPlansEnabled && needsDefaultRestock
+      ? await database
+          .prepare('SELECT restock_default_days AS days FROM fulfillment_lead_time_policy WHERE id = 1')
+          .first<{ days: number }>()
+      : null
+  const defaultRestockDays = restockPolicy?.days ?? DEFAULT_RESTOCK_LEAD_DAYS
   let leadKnown = true
   const leadByVariant = new Map<string, number>()
   for (const line of lines.results) {
@@ -208,14 +228,18 @@ export async function resolveShippingOptions(
     )
       throw new ShippingError('invalid_input', 'Invalid authoritative supplier lead time')
     const available = Number(line.availableQuantity)
-    if (available < line.quantity && line.backorderAllowed !== 1) leadKnown = false
+    if (
+      available < line.quantity &&
+      (line.backorderAllowed !== 1 || (!shipmentPlansEnabled && line.leadTimeDays == null))
+    )
+      leadKnown = false
     leadByVariant.set(
       line.variantId,
       lineLeadDays({
         quantity: line.quantity,
         availableQuantity: available,
         leadTimeDays: line.leadTimeDays,
-        defaultRestockDays: line.defaultRestockDays ?? DEFAULT_RESTOCK_LEAD_DAYS
+        defaultRestockDays
       })
     )
   }
@@ -239,6 +263,15 @@ export async function resolveShippingOptions(
       sku: line.sku ?? '',
       quantity: line.quantity
     }))
+  if (!shipmentPlansEnabled)
+    return {
+      destinationHash: hash,
+      options: options.map((option) => ({
+        ...option,
+        etaValidUntil,
+        eta: etaFor(option, leadKnown ? slowestLeadDays : null)
+      }))
+    }
   const together: ShippingOption[] = options.map((option) => {
     const eta = etaFor(option, leadKnown ? slowestLeadDays : null)
     return {

@@ -4,6 +4,7 @@ import { splitGross } from '../../server/domain/money'
 import { handleCartCommand } from '../../workers/cart-coordinator'
 import { handleStorefrontCartHttp } from '../../workers/catalog/storefront-cart'
 import { handleStorefrontShippingHttp } from '../../workers/catalog/storefront-shipping'
+import { resolveShippingOptions } from '../../workers/catalog/shipping'
 import { applyGeneratedSeed, d1OverSqlite, openMigratedDatabase, seedInventoryFixture } from '../support/d1-sqlite'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { testUuid } from '../support/deterministic'
@@ -302,5 +303,74 @@ describe('Cloudflare storefront shipping bridge', () => {
     })
     expect((await handleStorefrontShippingHttp(missingIp, deps))?.status).toBe(503)
     expect((sqlite.prepare('SELECT count(*) AS n FROM shipping_quotes').get() as { n: number }).n).toBe(0)
+  })
+})
+
+describe('shipping across the shipment-plan schema transition', () => {
+  it.each([null, 3])(
+    'keeps a legacy checkout usable without inventing a new shipment plan (supplier lead %s)',
+    async (lead) => {
+      const { sqlite, database } = await world()
+      try {
+        sqlite.exec('DROP TABLE order_shipment_plans; DROP TABLE fulfillment_lead_time_policy')
+        sqlite.prepare('UPDATE variants SET lead_time_days=?, backorder_allowed=1').run(lead)
+        if (lead !== null) sqlite.exec('UPDATE inventory_balances SET physical_quantity=0')
+        const cart = sqlite.prepare('SELECT id FROM carts').get() as { id: string }
+        const result = await resolveShippingOptions(database, {
+          cartId: cart.id,
+          now: NOW,
+          destination: { postalCode: '46870', city: 'Ontinyent' }
+        })
+        expect(result.options.length).toBeGreaterThan(0)
+        for (const option of result.options) {
+          expect(option.shipments).toBeUndefined()
+          expect(option.shipmentMode).toBeUndefined()
+          expect(option.eta).toMatchObject({ status: 'unknown', from: null, to: null })
+        }
+      } finally {
+        sqlite.close()
+      }
+    }
+  )
+
+  it('fails closed for a partially installed shipment schema before offering an unusable plan', async () => {
+    const { sqlite, database } = await world()
+    try {
+      sqlite.exec('DROP TABLE order_shipment_plans')
+      const cart = sqlite.prepare('SELECT id FROM carts').get() as { id: string }
+      await expect(
+        resolveShippingOptions(database, {
+          cartId: cart.id,
+          now: NOW,
+          destination: { postalCode: '46870', city: 'Ontinyent' }
+        })
+      ).rejects.toThrow('incomplete_fulfillment_schema')
+      expect(sqlite.prepare('SELECT count(*) n FROM shipping_quotes').get()).toEqual({ n: 0 })
+    } finally {
+      sqlite.close()
+    }
+  })
+
+  it('uses the configured default for missing supplier lead time with the complete current schema', async () => {
+    const { sqlite, database } = await world()
+    try {
+      sqlite.exec(
+        'UPDATE inventory_balances SET physical_quantity=0; UPDATE variants SET lead_time_days=NULL, backorder_allowed=1; UPDATE fulfillment_lead_time_policy SET restock_default_days=11'
+      )
+      const cart = sqlite.prepare('SELECT id FROM carts').get() as { id: string }
+      const result = await resolveShippingOptions(database, {
+        cartId: cart.id,
+        now: NOW,
+        destination: { postalCode: '46870', city: 'Ontinyent' }
+      })
+      expect(result.options.length).toBeGreaterThan(0)
+      for (const option of result.options) {
+        expect(option.shipmentMode).toBe('together')
+        expect(option.shipments).toHaveLength(1)
+        expect(option.shipments![0]!.leadDays).toBe(11)
+      }
+    } finally {
+      sqlite.close()
+    }
   })
 })

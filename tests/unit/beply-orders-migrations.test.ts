@@ -8,8 +8,20 @@ const directories = vi.hoisted(() => [] as string[])
 // existing delivery/privacy tests alongside this targeted configuration test.
 vi.mock('node:fs/promises', async (original) => {
   const fs = await original<typeof import('node:fs/promises')>()
+  const { resolve } = await import('node:path')
+  const bundleDirectory = resolve('.wrangler/shop-bundle')
   return {
     ...fs,
+    // This unit checks the real manifest/SQL with a Miniflare double. Only its
+    // emitted-code inputs are stubbed; migration reads still use the real fs.
+    readFile: vi.fn(async (...args: Parameters<typeof fs.readFile>) => {
+      if (args[0] === resolve(bundleDirectory, 'shop.js')) return 'export default {}'
+      return fs.readFile(...args)
+    }),
+    readdir: vi.fn(async (...args: Parameters<typeof fs.readdir>) => {
+      if (args[0] === bundleDirectory) return []
+      return fs.readdir(...args)
+    }),
     access: vi.fn().mockResolvedValue(undefined),
     mkdtemp: vi.fn(async (prefix: string) => {
       const directory = await fs.mkdtemp(prefix)

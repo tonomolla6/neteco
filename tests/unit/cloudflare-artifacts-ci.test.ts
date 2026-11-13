@@ -14,6 +14,8 @@ const scripts = (
 ).scripts
 interface Step {
   run?: string
+  shell?: string
+  env?: Record<string, string>
   uses?: string
   id?: string
   if?: string
@@ -131,11 +133,15 @@ it('requires compiled contracts after building and before browser auditing or pu
   const steps = workflow.jobs['shop-runtime']!.steps
   const build = steps.findIndex((step) => step.run === 'npm run build:shop:cloudflare')
   const compiled = steps.findIndex((step) => step.run === 'npm run test:compiled')
-  const browser = steps.findIndex((step) => step.run === 'npx playwright install chromium')
   const audit = steps.findIndex((step) => step.run === 'npm run audit:shop:ci')
   expect(build).toBeGreaterThan(-1)
   expect(compiled).toBeGreaterThan(build)
-  expect(browser).toBeGreaterThan(compiled)
+  expect(steps[audit]?.shell).toBe('/usr/local/libexec/neteco-ci/remote-browser-shell {0}')
+  expect(steps[audit]?.env).toMatchObject({
+    PW_TEST_CONNECT_WS_ENDPOINT: 'ws://127.0.0.1:8997/neteco-ci-browser',
+    PW_TEST_CONNECT_EXPOSE_NETWORK: '<loopback>'
+  })
+  expect(steps.some((step) => /playwright install/.test(step.run ?? ''))).toBe(false)
   expect(audit).toBeGreaterThan(compiled)
   expect(steps[compiled]?.if).toBeUndefined()
   expect(steps[compiled]?.['continue-on-error']).toBeUndefined()

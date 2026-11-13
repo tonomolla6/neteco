@@ -15,6 +15,16 @@ export default defineConfig({
       await defineVitestProject({
         test: {
           name: 'nuxt',
+          // Exercise the actual root runtimeConfig in a small Nuxt app shell.
+          // Configuration tests do not need to compile every storefront route.
+          environmentOptions: {
+            nuxt: {
+              overrides: {
+                srcDir: resolve('tests/fixtures/runtime-config-app'),
+                buildDir: resolve('.nuxt/runtime-config-fixture')
+              }
+            }
+          },
           include: ['tests/nuxt/**/*.test.ts'],
           setupFiles: ['tests/support/no-external-network.ts'],
           environment: 'nuxt',

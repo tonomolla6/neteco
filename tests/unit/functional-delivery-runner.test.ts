@@ -170,12 +170,15 @@ describe('functional delivery batch runner', () => {
       'npm run typecheck:audit',
       'npm run build:shop:cloudflare',
       'npm run test:compiled',
-      'npx playwright install chromium',
       'npm run audit:shop:ci'
     ]
     const positions = ordered.map((command) => shop.indexOf('- run: ' + command))
     expect(positions.every((position) => position >= 0)).toBe(true)
     expect(positions).toEqual([...positions].sort((a, b) => a - b))
+    expect(shop).toContain('shell: /usr/local/libexec/neteco-ci/remote-browser-shell {0}')
+    expect(shop).toContain('PW_TEST_CONNECT_WS_ENDPOINT: ws://127.0.0.1:8997/neteco-ci-browser')
+    expect(shop).toContain('PW_TEST_CONNECT_EXPOSE_NETWORK: <loopback>')
+    expect(shop).not.toContain('playwright install')
     expect(shop.match(/- run: npm run typecheck:audit/g)).toHaveLength(1)
     expect(workflow).toContain('- run: npm run typecheck:worker')
     // The consolidated build script must still compile the UI, bundle the Worker

@@ -594,7 +594,8 @@ try {
   assert(migrations.includes('0153_store_credit_downstream.sql'))
   assert(migrations.includes('0154_b2b_slo_penalty_cents.sql'))
   assert(migrations.includes('0155_beply_orders.sql'))
-  assert.equal(migrations.length, 155, 'Native shop audit requires the complete migration set')
+  assert(migrations.includes('0156_shipment_plans_restock_lead_time.sql'))
+  assert.equal(migrations.length, 156, 'Native shop audit requires the complete migration set')
   for (const migration of migrations) {
     scenario = `migration_${migration.replace(/\.sql$/, '')}`
     await applySql(await readFile(join(migrationsDirectory, migration), 'utf8'))
