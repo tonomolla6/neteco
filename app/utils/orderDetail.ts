@@ -59,6 +59,28 @@ const schema = z
       .object({ status: text, trackingNumber: nullableText, provider: text, updatedAt: instant })
       .strict()
       .nullable(),
+    shipmentPlan: z
+      .object({
+        mode: z.enum(['together', 'split']),
+        shipments: z
+          .array(
+            z
+              .object({
+                index: z.number().int().nonnegative(),
+                leadDays: z.number().int().nonnegative(),
+                from: nullableText,
+                to: nullableText,
+                shippingGross: amount,
+                lines: z.array(z.object({ sku: text, quantity: z.number().int().positive().safe() }).strict()).max(1000)
+              })
+              .strict()
+          )
+          .min(1)
+          .max(10)
+      })
+      .strict()
+      .nullable()
+      .optional(),
     lines: z.array(lineSchema).max(1000)
   })
   .strict()

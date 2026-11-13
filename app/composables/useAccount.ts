@@ -108,7 +108,21 @@ export interface OrderDetailLines {
   destination: { line1: string | null; postalCode: string | null; city: string } | null
   totals: { subtotalNet: number; shippingNet: number; tax: number; total: number }
   shipment: { status: string; trackingNumber: string | null; provider: string; updatedAt: string } | null
+  /** Plan de envíos aceptado al comprar: todo junto o un envío por plazo. */
+  shipmentPlan?: OrderShipmentPlan | null
   lines: OrderLine[]
+}
+
+export interface OrderShipmentPlan {
+  mode: 'together' | 'split'
+  shipments: Array<{
+    index: number
+    leadDays: number
+    from: string | null
+    to: string | null
+    shippingGross: number
+    lines: Array<{ sku: string; quantity: number }>
+  }>
 }
 
 /**

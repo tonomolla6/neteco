@@ -332,7 +332,81 @@ export interface CustomerOrderDetail {
   destination: { line1: null; postalCode: string; city: string } | null
   totals: { subtotalNet: number; shippingNet: number; tax: number; total: number }
   shipment: null
+  /** El plan de envíos que el cliente aceptó al comprar; `null` en pedidos anteriores al plan. */
+  shipmentPlan: CustomerOrderShipmentPlan | null
   lines: CustomerOrderLine[]
+}
+
+export interface CustomerOrderShipmentPlan {
+  mode: 'together' | 'split'
+  shipments: Array<{
+    index: number
+    leadDays: number
+    from: string | null
+    to: string | null
+    shippingGross: number
+    lines: Array<{ sku: string; quantity: number }>
+  }>
+}
+
+/**
+ * Lee el plan guardado con el pedido. Solo se llama después de comprobar que el pedido es del
+ * cliente. Un plan ilegible, o una base que aún no tiene la tabla, no bloquea el pedido: se
+ * devuelve `null` y la interfaz enseña la lista de productos de siempre.
+ */
+async function readShipmentPlan(database: D1Database, orderId: string): Promise<CustomerOrderShipmentPlan | null> {
+  try {
+    const rows = (
+      await database
+        .prepare(
+          `SELECT shipment_index AS shipmentIndex, mode, lead_days AS leadDays, eta_from AS etaFrom, eta_to AS etaTo,
+             gross_cents AS grossCents, lines_json AS linesJson
+           FROM order_shipment_plans WHERE order_id = ?1 ORDER BY shipment_index LIMIT 10`
+        )
+        .bind(orderId)
+        .all<{
+          shipmentIndex: number
+          mode: string
+          leadDays: number
+          etaFrom: string | null
+          etaTo: string | null
+          grossCents: number
+          linesJson: string
+        }>()
+    ).results
+    if (!rows.length) return null
+    const day = /^\d{4}-\d{2}-\d{2}$/
+    return {
+      mode: rows[0]!.mode === 'split' ? 'split' : 'together',
+      shipments: rows.map((row) => {
+        const parsed: unknown = JSON.parse(row.linesJson)
+        const lines = Array.isArray(parsed)
+          ? parsed.flatMap((line: unknown) =>
+              line &&
+              typeof line === 'object' &&
+              'sku' in line &&
+              'quantity' in line &&
+              typeof line.sku === 'string' &&
+              typeof line.quantity === 'number' &&
+              Number.isSafeInteger(line.quantity) &&
+              line.quantity > 0
+                ? [{ sku: line.sku, quantity: line.quantity }]
+                : []
+            )
+          : []
+        return {
+          index: row.shipmentIndex,
+          leadDays: row.leadDays,
+          from: row.etaFrom && day.test(row.etaFrom) ? row.etaFrom : null,
+          to: row.etaTo && day.test(row.etaTo) ? row.etaTo : null,
+          shippingGross: row.grossCents,
+          lines
+        }
+      })
+    }
+  } catch {
+    return null
+  }
 }
 
 function parseVisual(value: string | null): CustomerOrderLine['visual'] {
@@ -447,6 +521,7 @@ export async function readD1CustomerOrderLines(
         visual: string | null
       }>()
   ).results
+  const shipmentPlan = await readShipmentPlan(database, order.id)
   const publishedMedia = await readPublicProductMedia(
     database,
     rows.flatMap((row) => (row.productUuid ? [row.productUuid] : []))
@@ -472,6 +547,7 @@ export async function readD1CustomerOrderLines(
         order.city && order.postalCode ? { line1: null, postalCode: order.postalCode, city: order.city } : null,
       totals: { subtotalNet: order.subtotalNet, shippingNet: order.shippingNet, tax: order.tax, total: order.total },
       shipment: null,
+      shipmentPlan,
       lines: rows.map((row) => {
         const currentRow = currentRows.get(row.lineIndex)
         const offer = reorderOffer(currentRow)
