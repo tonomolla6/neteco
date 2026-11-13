@@ -124,7 +124,9 @@ function ticketStatus(value: string) {
     :count="nativeSupport ? undefined : items.length"
     :count-label="items.length === 1 ? 'consulta' : 'consultas'"
   >
-    <AdminSupportSection v-if="nativeSupport" :runtime="supportRuntime.public.serverRuntime" />
+    <AdminServiceGate v-if="nativeSupport" service="support">
+      <AdminSupportSection :runtime="supportRuntime.public.serverRuntime" />
+    </AdminServiceGate>
     <div v-else class="adm-stack">
       <UAlert
         v-if="overdueCount"

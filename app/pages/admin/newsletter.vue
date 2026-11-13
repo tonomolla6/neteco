@@ -15,7 +15,9 @@ const authorize = () =>
 </script>
 <template>
   <AdminPage>
-    <NewsletterCampaignEditor v-if="authorize()" :actor-id="actor" :authorize="authorize" />
+    <AdminServiceGate v-if="authorize()" service="newsletterEditorial">
+      <NewsletterCampaignEditor :actor-id="actor" :authorize="authorize" />
+    </AdminServiceGate>
     <AdminEmptyState
       v-else
       icon="i-lucide-lock"

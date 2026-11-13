@@ -8,6 +8,6 @@ const runtime = useRuntimeConfig().public.serverRuntime
 
 <template>
   <AdminPage>
-    <AdminSearchAnalytics :runtime="runtime" />
+    <AdminServiceGate service="analytics"><AdminSearchAnalytics :runtime="runtime" /></AdminServiceGate>
   </AdminPage>
 </template>

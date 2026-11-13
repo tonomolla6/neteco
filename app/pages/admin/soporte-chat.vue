@@ -7,6 +7,6 @@ useSeoMeta({ title: 'Chat con clientes · Admin', robots: 'noindex, nofollow, no
 
 <template>
   <AdminPage>
-    <AdminSupportLiveChat />
+    <AdminServiceGate service="support"><AdminSupportLiveChat /></AdminServiceGate>
   </AdminPage>
 </template>

@@ -56,13 +56,13 @@ const activeTab = computed<AnalyticsTab>({
       </div>
 
       <div v-show="activeTab === 'operations'">
-        <AnalyticsOperationsPanel :runtime="runtime" />
+        <AdminServiceGate service="analytics"><AnalyticsOperationsPanel :runtime="runtime" /></AdminServiceGate>
       </div>
       <div v-show="activeTab === 'cohorts'">
-        <AdminCohorts :runtime="runtime" />
+        <AdminServiceGate service="analytics"><AdminCohorts :runtime="runtime" /></AdminServiceGate>
       </div>
       <div v-show="activeTab === 'funnel'">
-        <AdminFunnel :runtime="runtime" />
+        <AdminServiceGate service="analytics"><AdminFunnel :runtime="runtime" /></AdminServiceGate>
       </div>
       <div v-show="activeTab === 'payment_funnel'">
         <AdminPaymentFunnel :runtime="runtime" />

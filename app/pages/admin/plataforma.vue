@@ -32,8 +32,12 @@ const scopeKey = computed(() =>
       <AdminDeveloperPortal />
       <template v-if="enabled">
         <AdminDeveloperOwnership :key="`ownership-${scopeKey}`" />
-        <AdminDeveloperMetrics :key="`metrics-${scopeKey}`" />
-        <AdminB2bPublicKeys :key="`keys-${scopeKey}`" />
+        <AdminServiceGate service="publicApi">
+          <div class="adm-stack">
+            <AdminDeveloperMetrics :key="`metrics-${scopeKey}`" />
+            <AdminB2bPublicKeys :key="`keys-${scopeKey}`" />
+          </div>
+        </AdminServiceGate>
       </template>
       <UAlert
         v-else

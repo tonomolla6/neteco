@@ -7,7 +7,10 @@ import {
 } from '~~/shared/recurring-incentives'
 
 const props = defineProps<{
+  /** Identificador de la empresa cliente (el mismo del listado de clientes profesionales). */
   companyId: string
+  /** Nombre de la empresa, para que los mensajes digan de quién se habla. */
+  companyName?: string
 }>()
 
 const requestFetch = useRequestFetch()
@@ -22,21 +25,43 @@ const creditNoteRef = ref('')
 const approvalNotes = ref('')
 const approving = ref(false)
 
-function errorText(error: unknown, fallback: string): string {
-  const c = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return c ? `${fallback}. Vuelve a intentarlo.` : fallback
+/** Fallo real al cargar (red o servidor): es lo único que se enseña en rojo, con «Reintentar». */
+const loadFailed = ref(false)
+
+function failure(error: unknown): { status: number | null; code: string | null } {
+  const value = error && typeof error === 'object' ? (error as Record<string, unknown>) : null
+  const response =
+    value?.response && typeof value.response === 'object' ? (value.response as { status?: unknown }) : null
+  const rawStatus = value?.statusCode ?? value?.status ?? response?.status
+  const data = value?.data && typeof value.data === 'object' ? (value.data as Record<string, unknown>) : null
+  const nested = data?.error && typeof data.error === 'object' ? (data.error as Record<string, unknown>) : null
+  return {
+    status: typeof rawStatus === 'number' ? rawStatus : null,
+    code: typeof nested?.code === 'string' ? nested.code : null
+  }
+}
+
+const APPROVAL_FAILURE: Record<string, string> = {
+  version_conflict: 'Otra persona ha cambiado esta liquidación mientras tanto. Ciérrala y vuelve a abrirla.',
+  invalid_input: 'Revisa el número de la factura rectificativa.',
+  not_found: 'Esta liquidación ya no existe.',
+  forbidden: 'No tienes permiso para aprobar liquidaciones.'
 }
 
 async function loadData() {
   loading.value = true
   errorMessage.value = ''
+  loadFailed.value = false
   try {
     const res = (await requestFetch(`/api/admin/b2b/recurring-incentives/agreements/${props.companyId}`)) as {
       agreement: IncentiveAgreement
     }
     agreement.value = res?.agreement ?? null
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al cargar el acuerdo de incentivos')
+    const { status, code } = failure(error)
+    // Que la empresa no tenga acuerdo es una situación normal, no un fallo.
+    if (status === 404 || code === 'not_found') agreement.value = null
+    else loadFailed.value = true
   } finally {
     loading.value = false
   }
@@ -57,10 +82,17 @@ async function approveSettlement() {
     activeSettlement.value = null
     await loadData()
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al aprobar la liquidación fiscal')
+    const { code } = failure(error)
+    errorMessage.value =
+      (code && APPROVAL_FAILURE[code]) || 'No se ha podido aprobar la liquidación. Vuelve a intentarlo.'
   } finally {
     approving.value = false
   }
+}
+
+function openApproval(settlement: IncentiveSettlement) {
+  errorMessage.value = ''
+  activeSettlement.value = settlement
 }
 
 const FISCAL_REVIEW: Record<string, [string, 'success' | 'warning' | 'danger']> = {
@@ -106,16 +138,27 @@ onMounted(() => {
       <span class="sr-only">Cargando el acuerdo de descuentos por volumen…</span>
       <div v-for="row in 4" :key="row"><i /><i /><i /></div>
     </div>
-    <UAlert
-      v-else-if="errorMessage"
-      role="alert"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-triangle-alert"
-      :title="errorMessage"
-    />
+    <AdminCard v-else-if="loadFailed">
+      <div role="alert">
+        <AdminEmptyState
+          variant="error"
+          title="No se ha podido cargar el acuerdo de esta empresa"
+          description="Puede ser un fallo puntual de conexión. Vuelve a intentarlo en unos segundos."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="loadData()">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </div>
+    </AdminCard>
 
     <template v-else-if="agreement">
+      <UAlert
+        v-if="errorMessage && !activeSettlement"
+        role="alert"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        :title="errorMessage"
+      />
       <div class="adm-grid">
         <AdminStat
           label="Margen bruto mínimo"
@@ -194,7 +237,7 @@ onMounted(() => {
             </AdminBadge>
           </template>
           <template #actions="{ row }">
-            <AdminButton v-if="row.settlementStatus === 'calculated'" size="sm" @click="activeSettlement = row">
+            <AdminButton v-if="row.settlementStatus === 'calculated'" size="sm" @click="openApproval(row)">
               Aprobar
             </AdminButton>
           </template>
@@ -205,8 +248,12 @@ onMounted(() => {
     <div v-else class="adm-card">
       <AdminEmptyState
         icon="i-lucide-handshake"
-        title="Esta empresa no tiene acuerdo de descuentos por volumen"
-        description="Comprueba el identificador de la empresa o crea el acuerdo desde su contrato."
+        :title="
+          companyName
+            ? `${companyName} no tiene acuerdo de compra recurrente`
+            : 'Esta empresa no tiene acuerdo de compra recurrente'
+        "
+        description="No se le aplica ningún descuento por volumen. Cuando se firme y se dé de alta su acuerdo, aquí verás los tramos, las condiciones y las liquidaciones de cada periodo."
       />
     </div>
 
@@ -216,6 +263,7 @@ onMounted(() => {
       description="Al aprobar se registra la factura rectificativa con la que se abona el descuento."
     >
       <div v-if="activeSettlement" class="adm-stack">
+        <UAlert v-if="errorMessage" role="alert" color="error" variant="subtle" :title="errorMessage" />
         <dl class="grid grid-cols-3 gap-3">
           <div>
             <dt class="adm-help">Descuento</dt>
