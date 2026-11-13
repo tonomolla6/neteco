@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
+import type { AdminTone } from '~/utils/adminLabels'
 import type {
   InventoryLot,
   LotTraceabilityResponse,
@@ -18,9 +19,57 @@ const props = defineProps<{
 }>()
 
 const activeTab = ref<'lotes' | 'costes' | 'forecast'>('lotes')
+const sectionTabs = [
+  { value: 'lotes', label: 'Lotes y caducidades' },
+  { value: 'costes', label: 'Costes y margen' },
+  { value: 'forecast', label: 'Previsión y anomalías' }
+] as const
+const lotColumns = [
+  { key: 'lotNumber', label: 'Nº de lote' },
+  { key: 'expiresAt', label: 'Caducidad' },
+  { key: 'availableQuantity', label: 'Disponible', numeric: true },
+  { key: 'initialQuantity', label: 'Recibido', numeric: true, hideOnMobile: true },
+  { key: 'status', label: 'Estado' }
+]
+const lotStatusLabels: Record<string, string> = {
+  active: 'Activo',
+  quarantined: 'En cuarentena',
+  depleted: 'Agotado',
+  expired: 'Caducado'
+}
+const lotStatusTones: Record<string, AdminTone> = {
+  active: 'success',
+  quarantined: 'warning',
+  depleted: 'neutral',
+  expired: 'danger'
+}
+const suggestionStatusLabels: Record<string, string> = {
+  suggested: 'Pendiente',
+  reviewed: 'Aceptada',
+  dismissed: 'Descartada',
+  ordered: 'Pedida'
+}
+// Estado de interfaz: paneles laterales y confirmación de cuarentena.
+const lotDrawer = ref(false)
+const costDrawer = ref(false)
+const lotToQuarantine = ref<InventoryLot | null>(null)
+const quarantineOpen = computed({
+  get: () => lotToQuarantine.value !== null,
+  set: (value: boolean) => {
+    if (!value) lotToQuarantine.value = null
+  }
+})
+function confirmQuarantine() {
+  const lot = lotToQuarantine.value
+  lotToQuarantine.value = null
+  if (lot) void quarantineLot(lot)
+}
 const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
+watch(successMessage, (value) => {
+  if (value) lotDrawer.value = costDrawer.value = false
+})
 
 // Lotes state
 const lots = ref<InventoryLot[]>([])
@@ -72,8 +121,8 @@ async function loadData() {
       suggestions.value = suggRes.items ?? []
       anomalies.value = anomRes.items ?? []
     }
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al cargar los datos operativos de inventario.'
+  } catch {
+    errorMessage.value = 'No hemos podido cargar los datos de este producto. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -116,22 +165,21 @@ async function submitCreateLot() {
       }
     })
 
-    successMessage.value = `Lote ${newLotNumber.value} registrado con éxito.`
+    successMessage.value = `Lote ${newLotNumber.value} guardado.`
     newLotNumber.value = ''
     newLotExpiry.value = ''
     newLotQuantity.value = ''
     newLotManufactured.value = ''
     newLotReason.value = ''
     await loadData()
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'No se pudo crear el lote.'
+  } catch {
+    errorMessage.value = 'No hemos podido guardar el lote. Revisa los datos y vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
 }
 
 async function quarantineLot(lot: InventoryLot) {
-  if (!confirm(`¿Poner en cuarentena el lote ${lot.lotNumber}? No podrá ser asignado mediante FEFO.`)) return
   loading.value = true
   errorMessage.value = ''
   try {
@@ -153,8 +201,8 @@ async function quarantineLot(lot: InventoryLot) {
     })
     successMessage.value = `Lote ${lot.lotNumber} puesto en cuarentena.`
     await loadData()
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al poner lote en cuarentena.'
+  } catch {
+    errorMessage.value = 'No hemos podido poner el lote en cuarentena. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -168,8 +216,8 @@ async function searchTraceability() {
     const q = traceQuery.value.trim()
     const param = q.includes('-') && q.length === 36 ? `orderId=${q}` : `lotNumber=${encodeURIComponent(q)}`
     traceabilityResult.value = await $fetch<LotTraceabilityResponse>(`/api/admin/inventory/lots/traceability?${param}`)
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al buscar trazabilidad.'
+  } catch {
+    errorMessage.value = 'No hemos podido buscar ese lote. Vuelve a intentarlo.'
   } finally {
     traceLoading.value = false
   }
@@ -198,12 +246,12 @@ async function submitRecordCostLayer() {
         }
       }
     })
-    successMessage.value = 'Capa de coste registrada.'
+    successMessage.value = 'Coste de entrada guardado.'
     newCostLayerCents.value = ''
     newCostLayerQuantity.value = ''
     await loadData()
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al registrar capa de coste.'
+  } catch {
+    errorMessage.value = 'No hemos podido guardar el coste. Revisa los datos y vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -222,10 +270,10 @@ async function evaluateForecast() {
         historyDays: 14
       }
     })
-    successMessage.value = 'Previsión de demanda evaluada con éxito.'
+    successMessage.value = 'Previsión calculada.'
     await loadData()
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al evaluar previsión de demanda.'
+  } catch {
+    errorMessage.value = 'No hemos podido calcular la previsión. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -253,8 +301,8 @@ async function reviewSuggestion(suggestionId: string, action: 'review' | 'dismis
       }
     })
     await loadData()
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al actualizar sugerencia.'
+  } catch {
+    errorMessage.value = 'No hemos podido actualizar la sugerencia. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -281,8 +329,8 @@ async function ackAnomaly(anomalyId: string) {
       }
     })
     await loadData()
-  } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al reconocer anomalía.'
+  } catch {
+    errorMessage.value = 'No hemos podido marcar la anomalía como revisada. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -290,495 +338,335 @@ async function ackAnomaly(anomalyId: string) {
 </script>
 
 <template>
-  <section
-    class="mt-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
-    aria-label="Gestión avanzada de lotes, costes y previsión de inventario"
-  >
-    <header class="border-b border-slate-200 pb-4">
-      <h2 class="text-lg font-semibold text-slate-900">Control Avanzado de Inventario (INV-019, INV-021, INV-022)</h2>
-      <p class="mt-1 text-sm text-slate-600">
-        Gestión de lotes y FEFO con trazabilidad integral, valoración contable FIFO/PMP con reconciliación de margen, y
-        modelo de previsión con sugerencias no destructivas.
-      </p>
+  <section class="adm-stack min-w-0" aria-label="Gestión avanzada de lotes, costes y previsión de inventario">
+    <nav class="flex flex-wrap gap-2" role="tablist" aria-label="Secciones de inventario avanzado">
+      <button
+        v-for="entry in sectionTabs"
+        :key="entry.value"
+        type="button"
+        role="tab"
+        class="adm-chip"
+        :aria-selected="activeTab === entry.value"
+        :data-active="activeTab === entry.value || undefined"
+        @click="activeTab = entry.value"
+      >
+        {{ entry.label }}
+      </button>
+    </nav>
 
-      <!-- Tabs Navigation -->
-      <nav class="mt-4 flex gap-2" role="tablist" aria-label="Secciones de inventario avanzado">
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'lotes'"
-          :class="[
-            'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-            activeTab === 'lotes'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          ]"
-          @click="activeTab = 'lotes'"
-        >
-          Lotes y FEFO (INV-019)
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'costes'"
-          :class="[
-            'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-            activeTab === 'costes'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          ]"
-          @click="activeTab = 'costes'"
-        >
-          Costes y Margen (INV-021)
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'forecast'"
-          :class="[
-            'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
-            activeTab === 'forecast'
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          ]"
-          @click="activeTab = 'forecast'"
-        >
-          Previsión y Anomalías (INV-022)
-        </button>
-      </nav>
-    </header>
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+      :actions="[{ label: 'Recargar datos', color: 'neutral', variant: 'outline', onClick: () => void loadData() }]"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
 
-    <!-- Feedback messages -->
-    <div v-if="errorMessage" class="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-800" role="alert">
-      {{ errorMessage }}
-    </div>
-    <div v-if="successMessage" class="mt-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800" role="status">
-      {{ successMessage }}
-    </div>
-
-    <!-- TAB 1: LOTES Y FEFO -->
-    <div v-if="activeTab === 'lotes'" class="mt-5 space-y-6">
-      <div>
-        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-700">
-          Lotes Activos y Política FEFO (First Expired, First Out)
-        </h3>
-        <p class="mt-1 text-xs text-slate-500">
-          Los lotes se consumen y reservan estrictamente en orden de caducidad más cercana. Los lotes vencidos o en
-          cuarentena son excluidos automáticamente de la venta.
-        </p>
-
-        <div v-if="loading && !lots.length" class="mt-4 text-sm text-slate-500" role="status">Cargando lotes...</div>
-
-        <div
-          v-else-if="!lots.length"
-          class="mt-4 rounded border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500"
-        >
-          No hay lotes registrados para esta variante.
-        </div>
-
-        <div v-else class="mt-3 overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 text-slate-600 font-semibold">
-              <tr>
-                <th class="px-3 py-2">Nº Lote</th>
-                <th class="px-3 py-2">Caducidad</th>
-                <th class="px-3 py-2">Disponible</th>
-                <th class="px-3 py-2">Inicial</th>
-                <th class="px-3 py-2">Estado</th>
-                <th class="px-3 py-2 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="lot in lots" :key="lot.id" :class="lot.status === 'quarantined' ? 'bg-amber-50/50' : ''">
-                <td class="px-3 py-2 font-mono font-medium text-slate-900">{{ lot.lotNumber }}</td>
-                <td class="px-3 py-2">{{ lot.expiresAt ? lot.expiresAt.substring(0, 10) : '-' }}</td>
-                <td class="px-3 py-2 font-bold">{{ lot.availableQuantity }}</td>
-                <td class="px-3 py-2 text-slate-500">{{ lot.initialQuantity }}</td>
-                <td class="px-3 py-2">
-                  <span
-                    :class="[
-                      'inline-block px-2 py-0.5 rounded text-[11px] font-medium',
-                      lot.status === 'active'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : lot.status === 'quarantined'
-                          ? 'bg-amber-100 text-amber-800'
-                          : lot.status === 'depleted'
-                            ? 'bg-slate-100 text-slate-600'
-                            : 'bg-red-100 text-red-800'
-                    ]"
-                  >
-                    {{ lot.status }}
-                  </span>
-                </td>
-                <td class="px-3 py-2 text-right">
-                  <button
-                    v-if="lot.status === 'active'"
-                    type="button"
-                    class="rounded bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700"
-                    @click="quarantineLot(lot)"
-                  >
-                    Cuarentena
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Form: Crear Nuevo Lote -->
-      <div class="rounded border border-slate-200 bg-slate-50/60 p-4">
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-800">
-          Registrar Nuevo Lote de Fabricación
-        </h4>
-        <form class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-4" @submit.prevent="submitCreateLot">
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Nº de Lote</label>
-            <input
-              v-model="newLotNumber"
-              type="text"
-              required
-              placeholder="p. ej. L-2026-X1"
-              class="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs"
-            />
+    <!-- Lotes -->
+    <div v-if="activeTab === 'lotes'" class="adm-stack">
+      <AdminTable
+        :rows="lots"
+        :columns="lotColumns"
+        :row-key="(lot) => lot.id"
+        :status="loading && !lots.length ? 'pending' : 'idle'"
+        empty-icon="i-lucide-boxes"
+        empty-title="No hay lotes registrados para esta variante."
+        empty-description="Registra el primer lote para controlar caducidades. Siempre se vende antes el lote que caduca primero."
+        caption="Lotes del producto"
+      >
+        <template #toolbar>
+          <div class="adm-toolbar">
+            <p class="adm-help">
+              Se vende primero el lote que caduca antes. Los lotes caducados o en cuarentena no se venden.
+            </p>
+            <div class="adm-toolbar__end">
+              <AdminButton size="sm" icon="i-lucide-plus" @click="lotDrawer = true">Nuevo lote</AdminButton>
+            </div>
           </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Fecha Caducidad</label>
-            <input
-              v-model="newLotExpiry"
-              type="date"
-              required
-              class="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Cantidad Inicial</label>
-            <input
-              v-model.number="newLotQuantity"
-              type="number"
-              min="1"
-              required
-              placeholder="Unidades"
-              class="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-          </div>
-          <div class="flex items-end">
-            <button
-              type="submit"
-              :disabled="loading"
-              class="w-full rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Guardar Lote
-            </button>
-          </div>
-        </form>
-      </div>
+        </template>
+        <template #cell-lotNumber="{ row }">
+          <span class="font-semibold text-[var(--text-strong)]">{{ row.lotNumber }}</span>
+        </template>
+        <template #cell-expiresAt="{ row }">{{ row.expiresAt ? adminDate(row.expiresAt) : '—' }}</template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="lotStatusTones[row.status] ?? 'neutral'">
+            {{ lotStatusLabels[row.status] ?? adminHumanize(row.status) }}
+          </AdminBadge>
+        </template>
+        <template #actions="{ row }">
+          <AdminButton v-if="row.status === 'active'" size="sm" :disabled="loading" @click="lotToQuarantine = row">
+            Poner en cuarentena
+          </AdminButton>
+        </template>
+        <template #empty-action>
+          <AdminButton icon="i-lucide-plus" @click="lotDrawer = true">Nuevo lote</AdminButton>
+        </template>
+      </AdminTable>
 
-      <!-- Trazabilidad a Pedido / Cliente -->
-      <div class="rounded border border-slate-200 p-4">
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-800">
-          Trazabilidad Bidireccional (Lote ⇄ Pedido ⇄ Cliente)
-        </h4>
-        <p class="mt-1 text-xs text-slate-500">
-          Introduce un número de lote para auditar clientes y pedidos que lo han recibido, o un ID de pedido para ver
-          los lotes suministrados.
-        </p>
-        <div class="mt-3 flex gap-2">
-          <input
-            v-model="traceQuery"
-            type="text"
-            placeholder="Nº de lote"
-            class="flex-1 rounded border border-slate-300 px-3 py-1.5 text-xs"
-          />
+      <AdminCard
+        title="¿Quién recibió un lote?"
+        description="Escribe el número de lote para ver los pedidos y clientes a los que se envió."
+        flush
+      >
+        <form class="adm-toolbar px-5 py-4" role="search" @submit.prevent="searchTraceability">
+          <label class="adm-toolbar__search">
+            <span class="sr-only">Número de lote</span>
+            <UIcon name="i-lucide-search" class="size-4" />
+            <input v-model="traceQuery" type="text" data-slot="adm-search" placeholder="Nº de lote" />
+          </label>
           <button
             type="button"
             data-testid="search-traceability"
+            class="adm-btn adm-btn--secondary"
             :disabled="traceLoading"
-            class="rounded bg-slate-800 px-4 py-1.5 text-xs font-medium text-white hover:bg-slate-900 disabled:opacity-50"
             @click="searchTraceability"
           >
-            Buscar Trazabilidad
+            Buscar
           </button>
-        </div>
-
-        <div v-if="traceabilityResult" class="mt-3">
-          <div v-if="!traceabilityResult.records.length" class="text-xs text-slate-500">
-            No se han encontrado registros de expedición o asignación para esta consulta.
-          </div>
-          <table v-else class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 text-slate-600 font-semibold">
-              <tr>
-                <th class="px-2 py-1.5">Lote</th>
-                <th class="px-2 py-1.5">Pedido ID</th>
-                <th class="px-2 py-1.5">Cliente</th>
-                <th class="px-2 py-1.5">Cantidad</th>
-                <th class="px-2 py-1.5">Fecha Asignación</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="rec in traceabilityResult.records" :key="rec.allocationId">
-                <td class="px-2 py-1.5 font-mono font-medium">{{ rec.lotNumber }}</td>
-                <td class="px-2 py-1.5 font-mono text-slate-600">{{ rec.orderId }}</td>
-                <td class="px-2 py-1.5 text-slate-800">{{ rec.customerEmail || rec.customerId || 'Invitado' }}</td>
-                <td class="px-2 py-1.5 font-bold">{{ rec.quantity }} ud.</td>
-                <td class="px-2 py-1.5 text-slate-500">{{ rec.allocatedAt.substring(0, 19).replace('T', ' ') }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- TAB 2: COSTES Y MARGEN ANALÍTICO -->
-    <div v-if="activeTab === 'costes'" class="mt-5 space-y-6">
-      <div>
-        <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-700">
-          Valoración de Existencias y Margen Analítico (INV-021)
-        </h3>
-        <p class="mt-1 text-xs text-slate-500">
-          Cálculo analítico del Coste de Ventas (COGS) bajo métodos contables formalizados (Precio Medio Ponderado /
-          FIFO) y reconciliación estricta con facturación.
-        </p>
-
-        <!-- KPI Cards -->
-        <div v-if="marginReport" class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div class="rounded border border-slate-200 bg-slate-50 p-3">
-            <div class="text-[11px] font-medium text-slate-500">Ingresos Netos</div>
-            <div class="mt-1 text-base font-bold text-slate-900">
-              {{ (marginReport.totalRevenueNetCents / 100).toFixed(2) }} €
-            </div>
-          </div>
-          <div class="rounded border border-slate-200 bg-slate-50 p-3">
-            <div class="text-[11px] font-medium text-slate-500">Coste de Ventas (COGS)</div>
-            <div class="mt-1 text-base font-bold text-slate-900">
-              {{ (marginReport.totalCogsCents / 100).toFixed(2) }} €
-            </div>
-          </div>
-          <div class="rounded border border-slate-200 bg-slate-50 p-3">
-            <div class="text-[11px] font-medium text-slate-500">Margen analítico bruto</div>
-            <div class="mt-1 text-base font-bold text-emerald-600">
-              {{ (marginReport.analyticalGrossMarginCents / 100).toFixed(2) }} €
-            </div>
-          </div>
-          <div class="rounded border border-slate-200 bg-slate-50 p-3">
-            <div class="text-[11px] font-medium text-slate-500">% Margen s/ Venta</div>
-            <div class="mt-1 text-base font-bold text-emerald-600">
-              {{ (marginReport.analyticalGrossMarginBasisPoints / 100).toFixed(1) }} %
-            </div>
-          </div>
-        </div>
-
-        <!-- Reconciliation Status Banner -->
-        <div
-          v-if="marginReport"
-          class="mt-4 rounded-md border p-3 text-xs"
-          :class="
-            marginReport.reconciliationStatus === 'reconciled'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-              : 'border-amber-200 bg-amber-50 text-amber-900'
-          "
-        >
-          <span class="font-semibold">
-            {{
-              marginReport.reconciliationStatus === 'reconciled'
-                ? 'Conciliado con fuente financiera'
-                : 'Discrepancia en conciliación'
-            }}:
-          </span>
-          La facturación de pedidos coincide exactamente con el total consumido (Discrepancia:
-          {{ marginReport.discrepancyCents }} céntimos).
-        </div>
-      </div>
-
-      <!-- Form: Registrar entrada con coste -->
-      <div class="rounded border border-slate-200 bg-slate-50/60 p-4">
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-800">
-          Registrar Capa de Coste de Entrada (FIFO / PMP)
-        </h4>
-        <form class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3" @submit.prevent="submitRecordCostLayer">
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Coste Unitario (céntimos EUR)</label>
-            <input
-              v-model.number="newCostLayerCents"
-              type="number"
-              min="0"
-              required
-              placeholder="p. ej. 450 (4.50€)"
-              class="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Cantidad</label>
-            <input
-              v-model.number="newCostLayerQuantity"
-              type="number"
-              min="1"
-              required
-              placeholder="Unidades"
-              class="mt-1 block w-full rounded border border-slate-300 px-2 py-1 text-xs"
-            />
-          </div>
-          <div class="flex items-end">
-            <button
-              type="submit"
-              :disabled="loading"
-              class="w-full rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Registrar Capa de Coste
-            </button>
-          </div>
         </form>
-      </div>
+        <template v-if="traceabilityResult">
+          <AdminEmptyState
+            v-if="!traceabilityResult.records.length"
+            compact
+            variant="filtered"
+            title="Este lote no se ha enviado en ningún pedido"
+            description="Comprueba que el número de lote está bien escrito."
+          />
+          <div v-else class="adm-table-wrap border-t border-[var(--border)]">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Lote</th>
+                  <th scope="col">Pedido</th>
+                  <th scope="col">Cliente</th>
+                  <th scope="col" data-numeric>Unidades</th>
+                  <th scope="col">Fecha</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="rec in traceabilityResult.records" :key="rec.allocationId">
+                  <td class="font-semibold">{{ rec.lotNumber }}</td>
+                  <td :title="rec.orderId">#{{ rec.orderId.slice(0, 8).toUpperCase() }}</td>
+                  <td class="break-words">{{ rec.customerEmail || rec.customerId || 'Invitado' }}</td>
+                  <td data-numeric>{{ rec.quantity }}</td>
+                  <td>{{ adminDate(rec.allocatedAt, true) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </AdminCard>
     </div>
 
-    <!-- TAB 3: FORECAST Y ANOMALÍAS -->
-    <div v-if="activeTab === 'forecast'" class="mt-5 space-y-6">
-      <div>
-        <div class="flex items-center justify-between">
+    <!-- Costes y margen -->
+    <div v-if="activeTab === 'costes'" class="adm-stack">
+      <div v-if="marginReport" class="adm-grid">
+        <AdminStat label="Ingresos netos" :value="adminMoney(marginReport.totalRevenueNetCents)" />
+        <AdminStat label="Coste de lo vendido" :value="adminMoney(marginReport.totalCogsCents)" />
+        <AdminStat label="Margen analítico bruto" :value="adminMoney(marginReport.analyticalGrossMarginCents)" />
+        <AdminStat
+          label="Margen sobre venta"
+          :value="`${(marginReport.analyticalGrossMarginBasisPoints / 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`"
+        />
+      </div>
+      <UAlert
+        v-if="marginReport"
+        :color="marginReport.reconciliationStatus === 'reconciled' ? 'success' : 'warning'"
+        variant="subtle"
+        :icon="marginReport.reconciliationStatus === 'reconciled' ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+        :title="
+          marginReport.reconciliationStatus === 'reconciled'
+            ? 'Conciliado con fuente financiera: los costes cuadran con lo facturado'
+            : 'Los costes no cuadran con lo facturado'
+        "
+        :description="
+          marginReport.reconciliationStatus === 'reconciled'
+            ? undefined
+            : `Diferencia: ${adminMoney(marginReport.discrepancyCents)}. Revisa los costes de entrada registrados.`
+        "
+      />
+      <AdminCard
+        title="Coste de compra"
+        description="Cada vez que entra mercancía, apunta cuánto te costó cada unidad. Con eso se calcula el margen."
+      >
+        <template #actions>
+          <AdminButton size="sm" icon="i-lucide-plus" @click="costDrawer = true"
+            >Registrar coste de entrada</AdminButton
+          >
+        </template>
+        <p v-if="!marginReport" class="adm-help">Todavía no hay ventas ni costes con los que calcular el margen.</p>
+        <p v-else class="adm-help">Las cifras de arriba se actualizan al registrar un coste nuevo.</p>
+      </AdminCard>
+    </div>
+
+    <!-- Previsión -->
+    <div v-if="activeTab === 'forecast'" class="adm-stack">
+      <AdminCard
+        title="Previsión de ventas"
+        description="Calcula cuántas unidades se venderán al día según el histórico de este producto."
+      >
+        <template #actions>
+          <AdminButton size="sm" icon="i-lucide-line-chart" :disabled="loading" @click="evaluateForecast">
+            Calcular previsión
+          </AdminButton>
+        </template>
+        <dl v-if="forecastEvaluation" class="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div>
-            <h3 class="text-sm font-semibold uppercase tracking-wider text-slate-700">
-              Previsión de Demanda y Detección de Anomalías (INV-022)
-            </h3>
-            <p class="mt-1 text-xs text-slate-500">
-              Evaluación predictiva frente a baseline (Media Móvil Simple vs Suavizado Exponencial). Genera sugerencias
-              de reaprovisionamiento bajo control humano estricto.
-            </p>
+            <dt class="adm-help">Demanda diaria prevista</dt>
+            <dd class="font-semibold text-[var(--text-strong)]">{{ forecastEvaluation.forecastDailyDemand }} ud/día</dd>
           </div>
-          <button
-            type="button"
-            :disabled="loading"
-            class="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            @click="evaluateForecast"
-          >
-            Evaluar Modelo vs Baseline
-          </button>
-        </div>
-
-        <!-- Evaluation Results Card -->
-        <div v-if="forecastEvaluation" class="mt-4 rounded border border-indigo-100 bg-indigo-50/40 p-4 text-xs">
-          <div class="font-semibold text-indigo-950">
-            Comparativa de Precisión: Modelo Avanzado vs Baseline Naive/SMA
+          <div>
+            <dt class="adm-help">Mejora frente al método simple</dt>
+            <dd class="font-semibold text-[var(--text-strong)]">+{{ forecastEvaluation.maeImprovementPercent }} %</dd>
           </div>
-          <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div>
-              <span class="text-slate-500">Error Baseline (SMA MAE):</span>
-              <div class="font-mono font-bold text-slate-900">{{ forecastEvaluation.baselineMae }}</div>
-            </div>
-            <div>
-              <span class="text-slate-500">Error Suavizado (Exp MAE):</span>
-              <div class="font-mono font-bold text-slate-900">{{ forecastEvaluation.advancedMae }}</div>
-            </div>
-            <div>
-              <span class="text-slate-500">Mejora de Precisión:</span>
-              <div class="font-mono font-bold text-emerald-700">+{{ forecastEvaluation.maeImprovementPercent }}%</div>
-            </div>
-            <div>
-              <span class="text-slate-500">Demanda Diaria Prevista:</span>
-              <div class="font-mono font-bold text-slate-900">{{ forecastEvaluation.forecastDailyDemand }} ud/día</div>
-            </div>
+          <div>
+            <dt class="adm-help">Error del método simple</dt>
+            <dd class="font-semibold text-[var(--text-strong)]">{{ forecastEvaluation.baselineMae }}</dd>
           </div>
-        </div>
-      </div>
+          <div>
+            <dt class="adm-help">Error del método avanzado</dt>
+            <dd class="font-semibold text-[var(--text-strong)]">{{ forecastEvaluation.advancedMae }}</dd>
+          </div>
+        </dl>
+        <p v-else class="adm-help">Pulsa «Calcular previsión» para ver la estimación.</p>
+      </AdminCard>
 
-      <!-- Reorder Suggestions (Non-destructive) -->
-      <div>
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-800">
-          Sugerencias de reabastecimiento (Sugerencia humana, no automática)
-        </h4>
-        <p class="mt-1 text-xs text-slate-500">
-          Conforme al criterio de aceptación, estas recomendaciones son de carácter consultivo: ninguna orden de compra
-          ni mutación de balance se ejecuta automáticamente.
-        </p>
-
-        <div
+      <AdminCard
+        title="Sugerencias de reabastecimiento"
+        description="Son solo recomendaciones: la compra es siempre manual, no automática."
+        flush
+      >
+        <AdminEmptyState
           v-if="!suggestions.length"
-          class="mt-3 rounded border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500"
-        >
-          No hay sugerencias pendientes de reabastecimiento para esta variante.
-        </div>
-
-        <div v-else class="mt-3 space-y-2">
-          <div
-            v-for="sugg in suggestions"
-            :key="sugg.id"
-            class="flex items-center justify-between rounded border border-slate-200 bg-slate-50 p-3 text-xs"
-          >
-            <div>
-              <div class="font-semibold text-slate-900">Sugerencia: Pedir {{ sugg.suggestedQuantity }} unidades</div>
-              <div class="text-slate-600">{{ sugg.reason }}</div>
-              <div class="mt-1 text-[11px] text-slate-400">
-                Stock actual: {{ sugg.currentPhysicalStock }} | Stock seg.: {{ sugg.safetyStock }} | Plazo:
-                {{ sugg.leadTimeDays }}d | Estado: {{ sugg.status }}
-              </div>
+          compact
+          icon="i-lucide-package-check"
+          title="No hay sugerencias pendientes"
+          description="Cuando el stock previsto no cubra la demanda, verás aquí cuánto conviene pedir."
+        />
+        <ul v-else class="adm-list">
+          <li v-for="sugg in suggestions" :key="sugg.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                Pedir {{ sugg.suggestedQuantity }} unidades
+                <AdminBadge :tone="sugg.status === 'suggested' ? 'warning' : 'neutral'" plain>
+                  {{ suggestionStatusLabels[sugg.status] ?? adminHumanize(sugg.status) }}
+                </AdminBadge>
+              </p>
+              <p class="break-words">{{ sugg.reason }}</p>
+              <p class="adm-help">
+                Stock actual: {{ sugg.currentPhysicalStock }} · stock mínimo: {{ sugg.safetyStock }} · plazo de entrega:
+                {{ sugg.leadTimeDays }} días
+              </p>
             </div>
-            <div v-if="sugg.status === 'suggested'" class="flex gap-2">
-              <button
-                type="button"
-                class="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
-                @click="reviewSuggestion(sugg.id, 'review')"
-              >
+            <template v-if="sugg.status === 'suggested'">
+              <AdminButton size="sm" @click="reviewSuggestion(sugg.id, 'dismiss')">Descartar</AdminButton>
+              <AdminButton size="sm" variant="primary" @click="reviewSuggestion(sugg.id, 'review')">
                 Aceptar
-              </button>
-              <button
-                type="button"
-                class="rounded bg-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-300"
-                @click="reviewSuggestion(sugg.id, 'dismiss')"
-              >
-                Descartar
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+              </AdminButton>
+            </template>
+          </li>
+        </ul>
+      </AdminCard>
 
-      <!-- Demand Anomalies -->
-      <div>
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-800">Anomalías de demanda detectadas</h4>
-        <p class="mt-1 text-xs text-slate-500">
-          Detección estadística mediante Z-score de picos atípicos o caídas abruptas en la demanda observada.
-        </p>
-
-        <div
+      <AdminCard
+        title="Anomalías de demanda detectadas"
+        description="Días con ventas muy por encima o muy por debajo de lo habitual."
+        flush
+      >
+        <AdminEmptyState
           v-if="!anomalies.length"
-          class="mt-3 rounded border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500"
-        >
-          No se han detectado anomalías de demanda para esta variante.
-        </div>
-
-        <div v-else class="mt-3 space-y-2">
-          <div
-            v-for="anom in anomalies"
-            :key="anom.id"
-            class="flex items-center justify-between rounded border border-amber-200 bg-amber-50/40 p-3 text-xs"
-          >
-            <div>
-              <div class="flex items-center gap-2">
-                <span
-                  :class="[
-                    'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider',
-                    anom.severity === 'critical' ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'
-                  ]"
-                >
-                  {{ anom.kind === 'spike' ? 'Pico Inusual' : 'Caída Abrupta' }} ({{ anom.severity }})
-                </span>
-                <span class="font-mono text-slate-700">Z-Score: {{ anom.zScore }}</span>
-              </div>
-              <div class="mt-1 text-slate-700">
-                Observadas: <strong>{{ anom.observedUnits }}</strong> ud. (Esperadas: {{ anom.expectedUnits }} ud.)
-              </div>
+          compact
+          icon="i-lucide-activity"
+          title="Sin anomalías"
+          description="Las ventas de este producto siguen su ritmo habitual."
+        />
+        <ul v-else class="adm-list">
+          <li v-for="anom in anomalies" :key="anom.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                {{ anom.kind === 'spike' ? 'Pico de ventas' : 'Caída de ventas' }}
+                <AdminBadge :tone="anom.severity === 'critical' ? 'danger' : 'warning'">
+                  {{ anom.severity === 'critical' ? 'Grave' : 'Moderada' }}
+                </AdminBadge>
+              </p>
+              <p class="adm-help">
+                Vendidas: {{ anom.observedUnits }} unidades · lo habitual: {{ anom.expectedUnits }} unidades
+              </p>
             </div>
-            <button
-              v-if="anom.status === 'open'"
-              type="button"
-              class="rounded bg-slate-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-slate-900"
-              @click="ackAnomaly(anom.id)"
-            >
-              Reconocer
-            </button>
-            <span v-else class="text-[11px] font-medium text-slate-500">Reconocida</span>
-          </div>
-        </div>
-      </div>
+            <AdminButton v-if="anom.status === 'open'" size="sm" @click="ackAnomaly(anom.id)">
+              Marcar como revisada
+            </AdminButton>
+            <AdminBadge v-else tone="neutral" plain>Revisada</AdminBadge>
+          </li>
+        </ul>
+      </AdminCard>
     </div>
+
+    <AdminDrawer v-model:open="lotDrawer" title="Nuevo lote" description="Registra un lote recibido y su caducidad.">
+      <form id="inventory-new-lot" class="adm-stack" @submit.prevent="submitCreateLot">
+        <UAlert v-if="errorMessage" role="alert" color="error" variant="subtle" :title="errorMessage" />
+        <AdminFormField v-slot="{ id }" label="Número de lote" required>
+          <input :id="id" v-model="newLotNumber" type="text" required placeholder="Ej. L-2026-X1" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Fecha de caducidad" required>
+          <input :id="id" v-model="newLotExpiry" type="date" required />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Unidades recibidas" required>
+          <input :id="id" v-model.number="newLotQuantity" type="number" min="1" required />
+        </AdminFormField>
+      </form>
+      <template #footer>
+        <AdminButton @click="lotDrawer = false">Cancelar</AdminButton>
+        <button type="submit" form="inventory-new-lot" class="adm-btn adm-btn--primary" :disabled="loading">
+          Guardar lote
+        </button>
+      </template>
+    </AdminDrawer>
+
+    <AdminDrawer
+      v-model:open="costDrawer"
+      title="Registrar coste de entrada"
+      description="Apunta lo que te costó cada unidad de la mercancía recibida."
+    >
+      <form id="inventory-new-cost" class="adm-stack" @submit.prevent="submitRecordCostLayer">
+        <UAlert v-if="errorMessage" role="alert" color="error" variant="subtle" :title="errorMessage" />
+        <AdminFormField
+          v-slot="{ id }"
+          label="Coste por unidad, en céntimos"
+          help="Sin decimales: 450 equivale a 4,50 €."
+          required
+        >
+          <input :id="id" v-model.number="newCostLayerCents" type="number" min="0" required placeholder="450" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Unidades" required>
+          <input :id="id" v-model.number="newCostLayerQuantity" type="number" min="1" required />
+        </AdminFormField>
+      </form>
+      <template #footer>
+        <AdminButton @click="costDrawer = false">Cancelar</AdminButton>
+        <button type="submit" form="inventory-new-cost" class="adm-btn adm-btn--primary" :disabled="loading">
+          Guardar coste
+        </button>
+      </template>
+    </AdminDrawer>
+
+    <AdminConfirm
+      v-model:open="quarantineOpen"
+      title="Poner el lote en cuarentena"
+      :description="`El lote ${lotToQuarantine?.lotNumber ?? ''} dejará de venderse hasta que se revise.`"
+      confirm-label="Poner en cuarentena"
+      danger
+      @confirm="confirmQuarantine"
+    />
   </section>
 </template>

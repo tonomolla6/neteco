@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import type { AdminTone } from '~/utils/adminLabels'
 
 type Tab = 'reorder' | 'scan' | 'counts'
 interface Suggestion {
@@ -41,13 +42,62 @@ const ROOT_CAUSES = [
   ['system_error', 'Error de sistema'],
   ['unknown', 'Desconocida']
 ] as const
-const STAGES: Record<string, string> = { receiving: 'Recepción', picking: 'Picking', packing: 'Packing' }
+const STAGES: Record<string, string> = { receiving: 'Recepción', picking: 'Recogida', packing: 'Empaquetado' }
+const TABS = [
+  ['reorder', 'Sugerencias de compra'],
+  ['scan', 'Lectura de códigos'],
+  ['counts', 'Recuentos']
+] as const
+const PLAN_STATUS: Record<string, string> = {
+  planned: 'Sin empezar',
+  counting: 'Contando',
+  review: 'En revisión',
+  closed: 'Cerrado',
+  cancelled: 'Cancelado'
+}
+const PLAN_TONES: Record<string, AdminTone> = {
+  planned: 'neutral',
+  counting: 'info',
+  review: 'warning',
+  closed: 'success',
+  cancelled: 'neutral'
+}
+const LINE_STATUS: Record<string, string> = {
+  pending: 'Pendiente de contar',
+  counted: 'Contado',
+  recount: 'Volver a contar',
+  approved: 'Ajuste aprobado',
+  rejected: 'Ajuste rechazado'
+}
+const ERROR_TEXT: Record<string, string> = {
+  invalid_input: 'Falta algún dato o no es válido. Revisa el formulario y vuelve a intentarlo.',
+  validation_error: 'Falta algún dato o no es válido. Revisa el formulario y vuelve a intentarlo.',
+  forbidden: 'No tienes permiso para hacer esto.',
+  unauthorized: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
+  not_found: 'No hemos encontrado lo que buscas. Puede que ya no exista.',
+  concurrency_conflict: 'Otra persona lo ha cambiado mientras tanto. Recarga y vuelve a intentarlo.',
+  version_conflict: 'Otra persona lo ha cambiado mientras tanto. Recarga y vuelve a intentarlo.',
+  rate_limited: 'Demasiadas operaciones seguidas. Espera un momento.',
+  barcode_unknown: 'Ese código de barras no corresponde a ningún producto de la tarea.',
+  quantity_exceeds_expected: 'La cantidad supera lo que se esperaba en la tarea.',
+  service_unavailable: 'No hemos podido conectar con la tienda. Vuelve a intentarlo.'
+}
+function rootCauseLabel(code: string) {
+  return ROOT_CAUSES.find(([value]) => value === code)?.[1] ?? adminHumanize(code)
+}
 
 const requestFetch = useRequestFetch()
 const tab = ref<Tab>('reorder')
 const loading = ref(false)
 const error = ref('')
 const notice = ref('')
+// Paneles laterales de alta: se cierran cuando la operación se confirma.
+const policyOpen = ref(false)
+const taskOpen = ref(false)
+const planOpen = ref(false)
+watch(notice, (value) => {
+  if (value) policyOpen.value = taskOpen.value = planOpen.value = false
+})
 
 const suggestions = ref<Suggestion[]>([])
 const approvedQuantity = ref<Record<string, number>>({})
@@ -96,7 +146,10 @@ const newKey = () => globalThis.crypto.randomUUID()
 
 function message(cause: any) {
   const code = cause?.data?.error?.code ?? cause?.statusMessage ?? cause?.message
-  return typeof code === 'string' ? code : 'service_unavailable'
+  return (
+    (typeof code === 'string' ? ERROR_TEXT[code] : undefined) ??
+    'No hemos podido completar la operación. Vuelve a intentarlo.'
+  )
 }
 
 async function post(path: string, body: Record<string, unknown>) {
@@ -135,7 +188,7 @@ async function guarded(action: () => Promise<void>) {
 const evaluate = () =>
   guarded(async () => {
     const r = await post('/api/admin/inventory/reorder/evaluate', {})
-    notice.value = `Evaluadas ${r.evaluated} políticas; ${r.created.length} sugerencias nuevas.`
+    notice.value = `Revisadas ${r.evaluated} reglas de reposición: ${r.created.length} sugerencias nuevas.`
     await loadAll()
   })
 
@@ -151,7 +204,7 @@ const savePolicy = () =>
       minOrderQuantity: Number(policyForm.value.minOrderQuantity),
       expectedVersion: Number(policyForm.value.expectedVersion)
     })
-    notice.value = 'Política de reposición guardada.'
+    notice.value = 'Regla de reposición guardada.'
   })
 
 const savePlan = () =>
@@ -166,7 +219,7 @@ const savePlan = () =>
       blind: Number(planForm.value.blind),
       variantIds: ids
     })
-    notice.value = 'Plan de conteo creado.'
+    notice.value = 'Recuento creado.'
     planForm.value.name = ''
     planForm.value.variantsRaw = ''
     await loadAll()
@@ -185,7 +238,7 @@ const saveTask = () =>
         }
       ]
     })
-    notice.value = 'Tarea de escaneo creada.'
+    notice.value = 'Tarea de lectura creada.'
     taskForm.value.reference = ''
     taskForm.value.variantId = ''
     await loadAll()
@@ -224,7 +277,7 @@ const submitScan = () =>
       scanFeedback.value = `${r.sku}: ${r.scannedQuantity}/${r.expectedQuantity}`
     } catch (cause: any) {
       scanOk.value = false
-      scanFeedback.value = `Escaneo rechazado: ${message(cause)}`
+      scanFeedback.value = `Lectura rechazada: ${message(cause)}`
     }
     await openTask(activeTask.value.id)
     await loadAll()
@@ -275,467 +328,487 @@ onMounted(loadAll)
 </script>
 
 <template>
-  <section class="space-y-6" data-testid="admin-inventory-planning" aria-labelledby="planning-title">
-    <header>
-      <h1 id="planning-title" class="text-2xl font-bold text-slate-900">Reposición, escaneo y conteos cíclicos</h1>
-      <p class="text-sm text-slate-600">
-        Puntos de pedido con aprobación humana, validación de código de barras y conteo ciego con causa raíz.
-      </p>
-    </header>
-
-    <div role="tablist" class="flex gap-2" aria-label="Secciones">
+  <section class="adm-stack" data-testid="admin-inventory-planning" aria-labelledby="planning-title">
+    <h2 id="planning-title" class="sr-only">Reposición y recuentos</h2>
+    <div role="tablist" class="adm-tabs" aria-label="Secciones">
       <button
-        v-for="[key, label] in [
-          ['reorder', 'Sugerencias de compra'],
-          ['scan', 'Escaneo'],
-          ['counts', 'Conteos cíclicos']
-        ] as const"
+        v-for="[key, label] in TABS"
         :key="key"
         type="button"
         role="tab"
+        class="adm-tab"
         :aria-selected="tab === key"
         :data-testid="`tab-${key}`"
-        class="rounded-lg border px-4 py-2 text-sm font-semibold"
-        :class="tab === key ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-700'"
         @click="tab = key"
       >
         {{ label }}
       </button>
     </div>
 
-    <p v-if="loading" role="status" data-testid="planning-loading" class="text-sm text-slate-500">Cargando…</p>
-    <p v-if="error" role="alert" data-testid="planning-error" class="rounded-lg bg-red-50 p-3 text-sm text-red-800">
-      Error: {{ error }}
-    </p>
-    <p
+    <p v-if="loading" role="status" data-testid="planning-loading" class="adm-help">Cargando…</p>
+    <UAlert
+      v-if="error"
+      role="alert"
+      data-testid="planning-error"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="error"
+      :actions="[{ label: 'Reintentar', color: 'neutral', variant: 'outline', onClick: () => void loadAll() }]"
+    />
+    <UAlert
       v-if="notice"
       role="status"
       data-testid="planning-notice"
-      class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800"
-    >
-      {{ notice }}
-    </p>
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="notice"
+    />
 
-    <!-- INV-017 -->
-    <div v-if="tab === 'reorder'" role="tabpanel" data-testid="panel-reorder" class="space-y-3">
-      <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-        <h3 class="font-semibold text-slate-800 text-sm">Configurar política de reposición</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-          <div>
-            <label class="block text-slate-600">UUID Variante</label>
-            <input v-model="policyForm.variantId" data-testid="policy-variant-id" class="w-full rounded border p-1" />
-          </div>
-          <div>
-            <label class="block text-slate-600">Plazo entrega (días)</label>
-            <input
-              v-model.number="policyForm.leadTimeDays"
-              data-testid="policy-lead-time"
-              type="number"
-              class="w-full rounded border p-1"
-            />
-          </div>
-          <div>
-            <label class="block text-slate-600">Pedido mínimo</label>
-            <input
-              v-model.number="policyForm.minOrderQuantity"
-              data-testid="policy-min-order"
-              type="number"
-              class="w-full rounded border p-1"
-            />
-          </div>
-        </div>
-        <button
-          type="button"
-          data-testid="save-policy-btn"
-          class="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
-          @click="savePolicy"
-        >
-          Guardar política
-        </button>
-      </div>
-
-      <button
-        type="button"
-        class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-        data-testid="btn-evaluate"
-        @click="evaluate"
+    <!-- Sugerencias de compra -->
+    <div v-if="tab === 'reorder'" role="tabpanel" data-testid="panel-reorder" class="adm-stack">
+      <AdminCard
+        title="Sugerencias de compra"
+        description="Productos cuyo stock ha bajado del punto en el que conviene volver a pedir."
+        flush
       >
-        Evaluar puntos de pedido
-      </button>
-      <p v-if="!loading && !suggestions.length" data-testid="reorder-empty" class="text-sm text-slate-500">
-        No hay sugerencias pendientes.
-      </p>
-      <article
-        v-for="s in suggestions"
-        :key="s.id"
-        class="rounded-xl border border-slate-200 bg-white p-4"
-        :data-testid="`suggestion-${s.id}`"
-      >
-        <h2 class="font-semibold text-slate-900">{{ s.sku }}</h2>
-        <p class="text-sm text-slate-600">
-          Posición {{ s.positionQuantity }} ≤ punto de pedido {{ s.reorderPoint }} · demanda {{ s.dailyDemand }}/día ·
-          plazo {{ s.leadTimeDays }} d · sugerido {{ s.suggestedQuantity }}
-        </p>
-        <div class="mt-2 flex flex-wrap items-end gap-2">
-          <label class="text-xs text-slate-600">
-            Cantidad a pedir
-            <input
-              v-model.number="approvedQuantity[s.id]"
-              type="number"
-              min="1"
-              :placeholder="String(s.suggestedQuantity)"
-              class="block w-28 rounded border border-slate-300 px-2 py-1 text-sm"
-              :data-testid="`qty-${s.id}`"
-            />
-          </label>
-          <label class="flex-1 text-xs text-slate-600">
-            Nota de decisión
-            <input
-              v-model="decisionNote[s.id]"
-              type="text"
-              maxlength="500"
-              class="block w-full rounded border border-slate-300 px-2 py-1 text-sm"
-              :data-testid="`note-${s.id}`"
-            />
-          </label>
+        <template #actions>
+          <AdminButton size="sm" icon="i-lucide-settings-2" @click="policyOpen = true">Regla de reposición</AdminButton>
           <button
             type="button"
-            class="rounded bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white"
-            :data-testid="`approve-${s.id}`"
-            @click="decideSuggestion(s, 'approve')"
+            class="adm-btn adm-btn--primary adm-btn--sm"
+            data-testid="btn-evaluate"
+            @click="evaluate"
           >
-            Aprobar
+            Calcular sugerencias
           </button>
-          <button
-            type="button"
-            class="rounded bg-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-800"
-            :data-testid="`reject-${s.id}`"
-            @click="decideSuggestion(s, 'reject')"
-          >
-            Rechazar
-          </button>
+        </template>
+        <div v-if="!loading && !suggestions.length" data-testid="reorder-empty">
+          <AdminEmptyState
+            compact
+            icon="i-lucide-package-check"
+            title="No hay sugerencias pendientes"
+            description="Pulsa «Calcular sugerencias» para revisar el stock con tus reglas de reposición."
+          />
         </div>
-      </article>
+        <ul v-else class="adm-list">
+          <li v-for="s in suggestions" :key="s.id" :data-testid="`suggestion-${s.id}`">
+            <div class="min-w-0 flex-1 basis-64">
+              <p class="adm-list__title">{{ s.sku }}</p>
+              <p class="adm-help">
+                Quedan {{ s.positionQuantity }} (se repone al bajar de {{ s.reorderPoint }}) · se venden
+                {{ s.dailyDemand }} al día · el proveedor tarda {{ s.leadTimeDays }} días
+              </p>
+            </div>
+            <label class="adm-field">
+              <span class="adm-label">Cantidad a pedir</span>
+              <input
+                v-model.number="approvedQuantity[s.id]"
+                type="number"
+                min="1"
+                :placeholder="String(s.suggestedQuantity)"
+                class="w-28"
+                :data-testid="`qty-${s.id}`"
+              />
+            </label>
+            <label class="adm-field min-w-40 flex-1">
+              <span class="adm-label">Nota</span>
+              <input v-model="decisionNote[s.id]" type="text" maxlength="500" :data-testid="`note-${s.id}`" />
+            </label>
+            <div class="flex gap-2 self-end">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                :data-testid="`reject-${s.id}`"
+                @click="decideSuggestion(s, 'reject')"
+              >
+                Rechazar
+              </button>
+              <button
+                type="button"
+                class="adm-btn adm-btn--primary"
+                :data-testid="`approve-${s.id}`"
+                @click="decideSuggestion(s, 'approve')"
+              >
+                Aprobar
+              </button>
+            </div>
+          </li>
+        </ul>
+      </AdminCard>
+
+      <AdminDrawer
+        v-model:open="policyOpen"
+        title="Regla de reposición"
+        description="Indica cuánto tarda el proveedor y el pedido mínimo de un producto para calcular cuándo reponerlo."
+      >
+        <div class="adm-stack">
+          <UAlert v-if="error" role="alert" color="error" variant="subtle" :title="error" />
+          <AdminFormField
+            v-slot="{ id }"
+            label="Identificador del producto"
+            help="El código largo de la variante, con sus guiones."
+            required
+          >
+            <input :id="id" v-model="policyForm.variantId" data-testid="policy-variant-id" autocomplete="off" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Plazo de entrega del proveedor (días)">
+            <input :id="id" v-model.number="policyForm.leadTimeDays" data-testid="policy-lead-time" type="number" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Pedido mínimo (unidades)">
+            <input :id="id" v-model.number="policyForm.minOrderQuantity" data-testid="policy-min-order" type="number" />
+          </AdminFormField>
+        </div>
+        <template #footer>
+          <AdminButton @click="policyOpen = false">Cancelar</AdminButton>
+          <button type="button" data-testid="save-policy-btn" class="adm-btn adm-btn--primary" @click="savePolicy">
+            Guardar regla
+          </button>
+        </template>
+      </AdminDrawer>
     </div>
 
-    <!-- INV-018 -->
-    <div v-if="tab === 'scan'" role="tabpanel" data-testid="panel-scan" class="space-y-3">
-      <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-        <h3 class="font-semibold text-slate-800 text-sm">Crear tarea de escaneo</h3>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-2 text-xs">
-          <div>
-            <label class="block text-slate-600">Etapa</label>
-            <select v-model="taskForm.stage" class="w-full rounded border p-1">
-              <option value="receiving">Recepción</option>
-              <option value="picking">Picking</option>
-              <option value="packing">Packing</option>
-            </select>
+    <!-- Lectura de códigos -->
+    <div v-if="tab === 'scan'" role="tabpanel" data-testid="panel-scan" class="adm-stack">
+      <AdminCard
+        title="Tareas de lectura de códigos"
+        description="Comprueba con el lector que lo recibido, recogido o empaquetado coincide con lo esperado."
+        flush
+      >
+        <template #actions>
+          <AdminButton size="sm" variant="primary" icon="i-lucide-plus" @click="taskOpen = true">
+            Nueva tarea
+          </AdminButton>
+        </template>
+        <div v-if="!loading && !tasks.length" data-testid="scan-empty">
+          <AdminEmptyState
+            compact
+            icon="i-lucide-scan-barcode"
+            title="No hay tareas abiertas"
+            description="Crea una tarea para empezar a leer códigos."
+          />
+        </div>
+        <ul v-else class="adm-list">
+          <li v-for="t in tasks" :key="t.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                {{ t.reference }}
+                <AdminBadge tone="info" plain>{{ STAGES[t.stage] ?? adminHumanize(t.stage) }}</AdminBadge>
+              </p>
+              <p class="adm-help">{{ t.scannedQuantity }} de {{ t.expectedQuantity }} unidades leídas</p>
+            </div>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :data-testid="`task-${t.id}`"
+              @click="openTask(t.id)"
+            >
+              Abrir
+            </button>
+          </li>
+        </ul>
+      </AdminCard>
+
+      <AdminCard
+        v-if="activeTask"
+        :title="`${activeTask.reference} · ${STAGES[activeTask.stage] ?? adminHumanize(activeTask.stage)}`"
+      >
+        <form class="adm-stack" data-testid="scan-form" @submit.prevent="submitScan">
+          <ul class="space-y-1" data-testid="scan-lines">
+            <li v-for="l in activeTask.lines" :key="l.variantId">
+              {{ l.sku }}: {{ l.scannedQuantity }}/{{ l.expectedQuantity }}
+            </li>
+          </ul>
+          <div class="flex flex-wrap items-end gap-3">
+            <label class="adm-field min-w-48 flex-1">
+              <span class="adm-label">{{ exceptionMode ? 'Referencia (sin código)' : 'Código de barras' }}</span>
+              <input v-model="barcode" type="text" autocomplete="off" class="font-mono" data-testid="scan-input" />
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Cantidad</span>
+              <input v-model.number="scanQuantity" type="number" min="1" class="w-24" data-testid="scan-quantity" />
+            </label>
+            <button type="submit" class="adm-btn adm-btn--primary" data-testid="scan-submit">Validar</button>
           </div>
-          <div>
-            <label class="block text-slate-600">Referencia</label>
+          <label class="adm-check">
+            <input v-model="exceptionMode" type="checkbox" data-testid="scan-exception-toggle" />
+            El código no se puede leer o no existe
+          </label>
+          <div v-if="exceptionMode" class="flex flex-wrap gap-3">
+            <select v-model="exceptionReason" aria-label="Motivo de la excepción">
+              <option value="barcode_unreadable">Código ilegible</option>
+              <option value="barcode_missing">Sin código</option>
+              <option value="wrong_barcode_on_item">Código erróneo en el artículo</option>
+              <option value="damaged_label">Etiqueta dañada</option>
+            </select>
             <input
-              v-model="taskForm.reference"
-              data-testid="new-task-reference"
-              placeholder="ALB-..."
-              class="w-full rounded border p-1"
+              v-model="exceptionNote"
+              type="text"
+              minlength="10"
+              maxlength="500"
+              placeholder="Explica el motivo (mínimo 10 caracteres)"
+              aria-label="Explicación"
+              class="min-w-64 flex-1"
+              data-testid="scan-exception-note"
             />
           </div>
-          <div>
-            <label class="block text-slate-600">UUID Variante</label>
-            <input v-model="taskForm.variantId" data-testid="new-task-variant" class="w-full rounded border p-1" />
-          </div>
-          <div>
-            <label class="block text-slate-600">Cantidad esperada</label>
+          <UAlert
+            v-if="scanFeedback"
+            role="status"
+            data-testid="scan-feedback"
+            :color="scanOk ? 'success' : 'error'"
+            variant="subtle"
+            :icon="scanOk ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+            :title="scanFeedback"
+          />
+        </form>
+      </AdminCard>
+
+      <AdminDrawer v-model:open="taskOpen" title="Nueva tarea de lectura">
+        <div class="adm-stack">
+          <UAlert v-if="error" role="alert" color="error" variant="subtle" :title="error" />
+          <AdminFormField v-slot="{ id }" label="Momento">
+            <select :id="id" v-model="taskForm.stage">
+              <option value="receiving">Recepción de mercancía</option>
+              <option value="picking">Recogida del pedido</option>
+              <option value="packing">Empaquetado</option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Referencia" help="Por ejemplo, el número de albarán." required>
+            <input :id="id" v-model="taskForm.reference" data-testid="new-task-reference" placeholder="ALB-…" />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Identificador del producto"
+            help="El código largo de la variante, con sus guiones."
+            required
+          >
+            <input :id="id" v-model="taskForm.variantId" data-testid="new-task-variant" autocomplete="off" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Unidades esperadas" required>
             <input
+              :id="id"
               v-model.number="taskForm.expectedQuantity"
               data-testid="new-task-quantity"
               type="number"
               min="1"
-              class="w-full rounded border p-1"
             />
-          </div>
+          </AdminFormField>
         </div>
-        <button
-          type="button"
-          data-testid="save-task-btn"
-          class="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
-          @click="saveTask"
-        >
-          Crear tarea
-        </button>
-      </div>
-
-      <p v-if="!loading && !tasks.length" data-testid="scan-empty" class="text-sm text-slate-500">
-        No hay tareas de escaneo abiertas.
-      </p>
-      <ul class="space-y-2">
-        <li v-for="t in tasks" :key="t.id">
-          <button
-            type="button"
-            class="w-full rounded-lg border border-slate-200 bg-white p-3 text-left text-sm"
-            :data-testid="`task-${t.id}`"
-            @click="openTask(t.id)"
-          >
-            <strong>{{ STAGES[t.stage] ?? t.stage }}</strong> · {{ t.reference }} · {{ t.scannedQuantity }}/{{
-              t.expectedQuantity
-            }}
+        <template #footer>
+          <AdminButton @click="taskOpen = false">Cancelar</AdminButton>
+          <button type="button" data-testid="save-task-btn" class="adm-btn adm-btn--primary" @click="saveTask">
+            Crear tarea
           </button>
-        </li>
-      </ul>
-      <form
-        v-if="activeTask"
-        class="space-y-2 rounded-xl border-2 border-blue-500 bg-blue-50/50 p-4"
-        data-testid="scan-form"
-        @submit.prevent="submitScan"
-      >
-        <h2 class="font-semibold">{{ activeTask.reference }} — {{ STAGES[activeTask.stage] }}</h2>
-        <ul class="text-sm text-slate-700" data-testid="scan-lines">
-          <li v-for="l in activeTask.lines" :key="l.variantId">
-            {{ l.sku }}: {{ l.scannedQuantity }}/{{ l.expectedQuantity }}
-          </li>
-        </ul>
-        <div class="flex flex-wrap gap-2">
-          <label class="flex-1 text-xs text-slate-600">
-            {{ exceptionMode ? 'SKU (modo excepción)' : 'Código de barras' }}
-            <input
-              v-model="barcode"
-              type="text"
-              autocomplete="off"
-              class="block w-full rounded border border-blue-300 px-3 py-2 font-mono"
-              data-testid="scan-input"
-            />
-          </label>
-          <label class="text-xs text-slate-600">
-            Cantidad
-            <input
-              v-model.number="scanQuantity"
-              type="number"
-              min="1"
-              class="block w-24 rounded border border-slate-300 px-2 py-2"
-              data-testid="scan-quantity"
-            />
-          </label>
-          <button
-            type="submit"
-            class="self-end rounded bg-blue-600 px-4 py-2 text-sm font-bold text-white"
-            data-testid="scan-submit"
-          >
-            Validar
-          </button>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-slate-700">
-          <input v-model="exceptionMode" type="checkbox" data-testid="scan-exception-toggle" /> Modo excepción (código
-          ilegible o ausente)
-        </label>
-        <div v-if="exceptionMode" class="flex flex-wrap gap-2">
-          <select
-            v-model="exceptionReason"
-            class="rounded border border-slate-300 px-2 py-1 text-sm"
-            aria-label="Motivo de la excepción"
-          >
-            <option value="barcode_unreadable">Código ilegible</option>
-            <option value="barcode_missing">Sin código</option>
-            <option value="wrong_barcode_on_item">Código erróneo en el artículo</option>
-            <option value="damaged_label">Etiqueta dañada</option>
-          </select>
-          <input
-            v-model="exceptionNote"
-            type="text"
-            minlength="10"
-            maxlength="500"
-            placeholder="Motivo (mín. 10 caracteres)"
-            class="min-w-64 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
-            data-testid="scan-exception-note"
-          />
-        </div>
-        <p
-          v-if="scanFeedback"
-          role="status"
-          data-testid="scan-feedback"
-          class="text-sm font-medium"
-          :class="scanOk ? 'text-emerald-700' : 'text-red-700'"
-        >
-          {{ scanFeedback }}
-        </p>
-      </form>
+        </template>
+      </AdminDrawer>
     </div>
 
-    <!-- INV-020 -->
-    <div v-if="tab === 'counts'" role="tabpanel" data-testid="panel-counts" class="space-y-3">
-      <div class="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-        <h3 class="font-semibold text-slate-800 text-sm">Crear plan de conteo cíclico</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-          <div>
-            <label class="block text-slate-600">Nombre del plan</label>
-            <input
-              v-model="planForm.name"
-              data-testid="new-plan-name"
-              placeholder="Conteo Pasillo..."
-              class="w-full rounded border p-1"
-            />
-          </div>
-          <div>
-            <label class="block text-slate-600">UUIDs Variantes (separados por coma)</label>
-            <input
-              v-model="planForm.variantsRaw"
-              data-testid="new-plan-variants"
-              placeholder="uuid1, uuid2"
-              class="w-full rounded border p-1"
-            />
-          </div>
-          <div class="flex items-center gap-2 pt-4">
-            <label class="flex items-center gap-1 text-slate-700">
-              <input v-model="planForm.blind" type="checkbox" :true-value="1" :false-value="0" /> Conteo ciego
-            </label>
-          </div>
-        </div>
-        <button
-          type="button"
-          data-testid="save-plan-btn"
-          class="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-700"
-          @click="savePlan"
-        >
-          Crear plan
-        </button>
-      </div>
-
-      <p v-if="!loading && !plans.length" data-testid="counts-empty" class="text-sm text-slate-500">
-        No hay planes de conteo.
-      </p>
-      <ul class="space-y-2">
-        <li v-for="p in plans" :key="p.id">
-          <button
-            type="button"
-            class="w-full rounded-lg border border-slate-200 bg-white p-3 text-left text-sm"
-            :data-testid="`plan-${p.id}`"
-            @click="openPlan(p.id)"
-          >
-            <strong>{{ p.name }}</strong> · {{ p.status }} · {{ p.lines }} líneas<span v-if="p.blind"> · ciego</span>
-          </button>
-        </li>
-      </ul>
-      <div
-        v-if="activePlan"
-        class="space-y-2 rounded-xl border border-slate-200 bg-white p-4"
-        data-testid="plan-detail"
+    <!-- Recuentos -->
+    <div v-if="tab === 'counts'" role="tabpanel" data-testid="panel-counts" class="adm-stack">
+      <AdminCard
+        title="Recuentos de almacén"
+        description="Cuenta por partes el almacén y aprueba las diferencias con el stock registrado."
+        flush
       >
-        <h2 class="font-semibold">{{ activePlan.name }} ({{ activePlan.status }})</h2>
-        <div class="flex gap-2">
-          <button
-            v-if="activePlan.status === 'planned'"
-            type="button"
-            class="rounded bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white"
-            data-testid="plan-start"
-            @click="planAction('start')"
-          >
-            Iniciar conteo
-          </button>
+        <template #actions>
+          <AdminButton size="sm" variant="primary" icon="i-lucide-plus" @click="planOpen = true">
+            Nuevo recuento
+          </AdminButton>
+        </template>
+        <div v-if="!loading && !plans.length" data-testid="counts-empty">
+          <AdminEmptyState
+            compact
+            icon="i-lucide-clipboard-list"
+            title="Aún no hay recuentos"
+            description="Crea un recuento con los productos que quieras contar."
+          />
+        </div>
+        <ul v-else class="adm-list">
+          <li v-for="p in plans" :key="p.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                {{ p.name }}
+                <AdminBadge :tone="PLAN_TONES[p.status] ?? 'neutral'">
+                  {{ PLAN_STATUS[p.status] ?? adminHumanize(p.status) }}
+                </AdminBadge>
+              </p>
+              <p class="adm-help">
+                {{ p.lines }} {{ p.lines === 1 ? 'producto' : 'productos' }}
+                <template v-if="p.blind"> · a ciegas (sin ver el stock registrado)</template>
+              </p>
+            </div>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :data-testid="`plan-${p.id}`"
+              @click="openPlan(p.id)"
+            >
+              Abrir
+            </button>
+          </li>
+        </ul>
+      </AdminCard>
+
+      <AdminCard v-if="activePlan" data-testid="plan-detail" :title="activePlan.name" flush>
+        <template #actions>
+          <AdminBadge :tone="PLAN_TONES[activePlan.status] ?? 'neutral'">
+            {{ PLAN_STATUS[activePlan.status] ?? adminHumanize(activePlan.status) }}
+          </AdminBadge>
           <button
             v-if="['planned', 'counting', 'review'].includes(activePlan.status)"
             type="button"
-            class="rounded bg-slate-200 px-3 py-1.5 text-sm font-semibold"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
             data-testid="plan-cancel"
             @click="planAction('cancel')"
           >
-            Cancelar plan
+            Cancelar recuento
           </button>
+          <button
+            v-if="activePlan.status === 'planned'"
+            type="button"
+            class="adm-btn adm-btn--primary adm-btn--sm"
+            data-testid="plan-start"
+            @click="planAction('start')"
+          >
+            Empezar a contar
+          </button>
+        </template>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <caption class="sr-only">
+              Líneas del plan de conteo
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Referencia</th>
+                <th scope="col">Estado</th>
+                <th
+                  v-if="activePlan.status === 'review' || activePlan.status === 'closed'"
+                  scope="col"
+                  data-numeric
+                  title="Stock registrado"
+                >
+                  Teórico
+                </th>
+                <th scope="col" data-numeric>Contado</th>
+                <th scope="col">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="l in activePlan.lines" :key="l.variantId" :data-testid="`line-${l.variantId}`">
+                <td class="font-semibold text-[var(--text-strong)]">{{ l.sku }}</td>
+                <td>{{ LINE_STATUS[l.status] ?? adminHumanize(l.status) }}</td>
+                <td v-if="activePlan.status === 'review' || activePlan.status === 'closed'" data-numeric>
+                  {{ l.expectedQuantity }}
+                  <AdminBadge v-if="l.discrepancy" tone="warning" plain
+                    >({{ l.discrepancy > 0 ? '+' : '' }}{{ l.discrepancy }})</AdminBadge
+                  >
+                </td>
+                <td data-numeric>{{ l.countedQuantity ?? '—' }}</td>
+                <td>
+                  <div
+                    v-if="activePlan.status === 'counting' && ['pending', 'recount'].includes(l.status)"
+                    class="flex gap-2"
+                  >
+                    <input
+                      v-model.number="counts[l.variantId]"
+                      type="number"
+                      min="0"
+                      class="w-24"
+                      :aria-label="`Cantidad contada de ${l.sku}`"
+                      :data-testid="`count-${l.variantId}`"
+                    />
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--primary adm-btn--sm"
+                      :data-testid="`send-count-${l.variantId}`"
+                      @click="sendCount(l)"
+                    >
+                      Guardar
+                    </button>
+                  </div>
+                  <div
+                    v-else-if="activePlan.status === 'review' && l.status === 'counted'"
+                    class="flex flex-wrap items-center gap-2"
+                  >
+                    <select
+                      v-model="rootCause[l.variantId]"
+                      :aria-label="`Causa raíz de ${l.sku}`"
+                      :data-testid="`cause-${l.variantId}`"
+                    >
+                      <option value="">Causa de la diferencia…</option>
+                      <option v-for="[value, label] in ROOT_CAUSES" :key="value" :value="value">{{ label }}</option>
+                    </select>
+                    <input
+                      v-model="lineNote[l.variantId]"
+                      type="text"
+                      maxlength="500"
+                      placeholder="Nota"
+                      class="w-40"
+                      :aria-label="`Nota de ${l.sku}`"
+                      :data-testid="`line-note-${l.variantId}`"
+                    />
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--primary adm-btn--sm"
+                      :data-testid="`approve-line-${l.variantId}`"
+                      @click="decideLine(l, 'approve')"
+                    >
+                      Aprobar ajuste
+                    </button>
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      :data-testid="`reject-line-${l.variantId}`"
+                      @click="decideLine(l, 'reject')"
+                    >
+                      Rechazar
+                    </button>
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--ghost adm-btn--sm"
+                      :data-testid="`recount-${l.variantId}`"
+                      @click="recount(l)"
+                    >
+                      Volver a contar
+                    </button>
+                  </div>
+                  <span v-else-if="l.rootCause">{{ rootCauseLabel(l.rootCause) }}</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <table class="w-full text-left text-sm">
-          <caption class="sr-only">
-            Líneas del plan de conteo
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">SKU</th>
-              <th scope="col">Estado</th>
-              <th v-if="activePlan.status === 'review' || activePlan.status === 'closed'" scope="col">Teórico</th>
-              <th scope="col">Contado</th>
-              <th scope="col">Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="l in activePlan.lines" :key="l.variantId" :data-testid="`line-${l.variantId}`">
-              <td>{{ l.sku }}</td>
-              <td>{{ l.status }}</td>
-              <td v-if="activePlan.status === 'review' || activePlan.status === 'closed'">
-                {{ l.expectedQuantity
-                }}<span v-if="l.discrepancy" class="ml-1 font-semibold text-amber-700"
-                  >({{ l.discrepancy > 0 ? '+' : '' }}{{ l.discrepancy }})</span
-                >
-              </td>
-              <td>{{ l.countedQuantity ?? '—' }}</td>
-              <td>
-                <div
-                  v-if="activePlan.status === 'counting' && ['pending', 'recount'].includes(l.status)"
-                  class="flex gap-1"
-                >
-                  <input
-                    v-model.number="counts[l.variantId]"
-                    type="number"
-                    min="0"
-                    class="w-24 rounded border border-slate-300 px-2 py-1"
-                    :aria-label="`Cantidad contada de ${l.sku}`"
-                    :data-testid="`count-${l.variantId}`"
-                  />
-                  <button
-                    type="button"
-                    class="rounded bg-blue-600 px-2 py-1 text-white"
-                    :data-testid="`send-count-${l.variantId}`"
-                    @click="sendCount(l)"
-                  >
-                    Enviar
-                  </button>
-                </div>
-                <div v-else-if="activePlan.status === 'review' && l.status === 'counted'" class="space-y-1">
-                  <select
-                    v-model="rootCause[l.variantId]"
-                    class="rounded border border-slate-300 px-1 py-1"
-                    :aria-label="`Causa raíz de ${l.sku}`"
-                    :data-testid="`cause-${l.variantId}`"
-                  >
-                    <option value="">Causa raíz…</option>
-                    <option v-for="[value, label] in ROOT_CAUSES" :key="value" :value="value">{{ label }}</option>
-                  </select>
-                  <input
-                    v-model="lineNote[l.variantId]"
-                    type="text"
-                    maxlength="500"
-                    placeholder="Nota"
-                    class="rounded border border-slate-300 px-2 py-1"
-                    :aria-label="`Nota de ${l.sku}`"
-                    :data-testid="`line-note-${l.variantId}`"
-                  />
-                  <button
-                    type="button"
-                    class="rounded bg-emerald-600 px-2 py-1 text-white"
-                    :data-testid="`approve-line-${l.variantId}`"
-                    @click="decideLine(l, 'approve')"
-                  >
-                    Aprobar ajuste
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded bg-slate-200 px-2 py-1"
-                    :data-testid="`reject-line-${l.variantId}`"
-                    @click="decideLine(l, 'reject')"
-                  >
-                    Rechazar
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded bg-amber-200 px-2 py-1"
-                    :data-testid="`recount-${l.variantId}`"
-                    @click="recount(l)"
-                  >
-                    Recontar
-                  </button>
-                </div>
-                <span v-else-if="l.rootCause">{{ l.rootCause }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      </AdminCard>
+
+      <AdminDrawer v-model:open="planOpen" title="Nuevo recuento">
+        <div class="adm-stack">
+          <UAlert v-if="error" role="alert" color="error" variant="subtle" :title="error" />
+          <AdminFormField v-slot="{ id }" label="Nombre" required>
+            <input :id="id" v-model="planForm.name" data-testid="new-plan-name" placeholder="Recuento del pasillo A" />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Productos a contar"
+            help="Identificadores de los productos, separados por comas."
+            required
+          >
+            <input :id="id" v-model="planForm.variantsRaw" data-testid="new-plan-variants" autocomplete="off" />
+          </AdminFormField>
+          <label class="adm-check">
+            <input v-model="planForm.blind" type="checkbox" :true-value="1" :false-value="0" />
+            Contar a ciegas (quien cuenta no ve el stock registrado)
+          </label>
+        </div>
+        <template #footer>
+          <AdminButton @click="planOpen = false">Cancelar</AdminButton>
+          <button type="button" data-testid="save-plan-btn" class="adm-btn adm-btn--primary" @click="savePlan">
+            Crear recuento
+          </button>
+        </template>
+      </AdminDrawer>
     </div>
   </section>
 </template>

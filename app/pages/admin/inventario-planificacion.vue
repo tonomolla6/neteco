@@ -4,7 +4,9 @@ useSeoMeta({ title: 'Reposición, escaneo y conteos · Admin' })
 </script>
 
 <template>
-  <div>
-    <AdminInventoryPlanning />
-  </div>
+  <AdminPage>
+    <div>
+      <AdminInventoryPlanning />
+    </div>
+  </AdminPage>
 </template>

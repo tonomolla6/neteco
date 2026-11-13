@@ -192,7 +192,8 @@ async function inspect() {
     )
       throw Error('CSV structure')
   } catch {
-    feedback.value = 'CSV no válido: cabecera sku,countedPhysicalQuantity, 1–100 filas y máximo 64 KiB.'
+    feedback.value =
+      'El recuento no es válido: la primera línea debe ser sku,countedPhysicalQuantity y admite entre 1 y 100 productos.'
     return
   }
   busy.value = previewBusy.value = true
@@ -216,7 +217,7 @@ async function inspect() {
     preview.value = data
   } catch (error) {
     if (current(scope, token) && !authFailure(error, scope))
-      feedback.value = 'No se pudo confirmar la previsualización. No se ha presentado ningún lote.'
+      feedback.value = 'No hemos podido comprobar las diferencias. No se ha guardado nada; vuelve a intentarlo.'
   } finally {
     if (current(scope, token)) busy.value = previewBusy.value = false
   }
@@ -268,7 +269,7 @@ async function review(action: 'propose' | 'approve') {
       reference: reference.value
     })
     if (!body.success) {
-      feedback.value = 'Indique un motivo y una referencia válidos.'
+      feedback.value = 'Escribe un nombre para el recuento y un motivo.'
       return
     }
     const rows = preview.value.rows.map((row) => ({ ...row }))
@@ -290,7 +291,7 @@ async function review(action: 'propose' | 'approve') {
       reason: approvalReason.value
     })
     if (!body.success) {
-      feedback.value = 'La aprobación independiente necesita un motivo válido.'
+      feedback.value = 'Escribe el motivo de la aprobación.'
       return
     }
     const original = structuredClone(snapshot.value)
@@ -312,7 +313,8 @@ async function review(action: 'propose' | 'approve') {
     if (current(scope, token) && (candidate.action === 'propose' ? canPropose.value : canApprove.value))
       intent.value = { ...candidate, key: crypto.randomUUID(), hash }
   } catch {
-    if (current(scope, token)) feedback.value = 'No se pudo preparar el intento. No se ha enviado ninguna operación.'
+    if (current(scope, token))
+      feedback.value = 'No hemos podido preparar el envío. No se ha guardado nada; vuelve a intentarlo.'
   } finally {
     if (current(scope, token)) busy.value = false
   }
@@ -378,8 +380,8 @@ async function accept(raw: unknown, frozen: Intent, token: number) {
   csv.value = reason.value = reference.value = approvalReason.value = ''
   feedback.value =
     frozen.action === 'propose'
-      ? 'Propuesta confirmada. No se ha modificado el stock; debe aprobarla otro operador.'
-      : 'Recuento aprobado y balances actuales confirmados. No autoriza efectos económicos.'
+      ? 'Propuesta confirmada. El stock no ha cambiado todavía: tiene que aprobarla otra persona.'
+      : 'Recuento aprobado. El stock ya refleja lo contado.'
   emit('confirmed', receipt)
 }
 async function send() {
@@ -394,7 +396,7 @@ async function send() {
   const token = generation
   busy.value = true
   frozen.sent = true
-  feedback.value = 'Resultado incierto hasta comprobar el recibo y la lectura actual.'
+  feedback.value = 'Enviando… El resultado es incierto hasta que lo confirmemos.'
   try {
     const response = await request(frozen.action === 'propose' ? ROOT : `${ROOT}/${frozen.target}/approve`, {
       method: 'POST',
@@ -405,7 +407,7 @@ async function send() {
     if (current(frozen.scope, token)) await accept(response, frozen, token)
   } catch (error) {
     if (current(frozen.scope, token) && !authFailure(error, frozen.scope))
-      feedback.value = 'Resultado incierto. No se repetirá automáticamente; compruebe la operación original.'
+      feedback.value = 'Resultado incierto. No se repetirá automáticamente: pulsa «Comprobar si se guardó».'
   } finally {
     if (current(frozen.scope, token)) busy.value = false
   }
@@ -431,10 +433,10 @@ async function check() {
     )
     if (!current(frozen.scope, token)) return
     if (data.outcome === 'applied') await accept(data.receipt, frozen, token)
-    else feedback.value = 'Resultado incierto. Un recibo desconocido no demuestra ausencia de cambios.'
+    else feedback.value = 'Resultado incierto. Que no aparezca todavía no demuestra que no se haya guardado.'
   } catch (error) {
     if (current(frozen.scope, token) && !authFailure(error, frozen.scope))
-      feedback.value = 'Resultado incierto. No se pudo confirmar el recibo y el balance.'
+      feedback.value = 'Resultado incierto. No hemos podido comprobarlo; vuelve a intentarlo.'
   } finally {
     if (current(frozen.scope, token)) busy.value = false
   }
@@ -482,180 +484,324 @@ onBeforeUnmount(() => {
   generation++
 })
 const errors = {
-  unknown_sku: 'SKU desconocido',
-  ambiguous_sku: 'SKU ambiguo',
-  duplicate_sku: 'SKU duplicado',
+  unknown_sku: 'Referencia desconocida',
+  ambiguous_sku: 'Referencia repetida en el catálogo',
+  duplicate_sku: 'Referencia duplicada en el fichero',
   invalid_quantity: 'Cantidad no válida',
-  source_unavailable: 'Existencias no confirmadas'
+  source_unavailable: 'No se pudo leer el stock'
 }
 </script>
 
 <template>
-  <section
-    v-if="available"
-    aria-label="Importación de recuentos CSV"
-    class="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
-  >
-    <h2 class="text-xl font-semibold">Importación de recuentos CSV</h2>
-    <p>
-      Un único almacén. La previsualización y la propuesta no modifican stock. Otro operador debe aprobar todas las
-      diferencias sobre las versiones confirmadas; nunca se sobrescriben balances cambiados.
-    </p>
-    <section aria-label="Lotes de recuento">
-      <h3 class="font-semibold">Lotes registrados</h3>
-      <p v-if="listState === 'loading'" role="status">Consultando lotes…</p>
-      <p v-else-if="listState === 'error'" role="alert">
-        No se pudieron confirmar los lotes. No se interpreta como una lista vacía.
-      </p>
-      <template v-if="imports">
-        <p v-if="imports.total === 0">No hay lotes registrados.</p>
-        <ul>
-          <li v-for="item in imports.items" :key="item.importId" class="break-words">
-            <button
-              type="button"
-              :data-count-import-open="item.importId"
-              :disabled="busy || !!intent"
-              @click="open(item.importId)"
-            >
-              {{ item.reference }} · {{ item.status === 'approved' ? 'Aprobado' : 'Propuesto' }} · {{ item.createdAt }}
-            </button>
-          </li>
-        </ul>
-        <nav aria-label="Páginas de lotes" class="flex flex-wrap gap-3">
-          <button type="button" :disabled="busy || !!intent || page <= 1" @click="list(page - 1)">Anterior</button
-          ><span>Página {{ page }}</span
-          ><button
-            type="button"
-            :disabled="busy || !!intent || page * imports.perPage >= imports.total"
-            @click="list(page + 1)"
-          >
-            Siguiente
-          </button>
-        </nav>
-      </template>
-      <button type="button" :disabled="busy || !!intent" @click="list()">Actualizar lotes</button>
-    </section>
-    <label class="block"
-      >CSV UTF-8 · cabecera <code>sku,countedPhysicalQuantity</code> · 1–100 filas, máximo 64 KiB<textarea
-        v-model="csv"
-        data-count-import-csv
-        rows="5"
-        class="mt-2 block w-full rounded border p-2"
-        :disabled="busy || !!intent"
-      />
-    </label>
-    <button data-count-import-preview type="button" :disabled="busy || !!intent || !csv" @click="inspect">
-      {{ previewBusy ? 'Comprobando…' : 'Previsualizar diferencias' }}
-    </button>
-    <div v-if="preview" class="max-w-full overflow-x-auto">
-      <table class="w-full text-left text-sm">
-        <caption>
-          Existencias observadas al previsualizar; no se ha ajustado el stock
-        </caption>
-        <thead>
-          <tr>
-            <th>Fila</th>
-            <th>SKU</th>
-            <th>Físico actual</th>
-            <th>Recuento</th>
-            <th>Diferencia</th>
-            <th>Estado</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in preview.rows" :key="row.rowNumber">
-            <td>{{ row.rowNumber }}</td>
-            <td class="break-words">{{ row.sku }}</td>
-            <td>{{ row.physicalQuantity ?? 'No confirmado' }}</td>
-            <td>{{ row.countedPhysicalQuantity ?? 'No válido' }}</td>
-            <td>{{ row.physicalDelta ?? 'No confirmada' }}</td>
-            <td>{{ row.error ? errors[row.error] : 'Fila válida' }}</td>
-          </tr>
-        </tbody>
-      </table>
-      <p v-if="preview.rows.some((row) => row.error)" role="alert">
-        Hay errores por fila: el lote completo queda bloqueado.
-      </p>
-      <p v-else-if="preview.rows.every((row) => row.physicalDelta === 0)">
-        Sin diferencias. No se generará un movimiento cero.
-      </p>
-      <p v-else-if="!preview.canPropose">
-        Esta lectura no autoriza presentar el lote. Se necesita permiso de escritura vigente.
-      </p>
-    </div>
-    <form v-if="canPropose && !intent" data-count-import-review class="space-y-3" @submit.prevent="review('propose')">
-      <label class="block"
-        >Motivo<textarea
-          v-model="reason"
-          data-count-import-reason
-          maxlength="500"
-          :disabled="busy"
-          class="block w-full rounded border p-2"
-        />
-      </label>
-      <label class="block"
-        >Referencia del recuento<input
-          v-model="reference"
-          data-count-import-reference
-          maxlength="200"
-          :disabled="busy"
-          class="block w-full rounded border p-2"
-      /></label>
-      <button type="submit" :disabled="busy">Revisar propuesta</button>
-    </form>
-    <p v-if="detailError" role="alert">No se pudo confirmar el lote seleccionado.</p>
-    <section v-if="snapshot" aria-label="Detalle del lote" class="min-w-0 space-y-3">
-      <h3 class="font-semibold">
-        {{ snapshot.reference }} · {{ snapshot.status === 'approved' ? 'Aprobado' : 'Propuesto' }}
-      </h3>
-      <p class="break-words">Motivo: {{ snapshot.reason }} · Propuesto por {{ snapshot.proposedBy }}</p>
-      <ul>
-        <li v-for="row in snapshot.rows" :key="row.rowNumber" class="break-words">
-          {{ row.sku }} · observado {{ row.physicalQuantity }} · contado {{ row.countedPhysicalQuantity }} · diferencia
-          {{ row.physicalDelta }} · físico confirmado ahora {{ row.currentPhysicalQuantity }} · versión
-          {{ row.currentBalanceVersion }}<span v-if="row.stale"> · El balance cambió; no puede sobrescribirse.</span>
-        </li>
-      </ul>
-      <p v-if="snapshot.status === 'proposed' && snapshot.proposedBy === user?.id">
-        La aprobación requiere otro operador.
-      </p>
-      <form v-if="canApprove && !intent" data-count-import-review-approval @submit.prevent="review('approve')">
-        <label class="block"
-          >Motivo de aprobación independiente<textarea
-            v-model="approvalReason"
-            data-count-import-approval-reason
-            maxlength="500"
-            :disabled="busy"
-            class="block w-full rounded border p-2"
-          /></label
-        ><button type="submit" :disabled="busy">Revisar aprobación</button>
-      </form>
-    </section>
-    <section v-if="intent" aria-label="Confirmar operación de recuento" class="rounded border border-amber-300 p-3">
+  <section v-if="available" aria-label="Importación de recuentos CSV" class="adm-stack min-w-0">
+    <UAlert v-if="feedback" role="status" color="neutral" variant="subtle" icon="i-lucide-info" :title="feedback" />
+
+    <AdminCard v-if="intent" as="section" aria-label="Confirmar operación de recuento" title="Confirmar">
       <p>
         {{
           intent.action === 'propose'
-            ? 'Presentar propuesta sin modificar stock'
-            : 'Aprobar diferencias de stock como segundo operador'
+            ? 'Vas a guardar la propuesta de recuento. El stock no cambia todavía.'
+            : 'Vas a aprobar el recuento como segunda persona. El stock se ajustará a lo contado.'
         }}
-        · {{ intent.changedCount }} diferencias.
+        Afecta a {{ intent.changedCount }} {{ intent.changedCount === 1 ? 'producto' : 'productos' }}.
       </p>
-      <template v-if="!intent.sent"
-        ><button data-count-import-confirm type="button" :disabled="busy" @click="send">Confirmar operación</button
-        ><button type="button" :disabled="busy" @click="intent = null">Volver a revisar</button></template
-      >
-      <template v-else
-        ><button data-count-import-check type="button" :disabled="busy" @click="check">
-          Comprobar operación original</button
-        ><button data-count-import-retry type="button" :disabled="busy" @click="send">
-          Reintentar exactamente el mismo intento
-        </button></template
-      >
-      <p v-if="intent.sent">
-        No abandone este contexto sin revisar el resultado incierto. No se ha supuesto ausencia ni se repetirá
-        automáticamente.
+      <p v-if="intent.sent" class="adm-help mt-2">
+        No sabemos si se ha guardado: el resultado es incierto. No salgas de esta pantalla sin comprobarlo; no se
+        repetirá automáticamente.
       </p>
-    </section>
-    <p v-if="feedback" role="status">{{ feedback }}</p>
+      <template #footer>
+        <template v-if="!intent.sent">
+          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="intent = null">
+            Volver a revisar
+          </button>
+          <button
+            data-count-import-confirm
+            type="button"
+            class="adm-btn adm-btn--primary"
+            :disabled="busy"
+            @click="send"
+          >
+            Confirmar
+          </button>
+        </template>
+        <template v-else>
+          <button
+            data-count-import-check
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="busy"
+            @click="check"
+          >
+            Comprobar si se guardó
+          </button>
+          <button
+            data-count-import-retry
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="busy"
+            @click="send"
+          >
+            Reintentar el mismo envío
+          </button>
+        </template>
+      </template>
+    </AdminCard>
+
+    <AdminCard
+      title="Importar un recuento"
+      description="Pega lo contado en el almacén. Primero verás las diferencias; el stock solo cambia cuando otra persona aprueba el recuento."
+    >
+      <div class="adm-stack">
+        <label class="adm-field">
+          <span class="adm-label">Recuento en formato CSV</span>
+          <textarea
+            v-model="csv"
+            data-count-import-csv
+            rows="5"
+            class="w-full font-mono"
+            placeholder="sku,countedPhysicalQuantity&#10;REF-001,24&#10;REF-002,8"
+            :disabled="busy || !!intent"
+          />
+          <span class="adm-help">
+            Primera línea <code>sku,countedPhysicalQuantity</code> y después una línea por producto: referencia y
+            unidades contadas. Entre 1 y 100 productos.
+          </span>
+        </label>
+        <div>
+          <button
+            data-count-import-preview
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="busy || !!intent || !csv"
+            @click="inspect"
+          >
+            {{ previewBusy ? 'Comprobando…' : 'Ver diferencias' }}
+          </button>
+        </div>
+        <template v-if="preview">
+          <div class="adm-table-wrap rounded-[var(--radius-surface)] border border-[var(--border)]">
+            <table class="adm-table">
+              <caption class="sr-only">
+                Existencias en el momento de la comprobación; el stock no se ha ajustado
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col" data-numeric>Fila</th>
+                  <th scope="col">Referencia</th>
+                  <th scope="col" data-numeric>Stock actual</th>
+                  <th scope="col" data-numeric>Contado</th>
+                  <th scope="col" data-numeric>Diferencia</th>
+                  <th scope="col">Resultado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in preview.rows" :key="row.rowNumber">
+                  <td data-numeric>{{ row.rowNumber }}</td>
+                  <td class="break-words">{{ row.sku }}</td>
+                  <td data-numeric>{{ row.physicalQuantity ?? '—' }}</td>
+                  <td data-numeric>{{ row.countedPhysicalQuantity ?? 'No válido' }}</td>
+                  <td data-numeric>{{ row.physicalDelta ?? '—' }}</td>
+                  <td>
+                    <AdminBadge :tone="row.error ? 'danger' : 'success'">
+                      {{ row.error ? errors[row.error] : 'Correcta' }}
+                    </AdminBadge>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <UAlert
+            v-if="preview.rows.some((row) => row.error)"
+            role="alert"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            title="Hay filas con errores"
+            description="Corrígelas y vuelve a comprobar: no se puede guardar el recuento mientras haya errores."
+          />
+          <p v-else-if="preview.rows.every((row) => row.physicalDelta === 0)" class="adm-help">
+            Sin diferencias: lo contado coincide con el stock, no hay nada que ajustar.
+          </p>
+          <p v-else-if="!preview.canPropose" class="adm-help">No tienes permiso para guardar recuentos.</p>
+        </template>
+        <form
+          v-if="canPropose && !intent"
+          data-count-import-review
+          class="adm-stack border-t border-[var(--border)] pt-4"
+          @submit.prevent="review('propose')"
+        >
+          <div class="adm-form-grid">
+            <label class="adm-field">
+              <span class="adm-label">Nombre del recuento</span>
+              <input
+                v-model="reference"
+                data-count-import-reference
+                maxlength="200"
+                placeholder="Ej. Recuento mensual de noviembre"
+                :disabled="busy"
+              />
+            </label>
+            <label class="adm-field">
+              <span class="adm-label">Motivo</span>
+              <textarea v-model="reason" data-count-import-reason maxlength="500" :disabled="busy" />
+            </label>
+          </div>
+          <div class="flex justify-end">
+            <button type="submit" class="adm-btn adm-btn--primary" :disabled="busy">Guardar recuento</button>
+          </div>
+        </form>
+      </div>
+    </AdminCard>
+
+    <UAlert
+      v-if="detailError"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="No hemos podido abrir ese recuento"
+      description="Vuelve a intentarlo desde la lista."
+    />
+    <AdminCard v-if="snapshot" as="section" aria-label="Detalle del lote" :title="snapshot.reference" flush>
+      <template #actions>
+        <AdminBadge :tone="snapshot.status === 'approved' ? 'success' : 'warning'">
+          {{ snapshot.status === 'approved' ? 'Aprobado' : 'Pendiente de aprobar' }}
+        </AdminBadge>
+      </template>
+      <p class="break-words px-5 py-3">Motivo: {{ snapshot.reason }}</p>
+      <div class="adm-table-wrap border-t border-[var(--border)]">
+        <table class="adm-table">
+          <thead>
+            <tr>
+              <th scope="col">Referencia</th>
+              <th scope="col" data-numeric>Stock al contar</th>
+              <th scope="col" data-numeric>Contado</th>
+              <th scope="col" data-numeric>Diferencia</th>
+              <th scope="col" data-numeric>Stock ahora</th>
+              <th scope="col"><span class="sr-only">Avisos</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in snapshot.rows" :key="row.rowNumber">
+              <td class="break-words">{{ row.sku }}</td>
+              <td data-numeric>{{ row.physicalQuantity }}</td>
+              <td data-numeric>{{ row.countedPhysicalQuantity }}</td>
+              <td data-numeric>{{ row.physicalDelta }}</td>
+              <td data-numeric>{{ row.currentPhysicalQuantity }}</td>
+              <td>
+                <AdminBadge v-if="row.stale" tone="warning">El stock cambió: hay que volver a contar</AdminBadge>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-if="snapshot.status === 'proposed' && snapshot.proposedBy === user?.id" class="adm-help px-5 py-3">
+        Este recuento lo guardaste tú: tiene que aprobarlo otra persona.
+      </p>
+      <form
+        v-if="canApprove && !intent"
+        data-count-import-review-approval
+        class="adm-stack border-t border-[var(--border)] px-5 py-4"
+        @submit.prevent="review('approve')"
+      >
+        <label class="adm-field">
+          <span class="adm-label">Motivo de la aprobación</span>
+          <textarea v-model="approvalReason" data-count-import-approval-reason maxlength="500" :disabled="busy" />
+        </label>
+        <div class="flex justify-end">
+          <button type="submit" class="adm-btn adm-btn--primary" :disabled="busy">Aprobar recuento</button>
+        </div>
+      </form>
+    </AdminCard>
+
+    <AdminCard as="section" aria-label="Lotes de recuento" title="Recuentos anteriores" flush>
+      <template #actions>
+        <button
+          type="button"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          :disabled="busy || !!intent"
+          @click="list()"
+        >
+          <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+        </button>
+      </template>
+      <div v-if="listState === 'loading'" class="adm-table-skeleton" aria-busy="true" role="status">
+        <span class="sr-only">Cargando recuentos…</span>
+        <div v-for="row in 3" :key="row"><i /><i /><i /></div>
+      </div>
+      <div v-else-if="listState === 'error'" role="alert">
+        <AdminEmptyState
+          variant="error"
+          compact
+          title="No hemos podido cargar los recuentos"
+          description="No significa que no haya ninguno. Vuelve a intentarlo."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" :disabled="busy || !!intent" @click="list()">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </div>
+      <template v-if="imports">
+        <AdminEmptyState
+          v-if="imports.total === 0"
+          compact
+          icon="i-lucide-clipboard-list"
+          title="Aún no hay recuentos"
+          description="Cuando guardes un recuento aparecerá aquí para que otra persona lo apruebe."
+        />
+        <template v-else>
+          <ul class="adm-list">
+            <li v-for="item in imports.items" :key="item.importId" class="break-words">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  {{ item.reference }}
+                  <AdminBadge :tone="item.status === 'approved' ? 'success' : 'warning'">
+                    {{ item.status === 'approved' ? 'Aprobado' : 'Pendiente de aprobar' }}
+                  </AdminBadge>
+                </p>
+                <p class="adm-help">{{ adminDate(item.createdAt, true) }}</p>
+              </div>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :data-count-import-open="item.importId"
+                :disabled="busy || !!intent"
+                @click="open(item.importId)"
+              >
+                Abrir
+              </button>
+            </li>
+          </ul>
+          <nav aria-label="Páginas de lotes" class="adm-pagination">
+            <p>{{ imports.total }} {{ imports.total === 1 ? 'recuento' : 'recuentos' }}</p>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || !!intent || page <= 1"
+                @click="list(page - 1)"
+              >
+                Anterior
+              </button>
+              <span class="tabular-nums">Página {{ page }}</span>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || !!intent || page * imports.perPage >= imports.total"
+                @click="list(page + 1)"
+              >
+                Siguiente
+              </button>
+            </div>
+          </nav>
+        </template>
+      </template>
+    </AdminCard>
   </section>
+  <AdminCard v-else>
+    <AdminEmptyState
+      compact
+      icon="i-lucide-clock"
+      title="Los recuentos no están disponibles ahora"
+      description="Termina primero el cambio que tienes a medias en otra pestaña, o comprueba que tu sesión tiene permiso de inventario."
+    />
+  </AdminCard>
 </template>

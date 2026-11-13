@@ -22,8 +22,10 @@ const emit = defineEmits<{
   confirmed: [receipt: InventoryAlertCommandReceipt]
   selectVariant: [variantId: number]
 }>()
-const kindLabels = { low: 'Stock bajo', out_of_stock: 'Agotado', anomaly: 'Anomalía de inventario' }
-const stateLabels = { open: 'Abierta', acknowledged: 'Reconocida', resolved: 'Resuelta por evaluación' }
+const kindLabels = { low: 'Stock bajo', out_of_stock: 'Agotado', anomaly: 'Descuadre de inventario' }
+const kindTones = { low: 'warning', out_of_stock: 'danger', anomaly: 'info' } as const
+const stateLabels = { open: 'Abierta', acknowledged: 'Revisada', resolved: 'Resuelta' }
+const stateTones = { open: 'warning', acknowledged: 'neutral', resolved: 'success' } as const
 const filters = reactive({ state: 'open', kind: '', q: '' })
 type Query = ReturnType<typeof inventoryAlertsQuerySchema.parse>
 const initialQuery = () => inventoryAlertsQuerySchema.parse({})
@@ -118,7 +120,7 @@ function applyFilters() {
     perPage: 25
   })
   if (!parsed.success) {
-    message.value = 'Comprueba los filtros: SKU o nombre de hasta 100 caracteres, sin controles.'
+    message.value = 'Revisa la búsqueda: admite hasta 100 caracteres del nombre o de la referencia.'
     return
   }
   void readQueue(parsed.data)
@@ -140,7 +142,7 @@ async function loadPolicy(id?: number) {
   if (!idle() || loading.value || policyLoading.value) return
   const parsed = inventoryLegacyIdSchema.safeParse(id === undefined ? variantText.value : String(id))
   if (!parsed.success) {
-    message.value = 'Indica un ID de variante canónico positivo.'
+    message.value = 'Escribe el número interno del producto, solo cifras.'
     return
   }
   const epoch = generation
@@ -185,7 +187,7 @@ async function prepare(action: InventoryAlertAction, targetId: string, body: Rec
     })
     ambiguous.value = false
   } catch {
-    if (current(epoch)) message.value = 'Comprueba los datos de la operación. No se ha enviado nada.'
+    if (current(epoch)) message.value = 'Revisa los datos. No se ha enviado nada.'
   } finally {
     if (current(epoch)) commandBusy.value = false
   }
@@ -205,7 +207,7 @@ function prepareThreshold() {
     reason: reason.value
   })
   if (!parsed.success) {
-    message.value = 'Indica un umbral entero no negativo o vacío y un motivo de 10–500 caracteres.'
+    message.value = 'Escribe un número entero (o déjalo vacío) y un motivo de entre 10 y 500 caracteres.'
     return
   }
   void prepare('threshold', String(data.variantId), parsed.data)
@@ -225,7 +227,7 @@ function prepareAck() {
     reason: reason.value
   })
   if (!parsed.success) {
-    message.value = 'Documenta un motivo de 10–500 caracteres.'
+    message.value = 'Escribe un motivo de entre 10 y 500 caracteres.'
     return
   }
   void prepare('ack', ackTarget.value.id, parsed.data)
@@ -282,10 +284,10 @@ async function confirmReceipt(receipt: InventoryAlertCommandReceipt, command: In
   ackTarget.value = null
   message.value =
     command.action === 'ack'
-      ? 'Reconocimiento confirmado. No repara ni resuelve el stock.'
+      ? 'Alerta marcada como revisada. No repara ni resuelve el stock.'
       : command.action === 'threshold'
-        ? 'Umbral confirmado. No modifica el stock de seguridad ni las existencias.'
-        : `Evaluación confirmada: ${receipt.processed} variantes, ${receipt.opened} abiertas y ${receipt.resolved} resueltas por hechos.`
+        ? 'Aviso guardado. No modifica el stock de seguridad ni las existencias.'
+        : `Inventario revisado: ${receipt.processed} productos, ${receipt.opened} alertas nuevas y ${receipt.resolved} resueltas.`
   emit('confirmed', receipt)
   if (command.action !== 'evaluate') {
     try {
@@ -317,7 +319,7 @@ async function send() {
   } catch {
     if (current(epoch))
       message.value =
-        'Resultado no confirmado. Comprueba el recibo manualmente; no se enviará otro comando automáticamente.'
+        'No sabemos si el cambio se ha guardado. Pulsa «Comprobar si se guardó»; no se reenviará nada automáticamente.'
   } finally {
     if (current(epoch)) commandBusy.value = false
   }
@@ -339,7 +341,7 @@ async function recover() {
   } catch {
     if (current(epoch))
       message.value =
-        'El resultado sigue sin confirmarse. Conservamos la misma intención; desconocido no significa que no se aplicara.'
+        'Seguimos sin poder confirmarlo. Conservamos el mismo cambio: desconocido no significa que no se aplicara.'
   } finally {
     if (current(epoch)) commandBusy.value = false
   }
@@ -379,254 +381,393 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    v-if="enabled"
-    aria-label="Alertas operativas de inventario"
-    class="min-w-0 space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
-  >
-    <h2 class="text-xl font-semibold">Alertas de inventario</h2>
-    <p>
-      Umbrales operativos distintos del stock de seguridad. Reconocer una alerta no registra una recepción ni corrige
-      existencias.
-    </p>
-    <form data-testid="alerts-filters" class="flex flex-wrap gap-3" @submit.prevent="applyFilters">
-      <label
-        >Estado<select v-model="filters.state" data-testid="alerts-state" :disabled="!idle() || loading">
-          <option value="open">Abiertas</option>
-          <option value="acknowledged">Reconocidas</option>
-          <option value="resolved">Resueltas por evaluación</option>
-          <option value="all">Todas</option>
-        </select></label
-      >
-      <label
-        >Tipo<select v-model="filters.kind" data-testid="alerts-kind" :disabled="!idle() || loading">
-          <option value="">Todos</option>
-          <option v-for="(label, kind) in kindLabels" :key="kind" :value="kind">{{ label }}</option>
-        </select></label
-      >
-      <label class="min-w-0 flex-1"
-        >SKU o nombre<input
-          v-model="filters.q"
-          data-testid="alerts-query"
-          maxlength="100"
-          class="w-full rounded border p-2"
-          :disabled="!idle() || loading"
-      /></label>
-      <button type="submit" :disabled="!idle() || loading" class="rounded border p-2">Aplicar filtros</button>
-    </form>
-    <p v-if="loading" role="status">Confirmando alertas y hechos actuales…</p>
-    <p v-if="readError" role="alert">No se ha confirmado la cola. Un error no significa que no haya alertas.</p>
-    <button
-      data-testid="alerts-refresh"
-      type="button"
-      :disabled="!idle() || loading || policyLoading"
-      class="rounded border p-2"
-      @click="readQueue()"
-    >
-      Actualizar cola
-    </button>
-    <div v-if="queue" class="space-y-3">
-      <p>{{ queue.warehouse.name }} · Hechos observados: {{ queue.evaluatedAt }}</p>
-      <p>
-        Filtro aplicado: {{ applied.state === 'all' ? 'Todas' : stateLabels[applied.state] }} ·
-        {{ applied.kind ? kindLabels[applied.kind] : 'Todos los tipos' }} · {{ applied.q || 'Sin búsqueda' }}
-      </p>
-      <p v-if="queue.lastEvaluationAt === null" role="status">
-        Aún no evaluado. Una cola vacía no acredita que el inventario esté bien.
-      </p>
-      <p v-else>Última evaluación de episodios: {{ queue.lastEvaluationAt }}</p>
-      <p v-if="!queue.items.length">No hay episodios en esta consulta confirmada.</p>
-      <ul class="space-y-3">
-        <li v-for="item in queue.items" :key="item.id" class="min-w-0 rounded border p-3">
-          <p class="break-words font-semibold">{{ item.sku }} · {{ kindLabels[item.kind] }}</p>
-          <p>{{ stateLabels[item.state] }} · Versión {{ item.version }}</p>
-          <p>
-            Disponibilidad vendible observada: {{ item.sellableQuantity ?? 'No confirmada' }} · Umbral:
-            {{ item.threshold ?? 'Desactivado' }}
-          </p>
-          <p>
-            Hecho actual: {{ item.currentKind ? kindLabels[item.currentKind] : 'Sin condición activa confirmada' }}. El
-            episodio conserva su historial.
-          </p>
-          <div class="flex flex-wrap gap-3">
-            <a :href="item.to" :aria-disabled="!idle() || loading" class="underline" @click.prevent="select(item)"
-              >Ver existencias, recepción y conteo</a
-            >
-            <button
-              :data-alert-policy="item.variantId"
-              :disabled="!idle() || loading || policyLoading"
-              class="rounded border p-2"
-              @click="loadPolicy(item.variantId)"
-            >
-              Configurar umbral
-            </button>
-            <button
-              v-if="queue.capabilities.inventoryWrite && item.state === 'open' && item.currentKind === item.kind"
-              :data-alert-ack="item.id"
-              :disabled="!idle() || loading || policyLoading"
-              class="rounded border p-2"
-              @click="chooseAck(item)"
-            >
-              Reconocer alerta
-            </button>
-          </div>
-        </li>
-      </ul>
-      <nav aria-label="Páginas de alertas" class="flex flex-wrap items-center gap-3">
-        <button data-testid="alerts-previous" :disabled="!idle() || loading || applied.page <= 1" @click="movePage(-1)">
-          Anterior</button
-        ><span>{{ queue.pagination.total }} episodios · Página {{ applied.page }} de {{ queue.pagination.pages }}</span
-        ><button
-          data-testid="alerts-next"
-          :disabled="!idle() || loading || applied.page >= queue.pagination.pages"
-          @click="movePage(1)"
-        >
-          Siguiente
-        </button>
-      </nav>
-      <div v-if="queue.capabilities.inventoryWrite" class="flex flex-wrap gap-3">
-        <button
-          data-testid="alerts-evaluate"
-          :disabled="!idle() || loading || policyLoading"
-          class="rounded border p-2"
-          @click="prepareEvaluation()"
-        >
-          Revisar evaluación de hasta 100 variantes
-        </button>
-        <button
-          v-if="nextAfterVariantId !== null"
-          data-testid="alerts-evaluate-next"
-          :disabled="!idle() || loading || policyLoading"
-          class="rounded border p-2"
-          @click="prepareEvaluation(true)"
-        >
-          Revisar siguiente lote de evaluación
-        </button>
+  <section v-if="enabled" aria-label="Alertas operativas de inventario" class="adm-stack min-w-0">
+    <UAlert
+      v-if="message"
+      role="status"
+      color="neutral"
+      variant="subtle"
+      icon="i-lucide-info"
+      :title="message"
+      class="break-words"
+    />
+    <UAlert
+      v-if="policyError"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="No hemos podido cargar el aviso de este producto"
+      description="No se ha cambiado nada. Vuelve a intentarlo."
+    />
+
+    <AdminCard v-if="intent" title="Confirmar el cambio">
+      <div class="adm-stack">
+        <p>
+          <span class="font-semibold text-[var(--text-strong)]">
+            {{
+              intent.action === 'ack'
+                ? 'Marcar la alerta como revisada'
+                : intent.action === 'threshold'
+                  ? 'Cambiar el aviso de stock bajo'
+                  : 'Revisar el inventario'
+            }}.
+          </span>
+          No cambia las existencias ni envía correos.
+        </p>
+        <p v-if="intent.action === 'threshold'">
+          Nuevo umbral: {{ intent.body.threshold ?? 'Desactivado' }}. El stock mínimo del producto no cambia.
+        </p>
+        <p v-if="intent.action === 'evaluate'">
+          Se revisan como máximo {{ intent.body.limit }} productos,
+          {{
+            intent.body.afterVariantId ? 'después de la variante ' + intent.body.afterVariantId : 'desde el principio'
+          }}. Para seguir con los siguientes habrá que confirmarlo otra vez.
+        </p>
+        <p v-if="intent.body.reason" class="break-words">Motivo: {{ intent.body.reason }}</p>
       </div>
-    </div>
-    <button
-      v-if="selectedVariantId !== undefined && !intent"
-      data-testid="alerts-selected-policy"
-      type="button"
-      :disabled="!idle() || loading || policyLoading"
-      class="rounded border p-2"
-      @click="loadPolicy(selectedVariantId)"
-    >
-      Configurar umbral de la variante seleccionada
-    </button>
-    <details v-if="!intent">
-      <summary class="cursor-pointer">Atajo por ID</summary>
-      <form class="flex flex-wrap gap-3" @submit.prevent="loadPolicy()">
-        <label
-          >ID de variante para umbral<input
-            v-model="variantText"
-            data-testid="alerts-policy-variant"
-            inputmode="numeric"
-            :disabled="!idle() || loading || policyLoading"
-            class="rounded border p-2" /></label
-        ><button :disabled="!idle() || loading || policyLoading" class="rounded border p-2">Consultar umbral</button>
-      </form>
-    </details>
-    <p v-if="policyLoading" role="status">Confirmando umbral vigente…</p>
-    <p v-if="policyError" role="alert">No se ha confirmado el umbral. No se sustituye por cero.</p>
-    <form
+      <template #footer>
+        <button
+          v-if="!ambiguous"
+          type="button"
+          data-testid="alerts-cancel"
+          class="adm-btn adm-btn--secondary"
+          :disabled="commandBusy || pending"
+          @click="cancel"
+        >
+          Cancelar
+        </button>
+        <button
+          v-if="!ambiguous"
+          type="button"
+          data-testid="alerts-confirm"
+          class="adm-btn adm-btn--primary"
+          :disabled="commandBusy || pending"
+          @click="send()"
+        >
+          Confirmar
+        </button>
+        <template v-else>
+          <button
+            type="button"
+            data-testid="alerts-recover"
+            class="adm-btn adm-btn--secondary"
+            :disabled="commandBusy || pending"
+            @click="recover"
+          >
+            Comprobar si se guardó
+          </button>
+          <button
+            type="button"
+            data-testid="alerts-replay"
+            class="adm-btn adm-btn--secondary"
+            :disabled="commandBusy || pending"
+            @click="send()"
+          >
+            Reintentar el mismo cambio
+          </button>
+        </template>
+      </template>
+    </AdminCard>
+
+    <AdminCard
       v-if="policy && !intent"
-      data-testid="alerts-threshold-form"
-      class="space-y-3"
-      @submit.prevent="prepareThreshold"
+      title="Aviso de stock bajo"
+      :description="`Producto n.º ${policy.variantId}. Ahora avisa por debajo de: ${policy.threshold ?? 'desactivado'}.`"
     >
-      <p>
-        Variante {{ policy.variantId }} · Política v{{ policy.version }}. Umbral actual:
-        {{ policy.threshold ?? 'Desactivado' }}.
-      </p>
-      <template v-if="policy.capabilities.inventoryWrite"
-        ><label class="block"
-          >Umbral entero (vacío desactiva stock bajo/agotado)<input
-            v-model="thresholdText"
-            data-testid="alerts-threshold"
-            inputmode="numeric"
-            :disabled="!idle()"
-            class="rounded border p-2" /></label
-        ><label class="block"
-          >Motivo<textarea
+      <form
+        id="alerts-threshold-form"
+        data-testid="alerts-threshold-form"
+        class="adm-stack"
+        @submit.prevent="prepareThreshold"
+      >
+        <template v-if="policy.capabilities.inventoryWrite">
+          <label class="adm-field">
+            <span class="adm-label">Avisar cuando queden menos de (unidades)</span>
+            <input
+              v-model="thresholdText"
+              data-testid="alerts-threshold"
+              inputmode="numeric"
+              class="max-w-40"
+              :disabled="!idle()"
+            />
+            <span class="adm-help">Déjalo vacío para no recibir avisos de stock bajo ni de agotado.</span>
+          </label>
+          <label class="adm-field">
+            <span class="adm-label">Motivo del cambio</span>
+            <textarea
+              v-model="reason"
+              data-testid="alerts-threshold-reason"
+              minlength="10"
+              maxlength="500"
+              :disabled="!idle()"
+            />
+          </label>
+        </template>
+        <p v-else class="adm-help">No tienes permiso para cambiar este aviso.</p>
+      </form>
+      <template #footer>
+        <AdminButton :disabled="!idle()" @click="policy = null">Cancelar</AdminButton>
+        <button
+          v-if="policy.capabilities.inventoryWrite"
+          type="submit"
+          form="alerts-threshold-form"
+          class="adm-btn adm-btn--primary"
+          :disabled="!idle()"
+        >
+          Revisar cambio
+        </button>
+      </template>
+    </AdminCard>
+
+    <AdminCard
+      v-if="ackTarget && !intent"
+      :title="`Marcar como revisada: ${ackTarget.sku}`"
+      description="Solo deja constancia de que la has visto. No repara el inventario ni resuelve la incidencia."
+    >
+      <form id="alerts-ack-form" data-testid="alerts-ack-form" class="adm-stack" @submit.prevent="prepareAck">
+        <label class="adm-field">
+          <span class="adm-label">Motivo</span>
+          <textarea
             v-model="reason"
-            data-testid="alerts-threshold-reason"
+            data-testid="alerts-ack-reason"
             minlength="10"
             maxlength="500"
             :disabled="!idle()"
-            class="w-full rounded border p-2"
-          /></label
-        ><button :disabled="!idle()" class="rounded border p-2">Revisar cambio de umbral</button></template
-      >
-    </form>
-    <form v-if="ackTarget && !intent" data-testid="alerts-ack-form" class="space-y-3" @submit.prevent="prepareAck">
-      <p>Reconocer {{ ackTarget.sku }} no repara el inventario ni resuelve la incidencia.</p>
-      <label
-        >Motivo<textarea
-          v-model="reason"
-          data-testid="alerts-ack-reason"
-          minlength="10"
-          maxlength="500"
-          :disabled="!idle()"
-          class="w-full rounded border p-2"
-        /></label
-      ><button :disabled="!idle()" class="rounded border p-2">Revisar reconocimiento</button>
-    </form>
-    <div v-if="intent" class="space-y-3 rounded border p-3">
-      <p>
-        Intención congelada:
-        {{
-          intent.action === 'ack'
-            ? 'Reconocer alerta'
-            : intent.action === 'threshold'
-              ? 'Cambiar umbral'
-              : 'Evaluar lote'
-        }}
-        · {{ intent.targetId }}. No cambia existencias ni envía correos.
-      </p>
-      <p v-if="intent.action === 'threshold'">
-        Nuevo umbral: {{ intent.body.threshold ?? 'Desactivado' }}. El stock de seguridad permanece intacto.
-      </p>
-      <p v-if="intent.action === 'evaluate'">
-        Máximo {{ intent.body.limit }} variantes;
-        {{ intent.body.afterVariantId ? 'después de la variante ' + intent.body.afterVariantId : 'desde el inicio' }}.
-        Los lotes siguientes requieren otra confirmación explícita.
-      </p>
-      <p v-if="intent.body.reason" class="break-words">Motivo: {{ intent.body.reason }}</p>
-      <button
-        v-if="!ambiguous"
-        data-testid="alerts-confirm"
-        :disabled="commandBusy || pending"
-        class="rounded border p-2"
-        @click="send()"
-      >
-        Confirmar operación</button
-      ><template v-else
-        ><button
-          data-testid="alerts-recover"
-          :disabled="commandBusy || pending"
-          class="rounded border p-2"
-          @click="recover"
+          />
+        </label>
+      </form>
+      <template #footer>
+        <AdminButton :disabled="!idle()" @click="ackTarget = null">Cancelar</AdminButton>
+        <button type="submit" form="alerts-ack-form" class="adm-btn adm-btn--primary" :disabled="!idle()">
+          Revisar
+        </button>
+      </template>
+    </AdminCard>
+
+    <div class="adm-card adm-tablecard">
+      <div class="adm-tablecard__bar">
+        <form data-testid="alerts-filters" class="adm-toolbar" role="search" @submit.prevent="applyFilters">
+          <label class="adm-toolbar__search">
+            <span class="sr-only">Buscar por nombre o referencia</span>
+            <UIcon name="i-lucide-search" class="size-4" />
+            <input
+              v-model="filters.q"
+              type="search"
+              data-testid="alerts-query"
+              data-slot="adm-search"
+              maxlength="100"
+              placeholder="Buscar por nombre o referencia"
+              :disabled="!idle() || loading"
+            />
+          </label>
+          <select
+            v-model="filters.state"
+            data-testid="alerts-state"
+            aria-label="Estado"
+            :disabled="!idle() || loading"
+            @change="applyFilters"
+          >
+            <option value="open">Abiertas</option>
+            <option value="acknowledged">Revisadas</option>
+            <option value="resolved">Resueltas</option>
+            <option value="all">Todas</option>
+          </select>
+          <select
+            v-model="filters.kind"
+            data-testid="alerts-kind"
+            aria-label="Tipo de alerta"
+            :disabled="!idle() || loading"
+            @change="applyFilters"
+          >
+            <option value="">Todos los tipos</option>
+            <option v-for="(label, kind) in kindLabels" :key="kind" :value="kind">{{ label }}</option>
+          </select>
+          <div class="adm-toolbar__end">
+            <button
+              data-testid="alerts-refresh"
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              :disabled="!idle() || loading || policyLoading"
+              @click="readQueue()"
+            >
+              <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+            </button>
+            <template v-if="queue?.capabilities.inventoryWrite">
+              <button
+                type="button"
+                data-testid="alerts-evaluate"
+                class="adm-btn adm-btn--secondary"
+                title="Comprueba hasta 100 productos y abre o cierra alertas según su stock"
+                :disabled="!idle() || loading || policyLoading"
+                @click="prepareEvaluation()"
+              >
+                Revisar inventario
+              </button>
+              <button
+                v-if="nextAfterVariantId !== null"
+                type="button"
+                data-testid="alerts-evaluate-next"
+                class="adm-btn adm-btn--secondary"
+                :disabled="!idle() || loading || policyLoading"
+                @click="prepareEvaluation(true)"
+              >
+                Revisar los 100 siguientes
+              </button>
+            </template>
+          </div>
+        </form>
+      </div>
+
+      <div v-if="loading" class="adm-table-skeleton" aria-busy="true" role="status">
+        <span class="sr-only">Cargando alertas…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+      </div>
+      <div v-else-if="readError" role="alert">
+        <AdminEmptyState
+          variant="error"
+          title="No hemos podido cargar las alertas"
+          description="Un error no significa que no haya alertas. Vuelve a intentarlo."
         >
-          Comprobar recibo</button
-        ><button
-          data-testid="alerts-replay"
-          :disabled="commandBusy || pending"
-          class="rounded border p-2"
-          @click="send()"
-        >
-          Reintentar exactamente el mismo comando
-        </button></template
-      ><button
-        v-if="!ambiguous"
-        data-testid="alerts-cancel"
-        :disabled="commandBusy || pending"
-        class="rounded border p-2"
-        @click="cancel"
-      >
-        Cancelar intento no enviado
-      </button>
+          <AdminButton icon="i-lucide-rotate-cw" :disabled="!idle() || policyLoading" @click="readQueue()">
+            Reintentar
+          </AdminButton>
+        </AdminEmptyState>
+      </div>
+      <template v-else-if="queue">
+        <p v-if="queue.lastEvaluationAt === null" role="status" class="adm-help px-4 pt-3">
+          Aún no evaluado: todavía no se ha revisado el inventario, así que una lista vacía no garantiza que todo esté
+          bien. Pulsa «Revisar inventario».
+        </p>
+        <AdminEmptyState
+          v-if="!queue.items.length"
+          icon="i-lucide-bell-off"
+          :variant="applied.q || applied.kind || applied.state !== 'open' ? 'filtered' : 'empty'"
+          :title="
+            applied.q || applied.kind || applied.state !== 'open'
+              ? 'Ninguna alerta con estos filtros'
+              : 'No hay alertas abiertas'
+          "
+          description="Cuando un producto baje de su aviso de stock o se agote, aparecerá aquí."
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <caption class="sr-only">
+              Alertas de inventario
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Referencia</th>
+                <th scope="col">Alerta</th>
+                <th scope="col">Estado</th>
+                <th scope="col" data-numeric>Disponible</th>
+                <th scope="col" data-numeric>Avisa por debajo de</th>
+                <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in queue.items" :key="item.id">
+                <td class="break-words font-semibold text-[var(--text-strong)]">
+                  <a :href="item.to" :aria-disabled="!idle() || loading" @click.prevent="select(item)">{{
+                    item.sku
+                  }}</a>
+                </td>
+                <td>
+                  <AdminBadge :tone="kindTones[item.kind]">{{ kindLabels[item.kind] }}</AdminBadge>
+                  <p v-if="item.currentKind !== item.kind" class="adm-help">
+                    Ahora: {{ item.currentKind ? kindLabels[item.currentKind] : 'sin incidencia' }}
+                  </p>
+                </td>
+                <td>
+                  <AdminBadge :tone="stateTones[item.state]" plain>{{ stateLabels[item.state] }}</AdminBadge>
+                </td>
+                <td data-numeric>{{ item.sellableQuantity ?? 'Sin dato' }}</td>
+                <td data-numeric>{{ item.threshold ?? 'Desactivado' }}</td>
+                <td data-numeric class="adm-table__actions">
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--ghost adm-btn--sm"
+                    :data-alert-policy="item.variantId"
+                    :disabled="!idle() || loading || policyLoading"
+                    @click="loadPolicy(item.variantId)"
+                  >
+                    Cambiar aviso
+                  </button>
+                  <button
+                    v-if="queue.capabilities.inventoryWrite && item.state === 'open' && item.currentKind === item.kind"
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :data-alert-ack="item.id"
+                    :disabled="!idle() || loading || policyLoading"
+                    @click="chooseAck(item)"
+                  >
+                    Marcar como revisada
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <nav aria-label="Páginas de alertas" class="adm-pagination">
+          <p>
+            {{ queue.pagination.total }} {{ queue.pagination.total === 1 ? 'alerta' : 'alertas' }}
+            <template v-if="queue.lastEvaluationAt">
+              · última revisión {{ adminDate(queue.lastEvaluationAt, true) }}</template
+            >
+          </p>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="alerts-previous"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="!idle() || loading || applied.page <= 1"
+              @click="movePage(-1)"
+            >
+              Anterior
+            </button>
+            <span class="tabular-nums">Página {{ applied.page }} de {{ queue.pagination.pages || 1 }}</span>
+            <button
+              type="button"
+              data-testid="alerts-next"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="!idle() || loading || applied.page >= queue.pagination.pages"
+              @click="movePage(1)"
+            >
+              Siguiente
+            </button>
+          </div>
+        </nav>
+      </template>
     </div>
-    <p v-if="message" role="status" class="break-words">{{ message }}</p>
+
+    <div v-if="!intent" class="flex flex-wrap items-start gap-x-6 gap-y-3">
+      <button
+        v-if="selectedVariantId !== undefined"
+        data-testid="alerts-selected-policy"
+        type="button"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        :disabled="!idle() || loading || policyLoading"
+        @click="loadPolicy(selectedVariantId)"
+      >
+        Cambiar el aviso del último producto consultado
+      </button>
+      <details class="adm-help">
+        <summary class="cursor-pointer">Cambiar el aviso de otro producto por su número interno</summary>
+        <form class="adm-toolbar mt-3" @submit.prevent="loadPolicy()">
+          <input
+            v-model="variantText"
+            data-testid="alerts-policy-variant"
+            aria-label="Número interno del producto"
+            inputmode="numeric"
+            placeholder="Ej. 101"
+            :disabled="!idle() || loading || policyLoading"
+          />
+          <button type="submit" class="adm-btn adm-btn--secondary" :disabled="!idle() || loading || policyLoading">
+            Ver aviso
+          </button>
+        </form>
+      </details>
+      <p v-if="policyLoading" role="status" class="adm-help">Cargando el aviso…</p>
+    </div>
   </section>
 </template>

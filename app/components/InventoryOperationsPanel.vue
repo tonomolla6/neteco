@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue'
+import type { AdminTone } from '~/utils/adminLabels'
 
 // INV-014 contract commitments, INV-015 picking locations (single warehouse),
 // INV-016 purchase orders and receipts. Every write is an idempotent command
@@ -88,6 +89,8 @@ interface PurchaseOrderDetail extends PurchaseOrderRow {
 
 const COMMAND_URL = '/api/admin/inventory/operations/commands'
 const errorMessages: Record<string, string> = {
+  invalid_input: 'Hay algún dato que no es válido. Revísalo y vuelve a intentarlo.',
+  validation_error: 'Hay algún dato que no es válido. Revísalo y vuelve a intentarlo.',
   concurrency_conflict: 'Conflicto de versión: otra persona modificó el registro. Recarga e inténtalo de nuevo.',
   insufficient_stock: 'No hay stock vendible suficiente.',
   idempotency_payload_mismatch: 'La clave de operación ya se usó con otros datos.',
@@ -108,6 +111,22 @@ const loading = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
 const busy = computed(() => loading.value || props.pending)
+// Confirmación en modal de las acciones con consecuencias.
+const pendingConfirm = ref<{ title: string; description: string; danger: boolean; run: () => unknown } | null>(null)
+const confirmOpen = computed({
+  get: () => pendingConfirm.value !== null,
+  set: (value: boolean) => {
+    if (!value) pendingConfirm.value = null
+  }
+})
+function ask(title: string, description: string, run: () => unknown, danger = false) {
+  pendingConfirm.value = { title, description, danger, run }
+}
+function runConfirm() {
+  const run = pendingConfirm.value?.run
+  pendingConfirm.value = null
+  void run?.()
+}
 
 const commitments = ref<Commitment[]>([])
 const commitmentForm = ref({ contractRef: '', quantity: '' as number | '', expiresOn: '', maxRenewals: 0, reason: '' })
@@ -128,8 +147,9 @@ const receiptForm = ref({
 
 function describe(error: unknown): string {
   const code = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  if (code) return errorMessages[code] ?? `Operación rechazada (${code}).`
-  return error instanceof Error ? error.message : 'Error al comunicar con el servidor.'
+  if (code)
+    return errorMessages[code] ?? 'No se ha podido completar la operación. Revisa los datos y vuelve a intentarlo.'
+  return 'No hemos podido completar la operación. Vuelve a intentarlo.'
 }
 
 async function load() {
@@ -207,8 +227,13 @@ async function createCommitment() {
   )
   if (ok) commitmentForm.value = { contractRef: '', quantity: '', expiresOn: '', maxRenewals: 0, reason: '' }
 }
-async function releaseCommitment(item: Commitment) {
-  if (!confirm(`¿Liberar el compromiso ${item.contractRef}? El stock volverá a estar disponible.`)) return
+async function releaseCommitment(item: Commitment, confirmed = false) {
+  if (!confirmed) {
+    ask(`Liberar la reserva ${item.contractRef}`, 'El stock volverá a estar disponible para la venta.', () =>
+      releaseCommitment(item, true)
+    )
+    return
+  }
   await command(
     'release_commitment',
     item.id,
@@ -276,12 +301,21 @@ async function openOrder(id: string, resetForm = true) {
 }
 async function orderAction(
   action: 'submit_purchase_order' | 'cancel_purchase_order' | 'close_purchase_order',
-  label: string
+  label: string,
+  confirmed = false
 ) {
   if (!order.value) return
   const input: Record<string, unknown> = { expectedVersion: order.value.version }
   if (action !== 'submit_purchase_order') {
-    if (!confirm(`¿Confirmas: ${label}?`)) return
+    if (!confirmed) {
+      ask(
+        action === 'cancel_purchase_order' ? 'Cancelar el pedido' : 'Cerrar el pedido con faltante',
+        `El pedido ${order.value.poNumber} quedará ${label}.`,
+        () => orderAction(action, label, true),
+        action === 'cancel_purchase_order'
+      )
+      return
+    }
     input.reason = `${label} desde el panel de inventario`
   }
   await command(action, order.value.id, input, `Orden ${label}.`)
@@ -350,460 +384,451 @@ const discrepancyLabels: Record<string, string> = {
   rejected: 'Rechazo'
 }
 const tabs = [
-  ['commitments', 'Compromisos de contrato (INV-014)'],
-  ['picking', 'Ubicaciones de picking (INV-015)'],
-  ['purchasing', 'Compras y recepciones (INV-016)']
+  ['commitments', 'Reservas para contratos'],
+  ['picking', 'Ubicaciones del almacén'],
+  ['purchasing', 'Compras y recepciones']
 ] as const
+const orderTones: Record<string, AdminTone> = {
+  draft: 'neutral',
+  ordered: 'info',
+  partially_received: 'warning',
+  received: 'success',
+  closed: 'neutral',
+  cancelled: 'danger'
+}
+function commitmentTone(item: Commitment): AdminTone {
+  if (item.status === 'active') return item.overdue ? 'danger' : item.expiringSoon ? 'warning' : 'success'
+  return 'neutral'
+}
 </script>
 
 <template>
-  <section
-    class="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
-    aria-labelledby="inventory-operations-title"
-  >
-    <header class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 id="inventory-operations-title" class="text-base font-semibold text-slate-900">
-          Compromisos, picking y compras
-        </h2>
-        <p class="text-xs text-slate-500">Un único almacén: sin transferencias entre almacenes.</p>
-      </div>
-      <nav class="flex flex-wrap gap-2" role="tablist" aria-label="Operaciones de inventario">
-        <button
-          v-for="[key, label] in tabs"
-          :key="key"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === key"
-          :class="[
-            'rounded-md px-3 py-1.5 text-sm font-medium',
-            activeTab === key ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-          ]"
-          @click="activeTab = key"
-        >
-          {{ label }}
-        </button>
-      </nav>
-    </header>
+  <section class="adm-stack min-w-0" aria-labelledby="inventory-operations-title">
+    <h2 id="inventory-operations-title" class="sr-only">Reservas, ubicaciones y compras</h2>
+    <nav class="flex flex-wrap gap-2" role="tablist" aria-label="Operaciones de inventario">
+      <button
+        v-for="[key, label] in tabs"
+        :key="key"
+        type="button"
+        role="tab"
+        class="adm-chip"
+        :aria-selected="activeTab === key"
+        :data-active="activeTab === key || undefined"
+        @click="activeTab = key"
+      >
+        {{ label }}
+      </button>
+    </nav>
 
-    <div v-if="errorMessage" class="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-800" role="alert">
-      {{ errorMessage }}
-    </div>
-    <div v-if="successMessage" class="mt-4 rounded-md bg-emerald-50 p-3 text-sm text-emerald-800" role="status">
-      {{ successMessage }}
-    </div>
-    <p v-if="loading" class="mt-4 text-sm text-slate-500" role="status">Cargando…</p>
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+      :actions="[{ label: 'Recargar datos', color: 'neutral', variant: 'outline', onClick: () => void load() }]"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
+    <p v-if="loading" class="adm-help" role="status">Cargando…</p>
 
-    <div role="tabpanel" class="mt-5 space-y-5">
-      <!-- INV-014 -->
+    <div role="tabpanel" class="adm-stack">
+      <!-- Reservas para contratos -->
       <template v-if="activeTab === 'commitments'">
-        <p
-          v-if="!loading && !commitments.length && !errorMessage"
-          class="rounded border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500"
+        <AdminCard
+          title="Stock reservado para contratos"
+          description="Unidades apartadas para un cliente con contrato: no se venden en la tienda hasta que se liberan."
+          flush
         >
-          No hay compromisos de contrato para esta variante.
-        </p>
-        <div v-else-if="commitments.length" class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 font-semibold text-slate-600">
-              <tr>
-                <th class="px-3 py-2">Contrato</th>
-                <th class="px-3 py-2">Cantidad</th>
-                <th class="px-3 py-2">Caduca</th>
-                <th class="px-3 py-2">Estado</th>
-                <th class="px-3 py-2">Renovaciones</th>
-                <th class="px-3 py-2 text-right">Acciones</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="item in commitments" :key="item.id">
-                <td class="px-3 py-2 font-mono">{{ item.contractRef }}</td>
-                <td class="px-3 py-2 font-bold">{{ item.quantity }}</td>
-                <td class="px-3 py-2">{{ item.expiresAt.substring(0, 10) }}</td>
-                <td class="px-3 py-2">{{ statusLabel(item) }}</td>
-                <td class="px-3 py-2">{{ item.renewalsRemaining }} renovación(es) restante(s)</td>
-                <td class="px-3 py-2 text-right">
-                  <template v-if="item.status === 'active'">
-                    <button
-                      type="button"
-                      data-action="renew-commitment"
-                      class="mr-2 rounded bg-slate-700 px-2 py-1 text-[11px] text-white disabled:opacity-50"
-                      :disabled="busy || item.overdue || item.renewalsRemaining < 1"
-                      @click="renewCommitment(item)"
-                    >
-                      Renovar 30 días
-                    </button>
-                    <button
-                      type="button"
-                      data-action="release-commitment"
-                      class="rounded bg-amber-600 px-2 py-1 text-[11px] text-white disabled:opacity-50"
-                      :disabled="busy"
-                      @click="releaseCommitment(item)"
-                    >
-                      Liberar
-                    </button>
-                  </template>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <form aria-label="Nuevo compromiso" class="grid gap-3 sm:grid-cols-5" @submit.prevent="createCommitment">
-          <label class="text-xs"
-            >Contrato<input
-              v-model="commitmentForm.contractRef"
-              name="contractRef"
-              required
-              minlength="3"
-              maxlength="100"
-              class="mt-1 w-full rounded border px-2 py-1"
-          /></label>
-          <label class="text-xs"
-            >Cantidad<input
-              v-model.number="commitmentForm.quantity"
-              name="quantity"
-              type="number"
-              min="1"
-              required
-              class="mt-1 w-full rounded border px-2 py-1"
-          /></label>
-          <label class="text-xs"
-            >Caduca el<input
-              v-model="commitmentForm.expiresOn"
-              name="expiresOn"
-              type="date"
-              required
-              class="mt-1 w-full rounded border px-2 py-1"
-          /></label>
-          <label class="text-xs"
-            >Renovaciones<input
-              v-model.number="commitmentForm.maxRenewals"
-              name="maxRenewals"
-              type="number"
-              min="0"
-              max="12"
-              class="mt-1 w-full rounded border px-2 py-1"
-          /></label>
-          <label class="text-xs"
-            >Motivo<input
-              v-model="commitmentForm.reason"
-              name="reason"
-              minlength="5"
-              maxlength="500"
-              class="mt-1 w-full rounded border px-2 py-1"
-          /></label>
-          <button
-            type="submit"
-            class="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50 sm:col-span-5 sm:w-fit"
-            :disabled="busy"
-          >
-            Reservar stock para contrato
-          </button>
-        </form>
+          <AdminEmptyState
+            v-if="!loading && !commitments.length && !errorMessage"
+            compact
+            icon="i-lucide-lock-open"
+            title="No hay compromisos de contrato para este producto"
+            description="Todo el stock está disponible para la venta."
+          />
+          <div v-else-if="commitments.length" class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Contrato</th>
+                  <th scope="col" data-numeric>Unidades</th>
+                  <th scope="col">Caduca</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Renovaciones</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in commitments" :key="item.id">
+                  <td class="font-semibold text-[var(--text-strong)]">{{ item.contractRef }}</td>
+                  <td data-numeric>{{ item.quantity }}</td>
+                  <td>{{ item.expiresAt.substring(0, 10) }}</td>
+                  <td>
+                    <AdminBadge :tone="commitmentTone(item)">{{ statusLabel(item) }}</AdminBadge>
+                  </td>
+                  <td>{{ item.renewalsRemaining }} renovación(es) restante(s)</td>
+                  <td data-numeric class="adm-table__actions">
+                    <template v-if="item.status === 'active'">
+                      <button
+                        type="button"
+                        data-action="renew-commitment"
+                        class="adm-btn adm-btn--secondary adm-btn--sm"
+                        :disabled="busy || item.overdue || item.renewalsRemaining < 1"
+                        @click="renewCommitment(item)"
+                      >
+                        Renovar 30 días
+                      </button>
+                      <button
+                        type="button"
+                        data-action="release-commitment"
+                        class="adm-btn adm-btn--secondary adm-btn--sm"
+                        :disabled="busy"
+                        @click="releaseCommitment(item)"
+                      >
+                        Liberar
+                      </button>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AdminCard>
+        <AdminCard title="Reservar stock para un contrato">
+          <form aria-label="Nuevo compromiso" class="adm-stack" @submit.prevent="createCommitment">
+            <div class="adm-form-grid">
+              <label class="adm-field">
+                <span class="adm-label">Contrato</span>
+                <input v-model="commitmentForm.contractRef" name="contractRef" required minlength="3" maxlength="100" />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Unidades</span>
+                <input v-model.number="commitmentForm.quantity" name="quantity" type="number" min="1" required />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Caduca el</span>
+                <input v-model="commitmentForm.expiresOn" name="expiresOn" type="date" required />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Renovaciones permitidas</span>
+                <input v-model.number="commitmentForm.maxRenewals" name="maxRenewals" type="number" min="0" max="12" />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Motivo</span>
+                <input v-model="commitmentForm.reason" name="reason" minlength="5" maxlength="500" />
+              </label>
+            </div>
+            <div class="flex justify-end">
+              <button type="submit" class="adm-btn adm-btn--primary" :disabled="busy">Reservar stock</button>
+            </div>
+          </form>
+        </AdminCard>
       </template>
 
-      <!-- INV-015 -->
+      <!-- Ubicaciones -->
       <template v-else-if="activeTab === 'picking'">
-        <dl v-if="consistency" class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-6">
-          <div>
-            <dt class="text-slate-500">Físico</dt>
-            <dd class="font-bold">{{ consistency.physicalQuantity }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-500">Reservado</dt>
-            <dd class="font-bold">{{ consistency.reservedQuantity }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-500">Vendible</dt>
-            <dd class="font-bold">{{ consistency.sellableQuantity }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-500">Ubicado</dt>
-            <dd class="font-bold">{{ consistency.locatedQuantity }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-500">Sin ubicar</dt>
-            <dd class="font-bold">{{ consistency.unlocatedQuantity }}</dd>
-          </div>
-          <div>
-            <dt class="text-slate-500">Estado</dt>
-            <dd :class="consistency.consistent ? 'font-bold text-emerald-700' : 'font-bold text-red-700'">
+        <AdminCard v-if="consistency" title="Reparto del stock">
+          <template #actions>
+            <AdminBadge :tone="consistency.consistent ? 'success' : 'danger'">
               {{ consistency.consistent ? 'Consistente' : 'Inconsistente' }}
-            </dd>
+            </AdminBadge>
+          </template>
+          <dl class="grid grid-cols-2 gap-4 sm:grid-cols-5">
+            <div>
+              <dt class="adm-help">Físico</dt>
+              <dd class="font-semibold text-[var(--text-strong)]">{{ consistency.physicalQuantity }}</dd>
+            </div>
+            <div>
+              <dt class="adm-help">Reservado</dt>
+              <dd class="font-semibold text-[var(--text-strong)]">{{ consistency.reservedQuantity }}</dd>
+            </div>
+            <div>
+              <dt class="adm-help">Vendible</dt>
+              <dd class="font-semibold text-[var(--text-strong)]">{{ consistency.sellableQuantity }}</dd>
+            </div>
+            <div>
+              <dt class="adm-help">Ubicado</dt>
+              <dd class="font-semibold text-[var(--text-strong)]">{{ consistency.locatedQuantity }}</dd>
+            </div>
+            <div>
+              <dt class="adm-help">Sin ubicar</dt>
+              <dd class="font-semibold text-[var(--text-strong)]">{{ consistency.unlocatedQuantity }}</dd>
+            </div>
+          </dl>
+        </AdminCard>
+        <AdminCard title="Ubicaciones del almacén" description="Dónde está colocado este producto." flush>
+          <AdminEmptyState
+            v-if="!loading && !pickLocations.length && !errorMessage"
+            compact
+            icon="i-lucide-map-pin"
+            title="Aún no hay ubicaciones"
+            description="Crea la primera ubicación (estantería, pasillo…) para poder colocar el stock."
+          />
+          <div v-else-if="pickLocations.length" class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Ubicación</th>
+                  <th scope="col">Zona</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col" data-numeric>Orden de recogida</th>
+                  <th scope="col" data-numeric>Unidades</th>
+                  <th scope="col" data-numeric>De este producto</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="bin in pickLocations" :key="bin.id">
+                  <td class="font-semibold text-[var(--text-strong)]">
+                    {{ bin.code }} <AdminBadge v-if="!bin.active" tone="neutral" plain>Inactiva</AdminBadge>
+                  </td>
+                  <td>{{ bin.zone }}</td>
+                  <td>{{ adminHumanize(bin.kind) }}</td>
+                  <td data-numeric>{{ bin.pickSequence }}</td>
+                  <td data-numeric>
+                    {{ bin.stockUnits }}<span v-if="bin.capacityUnits"> / {{ bin.capacityUnits }}</span>
+                  </td>
+                  <td data-numeric class="font-semibold">
+                    {{ pickStock.find((s) => s.pickLocationId === bin.id)?.quantity ?? 0 }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </dl>
-        <p
-          v-if="!loading && !pickLocations.length && !errorMessage"
-          class="rounded border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500"
-        >
-          No hay ubicaciones de picking definidas.
-        </p>
-        <div v-else-if="pickLocations.length" class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 font-semibold text-slate-600">
-              <tr>
-                <th class="px-3 py-2">Ubicación</th>
-                <th class="px-3 py-2">Zona</th>
-                <th class="px-3 py-2">Tipo</th>
-                <th class="px-3 py-2">Orden</th>
-                <th class="px-3 py-2">Unidades</th>
-                <th class="px-3 py-2">Esta variante</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="bin in pickLocations" :key="bin.id">
-                <td class="px-3 py-2 font-mono font-medium">
-                  {{ bin.code }}<span v-if="!bin.active" class="ml-1 text-slate-400">(inactiva)</span>
-                </td>
-                <td class="px-3 py-2">{{ bin.zone }}</td>
-                <td class="px-3 py-2">{{ bin.kind }}</td>
-                <td class="px-3 py-2">{{ bin.pickSequence }}</td>
-                <td class="px-3 py-2">
-                  {{ bin.stockUnits }}<span v-if="bin.capacityUnits"> / {{ bin.capacityUnits }}</span>
-                </td>
-                <td class="px-3 py-2 font-bold">
-                  {{ pickStock.find((s) => s.pickLocationId === bin.id)?.quantity ?? 0 }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        </AdminCard>
+        <div class="adm-grid">
+          <AdminCard title="Colocar stock en una ubicación">
+            <form aria-label="Ubicar stock" class="adm-stack" @submit.prevent="putaway">
+              <label class="adm-field">
+                <span class="adm-label">Ubicación</span>
+                <select v-model="putawayForm.pickLocationId" name="pickLocationId" required>
+                  <option value="" disabled>Selecciona…</option>
+                  <option v-for="bin in pickLocations.filter((b) => b.active)" :key="bin.id" :value="bin.id">
+                    {{ bin.code }}
+                  </option>
+                </select>
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Unidades</span>
+                <input v-model.number="putawayForm.quantity" name="putawayQuantity" type="number" min="1" required />
+              </label>
+              <div class="flex justify-end">
+                <button type="submit" class="adm-btn adm-btn--primary" :disabled="busy">Ubicar</button>
+              </div>
+            </form>
+          </AdminCard>
+          <AdminCard title="Nueva ubicación">
+            <form aria-label="Nueva ubicación" class="adm-stack" @submit.prevent="createBin">
+              <label class="adm-field">
+                <span class="adm-label">Código</span>
+                <input v-model="binForm.code" name="binCode" required maxlength="24" placeholder="Ej. A-01" />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Zona</span>
+                <input v-model="binForm.zone" name="binZone" required maxlength="40" />
+              </label>
+              <label class="adm-field">
+                <span class="adm-label">Orden de recogida</span>
+                <input v-model.number="binForm.pickSequence" name="binSequence" type="number" min="0" />
+              </label>
+              <div class="flex justify-end">
+                <button type="submit" class="adm-btn adm-btn--secondary" :disabled="busy">Crear ubicación</button>
+              </div>
+            </form>
+          </AdminCard>
         </div>
-        <form aria-label="Ubicar stock" class="flex flex-wrap items-end gap-3" @submit.prevent="putaway">
-          <label class="text-xs"
-            >Ubicación
-            <select
-              v-model="putawayForm.pickLocationId"
-              name="pickLocationId"
-              required
-              class="mt-1 block rounded border px-2 py-1"
-            >
-              <option value="" disabled>Selecciona…</option>
-              <option v-for="bin in pickLocations.filter((b) => b.active)" :key="bin.id" :value="bin.id">
-                {{ bin.code }}
-              </option>
-            </select>
-          </label>
-          <label class="text-xs"
-            >Cantidad<input
-              v-model.number="putawayForm.quantity"
-              name="putawayQuantity"
-              type="number"
-              min="1"
-              required
-              class="mt-1 block w-28 rounded border px-2 py-1"
-          /></label>
-          <button
-            type="submit"
-            class="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            :disabled="busy"
-          >
-            Ubicar
-          </button>
-        </form>
-        <form aria-label="Nueva ubicación" class="flex flex-wrap items-end gap-3" @submit.prevent="createBin">
-          <label class="text-xs"
-            >Código<input
-              v-model="binForm.code"
-              name="binCode"
-              required
-              maxlength="24"
-              class="mt-1 block w-28 rounded border px-2 py-1"
-          /></label>
-          <label class="text-xs"
-            >Zona<input
-              v-model="binForm.zone"
-              name="binZone"
-              required
-              maxlength="40"
-              class="mt-1 block w-28 rounded border px-2 py-1"
-          /></label>
-          <label class="text-xs"
-            >Orden de picking<input
-              v-model.number="binForm.pickSequence"
-              name="binSequence"
-              type="number"
-              min="0"
-              class="mt-1 block w-28 rounded border px-2 py-1"
-          /></label>
-          <button
-            type="submit"
-            class="rounded bg-slate-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-            :disabled="busy"
-          >
-            Crear ubicación
-          </button>
-        </form>
       </template>
 
-      <!-- INV-016 -->
+      <!-- Compras -->
       <template v-else>
-        <p
-          v-if="!loading && !orders.length && !errorMessage"
-          class="rounded border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500"
-        >
-          No hay órdenes de compra.
-        </p>
-        <div v-else-if="orders.length" class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 font-semibold text-slate-600">
-              <tr>
-                <th class="px-3 py-2">Orden</th>
-                <th class="px-3 py-2">Proveedor</th>
-                <th class="px-3 py-2">Estado</th>
-                <th class="px-3 py-2">Recibido / esperado</th>
-                <th class="px-3 py-2">Coste</th>
-                <th class="px-3 py-2"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="row in orders" :key="row.id">
-                <td class="px-3 py-2 font-mono">{{ row.poNumber }}</td>
-                <td class="px-3 py-2">{{ row.supplierName }}</td>
-                <td class="px-3 py-2">
-                  {{ orderStatuses[row.status] ?? row.status
-                  }}<span v-if="row.hasDiscrepancy" class="ml-1 rounded bg-amber-100 px-1 text-amber-800"
-                    >Discrepancia</span
-                  >
-                </td>
-                <td class="px-3 py-2">{{ row.receivedUnits }} / {{ row.expectedUnits }}</td>
-                <td class="px-3 py-2">{{ euros(row.totalCostCents) }}</td>
-                <td class="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    data-action="open-po"
-                    class="rounded bg-slate-700 px-2 py-1 text-[11px] text-white"
-                    @click="openOrder(row.id)"
-                  >
-                    Abrir
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <AdminCard title="Pedidos a proveedor con este producto" flush>
+          <AdminEmptyState
+            v-if="!loading && !orders.length && !errorMessage"
+            compact
+            icon="i-lucide-clipboard-pen"
+            title="No hay pedidos a proveedor"
+            description="Cuando pidas este producto a un proveedor, aquí podrás registrar su recepción."
+          />
+          <div v-else-if="orders.length" class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Pedido</th>
+                  <th scope="col">Proveedor</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col" data-numeric>Recibido / esperado</th>
+                  <th scope="col" data-numeric>Coste</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in orders" :key="row.id">
+                  <td class="font-semibold text-[var(--text-strong)]">{{ row.poNumber }}</td>
+                  <td>{{ row.supplierName }}</td>
+                  <td>
+                    <AdminBadge :tone="orderTones[row.status] ?? 'neutral'">
+                      {{ orderStatuses[row.status] ?? adminHumanize(row.status) }}
+                    </AdminBadge>
+                    <AdminBadge v-if="row.hasDiscrepancy" tone="warning" plain>Discrepancia</AdminBadge>
+                  </td>
+                  <td data-numeric>{{ row.receivedUnits }} / {{ row.expectedUnits }}</td>
+                  <td data-numeric>{{ euros(row.totalCostCents) }}</td>
+                  <td data-numeric class="adm-table__actions">
+                    <button
+                      type="button"
+                      data-action="open-po"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      @click="openOrder(row.id)"
+                    >
+                      Abrir
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AdminCard>
 
-        <article v-if="order" class="rounded-lg border border-slate-200 p-4" :aria-label="`Orden ${order.poNumber}`">
-          <h3 class="text-sm font-semibold">
-            {{ order.poNumber }} · {{ order.supplierName }} · {{ orderStatuses[order.status] ?? order.status }}
-          </h3>
-          <p class="text-xs text-slate-500">
-            Coste pedido {{ euros(order.totalCostCents) }} · recibido {{ euros(order.receivedCostCents) }}
-          </p>
-          <table class="mt-3 min-w-full text-left text-xs">
-            <thead class="font-semibold text-slate-600">
-              <tr>
-                <th class="py-1">SKU</th>
-                <th>Esperado</th>
-                <th>Recibido</th>
-                <th>Rechazado</th>
-                <th>Pendiente</th>
-                <th>Discrepancia</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="line in order.lines" :key="line.lineIndex">
-                <td class="py-1 font-mono">{{ line.sku }}</td>
-                <td>{{ line.expectedQuantity }}</td>
-                <td>{{ line.receivedQuantity }}</td>
-                <td>{{ line.rejectedQuantity }}</td>
-                <td>{{ line.openQuantity }}</td>
-                <td>{{ discrepancyLabels[line.discrepancy] ?? line.discrepancy }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="mt-3 flex flex-wrap gap-2">
+        <AdminCard
+          v-if="order"
+          as="article"
+          :aria-label="`Orden ${order.poNumber}`"
+          :title="`${order.poNumber} · ${order.supplierName}`"
+          :description="`Coste pedido ${euros(order.totalCostCents)} · recibido ${euros(order.receivedCostCents)}`"
+        >
+          <template #actions>
+            <AdminBadge :tone="orderTones[order.status] ?? 'neutral'">
+              {{ orderStatuses[order.status] ?? adminHumanize(order.status) }}
+            </AdminBadge>
             <button
               v-if="order.status === 'draft'"
               type="button"
-              class="rounded bg-blue-600 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+              class="adm-btn adm-btn--primary adm-btn--sm"
               :disabled="busy"
               @click="orderAction('submit_purchase_order', 'enviada al proveedor')"
             >
               Enviar al proveedor
             </button>
             <button
-              v-if="order.status === 'draft' || order.status === 'ordered'"
-              type="button"
-              class="rounded bg-red-600 px-3 py-1.5 text-xs text-white disabled:opacity-50"
-              :disabled="busy"
-              @click="orderAction('cancel_purchase_order', 'cancelada')"
-            >
-              Cancelar
-            </button>
-            <button
               v-if="order.status === 'partially_received'"
               type="button"
-              class="rounded bg-amber-600 px-3 py-1.5 text-xs text-white disabled:opacity-50"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
               :disabled="busy"
               @click="orderAction('close_purchase_order', 'cerrada con faltante')"
             >
               Cerrar con faltante
             </button>
-          </div>
-
-          <form
-            v-if="order.status === 'ordered' || order.status === 'partially_received'"
-            aria-label="Registrar recepción"
-            class="mt-4 space-y-2"
-            @submit.prevent="recordReceipt"
-          >
-            <label class="block text-xs"
-              >Nº de recepción<input
-                v-model="receiptForm.receiptNumber"
-                name="receiptNumber"
-                required
-                minlength="3"
-                maxlength="60"
-                class="mt-1 block rounded border px-2 py-1"
-            /></label>
-            <div v-for="line in order.lines" :key="line.lineIndex" class="flex flex-wrap items-center gap-3 text-xs">
-              <span class="w-32 font-mono">{{ line.sku }}</span>
-              <label
-                >Recibido<input
-                  v-model.number="receiptForm.quantities[line.lineIndex]"
-                  :name="`received-${line.lineIndex}`"
-                  type="number"
-                  min="0"
-                  class="ml-1 w-20 rounded border px-2 py-1"
-              /></label>
-              <label
-                >Rechazado<input
-                  v-model.number="receiptForm.rejected[line.lineIndex]"
-                  :name="`rejected-${line.lineIndex}`"
-                  type="number"
-                  min="0"
-                  class="ml-1 w-20 rounded border px-2 py-1"
-              /></label>
-            </div>
             <button
-              type="submit"
-              class="rounded bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              v-if="order.status === 'draft' || order.status === 'ordered'"
+              type="button"
+              class="adm-btn adm-btn--danger-soft adm-btn--sm"
               :disabled="busy"
+              @click="orderAction('cancel_purchase_order', 'cancelada')"
             >
-              Registrar recepción
+              Cancelar pedido
             </button>
-          </form>
+          </template>
+          <div class="adm-stack">
+            <div class="adm-table-wrap rounded-[var(--radius-surface)] border border-[var(--border)]">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Referencia</th>
+                    <th scope="col" data-numeric>Esperado</th>
+                    <th scope="col" data-numeric>Recibido</th>
+                    <th scope="col" data-numeric>Rechazado</th>
+                    <th scope="col" data-numeric>Pendiente</th>
+                    <th scope="col">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="line in order.lines" :key="line.lineIndex">
+                    <td class="font-semibold">{{ line.sku }}</td>
+                    <td data-numeric>{{ line.expectedQuantity }}</td>
+                    <td data-numeric>{{ line.receivedQuantity }}</td>
+                    <td data-numeric>{{ line.rejectedQuantity }}</td>
+                    <td data-numeric>{{ line.openQuantity }}</td>
+                    <td>{{ discrepancyLabels[line.discrepancy] ?? adminHumanize(line.discrepancy) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-          <h4 class="mt-4 text-xs font-semibold uppercase text-slate-600">Documentos</h4>
-          <ul class="text-xs">
-            <li v-for="doc in order.documents" :key="doc.id">
-              {{ doc.kind }} · {{ doc.reference }} ·
-              <span class="font-mono text-slate-400">{{ doc.sha256.substring(0, 12) }}</span>
-            </li>
-            <li v-if="!order.documents.length" class="text-slate-500">Sin documentos adjuntos.</li>
-          </ul>
-          <label class="mt-2 block text-xs"
-            >Registrar albarán (PDF, imagen o CSV)
-            <input
-              type="file"
-              accept="application/pdf,image/jpeg,image/png,text/csv"
-              class="mt-1 block text-xs"
-              :disabled="busy"
-              @change="attachDocument"
-            />
-          </label>
-        </article>
+            <form
+              v-if="order.status === 'ordered' || order.status === 'partially_received'"
+              aria-label="Registrar recepción"
+              class="adm-stack border-t border-[var(--border)] pt-4"
+              @submit.prevent="recordReceipt"
+            >
+              <h3>Registrar recepción</h3>
+              <label class="adm-field max-w-xs">
+                <span class="adm-label">Número de albarán o recepción</span>
+                <input v-model="receiptForm.receiptNumber" name="receiptNumber" required minlength="3" maxlength="60" />
+              </label>
+              <div v-for="line in order.lines" :key="line.lineIndex" class="flex flex-wrap items-end gap-3">
+                <span class="w-40 break-words pb-2 font-semibold">{{ line.sku }}</span>
+                <label class="adm-field">
+                  <span class="adm-label">Recibido</span>
+                  <input
+                    v-model.number="receiptForm.quantities[line.lineIndex]"
+                    :name="`received-${line.lineIndex}`"
+                    type="number"
+                    min="0"
+                    class="w-28"
+                  />
+                </label>
+                <label class="adm-field">
+                  <span class="adm-label">Rechazado</span>
+                  <input
+                    v-model.number="receiptForm.rejected[line.lineIndex]"
+                    :name="`rejected-${line.lineIndex}`"
+                    type="number"
+                    min="0"
+                    class="w-28"
+                  />
+                </label>
+              </div>
+              <div class="flex justify-end">
+                <button type="submit" class="adm-btn adm-btn--primary" :disabled="busy">Registrar recepción</button>
+              </div>
+            </form>
+
+            <div class="border-t border-[var(--border)] pt-4">
+              <h3>Documentos</h3>
+              <ul class="mt-2 space-y-1">
+                <li v-for="doc in order.documents" :key="doc.id" class="break-words">
+                  {{ adminHumanize(doc.kind) }} · {{ doc.reference }}
+                </li>
+                <li v-if="!order.documents.length" class="adm-help">Sin documentos adjuntos.</li>
+              </ul>
+              <label class="adm-field mt-3">
+                <span class="adm-label">Adjuntar albarán (PDF, imagen o CSV)</span>
+                <input
+                  type="file"
+                  accept="application/pdf,image/jpeg,image/png,text/csv"
+                  :disabled="busy"
+                  @change="attachDocument"
+                />
+              </label>
+            </div>
+          </div>
+        </AdminCard>
       </template>
     </div>
+
+    <AdminConfirm
+      v-model:open="confirmOpen"
+      :title="pendingConfirm?.title ?? ''"
+      :description="pendingConfirm?.description"
+      :danger="pendingConfirm?.danger"
+      @confirm="runConfirm"
+    />
   </section>
 </template>

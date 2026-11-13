@@ -4,12 +4,13 @@ import {
   adminOrderReturnSchema,
   adminReturnListSchema,
   returnPublicRefSchema,
-  returnStateLabels,
   returnStateSchema,
   type AdminOrderReturn,
   type AdminReturnList,
-  type ReturnCommandReceipt
+  type ReturnCommandReceipt,
+  type ReturnState
 } from '~~/shared/order-returns'
+import type { AdminTone } from '~/utils/adminLabels'
 import { catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 const props = defineProps<{ runtime: unknown; publicRef?: string }>()
@@ -244,76 +245,237 @@ function pendingChanged(value: boolean) {
   pending.value = value
   emit('pending', value)
 }
+// Presentación: nombres llanos de los estados, columnas y panel lateral de detalle.
+const stateLabels: Record<ReturnState, string> = {
+  requested: 'Solicitada',
+  approved: 'Aceptada',
+  rejected: 'Rechazada',
+  received: 'Recibida',
+  inspected: 'Revisada',
+  resolution_ready: 'Lista para resolver'
+}
+const stateTones: Record<ReturnState, AdminTone> = {
+  requested: 'warning',
+  approved: 'info',
+  rejected: 'danger',
+  received: 'info',
+  inspected: 'info',
+  resolution_ready: 'success'
+}
+const columns = [
+  { key: 'publicRef', label: 'Devolución' },
+  { key: 'orderId', label: 'Pedido', hideOnMobile: true },
+  { key: 'customerName', label: 'Cliente' },
+  { key: 'reason', label: 'Motivo', hideOnMobile: true },
+  { key: 'units', label: 'Recibidas / pedidas', numeric: true, hideOnMobile: true },
+  { key: 'state', label: 'Estado' },
+  { key: 'createdAt', label: 'Solicitada', hideOnMobile: true }
+]
+// El panel lateral refleja la devolución elegida; no se cierra con una operación a medias.
+const drawerOpen = computed({
+  get: () => !props.publicRef && ownerKey.value !== null,
+  set: (value: boolean) => {
+    if (!value && !pending.value) selected.value = ''
+  }
+})
+function clearFilters() {
+  query.value = ''
+  state.value = ''
+  filter()
+}
 </script>
 <template>
-  <section aria-label="Devoluciones nativas del almacén único" class="space-y-5">
-    <h1 class="text-2xl font-bold">Devoluciones · custodia e inspección</h1>
-    <p class="text-sm">
-      Solicitud, admisión documentada, recepción, inspección y resolución preparada. Sin autoridad económica, fiscal ni
-      de transportistas.
-    </p>
-    <p v-if="runtime !== 'cloudflare'" role="status">El flujo nativo está disponible en el adaptador Cloudflare.</p>
-    <p v-else-if="!authorize()" role="status">
-      Confirma sesión administrativa, correo verificado y MFA. No se muestra historial privado sin acceso vigente.
-    </p>
+  <section aria-label="Devoluciones nativas del almacén único" class="adm-stack">
+    <UAlert
+      v-if="runtime !== 'cloudflare'"
+      role="status"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="Las devoluciones no están disponibles en esta instalación"
+    />
+    <UAlert
+      v-else-if="!authorize()"
+      role="status"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="No podemos mostrar las devoluciones todavía"
+      description="Inicia sesión como administrador, con el correo verificado y la verificación en dos pasos activa."
+    />
     <template v-else>
-      <form v-if="!publicRef" class="flex flex-wrap gap-3" @submit.prevent="filter()">
-        <label
-          >Buscar referencia, pedido o cliente
-          <input v-model="query" data-testid="return-list-query" maxlength="160" class="rounded border p-2" /></label
-        ><label
-          >Estado
-          <select v-model="state" data-testid="return-list-state">
-            <option value="">Todos</option>
-            <option v-for="value in returnStateSchema.options" :key="value" :value="value">
-              {{ returnStateLabels[value] }}
-            </option>
-          </select></label
-        ><button data-testid="return-list-filter" :disabled="listLoading" class="rounded border p-2">Buscar</button>
-      </form>
-      <p v-if="listLoading && !publicRef" data-testid="return-list-loading" role="status">Confirmando lista privada…</p>
-      <p v-if="listFailed && !publicRef" data-testid="return-list-error" role="alert">
-        Lista no confirmada. No se interpreta como ausencia de devoluciones.
-      </p>
-      <div v-if="list && !publicRef">
-        <p v-if="list.pagination.total === 0">No hay expedientes confirmados con estos filtros.</p>
-        <ul class="space-y-2">
-          <li v-for="item in list.items" :key="item.id">
+      <template v-if="!publicRef">
+        <p v-if="listLoading" data-testid="return-list-loading" role="status" class="sr-only">Cargando devoluciones…</p>
+        <AdminCard v-if="listFailed">
+          <div data-testid="return-list-error" role="alert">
+            <AdminEmptyState
+              variant="error"
+              title="No hemos podido cargar las devoluciones"
+              description="No significa que no haya ninguna. Vuelve a intentarlo."
+            >
+              <button
+                data-testid="return-refresh"
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                :disabled="loading || listLoading"
+                @click="refresh"
+              >
+                <UIcon name="i-lucide-rotate-cw" class="size-4" />Reintentar
+              </button>
+            </AdminEmptyState>
+          </div>
+        </AdminCard>
+        <AdminTable
+          v-else
+          :rows="list?.items ?? []"
+          :columns="columns"
+          :row-key="(row) => row.id"
+          :status="listLoading ? 'pending' : 'idle'"
+          :total="list?.pagination.total ?? 0"
+          :per-page="25"
+          :page="page"
+          :filtered="Boolean(list && (query.trim() || state))"
+          empty-icon="i-lucide-rotate-ccw"
+          empty-title="Aún no hay devoluciones"
+          empty-description="Cuando un cliente pida devolver un pedido, la solicitud aparecerá aquí para que la revises, registres la recepción y prepares la resolución."
+          caption="Devoluciones"
+          @update:page="filter($event)"
+          @clear-filters="clearFilters"
+          @row-click="select($event.publicRef)"
+        >
+          <template #toolbar>
+            <form class="adm-toolbar" role="search" @submit.prevent="filter()">
+              <label class="adm-toolbar__search">
+                <span class="sr-only">Buscar por referencia, pedido o cliente</span>
+                <UIcon name="i-lucide-search" class="size-4" />
+                <input
+                  v-model="query"
+                  type="search"
+                  data-testid="return-list-query"
+                  data-slot="adm-search"
+                  maxlength="160"
+                  placeholder="Buscar por referencia, pedido o cliente"
+                />
+              </label>
+              <select v-model="state" data-testid="return-list-state" aria-label="Estado" @change="filter()">
+                <option value="">Todos los estados</option>
+                <option v-for="value in returnStateSchema.options" :key="value" :value="value">
+                  {{ stateLabels[value] }}
+                </option>
+              </select>
+              <button data-testid="return-list-filter" type="submit" class="sr-only" :disabled="listLoading">
+                Buscar
+              </button>
+              <div class="adm-toolbar__end">
+                <button
+                  data-testid="return-refresh"
+                  type="button"
+                  class="adm-btn adm-btn--secondary"
+                  :disabled="loading || listLoading"
+                  @click="refresh"
+                >
+                  <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+                </button>
+              </div>
+            </form>
+          </template>
+          <template #cell-publicRef="{ row }">
+            <span class="font-semibold text-[var(--text-strong)]">{{ row.publicRef }}</span>
+          </template>
+          <template #cell-orderId="{ row }">
+            <span :title="row.orderId">#{{ row.orderId.slice(0, 8).toUpperCase() }}</span>
+          </template>
+          <template #cell-customerName="{ row }">{{ row.customerName ?? 'Cliente sin identificar' }}</template>
+          <template #cell-reason="{ row }">
+            <span class="line-clamp-2 max-w-xs text-[var(--text-muted)]">{{ row.reason }}</span>
+          </template>
+          <template #cell-units="{ row }">{{ row.receivedQuantity }} / {{ row.requestedQuantity }}</template>
+          <template #cell-state="{ row }">
+            <AdminBadge :tone="stateTones[row.state]">{{ stateLabels[row.state] }}</AdminBadge>
+          </template>
+          <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt) }}</template>
+          <template #actions="{ row }">
             <button
-              :data-testid="`return-open-${item.publicRef}`"
+              :data-testid="`return-open-${row.publicRef}`"
               :disabled="pending"
               type="button"
-              class="rounded border p-3 text-left"
-              @click="select(item.publicRef)"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="select(row.publicRef)"
             >
-              {{ item.publicRef }} · {{ returnStateLabels[item.state] }} ·
-              {{ item.customerName ?? 'Cliente no identificado' }} · solicitadas {{ item.requestedQuantity }}, recibidas
-              {{ item.receivedQuantity }}
+              Gestionar
             </button>
-          </li>
-        </ul>
-        <nav v-if="list.pagination.pages > 1" aria-label="Páginas de devoluciones">
-          <button :disabled="page <= 1 || listLoading" @click="filter(page - 1)">Anterior</button
-          ><span>{{ page }} / {{ list.pagination.pages }}</span
-          ><button :disabled="page >= list.pagination.pages || listLoading" @click="filter(page + 1)">Siguiente</button>
-        </nav>
-      </div>
-      <p v-if="loading" data-testid="return-detail-loading" role="status">Confirmando expediente…</p>
-      <p v-else-if="failed" data-testid="return-detail-error" role="alert">
-        No se ha podido confirmar el expediente. No se habilita ninguna operación con datos antiguos.
-      </p>
-      <button
-        data-testid="return-refresh"
-        :disabled="loading || listLoading"
-        type="button"
-        class="rounded border p-2"
-        @click="refresh"
-      >
-        Actualizar datos confirmados
-      </button>
+          </template>
+        </AdminTable>
+
+        <AdminDrawer
+          v-model:open="drawerOpen"
+          wide
+          :title="`Devolución ${selected}`"
+          description="Revisa la solicitud, registra la recepción y prepara la resolución."
+        >
+          <div class="adm-stack">
+            <p v-if="loading" data-testid="return-detail-loading" role="status" class="adm-help">
+              Cargando la devolución…
+            </p>
+            <div v-else-if="failed" data-testid="return-detail-error" role="alert">
+              <AdminEmptyState
+                variant="error"
+                compact
+                title="No hemos podido cargar esta devolución"
+                description="Para evitar errores no se muestran datos antiguos. Vuelve a intentarlo."
+              >
+                <AdminButton icon="i-lucide-rotate-cw" :disabled="loading || listLoading" @click="refresh">
+                  Reintentar
+                </AdminButton>
+              </AdminEmptyState>
+            </div>
+            <OrderReturnPanel
+              v-if="ownerKey"
+              :key="ownerKey"
+              :snapshot="snapshot"
+              :operator-id="operatorId"
+              :runtime="runtime"
+              :authorize="authorize"
+              :reload="reload"
+              @confirmed="confirmed"
+              @pending="pendingChanged"
+            />
+          </div>
+          <template #footer>
+            <AdminButton :disabled="pending" @click="drawerOpen = false">Cerrar</AdminButton>
+          </template>
+        </AdminDrawer>
+      </template>
+
+      <template v-else>
+        <div class="flex flex-wrap items-center gap-3">
+          <p v-if="loading" data-testid="return-detail-loading" role="status" class="adm-help">
+            Cargando la devolución…
+          </p>
+          <button
+            data-testid="return-refresh"
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="loading || listLoading"
+            @click="refresh"
+          >
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+          </button>
+        </div>
+        <UAlert
+          v-if="!loading && failed"
+          data-testid="return-detail-error"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="No hemos podido cargar esta devolución"
+          description="Para evitar errores no se muestran datos antiguos. Pulsa «Actualizar» para reintentarlo."
+        />
+      </template>
     </template>
     <OrderReturnPanel
-      v-if="ownerKey"
+      v-if="ownerKey && publicRef"
       :key="ownerKey"
       :snapshot="snapshot"
       :operator-id="operatorId"

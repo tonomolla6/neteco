@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import type { AdminTone } from '~/utils/adminLabels'
 
 interface PurchaseOrderRow {
   id: string
@@ -32,11 +33,67 @@ const lineVariantId = ref('')
 const lineQuantity = ref<number | ''>(10)
 const lineUnitCost = ref<number | ''>(1000)
 
+const ERROR_TEXT: Record<string, string> = {
+  invalid_input: 'Falta algún dato o no es válido. Revisa el formulario y vuelve a intentarlo.',
+  validation_error: 'Falta algún dato o no es válido. Revisa el formulario y vuelve a intentarlo.',
+  forbidden: 'No tienes permiso para hacer esto.',
+  unauthorized: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
+  not_found: 'No hemos encontrado el proveedor o el producto indicado.',
+  duplicate_po_number: 'Ya existe un pedido con ese número.',
+  concurrency_conflict: 'Otra persona lo ha cambiado mientras tanto. Recarga y vuelve a intentarlo.',
+  rate_limited: 'Demasiadas operaciones seguidas. Espera un momento.'
+}
 function errorMessage(caught: unknown): string {
   const code = (caught as { data?: { error?: { code?: string } } })?.data?.error?.code
-  if (code) return code
-  return caught instanceof Error ? caught.message : 'error_servidor'
+  return (code ? ERROR_TEXT[code] : undefined) ?? 'No hemos podido completar la operación. Vuelve a intentarlo.'
 }
+
+// Presentación: buscador local, columnas, nombres de estado y panel lateral de alta.
+const search = ref('')
+const formOpen = ref(false)
+const visibleOrders = computed(() => {
+  const term = search.value.toLowerCase()
+  return term
+    ? orders.value.filter(
+        (po) => po.poNumber.toLowerCase().includes(term) || (po.supplierName ?? '').toLowerCase().includes(term)
+      )
+    : orders.value
+})
+const columns = [
+  { key: 'poNumber', label: 'Pedido', sortable: true },
+  { key: 'supplierName', label: 'Proveedor', sortable: true },
+  { key: 'units', label: 'Recibido / pedido', numeric: true, hideOnMobile: true },
+  { key: 'totalCostCents', label: 'Coste total', numeric: true, sortable: true },
+  { key: 'status', label: 'Estado' }
+]
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Borrador',
+  ordered: 'Enviado',
+  partial: 'Recibido en parte',
+  partially_received: 'Recibido en parte',
+  received: 'Recibido',
+  closed: 'Cerrado',
+  cancelled: 'Cancelado'
+}
+const STATUS_TONES: Record<string, AdminTone> = {
+  draft: 'neutral',
+  ordered: 'info',
+  partial: 'warning',
+  partially_received: 'warning',
+  received: 'success',
+  closed: 'success',
+  cancelled: 'danger'
+}
+function clearFilters() {
+  search.value = ''
+  if (statusFilter.value) {
+    statusFilter.value = ''
+    void loadOrders()
+  }
+}
+watch(successBanner, (value) => {
+  if (value) formOpen.value = false
+})
 
 function formatCents(cents: number): string {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(cents / 100)
@@ -67,14 +124,14 @@ async function createOrder() {
   successBanner.value = null
 
   if (!poNumber.value.trim() || !supplierId.value.trim() || !lineVariantId.value.trim()) {
-    createError.value = 'Completa el número de PO, el proveedor y al menos una línea con variante.'
+    createError.value = 'Completa el número de pedido, el proveedor y el producto.'
     return
   }
 
   const qty = Number(lineQuantity.value)
   const cost = Number(lineUnitCost.value)
   if (!qty || qty <= 0 || cost < 0) {
-    createError.value = 'La cantidad debe ser mayor a 0 y el coste unitario no negativo.'
+    createError.value = 'Las unidades deben ser más de 0 y el coste no puede ser negativo.'
     return
   }
 
@@ -107,7 +164,7 @@ async function createOrder() {
       }
     })
 
-    successBanner.value = `Pedido de compra ${poNumber.value} creado con éxito.`
+    successBanner.value = `Pedido ${poNumber.value} creado con éxito.`
     poNumber.value = ''
     notes.value = ''
     await loadOrders()
@@ -124,89 +181,131 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-bold text-slate-900">Pedidos de compra a proveedores</h1>
-      <p class="text-sm text-slate-600">
-        Gestión integral del ciclo de aprovisionamiento (INV-016): alta de pedidos, recepción de mercancía y
-        comprobación de discrepancias.
-      </p>
-    </header>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="formOpen = true">Nuevo pedido</AdminButton>
+    </AdminPageActions>
 
-    <div
+    <UAlert
       v-if="successBanner"
       data-test="success-banner"
       role="status"
       aria-live="polite"
-      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successBanner"
+    />
+
+    <section aria-labelledby="po-list-heading">
+      <h2 id="po-list-heading" class="sr-only">Pedidos a proveedor</h2>
+      <div v-if="error" role="alert">
+        <AdminCard>
+          <AdminEmptyState variant="error" title="No hemos podido cargar los pedidos" :description="error">
+            <AdminButton icon="i-lucide-rotate-cw" @click="loadOrders">Reintentar</AdminButton>
+          </AdminEmptyState>
+        </AdminCard>
+      </div>
+      <AdminTable
+        v-else
+        :rows="visibleOrders"
+        :columns="columns"
+        :row-key="(po) => po.id"
+        :status="loading ? 'pending' : 'idle'"
+        :filtered="Boolean(search || statusFilter)"
+        empty-icon="i-lucide-clipboard-pen"
+        empty-title="Aún no hay pedidos a proveedor"
+        empty-description="Crea el primero para llevar el control de lo que has pedido y lo que te ha llegado."
+        caption="Pedidos a proveedor"
+        @clear-filters="clearFilters"
+      >
+        <template #toolbar>
+          <AdminToolbar v-model:search="search" placeholder="Buscar por número o proveedor">
+            <select v-model="statusFilter" aria-label="Estado" @change="loadOrders">
+              <option value="">Todos los estados</option>
+              <option value="draft">Borrador</option>
+              <option value="ordered">Enviado</option>
+              <option value="partial">Recibido en parte</option>
+              <option value="received">Recibido</option>
+              <option value="closed">Cerrado</option>
+              <option value="cancelled">Cancelado</option>
+            </select>
+            <template #actions>
+              <AdminButton icon="i-lucide-rotate-cw" @click="loadOrders">Actualizar</AdminButton>
+            </template>
+          </AdminToolbar>
+        </template>
+        <template #cell-poNumber="{ row }">
+          <span class="font-semibold text-[var(--text-strong)]" :title="row.id">{{ row.poNumber }}</span>
+        </template>
+        <template #cell-supplierName="{ row }">{{ row.supplierName || 'Proveedor sin nombre' }}</template>
+        <template #cell-units="{ row }">
+          {{ row.receivedUnits }} / {{ row.expectedUnits }}
+          <AdminBadge v-if="row.hasDiscrepancy" tone="danger" plain>No coincide</AdminBadge>
+        </template>
+        <template #cell-totalCostCents="{ row }">{{ formatCents(row.totalCostCents) }}</template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="STATUS_TONES[row.status] ?? 'neutral'">
+            {{ STATUS_LABELS[row.status] ?? adminHumanize(row.status) }}
+          </AdminBadge>
+        </template>
+        <template #empty-action>
+          <AdminButton icon="i-lucide-plus" @click="formOpen = true">Nuevo pedido</AdminButton>
+        </template>
+      </AdminTable>
+    </section>
+
+    <AdminDrawer
+      v-model:open="formOpen"
+      title="Nuevo pedido a proveedor"
+      description="Se guarda como borrador. Podrás enviarlo y registrar su recepción desde Inventario."
     >
-      {{ successBanner }}
-    </div>
-
-    <div v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      Error: {{ error }}
-    </div>
-
-    <!-- Create Form -->
-    <section aria-labelledby="create-po-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-      <h2 id="create-po-heading" class="text-base font-semibold text-slate-900">Nuevo pedido de compra (PO)</h2>
-      <form class="mt-4 space-y-3" @submit.prevent="createOrder">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div>
-            <label for="po-number" class="block text-xs font-medium text-slate-700">Número de PO</label>
-            <input
-              id="po-number"
-              v-model="poNumber"
-              data-test="po-number"
-              type="text"
-              required
-              placeholder="PO-2026-..."
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            />
-          </div>
-
-          <div>
-            <label for="supplier-id" class="block text-xs font-medium text-slate-700">UUID Proveedor</label>
-            <input
-              id="supplier-id"
-              v-model="supplierId"
-              data-test="supplier-id"
-              type="text"
-              required
-              placeholder="00000000-0000-0000-0000-000000000000"
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            />
-          </div>
-
-          <div>
-            <label for="notes" class="block text-xs font-medium text-slate-700">Notas internas</label>
-            <input
-              id="notes"
-              v-model="notes"
-              type="text"
-              placeholder="Condiciones de entrega..."
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            />
-          </div>
+      <form id="create-po-form" aria-label="Nuevo pedido a proveedor" class="adm-stack" @submit.prevent="createOrder">
+        <UAlert
+          v-if="createError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="createError"
+        />
+        <div class="adm-field">
+          <label for="po-number" class="adm-label">Número de pedido</label>
+          <input id="po-number" v-model="poNumber" data-test="po-number" type="text" required placeholder="PO-2026-…" />
+        </div>
+        <div class="adm-field">
+          <label for="supplier-id" class="adm-label">Identificador del proveedor</label>
+          <input
+            id="supplier-id"
+            v-model="supplierId"
+            data-test="supplier-id"
+            type="text"
+            required
+            autocomplete="off"
+          />
+          <p class="adm-help">El código largo del proveedor, con sus guiones.</p>
+        </div>
+        <div class="adm-field">
+          <label for="notes" class="adm-label">Notas internas</label>
+          <input id="notes" v-model="notes" type="text" placeholder="Condiciones de entrega…" />
         </div>
 
-        <div class="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs space-y-2">
-          <h3 class="font-medium text-slate-800">Línea de pedido inicial</h3>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div>
-              <label for="variant-id" class="block text-slate-600">UUID de la Variante</label>
-              <input
-                id="variant-id"
-                v-model="lineVariantId"
-                data-test="line-variant-id"
-                type="text"
-                required
-                placeholder="UUID de variante..."
-                class="mt-1 block w-full rounded border p-1"
-              />
-            </div>
-            <div>
-              <label for="quantity" class="block text-slate-600">Cantidad esperada</label>
+        <fieldset class="adm-stack border-t border-[var(--border)] pt-4">
+          <legend class="adm-label">Producto que pides</legend>
+          <div class="adm-field">
+            <label for="variant-id" class="adm-label">Identificador del producto</label>
+            <input
+              id="variant-id"
+              v-model="lineVariantId"
+              data-test="line-variant-id"
+              type="text"
+              required
+              autocomplete="off"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="adm-field">
+              <label for="quantity" class="adm-label">Unidades</label>
               <input
                 id="quantity"
                 v-model.number="lineQuantity"
@@ -214,11 +313,10 @@ onMounted(() => {
                 type="number"
                 min="1"
                 required
-                class="mt-1 block w-full rounded border p-1"
               />
             </div>
-            <div>
-              <label for="unit-cost" class="block text-slate-600">Coste unitario (céntimos)</label>
+            <div class="adm-field">
+              <label for="unit-cost" class="adm-label">Coste por unidad (céntimos)</label>
               <input
                 id="unit-cost"
                 v-model.number="lineUnitCost"
@@ -226,107 +324,24 @@ onMounted(() => {
                 type="number"
                 min="0"
                 required
-                class="mt-1 block w-full rounded border p-1"
               />
+              <p class="adm-help">1000 equivale a 10,00 €.</p>
             </div>
           </div>
-        </div>
-
-        <p v-if="createError" role="alert" class="text-xs text-red-600">{{ createError }}</p>
-
+        </fieldset>
+      </form>
+      <template #footer>
+        <AdminButton @click="formOpen = false">Cancelar</AdminButton>
         <button
           type="button"
           data-test="submit-po-btn"
+          class="adm-btn adm-btn--primary"
           :disabled="creating"
-          class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
           @click="createOrder"
         >
-          {{ creating ? 'Creando pedido...' : 'Registrar orden de compra' }}
+          {{ creating ? 'Guardando…' : 'Guardar pedido' }}
         </button>
-      </form>
-    </section>
-
-    <!-- Orders List -->
-    <section aria-labelledby="po-list-heading" class="space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 id="po-list-heading" class="text-lg font-semibold text-slate-900">
-          Historial de órdenes ({{ orders.length }})
-        </h2>
-        <div class="flex gap-2 text-xs">
-          <select v-model="statusFilter" class="rounded border border-slate-300 px-2 py-1" @change="loadOrders">
-            <option value="">Todos los estados</option>
-            <option value="draft">Borrador</option>
-            <option value="ordered">Enviada</option>
-            <option value="partial">Recepción parcial</option>
-            <option value="received">Recibida completa</option>
-            <option value="closed">Cerrada</option>
-            <option value="cancelled">Cancelada</option>
-          </select>
-          <button
-            type="button"
-            class="rounded bg-slate-100 px-3 py-1 font-medium text-slate-700 hover:bg-slate-200"
-            @click="loadOrders"
-          >
-            Refrescar
-          </button>
-        </div>
-      </div>
-
-      <div
-        v-if="!loading && orders.length === 0"
-        data-test="empty-orders"
-        class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"
-      >
-        No hay pedidos de compra registrados.
-      </div>
-
-      <div v-else-if="orders.length > 0" class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-          <thead class="bg-slate-50 font-medium text-slate-600">
-            <tr>
-              <th scope="col" class="px-4 py-2.5">PO / ID</th>
-              <th scope="col" class="px-4 py-2.5">Proveedor</th>
-              <th scope="col" class="px-4 py-2.5">Unidades (Esperadas / Recibidas)</th>
-              <th scope="col" class="px-4 py-2.5">Coste Total</th>
-              <th scope="col" class="px-4 py-2.5">Estado</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="po in orders" :key="po.id" class="hover:bg-slate-50">
-              <td class="px-4 py-2 font-mono">
-                <span class="font-bold text-slate-900">{{ po.poNumber }}</span>
-                <span class="block text-[11px] text-slate-400">{{ po.id }}</span>
-              </td>
-              <td class="px-4 py-2 text-slate-800 font-medium">
-                {{ po.supplierName || 'Proveedor' }}
-              </td>
-              <td class="whitespace-nowrap px-4 py-2 text-slate-600">
-                {{ po.receivedUnits }} / {{ po.expectedUnits }}
-                <span v-if="po.hasDiscrepancy" class="ml-1 text-red-600 font-bold" title="Discrepancia detectada"
-                  >Discrepancia</span
-                >
-              </td>
-              <td class="whitespace-nowrap px-4 py-2 font-semibold text-slate-900">
-                {{ formatCents(po.totalCostCents) }}
-              </td>
-              <td class="whitespace-nowrap px-4 py-2">
-                <span
-                  class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  :class="{
-                    'bg-slate-100 text-slate-700': po.status === 'draft',
-                    'bg-blue-50 text-blue-700': po.status === 'ordered',
-                    'bg-amber-50 text-amber-700': po.status === 'partial',
-                    'bg-emerald-50 text-emerald-700': po.status === 'received' || po.status === 'closed',
-                    'bg-red-50 text-red-700': po.status === 'cancelled'
-                  }"
-                >
-                  {{ po.status }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

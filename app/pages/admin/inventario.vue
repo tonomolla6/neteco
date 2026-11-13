@@ -14,7 +14,7 @@ import InventoryCountImportPanel from '~/components/InventoryCountImportPanel.vu
 import InventoryLotsCostingForecastPanel from '~/components/InventoryLotsCostingForecastPanel.vue'
 import InventoryOperationsPanel from '~/components/InventoryOperationsPanel.vue'
 definePageMeta({ layout: 'default', middleware: 'auth' })
-useSeoMeta({ title: 'Inventario operativo · Admin', robots: 'noindex, nofollow, noarchive' })
+useSeoMeta({ title: 'Inventario · Admin', robots: 'noindex, nofollow, noarchive' })
 const { ready, loggedIn, user, session } = useUserSession(),
   runtime = useRuntimeConfig().public.serverRuntime
 const navigation = useAdminNavigation()
@@ -32,6 +32,38 @@ const legacyId = ref(''),
   countImportPending = ref(false),
   message = ref(''),
   page = ref(1)
+// Estado de interfaz: pestaña local y panel lateral de la ficha de existencias.
+const tab = ref('existencias'),
+  drawerOpen = ref(false)
+const inventoryTabs = [
+  { value: 'existencias', label: 'Existencias' },
+  { value: 'alertas', label: 'Alertas' },
+  { value: 'recuentos', label: 'Recuentos' },
+  { value: 'lotes', label: 'Lotes y costes' },
+  { value: 'reservas', label: 'Reservas y ubicaciones' }
+]
+const stockColumns = [
+  { key: 'name', label: 'Producto' },
+  { key: 'sku', label: 'Referencia' },
+  { key: 'unitLabel', label: 'Unidad', hideOnMobile: true }
+]
+// El panel no se cierra mientras haya un ajuste a medio confirmar: cerrarlo lo descartaría.
+const detailOpen = computed({
+  get: () => drawerOpen.value,
+  set: (value: boolean) => {
+    if (!value && operationPending.value) return
+    drawerOpen.value = value
+  }
+})
+function stockState(balance: AdminInventoryVariant['balance']): {
+  label: string
+  tone: 'success' | 'warning' | 'danger'
+} {
+  if (balance.sellableQuantity <= 0) return { label: 'Sin stock', tone: 'danger' }
+  if (balance.safetyStock > 0 && balance.physicalQuantity <= balance.safetyStock)
+    return { label: 'Stock bajo', tone: 'warning' }
+  return { label: 'En stock', tone: 'success' }
+}
 const operatorId = computed(() => (typeof user.value?.id === 'string' ? user.value.id : ''))
 const scopeKey = computed(() =>
   JSON.stringify([
@@ -87,7 +119,8 @@ async function refreshAfterCountImport() {
     await reload()
   } catch {
     data.value = null
-    message.value = 'No se pudo confirmar el balance seleccionado después del recuento.'
+    message.value =
+      'No hemos podido actualizar las existencias del producto después del recuento. Vuelve a consultarlo.'
   } finally {
     busy.value = false
   }
@@ -142,7 +175,7 @@ async function load() {
   generation++
   const epoch = generation
   if (!inventoryLegacyIdSchema.safeParse(legacyId.value).success) {
-    message.value = 'Indica el ID numérico canónico de la variante, sin ceros iniciales.'
+    message.value = 'Escribe el número interno del producto, solo cifras y sin ceros delante.'
     return
   }
   selectedId.value = legacyId.value
@@ -153,7 +186,7 @@ async function load() {
   } catch {
     if (!active || generation !== epoch) return
     message.value =
-      'No se ha podido confirmar el contexto. Comprueba acceso, MFA y conciliación; no se muestran saldos cero de sustitución.'
+      'No hemos podido cargar las existencias de este producto. Comprueba tu sesión y vuelve a intentarlo.'
   } finally {
     if (active && generation === epoch) busy.value = false
   }
@@ -163,7 +196,7 @@ async function search(delta = 0) {
   const requestedPage = delta ? searchPage.value + delta : 1,
     query = inventoryVariantSearchInputSchema.safeParse({ q: searchText.value, page: requestedPage, perPage: 25 })
   if (!query.success) {
-    message.value = 'Busca un SKU o nombre con 2–100 caracteres, sin caracteres de control.'
+    message.value = 'Escribe entre 2 y 100 caracteres del nombre o de la referencia.'
     searchResults.value = null
     return
   }
@@ -191,7 +224,8 @@ async function search(delta = 0) {
   } catch {
     if (!active || generation !== epoch) return
     searchResults.value = null
-    message.value = 'No se ha podido confirmar la búsqueda privada. No se interpreta como catálogo vacío.'
+    message.value =
+      'No se ha podido confirmar la búsqueda privada. Vuelve a intentarlo: no significa que no haya productos.'
   } finally {
     if (active && generation === epoch) busy.value = false
   }
@@ -200,6 +234,18 @@ async function selectVariant(id: number) {
   if (busy.value || operationPending.value || alertsPending.value || countImportPending.value || !authorize()) return
   legacyId.value = String(id)
   await load()
+}
+async function openVariant(id: number) {
+  await selectVariant(id)
+  if (data.value?.variant.id === id) drawerOpen.value = true
+}
+async function openVariantFromAlert(id: number) {
+  tab.value = 'existencias'
+  await openVariant(id)
+}
+async function lookup() {
+  await load()
+  if (data.value) drawerOpen.value = true
 }
 async function movePage(delta: number) {
   if (busy.value || operationPending.value || alertsPending.value || countImportPending.value || !data.value) return
@@ -212,12 +258,15 @@ async function movePage(delta: number) {
   } catch {
     if (!active || generation !== epoch) return
     data.value = null
-    message.value = 'No se ha podido confirmar esta página de movimientos.'
+    message.value = 'No hemos podido cargar esta página de movimientos. Vuelve a intentarlo.'
   } finally {
     if (active && generation === epoch) busy.value = false
   }
 }
 watch(scopeKey, purge, { flush: 'sync' })
+watch(contextIdentity, (value) => {
+  if (!value) drawerOpen.value = false
+})
 let consumedVariantLink = ''
 watch(
   () => [
@@ -240,7 +289,7 @@ watch(
     const link = scopeKey.value + ':' + parsed.data
     if (consumedVariantLink === link) return
     consumedVariantLink = link
-    void selectVariant(Number(parsed.data))
+    void openVariant(Number(parsed.data))
   },
   { immediate: true, flush: 'post' }
 )
@@ -283,177 +332,246 @@ watch(
 )
 </script>
 <template>
-  <div class="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:py-12">
-    <header>
-      <p class="text-xs font-semibold uppercase tracking-wider text-neteco-700">Operaciones de almacén</p>
-      <h1 class="mt-2 text-3xl font-bold tracking-tight text-slate-950">Inventario operativo</h1>
-      <p class="mt-3 max-w-3xl text-slate-600">
-        Consulta existencias, registra entradas y verifica recuentos del único almacén. Acceso privado para operadores
-        con permisos vigentes y MFA; no exige permisos de catálogo.
-      </p>
-    </header>
-    <InventoryAlertsPanel
-      v-if="runtime === 'cloudflare'"
-      :scope-key="scopeKey"
-      :enabled="authorize()"
-      :pending="busy || operationPending || countImportPending"
-      :selected-variant-id="data?.variant.id"
-      @pending="alertsPending = $event"
-      @select-variant="selectVariant"
-    />
-    <InventoryCountImportPanel
-      v-if="runtime === 'cloudflare'"
-      :scope-key="scopeKey"
-      :enabled="authorize()"
-      :pending="busy || operationPending || alertsPending"
-      @pending="countImportPending = $event"
-      @confirmed="refreshAfterCountImport"
-    />
-    <InventoryLotsCostingForecastPanel
-      v-if="runtime === 'cloudflare' && data"
-      :scope-key="scopeKey"
-      :enabled="authorize()"
-      :pending="busy || operationPending || alertsPending || countImportPending"
-      :selected-variant-uuid="data.variant.uuid"
-      :selected-variant-id="data.variant.id"
-    />
-    <InventoryOperationsPanel
-      v-if="runtime === 'cloudflare' && data"
-      :scope-key="scopeKey"
-      :enabled="authorize()"
-      :pending="busy || operationPending || alertsPending || countImportPending"
-      :selected-variant-uuid="data.variant.uuid"
-    />
-    <p v-if="runtime !== 'cloudflare'" role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-      Este flujo gobernado está disponible únicamente en el adaptador Cloudflare.
-    </p>
-    <section
-      v-else
-      class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5"
-      aria-label="Seleccionar variante por SKU o nombre"
-    >
-      <form class="flex flex-wrap items-end gap-3" @submit.prevent="search()">
-        <label class="block flex-1 text-sm font-medium"
-          >SKU o nombre de producto<input
-            v-model="searchText"
-            data-testid="inventory-search"
-            maxlength="100"
-            placeholder="Ej. desengrasante o SKU-101"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            :disabled="busy || operationPending || alertsPending || countImportPending"
-        /></label>
-        <UButton
-          type="submit"
-          data-testid="search-inventory"
-          :loading="busy"
-          :disabled="operationPending || alertsPending || countImportPending || !authorize()"
-          >Buscar variante</UButton
-        >
-      </form>
-      <div v-if="searchResults" class="space-y-3">
-        <p v-if="!searchResults.items.length" class="text-sm text-slate-600">
-          No hay coincidencias en esta consulta confirmada.
-        </p>
-        <ul class="divide-y divide-slate-200">
-          <li
-            v-for="item in searchResults.items"
-            :key="item.uuid"
-            class="flex flex-wrap items-center justify-between gap-3 py-3"
-          >
-            <div>
-              <p class="font-medium">{{ item.name }}</p>
-              <p class="mt-1 text-sm text-slate-600">
-                {{ item.sku }} · unidad base {{ item.unitLabel }} ({{ item.unitBase }})
-              </p>
-            </div>
-            <UButton
-              variant="outline"
-              data-testid="choose-inventory-variant"
-              :disabled="busy || operationPending || alertsPending || countImportPending || !authorize()"
-              @click="selectVariant(item.id)"
-              >Ver existencias</UButton
-            >
-          </li>
-        </ul>
-        <nav aria-label="Páginas de variantes" class="flex items-center justify-between gap-3">
-          <UButton
-            variant="outline"
-            color="neutral"
-            :disabled="busy || operationPending || alertsPending || countImportPending || searchPage <= 1"
-            @click="search(-1)"
-            >Anterior</UButton
-          >
-          <span class="text-sm text-slate-600"
-            >{{ searchResults.pagination.total }} coincidencias · página {{ searchPage }}</span
-          >
-          <UButton
-            variant="outline"
-            color="neutral"
-            :disabled="
-              busy ||
-              operationPending ||
-              alertsPending ||
-              countImportPending ||
-              searchPage >= searchResults.pagination.pages
+  <AdminPage>
+    <template v-if="runtime === 'cloudflare'" #actions>
+      <AdminButton variant="primary" icon="i-lucide-upload" @click="tab = 'recuentos'">Importar recuento</AdminButton>
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="runtime !== 'cloudflare'"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="El inventario no está disponible en esta instalación"
+        description="Esta pantalla solo funciona en la tienda publicada."
+      />
+      <template v-else>
+        <AdminTabs v-model="tab" :tabs="inventoryTabs" label="Apartados de inventario" />
+
+        <div v-show="tab === 'existencias'" class="adm-stack">
+          <UAlert
+            v-if="message"
+            role="status"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            :title="message"
+          />
+          <AdminTable
+            :rows="searchResults?.items ?? []"
+            :columns="stockColumns"
+            :row-key="(row) => row.uuid"
+            :status="busy ? 'pending' : 'idle'"
+            :total="searchResults?.pagination.total ?? 0"
+            :per-page="25"
+            :page="searchPage"
+            empty-icon="i-lucide-search"
+            :empty-title="searchResults ? 'Ningún producto coincide con la búsqueda' : 'Busca un producto'"
+            :empty-description="
+              searchResults
+                ? 'Prueba con otro nombre o con la referencia completa.'
+                : 'Escribe al menos dos letras del nombre o de la referencia para ver sus existencias y ajustar el stock.'
             "
-            @click="search(1)"
-            >Siguiente</UButton
+            caption="Productos encontrados"
+            @update:page="search($event - searchPage)"
           >
-        </nav>
-      </div>
-    </section>
-    <details v-if="runtime === 'cloudflare'" class="rounded-2xl border border-slate-200 bg-white p-5">
-      <summary class="cursor-pointer text-sm font-medium">Atajo: consultar por ID de variante</summary>
-      <form
-        class="flex flex-wrap items-end gap-3 rounded-2xl border border-slate-200 bg-white p-5"
-        @submit.prevent="load"
-      >
-        <label class="block flex-1 text-sm font-medium"
-          >ID de variante<input
-            v-model="legacyId"
-            data-testid="inventory-lookup"
-            inputmode="numeric"
-            placeholder="Ej. 101"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-            :disabled="busy || operationPending || alertsPending || countImportPending"
-        /></label>
-        <UButton
-          type="submit"
-          :loading="busy"
-          :disabled="operationPending || alertsPending || countImportPending || !authorize()"
-          >Consultar existencias</UButton
+            <template #toolbar>
+              <form
+                class="adm-toolbar"
+                role="search"
+                aria-label="Seleccionar variante por SKU o nombre"
+                @submit.prevent="search()"
+              >
+                <label class="adm-toolbar__search">
+                  <span class="sr-only">Buscar por nombre o referencia</span>
+                  <UIcon name="i-lucide-search" class="size-4" />
+                  <input
+                    v-model="searchText"
+                    type="search"
+                    data-testid="inventory-search"
+                    data-slot="adm-search"
+                    maxlength="100"
+                    placeholder="Buscar por nombre o referencia"
+                    :disabled="busy || operationPending || alertsPending || countImportPending"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  class="adm-btn adm-btn--secondary"
+                  data-testid="search-inventory"
+                  :disabled="busy || operationPending || alertsPending || countImportPending || !authorize()"
+                >
+                  Buscar
+                </button>
+                <div v-if="data" class="adm-toolbar__end">
+                  <span class="adm-help">Último consultado: {{ data.variant.sku }}</span>
+                  <AdminBadge :tone="stockState(data.balance).tone">{{ stockState(data.balance).label }}</AdminBadge>
+                  <AdminButton size="sm" :disabled="!contextIdentity" @click="drawerOpen = true">
+                    Ver existencias
+                  </AdminButton>
+                </div>
+              </form>
+            </template>
+            <template #cell-name="{ row }">
+              <span class="font-semibold text-[var(--text-strong)]">{{ row.name }}</span>
+            </template>
+            <template #cell-unitLabel="{ row }">{{ row.unitLabel }} ({{ row.unitBase }})</template>
+            <template #actions="{ row }">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                data-testid="choose-inventory-variant"
+                :disabled="busy || operationPending || alertsPending || countImportPending || !authorize()"
+                @click="openVariant(row.id)"
+              >
+                Ver existencias
+              </button>
+            </template>
+          </AdminTable>
+          <details class="adm-help">
+            <summary class="cursor-pointer">Buscar por número interno del producto</summary>
+            <form class="adm-toolbar mt-3" @submit.prevent="lookup">
+              <label class="adm-field">
+                <span class="sr-only">Número interno del producto</span>
+                <input
+                  v-model="legacyId"
+                  data-testid="inventory-lookup"
+                  inputmode="numeric"
+                  placeholder="Ej. 101"
+                  :disabled="busy || operationPending || alertsPending || countImportPending"
+                />
+              </label>
+              <button
+                type="submit"
+                class="adm-btn adm-btn--secondary"
+                :disabled="busy || operationPending || alertsPending || countImportPending || !authorize()"
+              >
+                Ver existencias
+              </button>
+            </form>
+          </details>
+        </div>
+
+        <div v-show="tab === 'alertas'">
+          <InventoryAlertsPanel
+            :scope-key="scopeKey"
+            :enabled="authorize()"
+            :pending="busy || operationPending || countImportPending"
+            :selected-variant-id="data?.variant.id"
+            @pending="alertsPending = $event"
+            @select-variant="openVariantFromAlert"
+          />
+        </div>
+
+        <div v-show="tab === 'recuentos'">
+          <InventoryCountImportPanel
+            :scope-key="scopeKey"
+            :enabled="authorize()"
+            :pending="busy || operationPending || alertsPending"
+            @pending="countImportPending = $event"
+            @confirmed="refreshAfterCountImport"
+          />
+        </div>
+
+        <div v-show="tab === 'lotes'">
+          <InventoryLotsCostingForecastPanel
+            v-if="data"
+            :scope-key="scopeKey"
+            :enabled="authorize()"
+            :pending="busy || operationPending || alertsPending || countImportPending"
+            :selected-variant-uuid="data.variant.uuid"
+            :selected-variant-id="data.variant.id"
+          />
+          <AdminCard v-else>
+            <AdminEmptyState
+              icon="i-lucide-package-search"
+              title="Elige primero un producto"
+              description="Los lotes, los costes y la previsión se muestran producto a producto."
+            >
+              <AdminButton @click="tab = 'existencias'">Buscar un producto</AdminButton>
+            </AdminEmptyState>
+          </AdminCard>
+        </div>
+
+        <div v-show="tab === 'reservas'">
+          <InventoryOperationsPanel
+            v-if="data"
+            :scope-key="scopeKey"
+            :enabled="authorize()"
+            :pending="busy || operationPending || alertsPending || countImportPending"
+            :selected-variant-uuid="data.variant.uuid"
+          />
+          <AdminCard v-else>
+            <AdminEmptyState
+              icon="i-lucide-package-search"
+              title="Elige primero un producto"
+              description="Las reservas para contratos, las ubicaciones y las compras se muestran producto a producto."
+            >
+              <AdminButton @click="tab = 'existencias'">Buscar un producto</AdminButton>
+            </AdminEmptyState>
+          </AdminCard>
+        </div>
+
+        <AdminDrawer
+          v-model:open="detailOpen"
+          wide
+          :title="data ? `${data.variant.sku} · ${data.variant.format}` : 'Existencias del producto'"
+          description="Consulta el stock, registra una entrada o propón un recuento."
         >
-      </form>
-    </details>
-    <p v-if="message" role="status" class="rounded-xl border border-slate-200 p-4 text-sm">{{ message }}</p>
-    <InventoryOperations
-      v-if="contextIdentity && runtime === 'cloudflare'"
-      :key="`${scopeKey}:${contextIdentity.variantUuid}`"
-      :scope-key="scopeKey"
-      :snapshot="data"
-      :operator-id="operatorId"
-      :runtime="runtime"
-      :authorize="authorizeInventoryOperation"
-      :reload="reload"
-      @pending="operationPending = $event"
-    />
-    <nav v-if="data" aria-label="Páginas de movimientos" class="flex items-center justify-between gap-3">
-      <UButton
-        variant="outline"
-        color="neutral"
-        :disabled="busy || operationPending || alertsPending || countImportPending || page <= 1"
-        @click="movePage(-1)"
-        >Anterior</UButton
-      ><span class="text-sm text-slate-600">{{ data.ledger.pagination.total }} movimientos confirmados</span
-      ><UButton
-        variant="outline"
-        color="neutral"
-        :disabled="
-          busy || operationPending || alertsPending || countImportPending || page >= data.ledger.pagination.pages
-        "
-        @click="movePage(1)"
-        >Siguiente</UButton
-      >
-    </nav>
-  </div>
+          <div class="adm-stack">
+            <div v-if="data" class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <AdminBadge :tone="stockState(data.balance).tone">{{ stockState(data.balance).label }}</AdminBadge>
+              <span class="adm-help">
+                Disponible: {{ data.balance.sellableQuantity }} · Reservado: {{ data.balance.reservedQuantity }} ·
+                Mínimo: {{ data.balance.safetyStock }}
+              </span>
+            </div>
+            <InventoryOperations
+              v-if="contextIdentity"
+              :key="`${scopeKey}:${contextIdentity.variantUuid}`"
+              :scope-key="scopeKey"
+              :snapshot="data"
+              :operator-id="operatorId"
+              :runtime="runtime"
+              :authorize="authorizeInventoryOperation"
+              :reload="reload"
+              @pending="operationPending = $event"
+            />
+            <nav
+              v-if="data"
+              aria-label="Páginas de movimientos"
+              class="flex flex-wrap items-center justify-between gap-3"
+            >
+              <AdminButton
+                size="sm"
+                icon="i-lucide-chevron-left"
+                :disabled="busy || operationPending || alertsPending || countImportPending || page <= 1"
+                @click="movePage(-1)"
+              >
+                Anterior
+              </AdminButton>
+              <span class="adm-help">{{ data.ledger.pagination.total }} movimientos registrados</span>
+              <AdminButton
+                size="sm"
+                :disabled="
+                  busy ||
+                  operationPending ||
+                  alertsPending ||
+                  countImportPending ||
+                  page >= data.ledger.pagination.pages
+                "
+                @click="movePage(1)"
+              >
+                Siguiente
+              </AdminButton>
+            </nav>
+          </div>
+          <template #footer>
+            <AdminButton :disabled="operationPending" @click="detailOpen = false">Cerrar</AdminButton>
+          </template>
+        </AdminDrawer>
+      </template>
+    </div>
+  </AdminPage>
 </template>

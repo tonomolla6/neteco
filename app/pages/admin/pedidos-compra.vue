@@ -6,7 +6,9 @@ useSeoMeta({ title: 'Pedidos de compra · Admin', robots: 'noindex, nofollow, no
 </script>
 
 <template>
-  <div>
-    <AdminPurchaseOrders />
-  </div>
+  <AdminPage>
+    <div>
+      <AdminPurchaseOrders />
+    </div>
+  </AdminPage>
 </template>
