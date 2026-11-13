@@ -29,8 +29,10 @@ const props = withDefaults(
     authorize: () => boolean
     /** Oculta «Actualizar» y «Nueva página» de la cabecera cuando la pantalla muestra otro apartado. */
     headerActions?: boolean
+    /** La sesión no tiene la verificación en dos pasos: se explica en vez de mostrar un bloqueo genérico. */
+    secondFactorMissing?: boolean
   }>(),
-  { headerActions: true }
+  { headerActions: true, secondFactorMissing: false }
 )
 const prefix = useId(),
   root = '/api/admin/content/pages'
@@ -724,6 +726,67 @@ watch(mode, (current) => {
     detailTab.value = 'draft'
   } else if (!selectedId.value) panel.value = 'list'
 })
+/** La página abierta se muestra en un panel lateral; al cerrarlo se descarta la edición sin enviar. */
+const pageDrawer = computed({
+  get: () => panel.value === 'page',
+  set: (open: boolean) => {
+    if (open || busy.value || intent.value) return
+    if (mode.value) cancel()
+    if (!mode.value) backToList()
+  }
+})
+// Texto sencillo: una página hecha solo de párrafos se edita como texto corrido y se guarda como bloques.
+const plainText = ref(''),
+  plainEditable = ref(true)
+let plainWriting = false
+function plainBlocks() {
+  try {
+    const parsed: unknown = JSON.parse(form.blocksJson)
+    if (!Array.isArray(parsed)) return null
+    const blocks: Array<{ id: string; type: 'paragraph'; text: string }> = []
+    for (const entry of parsed as unknown[]) {
+      if (!entry || typeof entry !== 'object') return null
+      const { id, type, text, ...rest } = entry as Record<string, unknown>
+      if (type !== 'paragraph' || typeof id !== 'string' || typeof text !== 'string' || Object.keys(rest).length)
+        return null
+      blocks.push({ id, type, text })
+    }
+    return blocks
+  } catch {
+    return null
+  }
+}
+watch(
+  () => form.blocksJson,
+  () => {
+    if (plainWriting) return
+    const blocks = plainBlocks()
+    plainEditable.value = blocks !== null
+    plainText.value = blocks?.map((block) => block.text).join('\n\n') ?? ''
+  },
+  { flush: 'sync' }
+)
+function setPlainText(event: Event) {
+  const value = (event.target as HTMLTextAreaElement).value,
+    previous = plainBlocks() ?? []
+  plainText.value = value
+  plainWriting = true
+  form.blocksJson = JSON.stringify(
+    value
+      .split(/\n\s*\n/)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .map((text, index) => ({ id: previous[index]?.id ?? crypto.randomUUID(), type: 'paragraph', text })),
+    null,
+    2
+  )
+  plainWriting = false
+}
+/** Las revisiones se piden como día; se guardan como instante a mediodía (hora universal) de ese día. */
+function setFormDay(key: 'resourceReviewed' | 'resourceReviewDue' | 'helpReviewDueAt', event: Event) {
+  const day = (event.target as HTMLInputElement).value
+  form[key] = day ? `${day}T12:00:00Z` : ''
+}
 onMounted(() => {
   headerTarget.value = !!document.getElementById('adm-page-actions')
 })
@@ -761,7 +824,7 @@ onMounted(() => {
     </component>
 
     <UAlert
-      v-if="message"
+      v-if="message && panel === 'list'"
       role="status"
       aria-live="polite"
       :color="blocked || uncertain ? 'warning' : 'neutral'"
@@ -769,7 +832,7 @@ onMounted(() => {
       :icon="blocked || uncertain ? 'i-lucide-triangle-alert' : 'i-lucide-info'"
       :title="message"
     />
-    <div v-if="intent && uncertain">
+    <div v-if="intent && uncertain && panel === 'list'">
       <button
         data-cms-retry
         type="button"
@@ -780,13 +843,13 @@ onMounted(() => {
         Reintentar el mismo envío
       </button>
     </div>
-    <p v-if="acknowledgement && authority" data-cms-receipt class="adm-help">
+    <p v-if="acknowledgement && authority && panel === 'list'" data-cms-receipt class="adm-help">
       Última operación registrada: {{ ACTION_NAMES[acknowledgement.action] }} (cambio n.º
       {{ acknowledgement.pageVersion }} de la página). Pulsa «Actualizar» para ver cómo ha quedado.
     </p>
 
     <!-- Listado de páginas -->
-    <div v-show="panel === 'list'" class="adm-stack">
+    <div class="adm-stack">
       <AdminCard
         title="Páginas"
         description="Borrador y publicación son independientes: guardar o restaurar un borrador no lo publica."
@@ -797,13 +860,18 @@ onMounted(() => {
             <AdminFilters v-model="statusFilter" :options="STATUS_OPTIONS" label="Filtrar por estado" />
           </AdminToolbar>
         </div>
-        <div v-if="!authority" role="alert">
-          <AdminEmptyState
-            variant="error"
-            title="Ahora mismo no puedes gestionar las páginas"
-            description="Se necesita una sesión vigente con correo verificado, verificación en dos pasos y permiso de contenido."
-          />
-        </div>
+        <AdminEmptyState
+          v-if="!authority && secondFactorMissing"
+          icon="i-lucide-shield-check"
+          title="Hace falta la verificación en dos pasos"
+          description="Por seguridad, las páginas solo se pueden consultar y cambiar con la verificación en dos pasos activada en tu cuenta. En la demostración pública no está disponible."
+        />
+        <AdminEmptyState
+          v-else-if="!authority"
+          icon="i-lucide-lock"
+          title="Ahora mismo no puedes gestionar las páginas"
+          description="Se necesita una sesión vigente con el correo verificado y permiso de contenido. Si acabas de cambiar algo en tu cuenta, vuelve a entrar."
+        />
         <div v-else-if="listStatus === 'pending'" role="status" class="adm-table-skeleton" aria-busy="true">
           <span class="sr-only">Consultando las páginas…</span>
           <div v-for="row in 5" :key="row"><i /><i /><i /></div>
@@ -905,662 +973,730 @@ onMounted(() => {
       />
     </div>
 
-    <!-- Página abierta -->
-    <div v-show="panel === 'page'" class="adm-stack">
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <button
-          type="button"
-          class="adm-btn adm-btn--ghost adm-btn--sm"
-          :disabled="busy || !!intent || !!mode"
-          @click="backToList"
-        >
-          <UIcon name="i-lucide-arrow-left" class="size-4" />Páginas
-        </button>
-        <template v-if="mode === 'create_draft'">
-          <h3 class="adm-section__title">Nueva página</h3>
-        </template>
-        <template v-else-if="currentDetail">
-          <h3 class="adm-section__title">{{ currentDetail.page.title }}</h3>
-          <AdminBadge :tone="currentDetail.page.status === 'hidden' ? 'neutral' : 'warning'">
-            {{ currentDetail.page.status === 'hidden' ? 'Archivada' : 'Borrador' }}
-          </AdminBadge>
-          <span class="adm-help break-all">
-            /{{ currentDetail.page.slug }} · borrador versión {{ currentDetail.page.draftVersion }}
-          </span>
-        </template>
-        <div v-show="mode !== 'create_draft'" class="ml-auto flex flex-wrap items-center gap-2">
+    <!-- Página abierta: panel lateral sobre el listado -->
+    <AdminDrawer
+      v-model:open="pageDrawer"
+      :title="mode === 'create_draft' ? 'Nueva página' : (currentDetail?.page.title ?? 'Página')"
+      :description="
+        mode !== 'create_draft' && currentDetail
+          ? `/${currentDetail.page.slug} · borrador versión ${currentDetail.page.draftVersion}`
+          : undefined
+      "
+      :dismissible="!mode"
+      wide
+    >
+      <div class="adm-stack min-w-0">
+        <UAlert
+          v-if="message && panel === 'page'"
+          role="status"
+          aria-live="polite"
+          :color="blocked || uncertain ? 'warning' : 'neutral'"
+          variant="subtle"
+          :icon="blocked || uncertain ? 'i-lucide-triangle-alert' : 'i-lucide-info'"
+          :title="message"
+        />
+        <div v-if="intent && uncertain && panel === 'page'">
           <button
-            v-if="selectedId && authority"
-            data-cms-detail-read
-            type="button"
-            class="adm-btn adm-btn--secondary adm-btn--sm"
-            :disabled="busy || reading"
-            @click="loadDetail(selectedId, historyPage)"
-          >
-            Actualizar
-          </button>
-          <template v-if="currentDetail && currentDetail.page.status === 'draft'">
-            <button
-              v-if="currentDetail.capabilities.contentArchive"
-              v-show="!mode"
-              data-cms-archive
-              type="button"
-              class="adm-btn adm-btn--danger-soft adm-btn--sm"
-              :disabled="busy || reading || !!intent || blocked"
-              @click="begin('archive_draft')"
-            >
-              Archivar
-            </button>
-            <button
-              v-if="currentDetail.capabilities.contentUpdate"
-              v-show="!mode"
-              data-cms-edit
-              type="button"
-              class="adm-btn adm-btn--secondary adm-btn--sm"
-              :disabled="busy || reading || !!intent || blocked"
-              @click="begin('update_draft')"
-            >
-              Editar borrador
-            </button>
-          </template>
-        </div>
-      </div>
-
-      <div v-show="mode !== 'create_draft'" class="adm-stack">
-        <p v-if="detailStatus === 'pending'" role="status" class="adm-help">Cargando la página y su historial…</p>
-        <AdminEmptyState
-          v-else-if="selectedId && detailStatus === 'error'"
-          variant="error"
-          compact
-          title="No se ha podido cargar esta página"
-          description="Vuelve a consultarla antes de preparar ningún cambio."
-        >
-          <button
+            data-cms-retry
             type="button"
             class="adm-btn adm-btn--secondary"
-            :disabled="busy || reading"
-            @click="loadDetail(selectedId, historyPage)"
+            :disabled="!canRetry || busy"
+            @click="retry"
           >
-            Reintentar
+            Reintentar el mismo envío
           </button>
-        </AdminEmptyState>
-
-        <AdminTabs v-show="selectedId && !mode" v-model="detailTab" :tabs="detailTabs" label="Apartados de la página" />
-
-        <div v-show="!mode && detailTab === 'draft'">
-          <AdminCard
-            v-if="currentDetail"
-            title="Contenido del borrador"
-            :description="`Último cambio: ${currentDetail.draft.document.changeSummary}`"
-          >
-            <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-              <div>
-                <dt class="adm-help">Título en buscadores</dt>
-                <dd>{{ currentDetail.draft.document.seo.title }}</dd>
-              </div>
-              <div>
-                <dt class="adm-help">Descripción en buscadores</dt>
-                <dd>{{ currentDetail.draft.document.seo.description }}</dd>
-              </div>
-            </dl>
-            <ul class="mt-4 space-y-2 border-t border-[var(--border)] pt-4">
-              <li v-for="block in currentDetail.draft.document.blocks" :key="block.id" class="flex gap-3">
-                <span class="adm-help w-28 shrink-0">{{ BLOCK_NAMES[block.type] }}</span>
-                <span class="min-w-0 whitespace-pre-wrap break-words">{{ blockSummary(block) }}</span>
-              </li>
-            </ul>
-          </AdminCard>
         </div>
+        <p v-if="acknowledgement && authority && panel === 'page'" data-cms-receipt class="adm-help">
+          Última operación registrada: {{ ACTION_NAMES[acknowledgement.action] }} (cambio n.º
+          {{ acknowledgement.pageVersion }} de la página). Pulsa «Actualizar» para ver cómo ha quedado.
+        </p>
 
-        <div v-show="!mode && detailTab === 'publication'">
-          <CmsPublicationControls
-            v-if="selectedId"
-            :page-id="selectedId"
-            :runtime="runtime"
-            :operator-id="operatorId"
-            :authorize="authorize"
-            @pending="publicationPending = $event"
-          />
-        </div>
-
-        <div v-show="!mode && detailTab === 'history'">
-          <AdminCard
-            v-if="currentDetail"
-            title="Historial de versiones"
-            description="Cada guardado crea una versión nueva; las anteriores no se modifican."
-            flush
-          >
-            <ul class="adm-list">
-              <li v-for="version in currentDetail.history.versions" :key="version.id" class="flex-wrap">
-                <span class="adm-list__index">{{ version.version }}</span>
-                <div class="min-w-0 flex-1">
-                  <p class="adm-list__title">{{ version.document.changeSummary }}</p>
-                  <p class="adm-help">
-                    {{ adminDate(version.createdAt, true) }} · autor #{{ version.createdBy.slice(0, 8).toUpperCase() }}
-                  </p>
-                  <details class="mt-1">
-                    <summary class="adm-help cursor-pointer">Ver el contenido de esta versión</summary>
-                    <ul class="mt-2 space-y-1">
-                      <li class="flex gap-3">
-                        <span class="adm-help w-28 shrink-0">Título</span>
-                        <span class="min-w-0 break-words">{{ version.document.title }}</span>
-                      </li>
-                      <li class="flex gap-3">
-                        <span class="adm-help w-28 shrink-0">Dirección</span>
-                        <span class="min-w-0 break-all">/{{ version.document.slug }}</span>
-                      </li>
-                      <li v-for="block in version.document.blocks" :key="block.id" class="flex gap-3">
-                        <span class="adm-help w-28 shrink-0">{{ BLOCK_NAMES[block.type] }}</span>
-                        <span class="min-w-0 whitespace-pre-wrap break-words">{{ blockSummary(block) }}</span>
-                      </li>
-                    </ul>
-                  </details>
-                </div>
-                <button
-                  v-if="currentDetail.capabilities.contentRestore"
-                  :data-cms-restore="version.id"
-                  type="button"
-                  class="adm-btn adm-btn--secondary adm-btn--sm"
-                  :disabled="busy || reading || !!intent || blocked"
-                  @click="begin('restore_draft', version.id)"
-                >
-                  Restaurar como versión nueva
-                </button>
-              </li>
-            </ul>
-            <template v-if="currentDetail.history.pagination.total > 5" #footer>
+        <div v-show="mode !== 'create_draft'" class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <AdminBadge v-if="currentDetail" :tone="currentDetail.page.status === 'hidden' ? 'neutral' : 'warning'">
+            {{ currentDetail.page.status === 'hidden' ? 'Archivada' : 'Borrador' }}
+          </AdminBadge>
+          <div v-show="mode !== 'create_draft'" class="ml-auto flex flex-wrap items-center gap-2">
+            <button
+              v-if="selectedId && authority"
+              data-cms-detail-read
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="busy || reading"
+              @click="loadDetail(selectedId, historyPage)"
+            >
+              Actualizar
+            </button>
+            <template v-if="currentDetail && currentDetail.page.status === 'draft'">
               <button
-                data-cms-history-previous
+                v-if="currentDetail.capabilities.contentArchive"
+                v-show="!mode"
+                data-cms-archive
                 type="button"
-                class="adm-btn adm-btn--secondary adm-btn--sm"
-                :disabled="historyPage <= 1 || busy || reading || !!intent"
-                @click="loadDetail(selectedId, historyPage - 1)"
+                class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                :disabled="busy || reading || !!intent || blocked"
+                @click="begin('archive_draft')"
               >
-                Versiones más recientes
+                Archivar
               </button>
               <button
-                data-cms-history-next
+                v-if="currentDetail.capabilities.contentUpdate"
+                v-show="!mode"
+                data-cms-edit
                 type="button"
                 class="adm-btn adm-btn--secondary adm-btn--sm"
-                :disabled="!currentDetail.history.pagination.hasMore || busy || reading || !!intent"
-                @click="loadDetail(selectedId, historyPage + 1)"
+                :disabled="busy || reading || !!intent || blocked"
+                @click="begin('update_draft')"
               >
-                Versiones anteriores
+                Editar borrador
               </button>
             </template>
-          </AdminCard>
+          </div>
         </div>
-      </div>
 
-      <form
-        v-if="mode && authority && (mode === 'create_draft' ? currentList : currentDetail)"
-        class="adm-stack"
-        :aria-busy="busy"
-        @submit.prevent="submit"
-      >
-        <fieldset
-          :disabled="busy || reading || !!intent || blocked || !permitted(mode, baseline)"
-          class="adm-stack min-w-0"
-        >
-          <legend class="adm-section__title" :class="mode === 'create_draft' && 'sr-only'">
-            {{
-              mode === 'create_draft'
-                ? 'Nueva página'
-                : mode === 'archive_draft'
-                  ? 'Archivar la página'
-                  : mode === 'restore_draft'
-                    ? 'Restaurar una versión anterior'
-                    : 'Editar el borrador'
-            }}
-          </legend>
-          <template v-if="mode === 'create_draft' || mode === 'update_draft'">
-            <AdminCard title="Datos de la página">
-              <div class="adm-form-grid">
-                <AdminFormField label="Título" :for="`${prefix}-title`" required>
-                  <input :id="`${prefix}-title`" v-model="form.title" data-cms-title maxlength="160" required />
-                </AdminFormField>
-                <AdminFormField
-                  label="Dirección de la página"
-                  :for="`${prefix}-slug`"
-                  help="Lo que va detrás de la barra en la dirección web: minúsculas, números y guiones. Ejemplo: quienes-somos"
-                  required
-                >
-                  <input :id="`${prefix}-slug`" v-model="form.slug" data-cms-slug maxlength="160" required />
-                </AdminFormField>
-              </div>
-            </AdminCard>
-
-            <AdminCard title="Buscadores" description="Cómo se presenta la página en Google y otros buscadores.">
-              <div class="adm-stack">
-                <AdminFormField label="Título en buscadores" :for="`${prefix}-seo-title`" required>
-                  <input
-                    :id="`${prefix}-seo-title`"
-                    v-model="form.seoTitle"
-                    data-cms-seo-title
-                    maxlength="70"
-                    required
-                  />
-                </AdminFormField>
-                <AdminFormField label="Descripción en buscadores" :for="`${prefix}-seo-description`" required>
-                  <input
-                    :id="`${prefix}-seo-description`"
-                    v-model="form.seoDescription"
-                    data-cms-seo-description
-                    maxlength="180"
-                    required
-                  />
-                </AdminFormField>
-                <label class="adm-check">
-                  <input v-model="form.noindex" data-cms-noindex type="checkbox" />
-                  Pedir a los buscadores que no muestren esta página cuando se publique
-                </label>
-              </div>
-            </AdminCard>
-
-            <AdminCard title="Contenido">
-              <div class="adm-stack">
-                <label class="adm-check">
-                  <input v-model="form.promoEnabled" data-cms-promo-enabled type="checkbox" />
-                  Es un bloque promocional (no aplica descuentos por sí solo)
-                </label>
-                <fieldset v-if="form.promoEnabled" class="adm-stack min-w-0">
-                  <legend class="adm-label">Presentación y lugares donde se muestra</legend>
-                  <div class="adm-form-grid">
-                    <AdminFormField v-slot="{ id }" label="Formato">
-                      <select :id="id" v-model="form.promoFormat" data-cms-promo-format>
-                        <option value="banner">Franja con imagen</option>
-                        <option value="bar">Barra</option>
-                        <option value="card">Tarjeta</option>
-                      </select>
-                    </AdminFormField>
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Prioridad"
-                      help="De 0 a 1000. Con un número mayor se muestra antes."
-                    >
-                      <input
-                        :id="id"
-                        v-model="form.promoPriority"
-                        data-cms-promo-priority
-                        type="number"
-                        min="0"
-                        max="1000"
-                        step="1"
-                      />
-                    </AdminFormField>
-                  </div>
-                  <div class="flex flex-wrap gap-x-5 gap-y-2">
-                    <label v-for="placement in promoPlacements" :key="placement" class="adm-check">
-                      <input
-                        v-model="form.promoPlacements"
-                        :value="placement"
-                        :data-cms-promo-placement="placement"
-                        type="checkbox"
-                      />
-                      {{ PLACEMENT_NAMES[placement] }}
-                    </label>
-                  </div>
-                  <details>
-                    <summary class="adm-label cursor-pointer">Limitar a ciertas páginas (opcional)</summary>
-                    <div class="adm-stack mt-3">
-                      <p class="adm-help">
-                        Una por línea, hasta 20. Si lo dejas vacío no se limita. No se dirige a personas ni a perfiles.
-                      </p>
-                      <div class="adm-form-grid">
-                        <AdminFormField v-slot="{ id }" label="Direcciones exactas de la tienda">
-                          <textarea
-                            :id="id"
-                            v-model="form.promoPaths"
-                            data-cms-promo-paths
-                            rows="3"
-                            placeholder="/catalogo"
-                          />
-                        </AdminFormField>
-                        <AdminFormField v-slot="{ id }" label="Categorías (su dirección)">
-                          <textarea :id="id" v-model="form.promoCategories" data-cms-promo-categories rows="3" />
-                        </AdminFormField>
-                        <AdminFormField v-slot="{ id }" label="Productos (su dirección)">
-                          <textarea :id="id" v-model="form.promoProducts" data-cms-promo-products rows="3" />
-                        </AdminFormField>
-                      </div>
-                    </div>
-                  </details>
-                  <p class="adm-help">
-                    Las fechas, la aprobación y la vista previa se gestionan en la pestaña «Publicación». Guardar aquí
-                    no publica.
-                  </p>
-                  <article
-                    v-for="(block, index) in promoBlocks"
-                    :key="block.id"
-                    class="min-w-0 space-y-3 rounded-[var(--radius-surface)] border border-[var(--border)] p-3"
-                  >
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <strong>{{ index + 1 }} · {{ BLOCK_NAMES[block.type] }}</strong>
-                      <button
-                        type="button"
-                        class="adm-btn adm-btn--ghost adm-btn--sm"
-                        @click="promoBlocks.splice(index, 1)"
-                      >
-                        Quitar bloque {{ index + 1 }}
-                      </button>
-                    </div>
-                    <template v-if="block.type === 'heading'">
-                      <AdminFormField v-slot="{ id }" label="Encabezado">
-                        <input :id="id" v-model="block.text" data-cms-promo-heading maxlength="180" />
-                      </AdminFormField>
-                      <AdminFormField v-slot="{ id }" label="Tamaño">
-                        <select :id="id" v-model="block.level">
-                          <option value="h2">Grande</option>
-                          <option value="h3">Mediano</option>
-                        </select>
-                      </AdminFormField>
-                    </template>
-                    <AdminFormField v-else-if="block.type === 'paragraph'" v-slot="{ id }" label="Texto">
-                      <textarea :id="id" v-model="block.text" data-cms-promo-text maxlength="5000" rows="3" />
-                    </AdminFormField>
-                    <template v-else-if="block.type === 'cta'">
-                      <AdminFormField v-slot="{ id }" label="Texto del enlace">
-                        <input :id="id" v-model="block.label" data-cms-promo-cta-label maxlength="120" />
-                      </AdminFormField>
-                      <AdminFormField
-                        v-slot="{ id }"
-                        label="Destino"
-                        help="Una dirección de la tienda (empieza por /) o una web segura (https://)."
-                      >
-                        <input :id="id" v-model="block.href" data-cms-promo-cta-href maxlength="500" />
-                      </AdminFormField>
-                    </template>
-                    <template v-else-if="block.type === 'image'">
-                      <AdminFormField
-                        v-slot="{ id }"
-                        label="Identificador de la imagen"
-                        help="Cópialo de la biblioteca de imágenes. La imagen debe tener sus derechos y revisión al día; aquí no se aprueba ni se publica."
-                      >
-                        <input :id="id" v-model="block.assetId" maxlength="36" />
-                      </AdminFormField>
-                      <AdminFormField v-slot="{ id }" label="Texto alternativo">
-                        <input :id="id" v-model="block.alt" maxlength="240" />
-                      </AdminFormField>
-                      <AdminFormField v-slot="{ id }" label="Pie de imagen">
-                        <input :id="id" v-model="block.caption" maxlength="500" />
-                      </AdminFormField>
-                    </template>
-                    <AdminFormField v-else-if="block.type === 'list'" v-slot="{ id }" label="Elementos (uno por línea)">
-                      <textarea
-                        :id="id"
-                        :value="block.items.join('\n')"
-                        rows="3"
-                        @input="setPromoList(block, $event)"
-                      />
-                    </AdminFormField>
-                    <template v-else-if="block.type === 'callout'">
-                      <AdminFormField v-slot="{ id }" label="Título">
-                        <input :id="id" v-model="block.title" maxlength="180" />
-                      </AdminFormField>
-                      <AdminFormField v-slot="{ id }" label="Texto">
-                        <textarea :id="id" v-model="block.text" maxlength="2000" />
-                      </AdminFormField>
-                      <AdminFormField v-slot="{ id }" label="Tipo de aviso">
-                        <select :id="id" v-model="block.tone">
-                          <option value="info">Información</option>
-                          <option value="success">Confirmación</option>
-                          <option value="warning">Aviso</option>
-                        </select>
-                      </AdminFormField>
-                    </template>
-                  </article>
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="adm-help">Añadir:</span>
-                    <button
-                      v-for="type in PROMO_BLOCK_TYPES"
-                      :key="type"
-                      type="button"
-                      :disabled="promoBlocks.length >= 10"
-                      class="adm-btn adm-btn--secondary adm-btn--sm"
-                      @click="addPromoBlock(type)"
-                    >
-                      {{ BLOCK_NAMES[type] }}
-                    </button>
-                  </div>
-                </fieldset>
-                <AdminFormField
-                  v-else
-                  label="Bloques de contenido (formato avanzado)"
-                  :for="`${prefix}-blocks`"
-                  help="Lista de bloques: encabezado, párrafo, lista, imagen, aviso destacado o enlace. No admite código; las imágenes solo pueden ser las ya subidas a la biblioteca."
-                  required
-                >
-                  <textarea
-                    :id="`${prefix}-blocks`"
-                    v-model="form.blocksJson"
-                    data-cms-blocks
-                    rows="12"
-                    required
-                    class="font-mono text-xs"
-                  />
-                </AdminFormField>
-              </div>
-            </AdminCard>
-
-            <AdminCard
-              title="Centro de recursos"
-              description="Guías y artículos que se muestran en la sección de recursos."
+        <div v-show="mode !== 'create_draft'" class="adm-stack">
+          <p v-if="detailStatus === 'pending'" role="status" class="adm-help">Cargando la página y su historial…</p>
+          <AdminEmptyState
+            v-else-if="selectedId && detailStatus === 'error'"
+            variant="error"
+            compact
+            title="No se ha podido cargar esta página"
+            description="Vuelve a consultarla antes de preparar ningún cambio."
+          >
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              :disabled="busy || reading"
+              @click="loadDetail(selectedId, historyPage)"
             >
-              <div class="adm-stack">
-                <label class="adm-check">
-                  <input v-model="form.resourceEnabled" data-cms-resource-enabled type="checkbox" />
-                  Incluir en el centro de recursos
-                </label>
-                <fieldset v-if="form.resourceEnabled" class="adm-stack min-w-0">
-                  <legend class="adm-label">Datos editoriales</legend>
-                  <p class="adm-help">
-                    No publica ni acredita experiencia por sí solo: hace falta la revisión y la publicación habituales.
-                    Usa solo una identidad profesional autorizada para mostrarse en público.
-                  </p>
-                  <div class="adm-form-grid">
-                    <AdminFormField v-slot="{ id }" label="Tipo">
-                      <select :id="id" v-model="form.resourceKind" data-cms-resource-kind>
-                        <option value="article">Artículo</option>
-                        <option value="pillar">Guía principal</option>
-                        <option value="landing">Problema o sector</option>
-                      </select>
-                    </AdminFormField>
-                    <AdminFormField v-slot="{ id }" label="Nombre de la categoría" required>
-                      <input
-                        :id="id"
-                        v-model="form.resourceCategoryLabel"
-                        data-cms-resource-category-label
-                        maxlength="100"
-                        required
-                      />
-                    </AdminFormField>
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Dirección de la categoría"
-                      help="Minúsculas y guiones. Ejemplo: limpieza"
-                      required
-                    >
-                      <input
-                        :id="id"
-                        v-model="form.resourceCategory"
-                        data-cms-resource-category
-                        maxlength="160"
-                        required
-                      />
-                    </AdminFormField>
-                    <AdminFormField v-slot="{ id }" label="Autor que se muestra" required>
-                      <input :id="id" v-model="form.resourceAuthor" data-cms-resource-author maxlength="120" required />
-                    </AdminFormField>
-                  </div>
-                  <AdminFormField v-slot="{ id }" label="Experiencia profesional del autor" required>
-                    <textarea
-                      :id="id"
-                      v-model="form.resourceExperience"
-                      data-cms-resource-experience
-                      minlength="10"
-                      maxlength="1000"
-                      required
-                    />
-                  </AdminFormField>
-                  <div class="adm-form-grid">
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Fecha de la última revisión"
-                      help="Fecha y hora universal. Ejemplo: 2027-03-01T10:00:00Z"
-                      required
-                    >
-                      <input
-                        :id="id"
-                        v-model="form.resourceReviewed"
-                        data-cms-resource-reviewed
-                        placeholder="AAAA-MM-DDTHH:mm:ssZ"
-                        required
-                      />
-                    </AdminFormField>
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Próxima revisión"
-                      help="Fecha y hora universal, con el mismo formato."
-                      required
-                    >
-                      <input
-                        :id="id"
-                        v-model="form.resourceReviewDue"
-                        data-cms-resource-review-due
-                        placeholder="AAAA-MM-DDTHH:mm:ssZ"
-                        required
-                      />
-                    </AdminFormField>
-                    <AdminFormField v-slot="{ id }" label="Guía principal a la que pertenece (opcional)">
-                      <input :id="id" v-model="form.resourcePillar" data-cms-resource-pillar maxlength="160" />
-                    </AdminFormField>
-                  </div>
-                  <div class="adm-form-grid">
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Productos relacionados"
-                      help="Número de producto del catálogo, uno por línea (máximo 12)."
-                    >
-                      <textarea :id="id" v-model="form.resourceProducts" data-cms-resource-products maxlength="240" />
-                    </AdminFormField>
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Categorías del catálogo"
-                      help="Su dirección, una por línea (máximo 12)."
-                    >
-                      <textarea
-                        :id="id"
-                        v-model="form.resourceCategories"
-                        data-cms-resource-categories
-                        maxlength="1932"
-                      />
-                    </AdminFormField>
-                    <AdminFormField
-                      v-slot="{ id }"
-                      label="Otros recursos relacionados"
-                      help="Su dirección, una por línea (máximo 12)."
-                    >
-                      <textarea
-                        :id="id"
-                        v-model="form.resourceResources"
-                        data-cms-resource-resources
-                        maxlength="1932"
-                      />
-                    </AdminFormField>
-                  </div>
-                  <p class="adm-help">
-                    Los enlaces solo se muestran si su destino sigue publicado. Las categorías abren el catálogo
-                    filtrado por esa familia.
-                  </p>
-                </fieldset>
-              </div>
-            </AdminCard>
+              Reintentar
+            </button>
+          </AdminEmptyState>
 
-            <AdminCard title="Ayuda" description="Páginas que el centro de ayuda puede mostrar a los clientes.">
-              <div class="adm-stack">
-                <label :for="`${prefix}-help-enabled`" class="adm-check">
-                  <input
-                    :id="`${prefix}-help-enabled`"
-                    v-model="form.helpEnabled"
-                    data-cms-help-enabled
-                    type="checkbox"
-                  />
-                  Incluir en ayuda
-                </label>
-                <div v-if="form.helpEnabled" class="adm-form-grid">
-                  <AdminFormField label="Categoría de ayuda" :for="`${prefix}-help-category`" required>
-                    <select :id="`${prefix}-help-category`" v-model="form.helpCategory" data-cms-help-category required>
-                      <option value="" disabled>Selecciona una categoría</option>
-                      <option v-for="category in SUPPORT_KNOWLEDGE_CATEGORIES" :key="category.id" :value="category.id">
-                        {{ category.label }}
-                      </option>
-                    </select>
+          <AdminTabs
+            v-show="selectedId && !mode"
+            v-model="detailTab"
+            :tabs="detailTabs"
+            label="Apartados de la página"
+          />
+
+          <div v-show="!mode && detailTab === 'draft'">
+            <AdminCard
+              v-if="currentDetail"
+              title="Contenido del borrador"
+              :description="`Último cambio: ${currentDetail.draft.document.changeSummary}`"
+            >
+              <dl class="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <div>
+                  <dt class="adm-help">Título en buscadores</dt>
+                  <dd>{{ currentDetail.draft.document.seo.title }}</dd>
+                </div>
+                <div>
+                  <dt class="adm-help">Descripción en buscadores</dt>
+                  <dd>{{ currentDetail.draft.document.seo.description }}</dd>
+                </div>
+              </dl>
+              <ul class="mt-4 space-y-2 border-t border-[var(--border)] pt-4">
+                <li v-for="block in currentDetail.draft.document.blocks" :key="block.id" class="flex gap-3">
+                  <span class="adm-help w-28 shrink-0">{{ BLOCK_NAMES[block.type] }}</span>
+                  <span class="min-w-0 whitespace-pre-wrap break-words">{{ blockSummary(block) }}</span>
+                </li>
+              </ul>
+            </AdminCard>
+          </div>
+
+          <div v-show="!mode && detailTab === 'publication'">
+            <CmsPublicationControls
+              v-if="selectedId"
+              :page-id="selectedId"
+              :runtime="runtime"
+              :operator-id="operatorId"
+              :authorize="authorize"
+              @pending="publicationPending = $event"
+            />
+          </div>
+
+          <div v-show="!mode && detailTab === 'history'">
+            <AdminCard
+              v-if="currentDetail"
+              title="Historial de versiones"
+              description="Cada guardado crea una versión nueva; las anteriores no se modifican."
+              flush
+            >
+              <ul class="adm-list">
+                <li v-for="version in currentDetail.history.versions" :key="version.id" class="flex-wrap">
+                  <span class="adm-list__index">{{ version.version }}</span>
+                  <div class="min-w-0 flex-1">
+                    <p class="adm-list__title">{{ version.document.changeSummary }}</p>
+                    <p class="adm-help">
+                      {{ adminDate(version.createdAt, true) }} · autor #{{
+                        version.createdBy.slice(0, 8).toUpperCase()
+                      }}
+                    </p>
+                    <details class="mt-1">
+                      <summary class="adm-help cursor-pointer">Ver el contenido de esta versión</summary>
+                      <ul class="mt-2 space-y-1">
+                        <li class="flex gap-3">
+                          <span class="adm-help w-28 shrink-0">Título</span>
+                          <span class="min-w-0 break-words">{{ version.document.title }}</span>
+                        </li>
+                        <li class="flex gap-3">
+                          <span class="adm-help w-28 shrink-0">Dirección</span>
+                          <span class="min-w-0 break-all">/{{ version.document.slug }}</span>
+                        </li>
+                        <li v-for="block in version.document.blocks" :key="block.id" class="flex gap-3">
+                          <span class="adm-help w-28 shrink-0">{{ BLOCK_NAMES[block.type] }}</span>
+                          <span class="min-w-0 whitespace-pre-wrap break-words">{{ blockSummary(block) }}</span>
+                        </li>
+                      </ul>
+                    </details>
+                  </div>
+                  <button
+                    v-if="currentDetail.capabilities.contentRestore"
+                    :data-cms-restore="version.id"
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :disabled="busy || reading || !!intent || blocked"
+                    @click="begin('restore_draft', version.id)"
+                  >
+                    Restaurar como versión nueva
+                  </button>
+                </li>
+              </ul>
+              <template v-if="currentDetail.history.pagination.total > 5" #footer>
+                <button
+                  data-cms-history-previous
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :disabled="historyPage <= 1 || busy || reading || !!intent"
+                  @click="loadDetail(selectedId, historyPage - 1)"
+                >
+                  Versiones más recientes
+                </button>
+                <button
+                  data-cms-history-next
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :disabled="!currentDetail.history.pagination.hasMore || busy || reading || !!intent"
+                  @click="loadDetail(selectedId, historyPage + 1)"
+                >
+                  Versiones anteriores
+                </button>
+              </template>
+            </AdminCard>
+          </div>
+        </div>
+
+        <form
+          v-if="mode && authority && (mode === 'create_draft' ? currentList : currentDetail)"
+          :id="`${prefix}-form`"
+          class="adm-stack"
+          :aria-busy="busy"
+          @submit.prevent="submit"
+        >
+          <fieldset
+            :disabled="busy || reading || !!intent || blocked || !permitted(mode, baseline)"
+            class="adm-stack min-w-0"
+          >
+            <legend class="adm-section__title" :class="mode === 'create_draft' && 'sr-only'">
+              {{
+                mode === 'create_draft'
+                  ? 'Nueva página'
+                  : mode === 'archive_draft'
+                    ? 'Archivar la página'
+                    : mode === 'restore_draft'
+                      ? 'Restaurar una versión anterior'
+                      : 'Editar el borrador'
+              }}
+            </legend>
+            <template v-if="mode === 'create_draft' || mode === 'update_draft'">
+              <AdminCard title="Datos de la página">
+                <div class="adm-form-grid">
+                  <AdminFormField label="Título" :for="`${prefix}-title`" required>
+                    <input :id="`${prefix}-title`" v-model="form.title" data-cms-title maxlength="160" required />
                   </AdminFormField>
                   <AdminFormField
-                    label="Próxima revisión"
-                    :for="`${prefix}-help-review`"
-                    help="Fecha y hora universal, por ejemplo 2027-03-01T10:00:00Z. La ayuda solo mostrará la versión publicada mientras su revisión siga vigente."
+                    label="Dirección de la página"
+                    :for="`${prefix}-slug`"
+                    help="Lo que va detrás de la barra en la dirección web: minúsculas, números y guiones. Ejemplo: quienes-somos"
                     required
                   >
+                    <input :id="`${prefix}-slug`" v-model="form.slug" data-cms-slug maxlength="160" required />
+                  </AdminFormField>
+                </div>
+              </AdminCard>
+
+              <AdminCard title="Buscadores" description="Cómo se presenta la página en Google y otros buscadores.">
+                <div class="adm-stack">
+                  <AdminFormField label="Título en buscadores" :for="`${prefix}-seo-title`" required>
                     <input
-                      :id="`${prefix}-help-review`"
-                      v-model="form.helpReviewDueAt"
-                      data-cms-help-review
-                      placeholder="AAAA-MM-DDTHH:mm:ssZ"
-                      maxlength="20"
+                      :id="`${prefix}-seo-title`"
+                      v-model="form.seoTitle"
+                      data-cms-seo-title
+                      maxlength="70"
                       required
                     />
                   </AdminFormField>
+                  <AdminFormField label="Descripción en buscadores" :for="`${prefix}-seo-description`" required>
+                    <input
+                      :id="`${prefix}-seo-description`"
+                      v-model="form.seoDescription"
+                      data-cms-seo-description
+                      maxlength="180"
+                      required
+                    />
+                  </AdminFormField>
+                  <label class="adm-check">
+                    <input v-model="form.noindex" data-cms-noindex type="checkbox" />
+                    Pedir a los buscadores que no muestren esta página cuando se publique
+                  </label>
                 </div>
-                <p v-if="form.helpEnabled" class="adm-help">Guardar no publica ni aprueba contenido químico o legal.</p>
+              </AdminCard>
+
+              <AdminCard title="Contenido">
+                <div class="adm-stack">
+                  <label class="adm-check">
+                    <input v-model="form.promoEnabled" data-cms-promo-enabled type="checkbox" />
+                    Es un bloque promocional (no aplica descuentos por sí solo)
+                  </label>
+                  <fieldset v-if="form.promoEnabled" class="adm-stack min-w-0">
+                    <legend class="adm-label">Presentación y lugares donde se muestra</legend>
+                    <div class="adm-form-grid">
+                      <AdminFormField v-slot="{ id }" label="Formato">
+                        <select :id="id" v-model="form.promoFormat" data-cms-promo-format>
+                          <option value="banner">Franja con imagen</option>
+                          <option value="bar">Barra</option>
+                          <option value="card">Tarjeta</option>
+                        </select>
+                      </AdminFormField>
+                      <AdminFormField
+                        v-slot="{ id }"
+                        label="Prioridad"
+                        help="De 0 a 1000. Con un número mayor se muestra antes."
+                      >
+                        <input
+                          :id="id"
+                          v-model="form.promoPriority"
+                          data-cms-promo-priority
+                          type="number"
+                          min="0"
+                          max="1000"
+                          step="1"
+                        />
+                      </AdminFormField>
+                    </div>
+                    <div class="flex flex-wrap gap-x-5 gap-y-2">
+                      <label v-for="placement in promoPlacements" :key="placement" class="adm-check">
+                        <input
+                          v-model="form.promoPlacements"
+                          :value="placement"
+                          :data-cms-promo-placement="placement"
+                          type="checkbox"
+                        />
+                        {{ PLACEMENT_NAMES[placement] }}
+                      </label>
+                    </div>
+                    <details>
+                      <summary class="adm-label cursor-pointer">Limitar a ciertas páginas (opcional)</summary>
+                      <div class="adm-stack mt-3">
+                        <p class="adm-help">
+                          Una por línea, hasta 20. Si lo dejas vacío no se limita. No se dirige a personas ni a
+                          perfiles.
+                        </p>
+                        <div class="adm-form-grid">
+                          <AdminFormField v-slot="{ id }" label="Direcciones exactas de la tienda">
+                            <textarea
+                              :id="id"
+                              v-model="form.promoPaths"
+                              data-cms-promo-paths
+                              rows="3"
+                              placeholder="/catalogo"
+                            />
+                          </AdminFormField>
+                          <AdminFormField v-slot="{ id }" label="Categorías (su dirección)">
+                            <textarea :id="id" v-model="form.promoCategories" data-cms-promo-categories rows="3" />
+                          </AdminFormField>
+                          <AdminFormField v-slot="{ id }" label="Productos (su dirección)">
+                            <textarea :id="id" v-model="form.promoProducts" data-cms-promo-products rows="3" />
+                          </AdminFormField>
+                        </div>
+                      </div>
+                    </details>
+                    <p class="adm-help">
+                      Las fechas, la aprobación y la vista previa se gestionan en la pestaña «Publicación». Guardar aquí
+                      no publica.
+                    </p>
+                    <article
+                      v-for="(block, index) in promoBlocks"
+                      :key="block.id"
+                      class="min-w-0 space-y-3 rounded-[var(--radius-surface)] border border-[var(--border)] p-3"
+                    >
+                      <div class="flex flex-wrap items-center justify-between gap-2">
+                        <strong>{{ index + 1 }} · {{ BLOCK_NAMES[block.type] }}</strong>
+                        <button
+                          type="button"
+                          class="adm-btn adm-btn--ghost adm-btn--sm"
+                          @click="promoBlocks.splice(index, 1)"
+                        >
+                          Quitar bloque {{ index + 1 }}
+                        </button>
+                      </div>
+                      <template v-if="block.type === 'heading'">
+                        <AdminFormField v-slot="{ id }" label="Encabezado">
+                          <input :id="id" v-model="block.text" data-cms-promo-heading maxlength="180" />
+                        </AdminFormField>
+                        <AdminFormField v-slot="{ id }" label="Tamaño">
+                          <select :id="id" v-model="block.level">
+                            <option value="h2">Grande</option>
+                            <option value="h3">Mediano</option>
+                          </select>
+                        </AdminFormField>
+                      </template>
+                      <AdminFormField v-else-if="block.type === 'paragraph'" v-slot="{ id }" label="Texto">
+                        <textarea :id="id" v-model="block.text" data-cms-promo-text maxlength="5000" rows="3" />
+                      </AdminFormField>
+                      <template v-else-if="block.type === 'cta'">
+                        <AdminFormField v-slot="{ id }" label="Texto del enlace">
+                          <input :id="id" v-model="block.label" data-cms-promo-cta-label maxlength="120" />
+                        </AdminFormField>
+                        <AdminFormField
+                          v-slot="{ id }"
+                          label="Destino"
+                          help="Una dirección de la tienda (empieza por /) o una web segura (https://)."
+                        >
+                          <input :id="id" v-model="block.href" data-cms-promo-cta-href maxlength="500" />
+                        </AdminFormField>
+                      </template>
+                      <template v-else-if="block.type === 'image'">
+                        <AdminFormField
+                          v-slot="{ id }"
+                          label="Identificador de la imagen"
+                          help="Cópialo de la biblioteca de imágenes. La imagen debe tener sus derechos y revisión al día; aquí no se aprueba ni se publica."
+                        >
+                          <input :id="id" v-model="block.assetId" maxlength="36" />
+                        </AdminFormField>
+                        <AdminFormField v-slot="{ id }" label="Texto alternativo">
+                          <input :id="id" v-model="block.alt" maxlength="240" />
+                        </AdminFormField>
+                        <AdminFormField v-slot="{ id }" label="Pie de imagen">
+                          <input :id="id" v-model="block.caption" maxlength="500" />
+                        </AdminFormField>
+                      </template>
+                      <AdminFormField
+                        v-else-if="block.type === 'list'"
+                        v-slot="{ id }"
+                        label="Elementos (uno por línea)"
+                      >
+                        <textarea
+                          :id="id"
+                          :value="block.items.join('\n')"
+                          rows="3"
+                          @input="setPromoList(block, $event)"
+                        />
+                      </AdminFormField>
+                      <template v-else-if="block.type === 'callout'">
+                        <AdminFormField v-slot="{ id }" label="Título">
+                          <input :id="id" v-model="block.title" maxlength="180" />
+                        </AdminFormField>
+                        <AdminFormField v-slot="{ id }" label="Texto">
+                          <textarea :id="id" v-model="block.text" maxlength="2000" />
+                        </AdminFormField>
+                        <AdminFormField v-slot="{ id }" label="Tipo de aviso">
+                          <select :id="id" v-model="block.tone">
+                            <option value="info">Información</option>
+                            <option value="success">Confirmación</option>
+                            <option value="warning">Aviso</option>
+                          </select>
+                        </AdminFormField>
+                      </template>
+                    </article>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="adm-help">Añadir:</span>
+                      <button
+                        v-for="type in PROMO_BLOCK_TYPES"
+                        :key="type"
+                        type="button"
+                        :disabled="promoBlocks.length >= 10"
+                        class="adm-btn adm-btn--secondary adm-btn--sm"
+                        @click="addPromoBlock(type)"
+                      >
+                        {{ BLOCK_NAMES[type] }}
+                      </button>
+                    </div>
+                  </fieldset>
+                  <template v-else>
+                    <AdminFormField
+                      v-if="plainEditable"
+                      label="Texto de la página"
+                      :for="`${prefix}-text`"
+                      help="Deja una línea en blanco entre párrafos."
+                      required
+                    >
+                      <textarea
+                        :id="`${prefix}-text`"
+                        :value="plainText"
+                        data-cms-text
+                        rows="10"
+                        @input="setPlainText"
+                      />
+                    </AdminFormField>
+                    <p v-else class="adm-help">
+                      Esta página combina encabezados, listas, imágenes o avisos. De momento ese contenido se edita en
+                      el apartado «Avanzado».
+                    </p>
+                    <details :open="!plainEditable">
+                      <summary class="adm-label cursor-pointer">Avanzado</summary>
+                      <AdminFormField
+                        class="mt-3"
+                        label="Bloques de contenido"
+                        :for="`${prefix}-blocks`"
+                        help="Lista de bloques en formato técnico: encabezado, párrafo, lista, imagen, aviso destacado o enlace. No admite código; las imágenes solo pueden ser las ya subidas a la biblioteca."
+                        required
+                      >
+                        <textarea
+                          :id="`${prefix}-blocks`"
+                          v-model="form.blocksJson"
+                          data-cms-blocks
+                          rows="12"
+                          required
+                          class="font-mono text-xs"
+                        />
+                      </AdminFormField>
+                    </details>
+                  </template>
+                </div>
+              </AdminCard>
+
+              <AdminCard
+                title="Centro de recursos"
+                description="Guías y artículos que se muestran en la sección de recursos."
+              >
+                <div class="adm-stack">
+                  <label class="adm-check">
+                    <input v-model="form.resourceEnabled" data-cms-resource-enabled type="checkbox" />
+                    Incluir en el centro de recursos
+                  </label>
+                  <fieldset v-if="form.resourceEnabled" class="adm-stack min-w-0">
+                    <legend class="adm-label">Datos editoriales</legend>
+                    <p class="adm-help">
+                      No publica ni acredita experiencia por sí solo: hace falta la revisión y la publicación
+                      habituales. Usa solo una identidad profesional autorizada para mostrarse en público.
+                    </p>
+                    <div class="adm-form-grid">
+                      <AdminFormField v-slot="{ id }" label="Tipo">
+                        <select :id="id" v-model="form.resourceKind" data-cms-resource-kind>
+                          <option value="article">Artículo</option>
+                          <option value="pillar">Guía principal</option>
+                          <option value="landing">Problema o sector</option>
+                        </select>
+                      </AdminFormField>
+                      <AdminFormField v-slot="{ id }" label="Nombre de la categoría" required>
+                        <input
+                          :id="id"
+                          v-model="form.resourceCategoryLabel"
+                          data-cms-resource-category-label
+                          maxlength="100"
+                          required
+                        />
+                      </AdminFormField>
+                      <AdminFormField
+                        v-slot="{ id }"
+                        label="Dirección de la categoría"
+                        help="Minúsculas y guiones. Ejemplo: limpieza"
+                        required
+                      >
+                        <input
+                          :id="id"
+                          v-model="form.resourceCategory"
+                          data-cms-resource-category
+                          maxlength="160"
+                          required
+                        />
+                      </AdminFormField>
+                      <AdminFormField v-slot="{ id }" label="Autor que se muestra" required>
+                        <input
+                          :id="id"
+                          v-model="form.resourceAuthor"
+                          data-cms-resource-author
+                          maxlength="120"
+                          required
+                        />
+                      </AdminFormField>
+                    </div>
+                    <AdminFormField v-slot="{ id }" label="Experiencia profesional del autor" required>
+                      <textarea
+                        :id="id"
+                        v-model="form.resourceExperience"
+                        data-cms-resource-experience
+                        minlength="10"
+                        maxlength="1000"
+                        required
+                      />
+                    </AdminFormField>
+                    <div class="adm-form-grid">
+                      <AdminFormField v-slot="{ id }" label="Fecha de la última revisión" required>
+                        <input
+                          :id="id"
+                          :value="form.resourceReviewed.slice(0, 10)"
+                          data-cms-resource-reviewed
+                          type="date"
+                          required
+                          @input="setFormDay('resourceReviewed', $event)"
+                        />
+                      </AdminFormField>
+                      <AdminFormField v-slot="{ id }" label="Próxima revisión" required>
+                        <input
+                          :id="id"
+                          :value="form.resourceReviewDue.slice(0, 10)"
+                          data-cms-resource-review-due
+                          type="date"
+                          required
+                          @input="setFormDay('resourceReviewDue', $event)"
+                        />
+                      </AdminFormField>
+                      <AdminFormField v-slot="{ id }" label="Guía principal a la que pertenece (opcional)">
+                        <input :id="id" v-model="form.resourcePillar" data-cms-resource-pillar maxlength="160" />
+                      </AdminFormField>
+                    </div>
+                    <div class="adm-form-grid">
+                      <AdminFormField
+                        v-slot="{ id }"
+                        label="Productos relacionados"
+                        help="Número de producto del catálogo, uno por línea (máximo 12)."
+                      >
+                        <textarea :id="id" v-model="form.resourceProducts" data-cms-resource-products maxlength="240" />
+                      </AdminFormField>
+                      <AdminFormField
+                        v-slot="{ id }"
+                        label="Categorías del catálogo"
+                        help="Su dirección, una por línea (máximo 12)."
+                      >
+                        <textarea
+                          :id="id"
+                          v-model="form.resourceCategories"
+                          data-cms-resource-categories
+                          maxlength="1932"
+                        />
+                      </AdminFormField>
+                      <AdminFormField
+                        v-slot="{ id }"
+                        label="Otros recursos relacionados"
+                        help="Su dirección, una por línea (máximo 12)."
+                      >
+                        <textarea
+                          :id="id"
+                          v-model="form.resourceResources"
+                          data-cms-resource-resources
+                          maxlength="1932"
+                        />
+                      </AdminFormField>
+                    </div>
+                    <p class="adm-help">
+                      Los enlaces solo se muestran si su destino sigue publicado. Las categorías abren el catálogo
+                      filtrado por esa familia.
+                    </p>
+                  </fieldset>
+                </div>
+              </AdminCard>
+
+              <AdminCard title="Ayuda" description="Páginas que el centro de ayuda puede mostrar a los clientes.">
+                <div class="adm-stack">
+                  <label :for="`${prefix}-help-enabled`" class="adm-check">
+                    <input
+                      :id="`${prefix}-help-enabled`"
+                      v-model="form.helpEnabled"
+                      data-cms-help-enabled
+                      type="checkbox"
+                    />
+                    Incluir en ayuda
+                  </label>
+                  <div v-if="form.helpEnabled" class="adm-form-grid">
+                    <AdminFormField label="Categoría de ayuda" :for="`${prefix}-help-category`" required>
+                      <select
+                        :id="`${prefix}-help-category`"
+                        v-model="form.helpCategory"
+                        data-cms-help-category
+                        required
+                      >
+                        <option value="" disabled>Selecciona una categoría</option>
+                        <option
+                          v-for="category in SUPPORT_KNOWLEDGE_CATEGORIES"
+                          :key="category.id"
+                          :value="category.id"
+                        >
+                          {{ category.label }}
+                        </option>
+                      </select>
+                    </AdminFormField>
+                    <AdminFormField
+                      label="Próxima revisión"
+                      :for="`${prefix}-help-review`"
+                      help="La ayuda solo mostrará la versión publicada mientras su revisión siga vigente."
+                      required
+                    >
+                      <input
+                        :id="`${prefix}-help-review`"
+                        :value="form.helpReviewDueAt.slice(0, 10)"
+                        data-cms-help-review
+                        type="date"
+                        required
+                        @input="setFormDay('helpReviewDueAt', $event)"
+                      />
+                    </AdminFormField>
+                  </div>
+                  <p v-if="form.helpEnabled" class="adm-help">
+                    Guardar no publica ni aprueba contenido químico o legal.
+                  </p>
+                </div>
+              </AdminCard>
+            </template>
+
+            <AdminCard :title="mode === 'archive_draft' ? 'Confirmar el archivo' : 'Motivo del cambio'">
+              <div class="adm-stack">
+                <p v-if="baseline && mode !== 'update_draft'" class="adm-help">
+                  Página: {{ baseline.title }} · /{{ baseline.slug }}
+                </p>
+                <p v-if="restoreSource" class="adm-help">
+                  Se creará un borrador nuevo a partir de la versión {{ restoreSource.version }} (/{{
+                    restoreSource.document.slug
+                  }}). No se publicará.
+                </p>
+                <p v-if="restoreSource?.document.supportKnowledge" data-cms-help-restore class="adm-help">
+                  También se recuperará su inclusión en ayuda: categoría
+                  {{ helpCategoryName(restoreSource.document.supportKnowledge.category) }}, próxima revisión el
+                  {{ adminDate(restoreSource.document.supportKnowledge.reviewDueAt) }}. No cambia la versión publicada.
+                </p>
+                <p v-if="restoreSource?.document.resourceHub" data-cms-resource-restore class="adm-help">
+                  También se recuperarán sus datos del centro de recursos: autor
+                  {{ restoreSource.document.resourceHub.author.name }}, revisado el
+                  {{ adminDate(restoreSource.document.resourceHub.reviewedAt) }}, próxima revisión el
+                  {{ adminDate(restoreSource.document.resourceHub.reviewDueAt) }}. No se publica automáticamente.
+                </p>
+                <AdminFormField
+                  label="Motivo o resumen del cambio"
+                  :for="`${prefix}-reason`"
+                  help="Queda guardado en el historial de la página."
+                  required
+                >
+                  <input
+                    :id="`${prefix}-reason`"
+                    v-model="form.reason"
+                    data-cms-reason
+                    minlength="3"
+                    maxlength="500"
+                    required
+                  />
+                </AdminFormField>
+                <label v-if="mode === 'archive_draft'" class="adm-check">
+                  <input v-model="archiveConfirmed" data-cms-archive-confirm type="checkbox" />
+                  Confirmo que quiero archivar esta página. Su historial y su dirección se conservan.
+                </label>
               </div>
             </AdminCard>
-          </template>
-
-          <AdminCard :title="mode === 'archive_draft' ? 'Confirmar el archivo' : 'Motivo del cambio'">
-            <div class="adm-stack">
-              <p v-if="baseline && mode !== 'update_draft'" class="adm-help">
-                Página: {{ baseline.title }} · /{{ baseline.slug }}
-              </p>
-              <p v-if="restoreSource" class="adm-help">
-                Se creará un borrador nuevo a partir de la versión {{ restoreSource.version }} (/{{
-                  restoreSource.document.slug
-                }}). No se publicará.
-              </p>
-              <p v-if="restoreSource?.document.supportKnowledge" data-cms-help-restore class="adm-help">
-                También se recuperará su inclusión en ayuda: categoría
-                {{ helpCategoryName(restoreSource.document.supportKnowledge.category) }}, próxima revisión
-                {{ restoreSource.document.supportKnowledge.reviewDueAt }}. No cambia la versión publicada.
-              </p>
-              <p v-if="restoreSource?.document.resourceHub" data-cms-resource-restore class="adm-help">
-                También se recuperarán sus datos del centro de recursos: autor
-                {{ restoreSource.document.resourceHub.author.name }}, revisado el
-                {{ adminDate(restoreSource.document.resourceHub.reviewedAt) }}, próxima revisión el
-                {{ adminDate(restoreSource.document.resourceHub.reviewDueAt) }}. No se publica automáticamente.
-              </p>
-              <AdminFormField
-                label="Motivo o resumen del cambio"
-                :for="`${prefix}-reason`"
-                help="Queda guardado en el historial de la página."
-                required
-              >
-                <input
-                  :id="`${prefix}-reason`"
-                  v-model="form.reason"
-                  data-cms-reason
-                  minlength="3"
-                  maxlength="500"
-                  required
-                />
-              </AdminFormField>
-              <label v-if="mode === 'archive_draft'" class="adm-check">
-                <input v-model="archiveConfirmed" data-cms-archive-confirm type="checkbox" />
-                Confirmo que quiero archivar esta página. Su historial y su dirección se conservan.
-              </label>
-            </div>
-          </AdminCard>
-        </fieldset>
-        <div class="flex flex-wrap justify-end gap-2">
+          </fieldset>
+        </form>
+      </div>
+      <template #footer>
+        <template v-if="mode">
           <button
             data-cms-cancel
             type="button"
@@ -1573,6 +1709,7 @@ onMounted(() => {
           <button
             data-cms-submit
             type="submit"
+            :form="`${prefix}-form`"
             class="adm-btn"
             :class="mode === 'archive_draft' ? 'adm-btn--danger' : 'adm-btn--primary'"
             :disabled="!canSubmit || busy"
@@ -1585,8 +1722,9 @@ onMounted(() => {
                   : 'Guardar borrador'
             }}
           </button>
-        </div>
-      </form>
-    </div>
+        </template>
+        <button v-else type="button" class="adm-btn adm-btn--secondary" @click="pageDrawer = false">Cerrar</button>
+      </template>
+    </AdminDrawer>
   </section>
 </template>

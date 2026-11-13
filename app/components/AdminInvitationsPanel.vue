@@ -74,7 +74,11 @@ const snapshot = shallowRef<AdminInvitationList | null>(null),
   message = ref(''),
   busy = ref(false),
   blocked = ref<string | null>(null),
-  phase = ref<'idle' | 'review' | 'unknown' | 'confirmed' | 'error'>('idle')
+  phase = ref<'idle' | 'review' | 'unknown' | 'confirmed' | 'error'>('idle'),
+  inviteOpen = ref(false),
+  revokeOpen = ref(false),
+  secondFactorRejected = ref(false),
+  unavailable = ref(false)
 let alive = true,
   epoch = 0,
   pendingCommand = false
@@ -102,7 +106,14 @@ function reset() {
   message.value = ''
   phase.value = 'idle'
   busy.value = false
+  inviteOpen.value = false
+  revokeOpen.value = false
+  unavailable.value = false
   setCommandPending(false)
+}
+function failureCode(cause: unknown) {
+  const code = (cause as { data?: { error?: { code?: unknown } } } | null)?.data?.error?.code
+  return typeof code === 'string' ? code : null
 }
 function live(turn: number, actor: string) {
   return alive && epoch === turn && allowed.value && owner.value === actor
@@ -112,6 +123,7 @@ function revokeAuthority(cause: unknown, actor: string) {
   if (![401, 403].includes(error?.statusCode ?? error?.status ?? error?.response?.status ?? 0)) return false
   reset()
   blocked.value = actor
+  secondFactorRejected.value = failureCode(cause) === 'mfa_required'
   message.value = 'La autorización ha cambiado. Los datos privados y secretos se han borrado.'
   return true
 }
@@ -127,6 +139,7 @@ async function load(page = 1) {
     abort = controller()
   busy.value = true
   message.value = ''
+  unavailable.value = false
   deliverySecret.value = null
   revokeTarget.value = null
   try {
@@ -147,8 +160,9 @@ async function load(page = 1) {
   } catch (cause) {
     if (live(turn, actor) && !revokeAuthority(cause, actor)) {
       snapshot.value = null
-      phase.value = 'error'
-      message.value = 'No se pudo leer la lista vigente. No se ha supuesto que esté vacía.'
+      unavailable.value = failureCode(cause) === 'service_unavailable'
+      phase.value = unavailable.value ? 'idle' : 'error'
+      message.value = unavailable.value ? '' : 'No se pudo leer la lista vigente. No se ha supuesto que esté vacía.'
     }
   } finally {
     controllers.delete(abort)
@@ -217,6 +231,7 @@ function chooseRevoke(item: AdminInvitation) {
   deliverySecret.value = null
   phase.value = 'idle'
   message.value = ''
+  revokeOpen.value = true
 }
 async function reviewRevoke() {
   const actor = owner.value,
@@ -466,6 +481,7 @@ const columns = [
   { key: 'recipientEmail', label: 'Correo' },
   { key: 'roleCode', label: 'Perfil' },
   { key: 'status', label: 'Estado' },
+  { key: 'createdAt', label: 'Invitada el', hideOnMobile: true },
   { key: 'expiresAt', label: 'Caduca', hideOnMobile: true }
 ]
 const statusOptions = [
@@ -491,11 +507,59 @@ function clearFilters() {
   search.value = ''
   statusFilter.value = 'all'
 }
+/** Falta el segundo factor: lo dice la sesión o lo ha dicho el servidor al rechazar la consulta. */
+const needsSecondFactor = computed(
+  () => secondFactorRejected.value || (auth.ready.value && auth.loggedIn.value && auth.user.value?.mfaVerified !== true)
+)
+const notice = computed(() => {
+  const failed = phase.value === 'unknown' || phase.value === 'error'
+  return {
+    role: failed ? 'alert' : 'status',
+    color: failed ? ('error' as const) : phase.value === 'confirmed' ? ('success' as const) : ('neutral' as const),
+    icon: failed ? 'i-lucide-triangle-alert' : phase.value === 'confirmed' ? 'i-lucide-circle-check' : 'i-lucide-info'
+  }
+})
+const validityOptions = [24, 48, 72, 168]
+function validityLabel(hours: number) {
+  if (hours % 24 !== 0) return `${hours} horas`
+  const days = hours / 24
+  return days === 1 ? '1 día (24 horas)' : `${days} días`
+}
+async function openInvite() {
+  if (!allowed.value || busy.value || props.pending) return
+  if (!snapshot.value) await load()
+  if (snapshot.value) inviteOpen.value = true
+}
+const inviteDrawer = computed({
+  get: () => inviteOpen.value,
+  set: (open: boolean) => {
+    if (open) return void openInvite()
+    if (intent.value?.action === 'create') cancel()
+    inviteOpen.value = false
+  }
+})
+const revokeConfirm = computed({
+  get: () => revokeOpen.value && revokeTarget.value !== null,
+  set: (open: boolean) => {
+    if (open) return
+    revokeOpen.value = false
+    cancel()
+    if (!intent.value) revokeTarget.value = null
+  }
+})
+/** La ventana de confirmación ya es la revisión: prepara la anulación y la envía. */
+async function confirmRevoke() {
+  await reviewRevoke()
+  if (intent.value?.action !== 'revoke') return
+  await send()
+  revokeOpen.value = false
+}
 watch(
   owner,
   () => {
     reset()
     blocked.value = null
+    secondFactorRejected.value = false
   },
   { immediate: true, flush: 'sync' }
 )
@@ -506,56 +570,51 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section aria-label="Invitaciones de administración" class="adm-stack min-w-0">
-    <UAlert
-      v-if="!allowed"
-      role="status"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-lock"
-      title="No puedes gestionar invitaciones ahora mismo"
-      description="Hace falta una sesión activa, el correo verificado, la verificación en dos pasos y permiso de administración."
-    />
+    <AdminCard v-if="!allowed">
+      <AdminEmptyState
+        v-if="runtime.public.serverRuntime !== 'cloudflare'"
+        icon="i-lucide-users"
+        title="El equipo no se gestiona desde esta instalación"
+        description="Las invitaciones al panel solo están disponibles en la tienda publicada."
+      />
+      <AdminEmptyState
+        v-else-if="needsSecondFactor"
+        data-invitations-mfa-required
+        icon="i-lucide-shield-check"
+        title="Hace falta la verificación en dos pasos"
+        description="Por seguridad, el equipo y sus permisos solo se pueden consultar con la verificación en dos pasos activada en tu cuenta. En la demostración pública no está disponible."
+      />
+      <AdminEmptyState
+        v-else
+        icon="i-lucide-lock"
+        title="No puedes gestionar el equipo ahora mismo"
+        description="Hace falta una sesión activa, el correo verificado y permiso de administración. Si acabas de cambiar algo en tu cuenta, vuelve a entrar."
+      />
+    </AdminCard>
     <template v-else>
+      <AdminPageActions>
+        <button
+          type="button"
+          data-invitations-open
+          :disabled="busy || pending || (!!intent && !inviteOpen)"
+          class="adm-btn adm-btn--primary"
+          @click="openInvite"
+        >
+          <UIcon name="i-lucide-user-plus" class="size-4" />Invitar
+        </button>
+      </AdminPageActions>
+
       <UAlert
-        v-if="message"
-        :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'"
+        v-if="message && !inviteOpen && !revokeOpen"
+        :role="notice.role"
         :data-invitations-confirmed="phase === 'confirmed' ? '' : undefined"
-        :color="phase === 'unknown' || phase === 'error' ? 'error' : phase === 'confirmed' ? 'success' : 'neutral'"
+        :color="notice.color"
         variant="subtle"
-        :icon="
-          phase === 'unknown' || phase === 'error'
-            ? 'i-lucide-triangle-alert'
-            : phase === 'confirmed'
-              ? 'i-lucide-circle-check'
-              : 'i-lucide-info'
-        "
+        :icon="notice.icon"
         :title="message"
       />
 
-      <AdminCard v-if="intent && !intent.attempted" title="Revisa antes de confirmar">
-        <p v-if="intent.action === 'create'" class="break-words">
-          Vas a invitar a <strong>{{ intent.body.recipientEmail }}</strong> con el perfil
-          <strong>{{ adminRoleLabel(intent.body.roleCode) }}</strong
-          >. La invitación caduca en {{ intent.body.expiresInHours }} horas.
-        </p>
-        <p v-else>Vas a anular la invitación seleccionada. Quien ya la haya aceptado conserva su acceso.</p>
-        <p class="adm-help mt-2 break-words">Motivo: {{ intent.body.reason }}</p>
-        <template #footer>
-          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
-          <button
-            data-invitations-confirm
-            type="button"
-            :disabled="busy || pending"
-            class="adm-btn"
-            :class="intent.action === 'create' ? 'adm-btn--primary' : 'adm-btn--danger'"
-            @click="send"
-          >
-            Confirmar {{ intent.action === 'create' ? 'invitación' : 'anulación' }}
-          </button>
-        </template>
-      </AdminCard>
-
-      <div v-if="intent?.attempted && phase === 'unknown'">
+      <div v-if="intent?.attempted && phase === 'unknown' && !inviteOpen">
         <button
           data-invitations-check
           type="button"
@@ -568,7 +627,7 @@ onBeforeUnmount(() => {
       </div>
 
       <AdminCard
-        v-if="deliverySecret"
+        v-if="deliverySecret && !inviteOpen"
         title="Enlace de la invitación"
         description="Guárdalo ahora: solo se muestra una vez. Envíaselo tú a la persona invitada; la tienda no manda ningún correo."
       >
@@ -581,10 +640,6 @@ onBeforeUnmount(() => {
             class="block break-all font-semibold text-[var(--color-neteco-700)] underline"
             >Enlace privado de aceptación</a
           >
-          <p v-else>
-            No se ha podido generar el enlace porque la dirección pública de la tienda no es válida. Comparte esta clave
-            para usarla en la página /cuenta/invitacion.
-          </p>
           <code
             data-invitations-secret
             class="block break-all rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3 text-xs"
@@ -604,52 +659,39 @@ onBeforeUnmount(() => {
         </template>
       </AdminCard>
 
-      <AdminCard v-if="revokeTarget && !intent" title="Anular invitación">
-        <form class="adm-stack" @submit.prevent="reviewRevoke">
-          <p class="break-words">
-            Invitación para <strong>{{ revokeTarget.recipientEmail }}</strong> ({{
-              adminRoleLabel(revokeTarget.roleCode)
-            }}).
-          </p>
-          <div class="adm-field">
-            <label :for="`${prefix}-revoke-reason`" class="adm-label">Motivo de la anulación</label>
-            <textarea
-              :id="`${prefix}-revoke-reason`"
-              v-model="revokeReason"
-              data-invitations-revoke-reason
-              minlength="10"
-              maxlength="500"
-              :disabled="busy || pending"
-              class="adm-input"
-            />
-            <p class="adm-help">Entre 10 y 500 caracteres.</p>
-          </div>
-          <div class="flex flex-wrap justify-end gap-2">
-            <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
-            <button
-              data-invitations-review-revoke
-              type="submit"
-              :disabled="busy || pending"
-              class="adm-btn adm-btn--danger"
-            >
-              Anular invitación
-            </button>
-          </div>
-        </form>
-      </AdminCard>
-
       <AdminCard v-if="!snapshot">
         <AdminEmptyState
-          :variant="phase === 'error' ? 'error' : 'empty'"
-          icon="i-lucide-users"
-          :title="phase === 'error' ? 'No se han podido cargar las invitaciones' : 'Invitaciones del equipo'"
-          description="Por seguridad, la lista solo se consulta cuando la pides."
+          v-if="unavailable"
+          icon="i-lucide-cloud-off"
+          title="El equipo no está disponible ahora mismo"
+          description="El servicio de invitaciones está desactivado o en mantenimiento. No se ha perdido nada: prueba de nuevo en unos minutos."
         >
           <button
             type="button"
             data-invitations-load
             :disabled="busy || pending || !!intent"
-            class="adm-btn adm-btn--primary"
+            class="adm-btn adm-btn--secondary"
+            @click="load()"
+          >
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Reintentar
+          </button>
+        </AdminEmptyState>
+        <AdminEmptyState
+          v-else
+          :variant="phase === 'error' ? 'error' : 'empty'"
+          icon="i-lucide-users"
+          :title="phase === 'error' ? 'No se han podido cargar las invitaciones' : 'Invitaciones del equipo'"
+          :description="
+            phase === 'error'
+              ? 'Puede ser un fallo de conexión. Vuelve a intentarlo.'
+              : 'Por seguridad, la lista solo se consulta cuando la pides.'
+          "
+        >
+          <button
+            type="button"
+            data-invitations-load
+            :disabled="busy || pending || !!intent"
+            class="adm-btn adm-btn--secondary"
             @click="load()"
           >
             {{ phase === 'error' ? 'Reintentar' : 'Ver invitaciones' }}
@@ -657,66 +699,121 @@ onBeforeUnmount(() => {
         </AdminEmptyState>
       </AdminCard>
 
-      <div v-else class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <AdminTable
-          :rows="rows"
-          :columns="columns"
-          :row-key="(row) => row.id"
-          :status="busy ? 'pending' : 'success'"
-          :total="filtering ? undefined : snapshot.total"
-          :per-page="snapshot.perPage"
-          :page="filtering ? 1 : snapshot.page"
-          :filtered="filtering"
-          empty-title="Todavía no has invitado a nadie"
-          empty-description="Usa el formulario para dar acceso al panel a otra persona."
-          empty-icon="i-lucide-user-plus"
-          caption="Invitaciones al panel"
-          @update:page="load($event)"
-          @clear-filters="clearFilters"
-        >
-          <template #toolbar>
-            <AdminToolbar v-model:search="search" placeholder="Buscar por correo…">
-              <AdminFilters v-model="statusFilter" :options="statusOptions" label="Filtrar por estado" />
-              <template #actions>
-                <button
-                  type="button"
-                  data-invitations-load
-                  :disabled="busy || pending || !!intent"
-                  class="adm-btn adm-btn--secondary adm-btn--sm"
-                  @click="load()"
-                >
-                  <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
-                </button>
-              </template>
-            </AdminToolbar>
-          </template>
-          <template #cell-recipientEmail="{ row }">
-            <span class="break-all font-semibold text-[var(--text-strong)]">{{ row.recipientEmail }}</span>
-          </template>
-          <template #cell-roleCode="{ row }">{{ adminRoleLabel(row.roleCode) }}</template>
-          <template #cell-status="{ row }">
-            <AdminBadge :tone="STATUS[row.status][1]">{{ STATUS[row.status][0] }}</AdminBadge>
-          </template>
-          <template #cell-expiresAt="{ row }">{{ adminDate(row.expiresAt, true) }}</template>
-          <template #actions="{ row }">
-            <button
-              v-if="row.status === 'pending'"
-              :data-invitations-revoke="row.id"
-              type="button"
-              :disabled="busy || pending || !!intent"
-              class="adm-btn adm-btn--danger-soft adm-btn--sm"
-              @click="chooseRevoke(row)"
-            >
-              Anular
-            </button>
-          </template>
-        </AdminTable>
+      <AdminTable
+        v-else
+        :rows="rows"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="busy && !inviteOpen && !revokeOpen ? 'pending' : 'success'"
+        :total="filtering ? undefined : snapshot.total"
+        :per-page="snapshot.perPage"
+        :page="filtering ? 1 : snapshot.page"
+        :filtered="filtering"
+        empty-title="Todavía no has invitado a nadie"
+        empty-description="Pulsa «Invitar» para dar acceso al panel a otra persona."
+        empty-icon="i-lucide-user-plus"
+        caption="Invitaciones al panel"
+        @update:page="load($event)"
+        @clear-filters="clearFilters"
+      >
+        <template #toolbar>
+          <AdminToolbar v-model:search="search" placeholder="Buscar por correo…">
+            <AdminFilters v-model="statusFilter" :options="statusOptions" label="Filtrar por estado" />
+            <template #actions>
+              <button
+                type="button"
+                data-invitations-load
+                :disabled="busy || pending || !!intent"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                @click="load()"
+              >
+                <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+              </button>
+            </template>
+          </AdminToolbar>
+        </template>
+        <template #cell-recipientEmail="{ row }">
+          <span class="break-all font-semibold text-[var(--text-strong)]">{{ row.recipientEmail }}</span>
+        </template>
+        <template #cell-roleCode="{ row }">{{ adminRoleLabel(row.roleCode) }}</template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="STATUS[row.status][1]">{{ STATUS[row.status][0] }}</AdminBadge>
+        </template>
+        <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt) }}</template>
+        <template #cell-expiresAt="{ row }">{{ adminDate(row.expiresAt, true) }}</template>
+        <template #actions="{ row }">
+          <button
+            v-if="row.status === 'pending'"
+            :data-invitations-revoke="row.id"
+            type="button"
+            :disabled="busy || pending || !!intent"
+            class="adm-btn adm-btn--danger-soft adm-btn--sm"
+            @click="chooseRevoke(row)"
+          >
+            Anular
+          </button>
+        </template>
+        <template #empty-action>
+          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy || pending" @click="openInvite">
+            <UIcon name="i-lucide-user-plus" class="size-4" />Invitar a una persona
+          </button>
+        </template>
+      </AdminTable>
 
-        <AdminCard
-          title="Invitar a una persona"
-          description="Debe tener ya una cuenta en la tienda con ese correo verificado. No puedes invitarte a ti mismo."
-        >
-          <form @submit.prevent="review">
+      <AdminDrawer
+        v-model:open="inviteDrawer"
+        title="Invitar a una persona"
+        description="Debe tener ya una cuenta en la tienda con ese correo verificado. No puedes invitarte a ti mismo."
+      >
+        <div class="adm-stack min-w-0">
+          <UAlert
+            v-if="message"
+            :role="notice.role"
+            :data-invitations-confirmed="phase === 'confirmed' ? '' : undefined"
+            :color="notice.color"
+            variant="subtle"
+            :icon="notice.icon"
+            :title="message"
+          />
+
+          <div v-if="deliverySecret" class="adm-stack min-w-0">
+            <p class="adm-help">
+              Guarda el enlace ahora: solo se muestra una vez. Envíaselo tú a la persona invitada; la tienda no manda
+              ningún correo.
+            </p>
+            <a
+              v-if="deliverySecret.href"
+              :href="deliverySecret.href"
+              data-invitations-share-link
+              referrerpolicy="no-referrer"
+              class="block break-all font-semibold text-[var(--color-neteco-700)] underline"
+              >Enlace privado de aceptación</a
+            >
+            <p v-else>
+              No se ha podido generar el enlace porque la dirección pública de la tienda no es válida. Comparte esta
+              clave para usarla en la página /cuenta/invitacion.
+            </p>
+            <code
+              data-invitations-secret
+              class="block break-all rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3 text-xs"
+              >{{ deliverySecret.token }}</code
+            >
+          </div>
+
+          <div v-else-if="intent?.action === 'create'" class="adm-stack min-w-0">
+            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+              <dt class="adm-help">Correo</dt>
+              <dd class="break-all font-semibold text-[var(--text-strong)]">{{ intent.body.recipientEmail }}</dd>
+              <dt class="adm-help">Perfil</dt>
+              <dd>{{ adminRoleLabel(intent.body.roleCode) }}</dd>
+              <dt class="adm-help">Válida durante</dt>
+              <dd>{{ validityLabel(intent.body.expiresInHours) }}</dd>
+              <dt class="adm-help">Motivo</dt>
+              <dd class="break-words">{{ intent.body.reason }}</dd>
+            </dl>
+          </div>
+
+          <form v-else-if="snapshot" :id="`${prefix}-invite-form`" @submit.prevent="review">
             <fieldset :disabled="busy || pending || !!intent" class="adm-stack">
               <div class="adm-field">
                 <label :for="`${prefix}-email`" class="adm-label">Correo electrónico</label>
@@ -743,18 +840,13 @@ onBeforeUnmount(() => {
                 </p>
               </div>
               <div class="adm-field">
-                <label :for="`${prefix}-hours`" class="adm-label">Válida durante (horas)</label>
-                <input
-                  :id="`${prefix}-hours`"
-                  v-model="expiresInHours"
-                  data-invitations-hours
-                  type="number"
-                  min="1"
-                  max="168"
-                  step="1"
-                  class="adm-input"
-                />
-                <p class="adm-help">Entre 1 y 168 horas (7 días).</p>
+                <label :for="`${prefix}-hours`" class="adm-label">Válida durante</label>
+                <select :id="`${prefix}-hours`" v-model="expiresInHours" data-invitations-hours class="adm-input">
+                  <option v-for="option in validityOptions" :key="option" :value="String(option)">
+                    {{ validityLabel(option) }}
+                  </option>
+                </select>
+                <p class="adm-help">Pasado ese plazo, el enlace deja de funcionar.</p>
               </div>
               <div class="adm-field">
                 <label :for="`${prefix}-reason`" class="adm-label">Motivo</label>
@@ -766,15 +858,95 @@ onBeforeUnmount(() => {
                   maxlength="500"
                   class="adm-input"
                 />
-                <p class="adm-help">Queda guardado en el registro de actividad.</p>
+                <p class="adm-help">Entre 10 y 500 caracteres. Queda guardado en el registro de actividad.</p>
               </div>
-              <button data-invitations-review type="submit" class="adm-btn adm-btn--primary w-full justify-center">
-                Revisar invitación
-              </button>
             </fieldset>
           </form>
-        </AdminCard>
-      </div>
+        </div>
+        <template #footer>
+          <template v-if="deliverySecret">
+            <button type="button" class="adm-btn adm-btn--secondary" @click="inviteDrawer = false">Cerrar</button>
+            <button
+              data-invitations-copy
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="copy"
+            >
+              <UIcon name="i-lucide-copy" class="size-4" />Copiar enlace
+            </button>
+          </template>
+          <template v-else-if="intent?.action === 'create' && !intent.attempted">
+            <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">
+              Volver a editar
+            </button>
+            <button
+              data-invitations-confirm
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="send"
+            >
+              Confirmar invitación
+            </button>
+          </template>
+          <template v-else-if="intent?.attempted">
+            <button type="button" class="adm-btn adm-btn--secondary" @click="inviteDrawer = false">Cerrar</button>
+            <button
+              v-if="phase === 'unknown'"
+              data-invitations-check
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="check"
+            >
+              Comprobar si se ha guardado
+            </button>
+          </template>
+          <template v-else>
+            <button type="button" class="adm-btn adm-btn--secondary" @click="inviteDrawer = false">Cancelar</button>
+            <button
+              data-invitations-review
+              type="submit"
+              :form="`${prefix}-invite-form`"
+              :disabled="busy || pending || !!intent"
+              class="adm-btn adm-btn--primary"
+            >
+              Revisar invitación
+            </button>
+          </template>
+        </template>
+      </AdminDrawer>
+
+      <AdminConfirm
+        v-model:open="revokeConfirm"
+        title="Anular invitación"
+        :description="
+          revokeTarget
+            ? `La invitación de ${revokeTarget.recipientEmail} (${adminRoleLabel(revokeTarget.roleCode)}) dejará de funcionar. Quien ya la haya aceptado conserva su acceso.`
+            : undefined
+        "
+        confirm-label="Anular invitación"
+        danger
+        :loading="busy"
+        :confirm-disabled="busy || pending || revokeReason.trim().length < 10"
+        @confirm="confirmRevoke"
+      >
+        <div class="adm-field">
+          <label :for="`${prefix}-revoke-reason`" class="adm-label">Motivo de la anulación</label>
+          <textarea
+            :id="`${prefix}-revoke-reason`"
+            v-model="revokeReason"
+            data-invitations-revoke-reason
+            minlength="10"
+            maxlength="500"
+            :disabled="busy || pending || !!intent"
+            class="adm-input"
+          />
+          <p class="adm-help">Entre 10 y 500 caracteres.</p>
+          <p v-if="message && !intent" class="adm-field__error" role="alert">{{ message }}</p>
+        </div>
+      </AdminConfirm>
     </template>
   </section>
 </template>

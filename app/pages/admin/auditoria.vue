@@ -32,14 +32,6 @@ const scopeKey = computed(() =>
   <AdminPage>
     <div class="adm-stack">
       <UAlert
-        v-if="runtime.public.serverRuntime !== 'cloudflare'"
-        role="status"
-        color="warning"
-        variant="subtle"
-        icon="i-lucide-info"
-        title="El registro de actividad no está disponible en esta instalación"
-      />
-      <UAlert
         v-if="pending"
         role="status"
         aria-live="polite"

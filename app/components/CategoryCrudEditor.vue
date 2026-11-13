@@ -17,8 +17,10 @@ const props = defineProps<{
   runtime: unknown
   authorize: (identity?: { id: number; uuid: string; version: number }) => boolean
   refresh: () => Promise<unknown>
-  /** Familia elegida en el árbol de la página: se preselecciona para gestionarla. */
-  focus?: { id: number } | null
+  /** Familia elegida en el árbol de la página: abre su edición o su retirada. */
+  focus?: { id: number; action?: 'edit' | 'retire' } | null
+  /** Muestra «Nueva familia» en la cabecera de la pantalla (solo en el apartado de familias). */
+  headerActions?: boolean
 }>()
 const prefix = useId()
 function confirmed() {
@@ -47,17 +49,6 @@ function permitted(action: CatalogCategoryAction, target?: CatalogCategorySnapsh
   return authorized({ id: current.id, uuid: current.uuid, version: current.version })
 }
 const writable = computed(() => !!categoryView.value && authorized())
-const selection = ref(''),
-  search = ref('')
-const selectedCategory = computed(() => categoryView.value?.flat.find((row) => String(row.id) === selection.value))
-const choices = computed(() => {
-  const term = search.value.trim().toLowerCase()
-  return (
-    categoryView.value?.flat.filter(
-      (row) => String(row.id) === selection.value || !term || row.name.toLowerCase().includes(term)
-    ) ?? []
-  )
-})
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Borrador',
   review: 'En revisión',
@@ -89,13 +80,6 @@ type Intent = Readonly<{
   target: CatalogCategorySnapshot | null
 }>
 let intent: Intent | null = null
-watch(selection, () => {
-  if (!pending && !reading && !intent) {
-    mode.value = null
-    baseline.value = null
-    message.value = ''
-  }
-})
 watch([() => props.view, () => props.readStatus, () => props.runtime, writable], () => {
   generation++
 })
@@ -103,9 +87,14 @@ watch(
   () => props.focus,
   (target) => {
     if (!target || pending || reading || intent || uncertain.value || blocked.value) return
-    if (!categoryView.value?.flat.some((row) => row.id === target.id)) return
-    search.value = ''
-    selection.value = String(target.id)
+    const row = categoryView.value?.flat.find((entry) => entry.id === target.id)
+    if (!row) return
+    if (target.action !== 'retire') return begin('update_category', row.id)
+    if (row.authoring.directChildren > 0 || row.authoring.directProducts > 0) {
+      message.value = `Para retirar «${row.name}», antes debe quedarse sin productos ni subfamilias.`
+      return
+    }
+    begin('delete_category', row.id)
   }
 )
 onBeforeUnmount(() => {
@@ -325,6 +314,23 @@ async function submit() {
 async function retry() {
   if (alive && canRetry.value && intent) await send(intent, true)
 }
+/** Alta y edición van en un panel lateral; la retirada, en una ventana de confirmación. */
+const formDrawer = computed({
+  get: () => mode.value === 'create_category' || mode.value === 'update_category',
+  set: (open: boolean) => {
+    if (!open) cancel()
+  }
+})
+const retireConfirm = computed({
+  get: () => mode.value === 'delete_category' && !uncertain.value && !blocked.value,
+  set: (open: boolean) => {
+    if (!open) cancel()
+  }
+})
+async function confirmRetire() {
+  confirmation.value = true
+  await submit()
+}
 async function reload() {
   if (!alive || pending || reading || props.runtime !== 'cloudflare' || !authorized()) return
   reading = true
@@ -351,175 +357,121 @@ async function reload() {
 </script>
 
 <template>
-  <AdminCard
+  <AdminPageActions v-if="headerActions && writable && categoryView?.capabilities.categoryCreate">
+    <button
+      type="button"
+      class="adm-btn adm-btn--primary"
+      data-category-create
+      :disabled="busy || reloading || uncertain || blocked"
+      @click="begin('create_category')"
+    >
+      <UIcon name="i-lucide-plus" class="size-4 shrink-0" />Nueva familia
+    </button>
+  </AdminPageActions>
+
+  <div
+    v-if="!formDrawer && !retireConfirm && (message || uncertain || blocked)"
+    class="adm-stack"
     :aria-labelledby="`${prefix}-heading`"
-    description="Crear no publica: las familias nuevas quedan en borrador. Solo se pueden retirar familias vacías."
+    role="status"
+    aria-live="polite"
   >
-    <template #title>
-      <span :id="`${prefix}-heading`">Crear, renombrar o retirar familias</span>
-    </template>
-    <template v-if="writable && categoryView?.capabilities.categoryCreate" #actions>
+    <span :id="`${prefix}-heading`" class="sr-only">Cambios en las familias</span>
+    <UAlert
+      :color="uncertain || blocked ? 'warning' : 'neutral'"
+      variant="subtle"
+      :icon="uncertain || blocked ? 'i-lucide-triangle-alert' : 'i-lucide-info'"
+      :title="message || 'Actualiza las familias antes de preparar otro cambio.'"
+    />
+    <div v-if="uncertain || blocked" class="flex flex-wrap gap-2">
+      <button
+        v-if="uncertain"
+        type="button"
+        data-category-retry
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        :disabled="!canRetry"
+        @click="retry"
+      >
+        Reintentar el cambio
+      </button>
       <button
         type="button"
-        class="adm-btn adm-btn--primary adm-btn--sm"
-        data-category-create
-        :disabled="busy || reloading || uncertain || blocked"
-        @click="begin('create_category')"
+        data-category-read
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        :disabled="runtime !== 'cloudflare' || busy || reloading || !authorized()"
+        @click="reload"
       >
-        <UIcon name="i-lucide-plus" class="size-4 shrink-0" />Nueva familia borrador
+        <UIcon
+          :name="reloading ? 'i-lucide-loader-circle' : 'i-lucide-refresh-cw'"
+          class="size-4 shrink-0"
+          :class="reloading && 'animate-spin'"
+        />Actualizar
       </button>
-    </template>
+    </div>
+  </div>
+  <p
+    v-else-if="
+      categoryView && (!writable || !Object.values(capabilities).some((key) => categoryView?.capabilities[key]))
+    "
+    class="adm-help"
+    role="status"
+  >
+    Tu usuario puede ver las familias, pero no modificarlas.
+  </p>
 
-    <div class="adm-stack">
-      <p v-if="readStatus === 'pending'" class="adm-help" role="status">Cargando las familias…</p>
-      <div v-else-if="!categoryView" role="alert">
-        <UAlert
-          color="warning"
-          variant="subtle"
-          title="No se han podido cargar las familias"
-          description="Hasta que se carguen no se pueden hacer cambios."
-        />
+  <AdminDrawer
+    v-model:open="formDrawer"
+    :title="mode === 'create_category' ? 'Nueva familia' : `Editar «${baseline?.name ?? ''}»`"
+    :description="
+      mode === 'create_category'
+        ? 'Se guarda como borrador: no se ve en la tienda hasta que la publiques.'
+        : 'Cambia el nombre o muévela dentro de otra familia.'
+    "
+  >
+    <div class="adm-stack min-w-0">
+      <div v-if="message" role="status" aria-live="polite">
+        <UAlert :color="uncertain || blocked ? 'warning' : 'neutral'" variant="subtle" :title="message" />
       </div>
-      <p
-        v-else-if="!writable || !Object.values(capabilities).some((key) => categoryView?.capabilities[key])"
-        class="adm-help"
-        role="status"
-      >
-        Tu usuario puede ver las familias, pero no modificarlas.
-      </p>
-
-      <div
-        v-if="
-          writable &&
-          categoryView &&
-          (categoryView.capabilities.categoryUpdate || categoryView.capabilities.categoryDelete)
-        "
-        class="grid gap-3"
-        aria-label="Acciones editoriales de familias"
-      >
-        <div class="adm-form-grid">
-          <div class="adm-field">
-            <label :for="`${prefix}-search`" class="adm-label">Buscar familia</label>
-            <input
-              :id="`${prefix}-search`"
-              v-model="search"
-              data-category-search
-              type="search"
-              maxlength="160"
-              class="adm-input w-full"
-              placeholder="Escribe parte del nombre"
-              :disabled="busy || reloading || uncertain || blocked"
-            />
-          </div>
-          <div class="adm-field">
-            <label :for="`${prefix}-target`" class="adm-label">Familia</label>
-            <select
-              :id="`${prefix}-target`"
-              v-model="selection"
-              data-category-target
-              class="adm-input w-full"
-              :disabled="busy || reloading || uncertain || blocked"
-            >
-              <option value="">Selecciona una familia</option>
-              <option v-for="row in choices" :key="row.id" :value="String(row.id)">{{ row.name }}</option>
-            </select>
-          </div>
-        </div>
-        <div v-if="selectedCategory" class="flex flex-wrap gap-2">
-          <button
-            v-if="categoryView.capabilities.categoryUpdate && selectedCategory.status !== 'discontinued'"
-            type="button"
-            class="adm-btn adm-btn--secondary adm-btn--sm"
-            :data-category-edit="selectedCategory.id"
-            :disabled="busy || reloading || uncertain || blocked"
-            @click="begin('update_category', selectedCategory.id)"
-          >
-            <UIcon name="i-lucide-pencil" class="size-4 shrink-0" />Editar {{ selectedCategory.name }}
-          </button>
-          <button
-            v-if="categoryView.capabilities.categoryDelete && selectedCategory.status !== 'discontinued'"
-            type="button"
-            class="adm-btn adm-btn--danger-soft adm-btn--sm"
-            :data-category-delete="selectedCategory.id"
-            :disabled="
-              busy ||
-              reloading ||
-              uncertain ||
-              blocked ||
-              selectedCategory.authoring.directChildren > 0 ||
-              selectedCategory.authoring.directProducts > 0
-            "
-            @click="begin('delete_category', selectedCategory.id)"
-          >
-            <UIcon name="i-lucide-archive" class="size-4 shrink-0" />Retirar {{ selectedCategory.name }}
-          </button>
-          <p
-            v-if="
-              selectedCategory.status !== 'discontinued' &&
-              (selectedCategory.authoring.directChildren > 0 || selectedCategory.authoring.directProducts > 0)
-            "
-            class="adm-help w-full"
-          >
-            Para retirarla, antes debe quedarse sin productos ni subfamilias.
-          </p>
-        </div>
-      </div>
-
       <form
-        v-if="mode && writable && categoryView"
-        class="grid gap-4 border-t border-[var(--border)] pt-4"
+        v-if="mode && mode !== 'delete_category' && writable && categoryView"
+        :id="`${prefix}-form`"
         :aria-busy="busy"
         @submit.prevent="submit"
       >
         <fieldset
           :disabled="busy || reloading || uncertain || blocked || !permitted(mode, baseline)"
-          class="grid gap-3"
+          class="adm-stack min-w-0"
         >
-          <legend class="mb-3 text-sm font-semibold text-[var(--text-strong)]">
-            {{
-              mode === 'create_category'
-                ? 'Nueva familia borrador'
-                : mode === 'delete_category'
-                  ? `Retirar «${baseline?.name ?? ''}»`
-                  : 'Renombrar o mover la familia'
-            }}
-          </legend>
-          <template v-if="mode !== 'delete_category'">
-            <div class="adm-field">
-              <label :for="`${prefix}-name`" class="adm-label">Nombre</label>
-              <input
-                :id="`${prefix}-name`"
-                v-model="name"
-                data-category-name
-                required
-                minlength="2"
-                maxlength="160"
-                class="adm-input w-full"
-              />
-            </div>
-            <div class="adm-field">
-              <label :for="`${prefix}-parent`" class="adm-label">Dentro de</label>
-              <select :id="`${prefix}-parent`" v-model="parent" data-category-parent class="adm-input w-full">
-                <option v-if="mode === 'update_category'" value="keep">Dejarla donde está</option>
-                <option value="root">Familia principal (sin familia superior)</option>
-                <option v-for="entry in parents" :key="entry.id" :value="String(entry.id)">
-                  {{ entry.name }} ({{ (STATUS_LABELS[entry.status] ?? 'Sin estado').toLowerCase() }})
-                </option>
-              </select>
-              <p v-if="baseline && !baseline.parentMapped" class="adm-help">
-                Esta familia cuelga de otra que no aparece en la lista. Si la dejas donde está, conserva ese vínculo.
-              </p>
-              <p class="adm-help">
-                Mover una familia no la publica. Sus direcciones web anteriores siguen llevando a ella mientras esté
-                publicada.
-              </p>
-            </div>
-          </template>
-          <label v-else class="adm-check items-start"
-            ><input v-model="confirmation" data-category-confirm type="checkbox" required class="mt-0.5" /><span
-              >Confirmo que quiero retirar esta familia vacía. Su historial se conserva.</span
-            ></label
-          >
+          <div class="adm-field">
+            <label :for="`${prefix}-name`" class="adm-label">Nombre</label>
+            <input
+              :id="`${prefix}-name`"
+              v-model="name"
+              data-category-name
+              required
+              minlength="2"
+              maxlength="160"
+              placeholder="Por ejemplo: desengrasantes"
+              class="adm-input w-full"
+            />
+          </div>
+          <div class="adm-field">
+            <label :for="`${prefix}-parent`" class="adm-label">Dentro de</label>
+            <select :id="`${prefix}-parent`" v-model="parent" data-category-parent class="adm-input w-full">
+              <option v-if="mode === 'update_category'" value="keep">Dejarla donde está</option>
+              <option value="root">Familia principal (sin familia superior)</option>
+              <option v-for="entry in parents" :key="entry.id" :value="String(entry.id)">
+                {{ entry.name }} ({{ (STATUS_LABELS[entry.status] ?? 'Sin estado').toLowerCase() }})
+              </option>
+            </select>
+            <p v-if="baseline && !baseline.parentMapped" class="adm-help">
+              Esta familia cuelga de otra que no aparece en la lista. Si la dejas donde está, conserva ese vínculo.
+            </p>
+            <p class="adm-help">
+              Mover una familia no la publica. Sus direcciones web anteriores siguen llevando a ella mientras esté
+              publicada.
+            </p>
+          </div>
           <div class="adm-field">
             <label :for="`${prefix}-reason`" class="adm-label">Motivo del cambio</label>
             <textarea
@@ -535,33 +487,15 @@ async function reload() {
             <p class="adm-help">Queda guardado en el historial de cambios.</p>
           </div>
         </fieldset>
-        <div class="flex flex-wrap justify-end gap-2">
-          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy || uncertain" @click="cancel">
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            data-category-submit
-            class="adm-btn"
-            :class="mode === 'delete_category' ? 'adm-btn--danger' : 'adm-btn--primary'"
-            :disabled="!canSubmit || busy"
-          >
-            <UIcon v-if="busy" name="i-lucide-loader-circle" class="size-4 animate-spin" />
-            {{ mode === 'delete_category' ? 'Retirar familia' : 'Guardar' }}
-          </button>
-        </div>
       </form>
-
-      <div v-if="message" role="status" aria-live="polite">
-        <UAlert :color="uncertain || blocked ? 'warning' : 'neutral'" variant="subtle" :title="message" />
-      </div>
-
-      <div class="flex flex-wrap gap-2">
+    </div>
+    <template #footer>
+      <template v-if="uncertain || blocked">
         <button
           v-if="uncertain"
           type="button"
           data-category-retry
-          class="adm-btn adm-btn--secondary adm-btn--sm"
+          class="adm-btn adm-btn--secondary"
           :disabled="!canRetry"
           @click="retry"
         >
@@ -570,7 +504,7 @@ async function reload() {
         <button
           type="button"
           data-category-read
-          class="adm-btn adm-btn--ghost adm-btn--sm"
+          class="adm-btn adm-btn--secondary"
           :disabled="runtime !== 'cloudflare' || busy || reloading || !authorized()"
           @click="reload"
         >
@@ -580,7 +514,48 @@ async function reload() {
             :class="reloading && 'animate-spin'"
           />Actualizar
         </button>
-      </div>
+      </template>
+      <template v-else>
+        <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
+        <button
+          type="submit"
+          :form="`${prefix}-form`"
+          data-category-submit
+          class="adm-btn adm-btn--primary"
+          :disabled="!canSubmit || busy"
+        >
+          <UIcon v-if="busy" name="i-lucide-loader-circle" class="size-4 animate-spin" />
+          {{ mode === 'create_category' ? 'Crear familia' : 'Guardar cambios' }}
+        </button>
+      </template>
+    </template>
+  </AdminDrawer>
+
+  <AdminConfirm
+    v-model:open="retireConfirm"
+    title="Retirar familia"
+    :description="`«${baseline?.name ?? ''}» dejará de aparecer en la tienda. Su historial y sus direcciones anteriores se conservan.`"
+    confirm-label="Retirar familia"
+    danger
+    :loading="busy"
+    :confirm-disabled="busy || reloading || uncertain || blocked || reason.trim().length < 3"
+    @confirm="confirmRetire"
+  >
+    <div class="adm-field">
+      <label :for="`${prefix}-retire-reason`" class="adm-label">Motivo de la retirada</label>
+      <textarea
+        :id="`${prefix}-retire-reason`"
+        v-model="reason"
+        data-category-reason
+        required
+        minlength="3"
+        maxlength="500"
+        rows="2"
+        :disabled="busy || reloading || uncertain || blocked"
+        class="adm-input w-full"
+      />
+      <p class="adm-help">Queda guardado en el historial de cambios.</p>
+      <p v-if="message" class="adm-field__error" role="alert">{{ message }}</p>
     </div>
-  </AdminCard>
+  </AdminConfirm>
 </template>

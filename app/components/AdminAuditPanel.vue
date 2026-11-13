@@ -84,16 +84,19 @@ const filters = reactive({ family: '', actorId: '', resourceId: '', from: '', to
   blocked = ref<string | null>(null),
   message = ref(''),
   phase = ref<'idle' | 'review' | 'unknown' | 'confirmed' | 'error'>('idle'),
-  downloadStatus = ref<'idle' | 'done' | 'error'>('idle')
+  downloadStatus = ref<'idle' | 'done' | 'error'>('idle'),
+  exportOpen = ref(false),
+  secondFactorRejected = ref(false),
+  unavailable = ref(false)
 const familyLabels: Record<AdminAuditFamily, string> = {
-  catalog_metadata: 'Metadatos de catálogo',
+  catalog_metadata: 'Datos de producto',
   catalog_status: 'Estado de catálogo',
   catalog_policy: 'Políticas de catálogo',
   catalog_authoring: 'Edición de catálogo',
   catalog_price: 'Precios',
   catalog_category: 'Familias',
   catalog_editorial: 'Contenido de catálogo',
-  catalog_native: 'Catálogo nativo',
+  catalog_native: 'Catálogo',
   catalog_import: 'Importaciones de catálogo',
   catalog_attributes: 'Atributos',
   search_synonym: 'Sinónimos',
@@ -117,27 +120,27 @@ const familyLabels: Record<AdminAuditFamily, string> = {
   support: 'Soporte',
   support_macro: 'Respuestas de soporte',
   support_escalation: 'Escalados de soporte',
-  newsletter_editorial: 'Contenido de newsletter',
+  newsletter_editorial: 'Contenido del boletín',
   company_review: 'Revisión profesional',
   promotion: 'Promociones',
   communication_history: 'Historial de comunicaciones',
-  admin_invitation: 'Invitaciones administrativas',
+  admin_invitation: 'Invitaciones al equipo',
   admin_bootstrap: 'Alta inicial de administración',
-  admin_audit: 'Revisión de auditoría'
+  admin_audit: 'Revisiones de este registro'
 }
 const fieldLabels = {
   version: 'Versión',
   quantity: 'Cantidad',
   physicalQuantity: 'Cantidad física',
   threshold: 'Umbral',
-  grossCents: 'Importe bruto (céntimos)',
-  netCents: 'Importe neto (céntimos)',
+  grossCents: 'Importe bruto',
+  netCents: 'Importe neto',
   labelCount: 'Número de etiquetas',
   noteCount: 'Número de notas',
   permissionCount: 'Número de permisos',
   state: 'Estado',
   status: 'Estado',
-  roleCode: 'Rol',
+  roleCode: 'Perfil',
   active: 'Activo'
 }
 let alive = true,
@@ -180,7 +183,13 @@ function reset() {
   phase.value = 'idle'
   message.value = ''
   downloadStatus.value = 'idle'
+  exportOpen.value = false
+  unavailable.value = false
   setCommandPending(false)
+}
+function failureCode(cause: unknown) {
+  const code = (cause as { data?: { error?: { code?: unknown } } } | null)?.data?.error?.code
+  return typeof code === 'string' ? code : null
 }
 function live(turn: number, actor: string) {
   return alive && epoch === turn && allowed.value && owner.value === actor
@@ -195,6 +204,7 @@ function denied(cause: unknown, actor: string) {
   if (![401, 403].includes(error?.statusCode ?? error?.status ?? error?.response?.status ?? 0)) return false
   reset()
   blocked.value = actor
+  secondFactorRejected.value = failureCode(cause) === 'mfa_required'
   message.value = 'La autorización ha cambiado. Los datos privados se han borrado.'
   return true
 }
@@ -236,7 +246,7 @@ async function load(cursor?: string) {
   try {
     selected = cursor ? adminAuditFiltersSchema.parse(appliedFilters.value) : draftFilters()
   } catch {
-    message.value = 'Revisa los filtros: el identificador de usuario o las fechas no son válidos.'
+    message.value = 'Revisa los filtros: la persona o las fechas no son válidas.'
     return
   }
   const query = adminAuditQuerySchema.safeParse({ ...selected, limit: 25, ...(cursor ? { cursor } : {}) })
@@ -248,6 +258,7 @@ async function load(cursor?: string) {
     abort = controller()
   busy.value = true
   message.value = ''
+  unavailable.value = false
   detail.value = null
   exportReceipt.value = null
   exportFilters.value = null
@@ -271,8 +282,11 @@ async function load(cursor?: string) {
   } catch (cause) {
     if (live(turn, actor) && !denied(cause, actor)) {
       snapshot.value = null
-      phase.value = 'error'
-      message.value = 'No se pudo leer la auditoría. No se ha supuesto una lista vacía.'
+      unavailable.value = failureCode(cause) === 'service_unavailable'
+      phase.value = unavailable.value ? 'idle' : 'error'
+      message.value = unavailable.value
+        ? ''
+        : 'No se pudo leer el registro de actividad. No se ha supuesto que esté vacío.'
     }
   } finally {
     controllers.delete(abort)
@@ -660,11 +674,83 @@ async function download() {
     if (live(turn, actor)) busy.value = false
   }
 }
+/** Falta el segundo factor: lo dice la sesión o lo ha dicho el servidor al rechazar la consulta. */
+const needsSecondFactor = computed(
+  () => secondFactorRejected.value || (auth.ready.value && auth.loggedIn.value && auth.user.value?.mfaVerified !== true)
+)
+const notice = computed(() => {
+  const failed = phase.value === 'unknown' || phase.value === 'error'
+  return {
+    role: failed ? 'alert' : 'status',
+    color: failed ? ('error' as const) : phase.value === 'confirmed' ? ('success' as const) : ('neutral' as const),
+    icon: failed ? 'i-lucide-triangle-alert' : phase.value === 'confirmed' ? 'i-lucide-circle-check' : 'i-lucide-info'
+  }
+})
+const hasFilters = computed(() => Object.values(filters).some((value) => value.trim() !== ''))
+function clearFilters() {
+  for (const key of Object.keys(filters) as Array<keyof typeof filters>) filters[key] = ''
+  if (snapshot.value) void load()
+}
+/** Personas que aparecen en la página cargada: se elige de la lista en vez de teclear su identificador. */
+const actorOptions = computed(() => {
+  const ids = new Set<string>()
+  if (filters.actorId) ids.add(filters.actorId)
+  for (const item of snapshot.value?.items ?? []) if (item.actorId) ids.add(item.actorId)
+  return [...ids]
+})
+function actorLabel(id: string | null) {
+  if (id === null) return 'Sin identificar'
+  return id === auth.user.value?.id ? 'Tú' : `Usuario ${shortId(id)}`
+}
+function dispositionTone(value: 'reviewed' | 'follow_up' | null): 'success' | 'warning' | 'neutral' {
+  return value === 'reviewed' ? 'success' : value === 'follow_up' ? 'warning' : 'neutral'
+}
+function changeValue(field: keyof typeof fieldLabels, value: string | number | boolean | null) {
+  if (value === null) return 'Sin dato'
+  if ((field === 'grossCents' || field === 'netCents') && typeof value === 'number') return adminMoney(value)
+  if ((field === 'state' || field === 'status') && typeof value === 'string') return adminStatusLabel(value)
+  if (field === 'roleCode' && typeof value === 'string') return adminRoleLabel(value)
+  return display(value)
+}
+function rangeLabel(scope: Filters | null) {
+  // El filtro guarda días completos en UTC: se enseña el día elegido, no su conversión horaria.
+  const day = (value: string) => adminDate(`${value.slice(0, 10)}T12:00:00Z`)
+  if (scope?.from && scope.to) return `Del ${day(scope.from)} al ${day(scope.to)}`
+  if (scope?.from) return `Desde el ${day(scope.from)}`
+  if (scope?.to) return `Hasta el ${day(scope.to)}`
+  return 'Todas las fechas'
+}
+const exportScope = computed(() => exportFilters.value ?? appliedFilters.value)
+function openRow(item: AdminAuditItem, event: MouseEvent) {
+  if ((event.target as HTMLElement).closest('a,button,input,label,select')) return
+  void open(item)
+}
+const detailDrawer = computed({
+  get: () => detail.value !== null,
+  set: (visible: boolean) => {
+    if (visible) return
+    if (intent.value?.action === 'review') cancel()
+    detail.value = null
+  }
+})
+function openExport() {
+  if (!snapshot.value || busy.value || props.pending) return
+  exportOpen.value = true
+}
+const exportDrawer = computed({
+  get: () => exportOpen.value,
+  set: (visible: boolean) => {
+    if (visible) return openExport()
+    if (intent.value?.action === 'export') cancel()
+    exportOpen.value = false
+  }
+})
 watch(
   owner,
   () => {
     reset()
     blocked.value = null
+    secondFactorRejected.value = false
   },
   { immediate: true, flush: 'sync' }
 )
@@ -675,57 +761,52 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section aria-label="Auditoría administrativa" class="adm-stack min-w-0 max-w-full">
-    <UAlert
-      v-if="!allowed"
-      role="status"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-lock"
-      title="No puedes consultar el registro de actividad ahora mismo"
-      description="Hace falta una sesión activa, el correo verificado, la verificación en dos pasos y permiso de administración."
-    />
+    <AdminCard v-if="!allowed">
+      <AdminEmptyState
+        v-if="runtime.public.serverRuntime !== 'cloudflare'"
+        icon="i-lucide-history"
+        title="El registro de actividad no está disponible en esta instalación"
+        description="Solo se guarda y se consulta en la tienda publicada."
+      />
+      <AdminEmptyState
+        v-else-if="needsSecondFactor"
+        data-audit-mfa-required
+        icon="i-lucide-shield-check"
+        title="Hace falta la verificación en dos pasos"
+        description="Por seguridad, el registro de actividad solo se puede consultar con la verificación en dos pasos activada en tu cuenta. En la demostración pública no está disponible."
+      />
+      <AdminEmptyState
+        v-else
+        icon="i-lucide-lock"
+        title="No puedes consultar el registro de actividad ahora mismo"
+        description="Hace falta una sesión activa, el correo verificado y permiso de administración. Si acabas de cambiar algo en tu cuenta, vuelve a entrar."
+      />
+    </AdminCard>
     <template v-else>
+      <AdminPageActions>
+        <button
+          type="button"
+          data-audit-export-open
+          :disabled="!snapshot || busy || pending || (!!intent && !exportOpen)"
+          :title="snapshot ? undefined : 'Consulta primero la actividad que quieres exportar'"
+          class="adm-btn adm-btn--secondary"
+          @click="exportDrawer = true"
+        >
+          <UIcon name="i-lucide-file-down" class="size-4" />Exportar
+        </button>
+      </AdminPageActions>
+
       <UAlert
-        v-if="message"
+        v-if="message && !detailDrawer && !exportOpen"
         :data-audit-confirmed="phase === 'confirmed' ? '' : undefined"
-        :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'"
-        :color="phase === 'unknown' || phase === 'error' ? 'error' : phase === 'confirmed' ? 'success' : 'neutral'"
+        :role="notice.role"
+        :color="notice.color"
         variant="subtle"
-        :icon="
-          phase === 'unknown' || phase === 'error'
-            ? 'i-lucide-triangle-alert'
-            : phase === 'confirmed'
-              ? 'i-lucide-circle-check'
-              : 'i-lucide-info'
-        "
+        :icon="notice.icon"
         :title="message"
       />
 
-      <AdminCard v-if="intent && !intent.attempted" title="Revisa antes de confirmar">
-        <p v-if="intent.action === 'review'">
-          Vas a marcar el registro {{ shortId(intent.targetId) }} como
-          <strong>«{{ dispositionLabels[intent.body.disposition] }}»</strong>. El registro original no cambia.
-        </p>
-        <p v-else>
-          Vas a preparar un archivo con todos los registros que cumplen los filtros aplicados. Todavía no se descarga
-          nada.
-        </p>
-        <p class="adm-help mt-2 break-words">Motivo: {{ intent.body.reason }}</p>
-        <template #footer>
-          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
-          <button
-            data-audit-confirm
-            type="button"
-            :disabled="busy || pending"
-            class="adm-btn adm-btn--primary"
-            @click="send"
-          >
-            Confirmar {{ intent.action === 'review' ? 'revisión' : 'exportación' }}
-          </button>
-        </template>
-      </AdminCard>
-
-      <div v-if="intent?.attempted && phase === 'unknown'">
+      <div v-if="intent?.attempted && phase === 'unknown' && !detailDrawer && !exportOpen">
         <button
           data-audit-check
           type="button"
@@ -737,53 +818,24 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <AdminCard v-if="exportReceipt" title="Archivo listo para descargar">
-        <p>
-          {{ exportReceipt.rows }} registros · {{ size(exportReceipt.bytes) }}. Disponible hasta el
-          {{ adminDate(exportReceipt.expiresAt, true) }}.
-        </p>
-        <p class="adm-help mt-1 break-words">
-          Contiene: {{ exportFilters?.family ? familyLabels[exportFilters.family] : 'todas las áreas' }} ·
-          {{ exportFilters?.resourceId || 'todas las referencias' }}.
-        </p>
-        <template #footer>
-          <button
-            data-audit-download
-            type="button"
-            :disabled="busy || pending || !!intent"
-            class="adm-btn adm-btn--primary"
-            @click="download"
-          >
-            <UIcon name="i-lucide-download" class="size-4" />Descargar CSV
-          </button>
-        </template>
-      </AdminCard>
       <UAlert
-        v-if="downloadStatus === 'error'"
-        data-audit-download-error
-        role="alert"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-triangle-alert"
-        title="No se ha podido descargar el archivo"
-        description="Puede que haya caducado o que ya no tengas acceso. Vuelve a prepararlo."
-      />
-      <UAlert
-        v-if="downloadStatus === 'done'"
+        v-if="exportReceipt && !exportOpen"
         role="status"
-        color="success"
+        color="neutral"
         variant="subtle"
-        icon="i-lucide-circle-check"
-        title="Archivo descargado"
+        icon="i-lucide-file-down"
+        title="Tienes un archivo listo para descargar"
+        :description="`${exportReceipt.rows} registros · ${size(exportReceipt.bytes)}. Disponible hasta el ${adminDate(exportReceipt.expiresAt, true)}.`"
+        :actions="[{ label: 'Ver archivo', color: 'neutral', variant: 'outline', onClick: openExport }]"
       />
 
-      <div class="grid items-start gap-5" :class="detail && 'lg:grid-cols-[minmax(0,1fr)_24rem]'">
-        <div class="adm-card adm-tablecard min-w-0">
-          <div class="adm-tablecard__bar">
-            <fieldset :disabled="busy || pending || !!intent" class="adm-toolbar m-0 min-w-0 border-0 p-0">
-              <label :for="`${prefix}-family`" class="sr-only">Área</label>
+      <div class="adm-card adm-tablecard min-w-0">
+        <div class="adm-tablecard__bar">
+          <fieldset :disabled="busy || pending || !!intent" class="m-0 min-w-0 border-0 p-0">
+            <AdminToolbar :searchable="false">
+              <label :for="`${prefix}-family`" class="sr-only">Tipo de actividad</label>
               <select :id="`${prefix}-family`" v-model="filters.family" data-audit-family class="adm-input">
-                <option value="">Todas las áreas</option>
+                <option value="">Toda la actividad</option>
                 <option v-for="family in ADMIN_AUDIT_FAMILIES" :key="family" :value="family">
                   {{ familyLabels[family] }}
                 </option>
@@ -806,6 +858,17 @@ onBeforeUnmount(() => {
                 class="adm-input"
                 @input="setDay('to', $event)"
               />
+              <label :for="`${prefix}-actor`" class="sr-only">Persona</label>
+              <select
+                v-if="actorOptions.length"
+                :id="`${prefix}-actor`"
+                v-model="filters.actorId"
+                data-audit-actor
+                class="adm-input"
+              >
+                <option value="">Cualquier persona</option>
+                <option v-for="actor in actorOptions" :key="actor" :value="actor">Usuario {{ shortId(actor) }}</option>
+              </select>
               <label :for="`${prefix}-resource`" class="sr-only">Referencia del elemento</label>
               <input
                 :id="`${prefix}-resource`"
@@ -814,157 +877,186 @@ onBeforeUnmount(() => {
                 autocomplete="off"
                 maxlength="160"
                 placeholder="Referencia (producto, pedido…)"
-                class="adm-input w-56"
+                class="adm-input w-52"
+                @keydown.enter.prevent="load()"
               />
-              <label :for="`${prefix}-actor`" class="sr-only">Identificador del usuario</label>
-              <input
-                :id="`${prefix}-actor`"
-                v-model="filters.actorId"
-                data-audit-actor
-                autocomplete="off"
-                maxlength="36"
-                placeholder="Identificador del usuario"
-                class="adm-input w-56"
-              />
-              <div class="adm-toolbar__end">
+              <template #actions>
+                <button
+                  v-if="hasFilters"
+                  type="button"
+                  class="adm-btn adm-btn--ghost adm-btn--sm"
+                  @click="clearFilters"
+                >
+                  Quitar filtros
+                </button>
                 <button data-audit-load type="button" class="adm-btn adm-btn--primary" @click="load()">
                   <UIcon name="i-lucide-search" class="size-4" />{{ snapshot ? 'Aplicar' : 'Ver actividad' }}
                 </button>
-              </div>
-            </fieldset>
-          </div>
-
-          <AdminEmptyState
-            v-if="!snapshot"
-            :variant="phase === 'error' ? 'error' : 'empty'"
-            icon="i-lucide-history"
-            :title="phase === 'error' ? 'No se ha podido cargar la actividad' : 'Consulta quién hizo qué y cuándo'"
-            :description="
-              phase === 'error'
-                ? 'Vuelve a intentarlo con el botón de arriba.'
-                : 'Elige un área o unas fechas y pulsa «Ver actividad». Las fechas se interpretan en hora UTC.'
-            "
-          />
-          <template v-else>
-            <div class="adm-table-wrap">
-              <table class="adm-table">
-                <caption class="sr-only">
-                  Registro de actividad
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Fecha</th>
-                    <th scope="col">Área</th>
-                    <th scope="col">Acción</th>
-                    <th scope="col">Referencia</th>
-                    <th scope="col">Usuario</th>
-                    <th scope="col">Revisión</th>
-                    <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
-                  </tr>
-                </thead>
-                <tbody data-audit-list>
-                  <tr v-for="item in snapshot.items" :key="item.id">
-                    <td class="whitespace-nowrap">
-                      <time :datetime="item.createdAt" :title="utc(item.createdAt)">{{
-                        adminDate(item.createdAt, true)
-                      }}</time>
-                    </td>
-                    <td>{{ familyLabels[item.family] }}</td>
-                    <td>{{ adminHumanize(item.action) }}</td>
-                    <td class="break-all" :title="item.resourceId">{{ shortId(item.resourceId) }}</td>
-                    <td :title="item.actorId ?? undefined">{{ shortId(item.actorId) }}</td>
-                    <td>
-                      <AdminBadge
-                        :tone="
-                          item.disposition === 'reviewed'
-                            ? 'success'
-                            : item.disposition === 'follow_up'
-                              ? 'warning'
-                              : 'neutral'
-                        "
-                      >
-                        {{ item.disposition ? dispositionLabels[item.disposition] : 'Sin revisar' }}
-                      </AdminBadge>
-                    </td>
-                    <td data-numeric class="adm-table__actions">
-                      <button
-                        :data-audit-open="item.id"
-                        type="button"
-                        :disabled="busy || pending || !!intent"
-                        class="adm-btn adm-btn--secondary adm-btn--sm"
-                        @click="open(item)"
-                      >
-                        Ver detalle
-                      </button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <AdminEmptyState
-              v-if="!snapshot.items.length"
-              role="status"
-              variant="filtered"
-              compact
-              title="No hay actividad con estos filtros"
-              description="Prueba con otra área o amplía las fechas."
-            />
-            <div class="adm-pagination">
-              <details class="min-w-0">
-                <summary class="cursor-pointer">Qué incluye este registro</summary>
-                <p class="mt-2 break-words">
-                  Fuentes incluidas:
-                  {{ snapshot.coverage.families.map((family) => familyLabels[family]).join(', ') }}. No incluye lo que
-                  hacen los clientes desde su cuenta ni los procesos automáticos. Las horas exactas se guardan en UTC.
-                </p>
-                <p class="mt-1 break-words">
-                  Filtros aplicados:
-                  {{ appliedFilters?.family ? familyLabels[appliedFilters.family] : 'todas las áreas' }} ·
-                  {{ appliedFilters?.resourceId || 'todas las referencias' }}.
-                </p>
-              </details>
-              <button
-                v-if="snapshot.nextCursor"
-                data-audit-next
-                type="button"
-                :disabled="busy || pending || !!intent"
-                class="adm-btn adm-btn--secondary adm-btn--sm"
-                @click="load(snapshot.nextCursor)"
-              >
-                Siguientes 25<UIcon name="i-lucide-chevron-right" class="size-4" />
-              </button>
-            </div>
-          </template>
+              </template>
+            </AdminToolbar>
+          </fieldset>
         </div>
 
-        <AdminCard v-if="detail" data-audit-detail :title="familyLabels[detail.item.family]" class="min-w-0">
-          <template #actions>
-            <AdminButton variant="ghost" size="sm" icon="i-lucide-x" label="Cerrar detalle" @click="detail = null" />
-          </template>
-          <div class="adm-stack [overflow-wrap:anywhere]">
-            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5">
-              <dt class="adm-help">Referencia</dt>
-              <dd>{{ detail.item.resourceId }}</dd>
-              <dt class="adm-help">Usuario</dt>
-              <dd :title="detail.item.actorId ?? undefined">{{ shortId(detail.item.actorId) }}</dd>
-              <dt class="adm-help">Operación</dt>
-              <dd :title="detail.item.commandId ?? undefined">{{ shortId(detail.item.commandId) }}</dd>
-              <dt class="adm-help">Sesión</dt>
-              <dd :title="detail.item.sessionId ?? undefined">{{ shortId(detail.item.sessionId) }}</dd>
-              <dt class="adm-help">Huella de conexión</dt>
-              <dd class="break-all">{{ display(detail.item.ipHash) }}</dd>
-              <dt class="adm-help">Motivo original</dt>
-              <dd>{{ redaction(detail.item.reason) }}</dd>
-              <dt class="adm-help">Datos anteriores</dt>
-              <dd>{{ redaction(detail.item.before) }}</dd>
-              <dt class="adm-help">Datos nuevos</dt>
-              <dd>{{ redaction(detail.item.after) }}</dd>
+        <AdminEmptyState
+          v-if="!snapshot && unavailable"
+          icon="i-lucide-cloud-off"
+          title="El registro de actividad no está disponible ahora mismo"
+          description="El servicio está desactivado o en mantenimiento. No se ha perdido nada: prueba de nuevo en unos minutos."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" :disabled="busy || pending" @click="load()">Reintentar</AdminButton>
+        </AdminEmptyState>
+        <AdminEmptyState
+          v-else-if="!snapshot"
+          :variant="phase === 'error' ? 'error' : 'empty'"
+          icon="i-lucide-history"
+          :title="phase === 'error' ? 'No se ha podido cargar la actividad' : 'Consulta quién hizo qué y cuándo'"
+          :description="
+            phase === 'error'
+              ? 'Puede ser un fallo de conexión. Vuelve a intentarlo.'
+              : 'Elige un tipo de actividad o unas fechas y pulsa «Ver actividad».'
+          "
+        >
+          <AdminButton v-if="phase === 'error'" icon="i-lucide-rotate-cw" :disabled="busy || pending" @click="load()">
+            Reintentar
+          </AdminButton>
+        </AdminEmptyState>
+        <template v-else>
+          <div v-if="snapshot.items.length" class="adm-table-wrap">
+            <table class="adm-table">
+              <caption class="sr-only">
+                Registro de actividad
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Qué se hizo</th>
+                  <th scope="col">Sobre</th>
+                  <th scope="col">Quién</th>
+                  <th scope="col">Revisión</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody data-audit-list>
+                <tr v-for="item in snapshot.items" :key="item.id" class="cursor-pointer" @click="openRow(item, $event)">
+                  <td class="whitespace-nowrap">
+                    <time :datetime="item.createdAt">{{ adminDate(item.createdAt, true) }}</time>
+                  </td>
+                  <td>{{ familyLabels[item.family] }}</td>
+                  <td>{{ adminHumanize(item.action) }}</td>
+                  <td class="break-all">{{ shortId(item.resourceId) }}</td>
+                  <td>{{ actorLabel(item.actorId) }}</td>
+                  <td>
+                    <AdminBadge :tone="dispositionTone(item.disposition)">
+                      {{ item.disposition ? dispositionLabels[item.disposition] : 'Sin revisar' }}
+                    </AdminBadge>
+                  </td>
+                  <td data-numeric class="adm-table__actions">
+                    <button
+                      :data-audit-open="item.id"
+                      type="button"
+                      :disabled="busy || pending || !!intent"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      @click="open(item)"
+                    >
+                      Ver detalle
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <AdminEmptyState
+            v-else
+            role="status"
+            variant="filtered"
+            title="No hay actividad con estos filtros"
+            description="Prueba con otro tipo de actividad o amplía las fechas."
+          >
+            <AdminButton v-if="hasFilters" :disabled="busy || pending || !!intent" @click="clearFilters">
+              Quitar filtros
+            </AdminButton>
+          </AdminEmptyState>
+          <div class="adm-pagination">
+            <details class="min-w-0">
+              <summary class="cursor-pointer">Qué incluye este registro</summary>
+              <p class="mt-2 break-words">
+                Recoge: {{ snapshot.coverage.families.map((family) => familyLabels[family]).join(', ') }}. No incluye lo
+                que hacen los clientes desde su cuenta ni los procesos automáticos.
+              </p>
+            </details>
+            <button
+              v-if="snapshot.nextCursor"
+              data-audit-next
+              type="button"
+              :disabled="busy || pending || !!intent"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="load(snapshot.nextCursor)"
+            >
+              Siguientes 25<UIcon name="i-lucide-chevron-right" class="size-4" />
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <AdminDrawer
+        v-model:open="detailDrawer"
+        :title="detail ? adminHumanize(detail.item.action) : 'Detalle de la actividad'"
+        :description="
+          detail ? `${familyLabels[detail.item.family]} · ${adminDate(detail.item.createdAt, true)}` : undefined
+        "
+      >
+        <div v-if="detail" data-audit-detail class="adm-stack min-w-0 [overflow-wrap:anywhere]">
+          <UAlert
+            v-if="message"
+            :data-audit-confirmed="phase === 'confirmed' ? '' : undefined"
+            :role="notice.role"
+            :color="notice.color"
+            variant="subtle"
+            :icon="notice.icon"
+            :title="message"
+          />
+
+          <template v-if="intent?.action === 'review'">
+            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+              <dt class="adm-help">Se marcará como</dt>
+              <dd class="font-semibold text-[var(--text-strong)]">{{ dispositionLabels[intent.body.disposition] }}</dd>
+              <dt class="adm-help">Motivo</dt>
+              <dd>{{ intent.body.reason }}</dd>
             </dl>
+            <p class="adm-help">El registro original no cambia: solo se añade tu revisión.</p>
+          </template>
+
+          <template v-else>
+            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+              <dt class="adm-help">Fecha</dt>
+              <dd>{{ adminDate(detail.item.createdAt, true) }}</dd>
+              <dt class="adm-help">Tipo</dt>
+              <dd>{{ familyLabels[detail.item.family] }}</dd>
+              <dt class="adm-help">Qué se hizo</dt>
+              <dd>{{ adminHumanize(detail.item.action) }}</dd>
+              <dt class="adm-help">Sobre</dt>
+              <dd>{{ shortId(detail.item.resourceId) }}</dd>
+              <dt class="adm-help">Quién</dt>
+              <dd>{{ actorLabel(detail.item.actorId) }}</dd>
+              <dt class="adm-help">Revisión</dt>
+              <dd>
+                <AdminBadge :tone="dispositionTone(detail.item.disposition)">
+                  {{ detail.item.disposition ? dispositionLabels[detail.item.disposition] : 'Sin revisar' }}
+                </AdminBadge>
+              </dd>
+            </dl>
+
             <div>
               <h3>Cambios</h3>
-              <ul v-if="detail.changesAvailability === 'recorded'" class="mt-1 space-y-1">
+              <ul v-if="detail.changesAvailability === 'recorded' && detail.changes.length" class="adm-list mt-2">
                 <li v-for="(change, index) in detail.changes" :key="index">
-                  {{ fieldLabels[change.field] }}: {{ display(change.before) }} → {{ display(change.after) }}
+                  <div class="min-w-0 flex-1">
+                    <p class="adm-list__title">{{ fieldLabels[change.field] }}</p>
+                    <p class="adm-help">
+                      {{ changeValue(change.field, change.before) }} → {{ changeValue(change.field, change.after) }}
+                    </p>
+                  </div>
                 </li>
               </ul>
               <p v-else class="adm-help mt-1">
@@ -975,15 +1067,23 @@ onBeforeUnmount(() => {
                 }}
               </p>
             </div>
+
             <div v-if="detail.reviews.length">
               <h3>Revisiones anteriores</h3>
               <ol class="mt-1 space-y-1">
                 <li v-for="row in detail.reviews" :key="row.commandId">
-                  {{ dispositionLabels[row.disposition] }} · {{ adminDate(row.recordedAt, true) }}
+                  {{ dispositionLabels[row.disposition] }} · {{ adminDate(row.recordedAt, true) }} ·
+                  {{ actorLabel(row.actorId) }}
                 </li>
               </ol>
             </div>
-            <form class="adm-stack border-t border-[var(--border)] pt-4" @submit.prevent="review">
+
+            <form
+              :id="`${prefix}-review-form`"
+              class="adm-stack border-t border-[var(--border)] pt-4"
+              @submit.prevent="review"
+            >
+              <h3>Añadir una revisión</h3>
               <div class="adm-field">
                 <label :for="`${prefix}-disposition`" class="adm-label">Marcar como</label>
                 <select
@@ -1010,48 +1110,205 @@ onBeforeUnmount(() => {
                 />
                 <p class="adm-help">Entre 10 y 500 caracteres. Solo lo ven los administradores.</p>
               </div>
-              <button
-                data-audit-review
-                type="submit"
-                :disabled="busy || pending || !!intent"
-                class="adm-btn adm-btn--primary justify-center"
-              >
-                Guardar revisión
-              </button>
             </form>
-          </div>
-        </AdminCard>
-      </div>
 
-      <AdminCard
-        v-if="snapshot"
-        title="Exportar a CSV"
-        description="Incluye todos los registros de los filtros aplicados (hasta 1.000), no solo esta página. El archivo caduca a las 24 horas."
-      >
-        <form class="flex flex-wrap items-end gap-3" @submit.prevent="reviewExport">
-          <div class="adm-field min-w-0 flex-1 basis-64">
-            <label :for="`${prefix}-export-reason`" class="adm-label">Motivo de la exportación</label>
-            <textarea
-              :id="`${prefix}-export-reason`"
-              v-model="exportReason"
-              data-audit-export-reason
+            <details class="border-t border-[var(--border)] pt-4">
+              <summary class="cursor-pointer font-semibold text-[var(--text-strong)]">Datos técnicos</summary>
+              <dl class="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
+                <dt class="adm-help">Referencia completa</dt>
+                <dd class="break-all">{{ detail.item.resourceId }}</dd>
+                <dt class="adm-help">Usuario</dt>
+                <dd class="break-all">{{ display(detail.item.actorId) }}</dd>
+                <dt class="adm-help">Operación</dt>
+                <dd class="break-all">{{ display(detail.item.commandId) }}</dd>
+                <dt class="adm-help">Sesión</dt>
+                <dd class="break-all">{{ display(detail.item.sessionId) }}</dd>
+                <dt class="adm-help">Huella de conexión</dt>
+                <dd class="break-all">{{ display(detail.item.ipHash) }}</dd>
+                <dt class="adm-help">Hora exacta</dt>
+                <dd>{{ utc(detail.item.createdAt) }}</dd>
+                <dt class="adm-help">Motivo original</dt>
+                <dd>{{ redaction(detail.item.reason) }}</dd>
+                <dt class="adm-help">Datos anteriores</dt>
+                <dd>{{ redaction(detail.item.before) }}</dd>
+                <dt class="adm-help">Datos nuevos</dt>
+                <dd>{{ redaction(detail.item.after) }}</dd>
+              </dl>
+            </details>
+          </template>
+        </div>
+        <template #footer>
+          <template v-if="intent?.action === 'review' && !intent.attempted">
+            <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">
+              Volver a editar
+            </button>
+            <button
+              data-audit-confirm
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="send"
+            >
+              Confirmar revisión
+            </button>
+          </template>
+          <template v-else-if="intent?.attempted">
+            <button type="button" class="adm-btn adm-btn--secondary" @click="detailDrawer = false">Cerrar</button>
+            <button
+              v-if="phase === 'unknown'"
+              data-audit-check
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="check"
+            >
+              Comprobar si se ha guardado
+            </button>
+          </template>
+          <template v-else>
+            <button type="button" class="adm-btn adm-btn--secondary" @click="detailDrawer = false">Cerrar</button>
+            <button
+              data-audit-review
+              type="submit"
+              :form="`${prefix}-review-form`"
               :disabled="busy || pending || !!intent"
-              minlength="10"
-              maxlength="500"
-              rows="2"
-              class="adm-input"
+              class="adm-btn adm-btn--primary"
+            >
+              Guardar revisión
+            </button>
+          </template>
+        </template>
+      </AdminDrawer>
+
+      <AdminDrawer
+        v-model:open="exportDrawer"
+        title="Exportar la actividad"
+        description="Se exportan todos los registros de los filtros aplicados (hasta 1.000), no solo los que ves en pantalla."
+      >
+        <div class="adm-stack min-w-0">
+          <UAlert
+            v-if="message"
+            :data-audit-confirmed="phase === 'confirmed' ? '' : undefined"
+            :role="notice.role"
+            :color="notice.color"
+            variant="subtle"
+            :icon="notice.icon"
+            :title="message"
+          />
+          <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2">
+            <dt class="adm-help">Tipo de actividad</dt>
+            <dd>{{ exportScope?.family ? familyLabels[exportScope.family] : 'Toda la actividad' }}</dd>
+            <dt class="adm-help">Fechas</dt>
+            <dd>{{ rangeLabel(exportScope) }}</dd>
+            <dt class="adm-help">Sobre</dt>
+            <dd class="break-all">{{ exportScope?.resourceId || 'Cualquier elemento' }}</dd>
+            <dt class="adm-help">Quién</dt>
+            <dd>{{ exportScope?.actorId ? actorLabel(exportScope.actorId) : 'Cualquier persona' }}</dd>
+          </dl>
+
+          <template v-if="exportReceipt">
+            <div class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3">
+              <p class="font-semibold text-[var(--text-strong)]">Archivo listo para descargar</p>
+              <p class="adm-help">
+                {{ exportReceipt.rows }} registros · {{ size(exportReceipt.bytes) }}. Disponible hasta el
+                {{ adminDate(exportReceipt.expiresAt, true) }}.
+              </p>
+            </div>
+            <UAlert
+              v-if="downloadStatus === 'error'"
+              data-audit-download-error
+              role="alert"
+              color="error"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="No se ha podido descargar el archivo"
+              description="Puede que haya caducado o que ya no tengas acceso. Vuelve a prepararlo."
             />
-          </div>
-          <button
-            data-audit-export-review
-            type="submit"
-            :disabled="busy || pending || !!intent"
-            class="adm-btn adm-btn--secondary"
-          >
-            <UIcon name="i-lucide-file-down" class="size-4" />Preparar exportación
-          </button>
-        </form>
-      </AdminCard>
+            <UAlert
+              v-if="downloadStatus === 'done'"
+              role="status"
+              color="success"
+              variant="subtle"
+              icon="i-lucide-circle-check"
+              title="Archivo descargado"
+            />
+          </template>
+          <p v-else-if="intent?.action === 'export'" class="break-words">
+            <span class="adm-help">Motivo:</span> {{ intent.body.reason }}
+          </p>
+          <form v-else :id="`${prefix}-export-form`" @submit.prevent="reviewExport">
+            <div class="adm-field">
+              <label :for="`${prefix}-export-reason`" class="adm-label">Motivo de la exportación</label>
+              <textarea
+                :id="`${prefix}-export-reason`"
+                v-model="exportReason"
+                data-audit-export-reason
+                :disabled="busy || pending || !!intent"
+                minlength="10"
+                maxlength="500"
+                rows="3"
+                class="adm-input"
+              />
+              <p class="adm-help">
+                Entre 10 y 500 caracteres. Queda guardado en el registro. El archivo caduca a las 24 horas.
+              </p>
+            </div>
+          </form>
+        </div>
+        <template #footer>
+          <template v-if="exportReceipt">
+            <button type="button" class="adm-btn adm-btn--secondary" @click="exportDrawer = false">Cerrar</button>
+            <button
+              data-audit-download
+              type="button"
+              :disabled="busy || pending || !!intent"
+              class="adm-btn adm-btn--primary"
+              @click="download"
+            >
+              <UIcon name="i-lucide-download" class="size-4" />Descargar archivo
+            </button>
+          </template>
+          <template v-else-if="intent?.action === 'export' && !intent.attempted">
+            <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">
+              Volver a editar
+            </button>
+            <button
+              data-audit-confirm
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="send"
+            >
+              Confirmar exportación
+            </button>
+          </template>
+          <template v-else-if="intent?.attempted">
+            <button type="button" class="adm-btn adm-btn--secondary" @click="exportDrawer = false">Cerrar</button>
+            <button
+              v-if="phase === 'unknown'"
+              data-audit-check
+              type="button"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--primary"
+              @click="check"
+            >
+              Comprobar si se ha guardado
+            </button>
+          </template>
+          <template v-else>
+            <button type="button" class="adm-btn adm-btn--secondary" @click="exportDrawer = false">Cancelar</button>
+            <button
+              data-audit-export-review
+              type="submit"
+              :form="`${prefix}-export-form`"
+              :disabled="busy || pending || !!intent"
+              class="adm-btn adm-btn--primary"
+            >
+              Preparar exportación
+            </button>
+          </template>
+        </template>
+      </AdminDrawer>
     </template>
   </section>
 </template>

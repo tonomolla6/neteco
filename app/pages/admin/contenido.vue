@@ -173,9 +173,57 @@ function createNew() {
   drawerOpen.value = true
 }
 
+// Texto sencillo: una página hecha solo de párrafos se edita como texto corrido y se guarda como bloques.
+const plainText = ref(''),
+  plainEditable = ref(true)
+let plainWriting = false
+function plainBlocks() {
+  try {
+    const parsed: unknown = JSON.parse(form.blocksJson)
+    if (!Array.isArray(parsed)) return null
+    const blocks: Array<{ id: string; type: 'paragraph'; text: string }> = []
+    for (const entry of parsed as unknown[]) {
+      if (!entry || typeof entry !== 'object') return null
+      const { id, type, text, ...rest } = entry as Record<string, unknown>
+      if (type !== 'paragraph' || typeof id !== 'string' || typeof text !== 'string' || Object.keys(rest).length)
+        return null
+      blocks.push({ id, type, text })
+    }
+    return blocks
+  } catch {
+    return null
+  }
+}
+watch(
+  () => form.blocksJson,
+  () => {
+    if (plainWriting) return
+    const blocks = plainBlocks()
+    plainEditable.value = blocks !== null
+    plainText.value = blocks?.map((block) => block.text).join('\n\n') ?? ''
+  },
+  { flush: 'sync' }
+)
+function setPlainText(event: Event) {
+  const value = (event.target as HTMLTextAreaElement).value,
+    previous = plainBlocks() ?? []
+  plainText.value = value
+  plainWriting = true
+  form.blocksJson = JSON.stringify(
+    value
+      .split(/\n\s*\n/)
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .map((text, index) => ({ id: previous[index]?.id ?? randomId(), type: 'paragraph', text })),
+    null,
+    2
+  )
+  plainWriting = false
+}
+
 function parsedBlocks() {
   const blocks = JSON.parse(form.blocksJson) as unknown
-  if (!Array.isArray(blocks)) throw new Error('Los bloques deben ser una lista JSON')
+  if (!Array.isArray(blocks)) throw new Error('El contenido avanzado debe ser una lista de bloques')
   return blocks
 }
 
@@ -303,6 +351,7 @@ async function confirmRollbackNow() {
         :runtime="runtime"
         :operator-id="operatorId"
         :authorize="authorizeCms"
+        :second-factor-missing="ready === true && loggedIn === true && user?.mfaVerified !== true"
         :header-actions="activeTab === 'editor'"
       />
       <UAlert
@@ -388,12 +437,28 @@ async function confirmRollbackNow() {
             Pedir a los buscadores que no muestren la página publicada
           </label>
           <AdminFormField
+            v-if="plainEditable"
             v-slot="{ id }"
-            label="Bloques de contenido (formato avanzado)"
-            help="Lista de bloques: encabezado, párrafo, lista, imagen, aviso destacado o enlace. No admite código."
+            label="Texto de la página"
+            help="Deja una línea en blanco entre párrafos."
           >
-            <textarea :id="id" v-model="form.blocksJson" rows="14" class="font-mono text-xs" />
+            <textarea :id="id" :value="plainText" rows="10" @input="setPlainText" />
           </AdminFormField>
+          <p v-else class="adm-help">
+            Esta página combina encabezados, listas, imágenes o avisos. De momento ese contenido se edita en el apartado
+            «Avanzado».
+          </p>
+          <details :open="!plainEditable">
+            <summary class="adm-label cursor-pointer">Avanzado</summary>
+            <AdminFormField
+              v-slot="{ id }"
+              class="mt-3"
+              label="Bloques de contenido"
+              help="Lista de bloques en formato técnico: encabezado, párrafo, lista, imagen, aviso destacado o enlace. No admite código."
+            >
+              <textarea :id="id" v-model="form.blocksJson" rows="14" class="font-mono text-xs" />
+            </AdminFormField>
+          </details>
           <AdminFormField v-slot="{ id }" label="Resumen del cambio">
             <input :id="id" v-model="form.changeSummary" type="text" placeholder="Qué cambia y por qué" />
           </AdminFormField>

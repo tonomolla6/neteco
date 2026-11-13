@@ -60,24 +60,25 @@ const saveInputSchema = z
   .strict()
   .superRefine((value, context) => {
     const issue = (message: string) => context.addIssue({ code: 'custom', message })
-    if ((value.id === null) !== (value.expectedVersion === 0)) issue('La identidad y versión no corresponden.')
+    if ((value.id === null) !== (value.expectedVersion === 0))
+      issue('La regla ha cambiado. Cierra el panel y vuelve a abrirla.')
     const span = Date.parse(value.validUntil) - Date.parse(value.validFrom)
     if (!(span > 0 && span <= SEARCH_MERCHANDISING_MAX_VALIDITY_DAYS * DAY_MS))
-      issue('La vigencia debe ser posterior al inicio y no superar 180 días.')
+      issue('La fecha de fin debe ser posterior a la de inicio y la regla no puede durar más de 180 días.')
     // The server's expiry trigger compares the end with its own clock: it must be in the future
     // and at most 180 days ahead. A past rule can be retired but must get a new end date to be saved.
     const until = Date.parse(value.validUntil),
       nowMs = Date.now()
     if (!(until > nowMs && until <= nowMs + SEARCH_MERCHANDISING_MAX_VALIDITY_DAYS * DAY_MS))
-      issue('La caducidad debe ser posterior a este momento y no superar 180 días desde ahora.')
+      issue('La fecha de fin debe ser futura y quedar a menos de 180 días de hoy.')
     if (value.kind === 'redirect') {
       if (value.productId !== null || value.weight !== null) issue('Una redirección no lleva producto ni peso.')
       if (value.redirectPath === null || !isAllowedSearchRedirectPath(value.redirectPath))
         issue(
-          'La ruta de redirección debe ser una ruta interna permitida (/catalogo, /contenido, /recursos o /producto/slug).'
+          'La página de destino debe ser de la tienda: /catalogo, /contenido, /recursos o /producto/nombre-del-producto.'
         )
     } else if (value.productId === null || value.weight === null || value.redirectPath !== null) {
-      issue('Boost y bury requieren un UUID de producto y un peso entre 1 y 10, sin ruta.')
+      issue('Para subir o bajar un producto hay que indicar el producto y una fuerza entre 1 y 10.')
     }
   })
 
@@ -420,7 +421,7 @@ function buildPayload(): { success: true; data: CommandPayload } | { success: fa
     return {
       success: false,
       error:
-        'Revisa la búsqueda (2-160 caracteres), el motivo obligatorio (3-500), el destino (identificador de producto con peso 1-10 o ruta interna permitida) y las fechas (máx. 180 días).'
+        'Revisa la búsqueda (2 a 160 caracteres), el motivo (3 a 500), el producto o la página de destino y las fechas (máximo 180 días).'
     }
   }
   return { success: true, data: parsed.data }
@@ -698,26 +699,57 @@ function kindLabel(ruleKind: SearchMerchandisingRuleItem['kind']) {
 
 const STATE_TONES = { live: 'success', scheduled: 'info', expired: 'warning', retired: 'neutral' } as const
 const shortId = (id: string | null | undefined) => (id ? `#${id.slice(0, 8).toUpperCase()}` : '—')
-const formTitle = computed(() =>
-  mode.value === 'retire' ? 'Retirar regla' : target.value ? 'Editar regla' : 'Nueva regla'
+const needsSecondFactor = computed(
+  () => session.ready.value === true && session.loggedIn.value === true && session.user.value?.mfaVerified !== true
 )
+/** Con el resultado sin confirmar se cierra el panel para dejar a la vista la comprobación. */
+const drawerOpen = computed({
+  get: () => mode.value === 'save' && !unknown.value,
+  set: (open: boolean) => {
+    if (!open && !locked.value) clearForm()
+  }
+})
+const retireOpen = computed({
+  get: () => mode.value === 'retire' && !unknown.value,
+  set: (open: boolean) => {
+    if (!open && !locked.value) clearForm()
+  }
+})
+const historyOpen = computed({
+  get: () => historyRuleId.value !== null,
+  set: (open: boolean) => {
+    if (!open) closeHistory()
+  }
+})
+/** El formulario pide días; la regla guarda instantes: el inicio a primera hora y el fin a última. */
+function setDay(edge: 'from' | 'until', event: Event) {
+  const day = (event.target as HTMLInputElement).value
+  const value = day ? `${day}T${edge === 'from' ? '00:00:00' : '23:59:59'}Z` : ''
+  if (edge === 'from') validFrom.value = value
+  else validUntil.value = value
+}
 </script>
 
 <template>
   <section aria-label="Reglas de resultados" data-merchandising-panel class="adm-stack min-w-0">
-    <UAlert
-      v-if="!actor"
-      role="alert"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-lock"
-      title="No puedes gestionar las reglas de resultados con esta sesión"
-      description="Necesitas permiso de catálogo, el correo verificado y la verificación en dos pasos (MFA) activa."
-    />
+    <AdminCard v-if="!actor">
+      <AdminEmptyState
+        v-if="needsSecondFactor"
+        icon="i-lucide-shield-check"
+        title="Hace falta la verificación en dos pasos"
+        description="Por seguridad, las reglas de resultados solo se pueden cambiar con la verificación en dos pasos activada en tu cuenta. En la demostración pública no está disponible."
+      />
+      <AdminEmptyState
+        v-else
+        icon="i-lucide-lock"
+        title="No puedes gestionar las reglas de resultados con esta sesión"
+        description="Necesitas permiso de catálogo y el correo verificado. Si acabas de cambiar algo en tu cuenta, vuelve a entrar."
+      />
+    </AdminCard>
 
     <template v-else>
       <UAlert
-        v-if="message"
+        v-if="message && !drawerOpen && !retireOpen"
         role="status"
         aria-live="polite"
         color="neutral"
@@ -763,432 +795,459 @@ const formTitle = computed(() =>
         class="[overflow-wrap:anywhere]"
       />
 
-      <div
-        class="grid min-w-0 items-start gap-5"
-        :class="(mode || historyRuleId) && 'xl:grid-cols-[minmax(0,1fr)_26rem]'"
-      >
-        <div class="adm-card adm-tablecard min-w-0">
-          <div class="adm-tablecard__bar">
-            <div class="adm-toolbar">
-              <form data-merchandising-search-form class="contents" role="search" @submit.prevent="filter">
-                <label class="adm-toolbar__search" :for="prefix + '-search'">
-                  <span class="sr-only">Buscar por la búsqueda del cliente</span>
-                  <UIcon name="i-lucide-search" class="size-4" />
-                  <input
-                    :id="prefix + '-search'"
-                    v-model="search"
-                    data-merchandising-search
-                    data-slot="adm-search"
-                    type="search"
-                    placeholder="Buscar una regla…"
-                    maxlength="160"
-                    :disabled="locked"
-                  />
-                </label>
-                <label :for="prefix + '-status'" class="sr-only">Estado de las reglas</label>
-                <select
-                  :id="prefix + '-status'"
-                  v-model="statusFilter"
-                  data-merchandising-status-filter
+      <div class="adm-card adm-tablecard min-w-0">
+        <div class="adm-tablecard__bar">
+          <div class="adm-toolbar">
+            <form data-merchandising-search-form class="contents" role="search" @submit.prevent="filter">
+              <label class="adm-toolbar__search" :for="prefix + '-search'">
+                <span class="sr-only">Buscar por la búsqueda del cliente</span>
+                <UIcon name="i-lucide-search" class="size-4" />
+                <input
+                  :id="prefix + '-search'"
+                  v-model="search"
+                  data-merchandising-search
+                  data-slot="adm-search"
+                  type="search"
+                  placeholder="Buscar una regla…"
+                  maxlength="160"
                   :disabled="locked"
-                  class="adm-input w-auto"
-                >
-                  <option value="all">Todas</option>
-                  <option value="open">Sin retirar</option>
-                  <option value="retired">Retiradas</option>
-                </select>
-                <button type="submit" :disabled="locked" class="adm-btn adm-btn--secondary">Aplicar</button>
-              </form>
-              <div v-if="readStatus === 'success' && list" class="adm-toolbar__end">
-                <button
-                  data-merchandising-create
-                  type="button"
-                  :disabled="locked"
-                  class="adm-btn adm-btn--primary"
-                  @click="begin('create')"
-                >
-                  <UIcon name="i-lucide-plus" class="size-4 shrink-0" />Nueva regla
-                </button>
-              </div>
+                />
+              </label>
+              <label :for="prefix + '-status'" class="sr-only">Estado de las reglas</label>
+              <select
+                :id="prefix + '-status'"
+                v-model="statusFilter"
+                data-merchandising-status-filter
+                :disabled="locked"
+                class="adm-input w-auto"
+              >
+                <option value="all">Todas</option>
+                <option value="open">Sin retirar</option>
+                <option value="retired">Retiradas</option>
+              </select>
+              <button type="submit" :disabled="locked" class="adm-btn adm-btn--secondary">Aplicar</button>
+            </form>
+            <div v-if="readStatus === 'success' && list" class="adm-toolbar__end">
+              <button
+                data-merchandising-create
+                type="button"
+                :disabled="locked"
+                class="adm-btn adm-btn--primary"
+                @click="begin('create')"
+              >
+                <UIcon name="i-lucide-plus" class="size-4 shrink-0" />Nueva regla
+              </button>
             </div>
           </div>
+        </div>
 
-          <div v-if="readStatus === 'pending'" class="adm-table-skeleton" role="status" aria-busy="true">
-            <span class="sr-only">Cargando reglas de resultados…</span>
-            <div v-for="row in 5" :key="row"><i /><i /><i /><i /></div>
+        <div v-if="readStatus === 'pending'" class="adm-table-skeleton" role="status" aria-busy="true">
+          <span class="sr-only">Cargando reglas de resultados…</span>
+          <div v-for="row in 5" :key="row"><i /><i /><i /><i /></div>
+        </div>
+
+        <div v-else-if="readStatus === 'error'" role="alert">
+          <AdminEmptyState
+            variant="error"
+            title="No se ha podido confirmar la lista de reglas"
+            description="Es un fallo de carga: no significa que la lista esté vacía."
+          >
+            <button
+              data-merchandising-read-retry
+              type="button"
+              :disabled="working || looking || reloadingConflict"
+              class="adm-btn adm-btn--secondary"
+              @click="load"
+            >
+              <UIcon name="i-lucide-rotate-cw" class="size-4 shrink-0" />Reintentar
+            </button>
+          </AdminEmptyState>
+        </div>
+
+        <template v-else-if="readStatus === 'success' && list">
+          <AdminEmptyState
+            v-if="!list.items.length"
+            :variant="appliedSearch || appliedStatus !== 'all' ? 'filtered' : 'empty'"
+            icon="i-lucide-arrow-up-down"
+            title="No hay reglas que mostrar"
+            :description="
+              appliedSearch || appliedStatus !== 'all'
+                ? 'Ninguna regla coincide con este filtro.'
+                : 'Crea una regla para subir o bajar un producto en una búsqueda concreta, o para llevar esa búsqueda a otra página de la tienda.'
+            "
+          />
+
+          <div v-else class="adm-table-wrap">
+            <table data-merchandising-list class="adm-table min-w-0 break-words">
+              <thead>
+                <tr>
+                  <th scope="col">Cuando el cliente busca</th>
+                  <th scope="col">Qué hace la regla</th>
+                  <th scope="col">Vigencia</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in list.items" :key="item.id" :data-merchandising-row="item.id">
+                  <td>
+                    <p class="font-semibold text-[var(--text-strong)]">{{ item.term }}</p>
+                    <p class="adm-help">{{ item.reason }}</p>
+                  </td>
+                  <td>
+                    <p>{{ kindLabel(item.kind) }}</p>
+                    <p class="adm-help">
+                      <template v-if="item.kind === 'redirect'">{{ item.redirectPath }}</template>
+                      <template v-else>Producto {{ shortId(item.productId) }} · fuerza {{ item.weight }}</template>
+                    </p>
+                  </td>
+                  <td class="whitespace-nowrap">{{ adminDate(item.validFrom) }} – {{ adminDate(item.validUntil) }}</td>
+                  <td>
+                    <AdminBadge :tone="STATE_TONES[item.state]">{{ stateLabel(item.state) }}</AdminBadge>
+                  </td>
+                  <td data-numeric class="adm-table__actions">
+                    <div class="flex flex-wrap justify-end gap-1.5">
+                      <template v-if="item.status !== 'retired'">
+                        <button
+                          data-merchandising-edit
+                          type="button"
+                          :disabled="locked"
+                          :aria-label="`Editar la regla de ${item.term}`"
+                          class="adm-btn adm-btn--secondary adm-btn--sm"
+                          @click="begin('edit', item)"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          data-merchandising-retire
+                          type="button"
+                          :disabled="locked"
+                          :aria-label="`Retirar la regla de ${item.term}`"
+                          class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                          @click="begin('retire', item)"
+                        >
+                          Retirar
+                        </button>
+                      </template>
+                      <button
+                        data-merchandising-history-open
+                        type="button"
+                        :disabled="locked"
+                        :aria-label="`Ver los cambios de la regla de ${item.term}`"
+                        class="adm-btn adm-btn--ghost adm-btn--sm"
+                        @click="openHistory(item)"
+                      >
+                        Cambios
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          <div v-else-if="readStatus === 'error'" role="alert">
-            <AdminEmptyState
-              variant="error"
-              title="No se ha podido confirmar la lista de reglas"
-              description="Es un fallo de carga: no significa que la lista esté vacía."
-            >
+          <nav aria-label="Páginas de reglas de resultados" class="adm-pagination">
+            <p>{{ list.total }} {{ list.total === 1 ? 'regla' : 'reglas' }}</p>
+            <div class="flex items-center gap-2">
               <button
-                data-merchandising-read-retry
+                data-merchandising-prev
+                type="button"
+                :disabled="locked || list.page <= 1"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                @click="move(-1)"
+              >
+                Anterior
+              </button>
+              <span class="tabular-nums">Página {{ list.page }}</span>
+              <button
+                data-merchandising-next
+                type="button"
+                :disabled="locked || list.page * list.perPage >= list.total"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                @click="move(1)"
+              >
+                Siguiente
+              </button>
+            </div>
+          </nav>
+        </template>
+      </div>
+
+      <AdminDrawer
+        v-model:open="drawerOpen"
+        :title="target ? 'Editar regla' : 'Nueva regla'"
+        description="Una regla dura como máximo 180 días y nunca destaca productos que no se pueden vender."
+      >
+        <form :id="prefix + '-form'" ref="formRef" data-merchandising-form class="adm-stack" @submit.prevent="submit">
+          <UAlert
+            v-if="message"
+            role="status"
+            aria-live="polite"
+            color="neutral"
+            variant="subtle"
+            icon="i-lucide-info"
+            :title="message"
+          />
+          <div v-if="conflict" data-merchandising-conflict role="alert" class="adm-stack">
+            <UAlert
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="Otra persona ha cambiado esta regla"
+              description="La regla se modificó o se retiró mientras la tenías abierta. Carga la versión actual para continuar."
+            />
+            <div>
+              <button
+                data-merchandising-conflict-reload
                 type="button"
                 :disabled="working || looking || reloadingConflict"
                 class="adm-btn adm-btn--secondary"
-                @click="load"
+                @click="reloadConflict"
+              >
+                Cargar la versión actual
+              </button>
+            </div>
+          </div>
+
+          <div class="adm-field">
+            <label :for="prefix + '-term'" class="adm-label">Cuando el cliente busca</label>
+            <input
+              :id="prefix + '-term'"
+              v-model="term"
+              data-merchandising-term
+              maxlength="160"
+              required
+              :disabled="locked"
+              class="w-full min-w-0"
+            />
+          </div>
+
+          <div class="adm-field">
+            <label :for="prefix + '-kind'" class="adm-label">Qué hace la regla</label>
+            <select
+              :id="prefix + '-kind'"
+              v-model="kind"
+              data-merchandising-kind
+              :disabled="locked"
+              class="w-full min-w-0"
+            >
+              <option value="boost">Subir un producto en los resultados</option>
+              <option value="bury">Bajar un producto en los resultados</option>
+              <option value="redirect">Llevar la búsqueda a otra página de la tienda</option>
+            </select>
+          </div>
+
+          <template v-if="kind !== 'redirect'">
+            <div class="adm-field">
+              <label :for="prefix + '-product'" class="adm-label">Producto</label>
+              <input
+                :id="prefix + '-product'"
+                v-model="productId"
+                data-merchandising-product-id
+                required
+                autocomplete="off"
+                :aria-describedby="prefix + '-product-help'"
+                :disabled="locked"
+                class="w-full min-w-0"
+              />
+              <p :id="prefix + '-product-help'" class="adm-help">
+                Pega el identificador del producto publicado: lo encuentras en su ficha, dentro de Productos.
+              </p>
+            </div>
+            <div class="adm-field">
+              <label :for="prefix + '-weight'" class="adm-label">Fuerza de la regla</label>
+              <select
+                :id="prefix + '-weight'"
+                v-model="weightInput"
+                data-merchandising-weight
+                required
+                :disabled="locked"
+                class="w-full min-w-0"
+              >
+                <option v-for="level in 10" :key="level" :value="String(level)">
+                  {{ level }}{{ level === 1 ? ' · suave' : level === 5 ? ' · media' : level === 10 ? ' · máxima' : '' }}
+                </option>
+              </select>
+            </div>
+          </template>
+
+          <div v-else class="adm-field">
+            <label :for="prefix + '-redirect'" class="adm-label">Página de destino</label>
+            <input
+              :id="prefix + '-redirect'"
+              v-model="redirectPath"
+              data-merchandising-redirect-path
+              maxlength="300"
+              required
+              :aria-describedby="prefix + '-redirect-help'"
+              :disabled="locked"
+              placeholder="/catalogo?familia=desinfeccion"
+              class="w-full min-w-0"
+            />
+            <p :id="prefix + '-redirect-help'" class="adm-help">
+              Solo páginas de la tienda: /catalogo, /contenido, /recursos o /producto/nombre-del-producto.
+            </p>
+          </div>
+
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label :for="prefix + '-valid-from'" class="adm-label">Empieza el</label>
+              <input
+                :id="prefix + '-valid-from'"
+                :value="validFrom.slice(0, 10)"
+                data-merchandising-valid-from
+                type="date"
+                required
+                :disabled="locked"
+                class="w-full min-w-0"
+                @input="setDay('from', $event)"
+              />
+            </div>
+            <div class="adm-field">
+              <label :for="prefix + '-valid-until'" class="adm-label">Termina el</label>
+              <input
+                :id="prefix + '-valid-until'"
+                :value="validUntil.slice(0, 10)"
+                data-merchandising-valid-until
+                type="date"
+                required
+                :disabled="locked"
+                class="w-full min-w-0"
+                @input="setDay('until', $event)"
+              />
+            </div>
+          </div>
+
+          <div class="adm-field">
+            <label :for="prefix + '-reason'" class="adm-label">Motivo</label>
+            <textarea
+              :id="prefix + '-reason'"
+              v-model="reason"
+              data-merchandising-reason
+              required
+              maxlength="500"
+              :aria-describedby="prefix + '-reason-help'"
+              :disabled="locked"
+              class="w-full min-w-0"
+            />
+            <p :id="prefix + '-reason-help'" class="adm-help">Obligatorio, entre 3 y 500 caracteres.</p>
+          </div>
+        </form>
+        <template #footer>
+          <button type="button" :disabled="locked" class="adm-btn adm-btn--secondary" @click="clearForm">
+            Cancelar
+          </button>
+          <button
+            data-merchandising-submit
+            type="submit"
+            :form="prefix + '-form'"
+            :disabled="locked"
+            class="adm-btn adm-btn--primary"
+          >
+            {{ working ? 'Enviando…' : target ? 'Guardar cambios' : 'Crear regla' }}
+          </button>
+        </template>
+      </AdminDrawer>
+
+      <AdminConfirm
+        v-model:open="retireOpen"
+        title="Retirar regla"
+        :description="`La regla de «${target?.term ?? ''}» dejará de aplicarse. No se puede deshacer y queda anotado en sus cambios.`"
+        confirm-label="Retirar regla"
+        danger
+        :loading="working"
+        :confirm-disabled="locked || reason.trim().length < 3"
+        @confirm="submit"
+      >
+        <div class="adm-stack">
+          <div v-if="conflict" data-merchandising-conflict role="alert" class="adm-stack">
+            <UAlert
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="Otra persona ha cambiado esta regla"
+              description="La regla se modificó o se retiró mientras la tenías abierta. Carga la versión actual para continuar."
+            />
+            <div>
+              <button
+                data-merchandising-conflict-reload
+                type="button"
+                :disabled="working || looking || reloadingConflict"
+                class="adm-btn adm-btn--secondary"
+                @click="reloadConflict"
+              >
+                Cargar la versión actual
+              </button>
+            </div>
+          </div>
+          <div class="adm-field">
+            <label :for="prefix + '-retire-reason'" class="adm-label">Motivo de la retirada</label>
+            <textarea
+              :id="prefix + '-retire-reason'"
+              v-model="reason"
+              data-merchandising-reason
+              required
+              maxlength="500"
+              :disabled="locked"
+              class="adm-input"
+            />
+            <p class="adm-help">Obligatorio, entre 3 y 500 caracteres.</p>
+            <p v-if="message" class="adm-field__error" role="alert">{{ message }}</p>
+          </div>
+        </div>
+      </AdminConfirm>
+
+      <AdminDrawer v-model:open="historyOpen" title="Cambios de la regla" :description="historyTerm">
+        <div data-merchandising-history aria-label="Historial de la regla">
+          <div v-if="historyStatus === 'pending'" class="adm-table-skeleton" role="status" aria-busy="true">
+            <span class="sr-only">Cargando los cambios…</span>
+            <div v-for="row in 3" :key="row"><i /><i /></div>
+          </div>
+          <div v-else-if="historyStatus === 'error'" role="alert">
+            <AdminEmptyState variant="error" compact title="No se ha podido cargar el historial de la regla">
+              <button
+                v-if="historyRuleId"
+                data-merchandising-history-retry
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                @click="loadHistory(historyRuleId)"
               >
                 <UIcon name="i-lucide-rotate-cw" class="size-4 shrink-0" />Reintentar
               </button>
             </AdminEmptyState>
           </div>
-
-          <template v-else-if="readStatus === 'success' && list">
-            <AdminEmptyState
-              v-if="!list.items.length"
-              :variant="appliedSearch || appliedStatus !== 'all' ? 'filtered' : 'empty'"
-              icon="i-lucide-arrow-up-down"
-              title="No hay reglas que mostrar"
-              :description="
-                appliedSearch || appliedStatus !== 'all'
-                  ? 'Ninguna regla coincide con este filtro.'
-                  : 'Crea una regla para subir o bajar un producto en una búsqueda concreta, o para llevar esa búsqueda a otra página de la tienda.'
-              "
-            />
-
-            <div v-else class="adm-table-wrap">
-              <table data-merchandising-list class="adm-table min-w-0 break-words">
-                <thead>
-                  <tr>
-                    <th scope="col">Cuando el cliente busca</th>
-                    <th scope="col">Qué hace la regla</th>
-                    <th scope="col">Vigencia</th>
-                    <th scope="col">Estado</th>
-                    <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in list.items" :key="item.id" :data-merchandising-row="item.id">
-                    <td>
-                      <p class="font-semibold text-[var(--text-strong)]">{{ item.term }}</p>
-                      <p class="adm-help">{{ item.reason }}</p>
-                    </td>
-                    <td>
-                      <p>{{ kindLabel(item.kind) }}</p>
-                      <p class="adm-help">
-                        <template v-if="item.kind === 'redirect'">{{ item.redirectPath }}</template>
-                        <template v-else>Producto {{ shortId(item.productId) }} · peso {{ item.weight }}</template>
-                      </p>
-                    </td>
-                    <td class="whitespace-nowrap">
-                      {{ adminDate(item.validFrom) }} – {{ adminDate(item.validUntil) }}
-                    </td>
-                    <td>
-                      <AdminBadge :tone="STATE_TONES[item.state]">{{ stateLabel(item.state) }}</AdminBadge>
-                    </td>
-                    <td data-numeric class="adm-table__actions">
-                      <div class="flex flex-wrap justify-end gap-1.5">
-                        <template v-if="item.status !== 'retired'">
-                          <button
-                            data-merchandising-edit
-                            type="button"
-                            :disabled="locked"
-                            :aria-label="`Editar la regla de ${item.term}`"
-                            class="adm-btn adm-btn--secondary adm-btn--sm"
-                            @click="begin('edit', item)"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            data-merchandising-retire
-                            type="button"
-                            :disabled="locked"
-                            :aria-label="`Retirar la regla de ${item.term}`"
-                            class="adm-btn adm-btn--danger-soft adm-btn--sm"
-                            @click="begin('retire', item)"
-                          >
-                            Retirar
-                          </button>
-                        </template>
-                        <button
-                          data-merchandising-history-open
-                          type="button"
-                          :disabled="locked"
-                          :aria-label="`Ver los cambios de la regla de ${item.term}`"
-                          class="adm-btn adm-btn--ghost adm-btn--sm"
-                          @click="openHistory(item)"
-                        >
-                          Cambios
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <nav aria-label="Páginas de reglas de resultados" class="adm-pagination">
-              <p>{{ list.total }} {{ list.total === 1 ? 'regla' : 'reglas' }}</p>
-              <div class="flex items-center gap-2">
-                <button
-                  data-merchandising-prev
-                  type="button"
-                  :disabled="locked || list.page <= 1"
-                  class="adm-btn adm-btn--secondary adm-btn--sm"
-                  @click="move(-1)"
-                >
-                  Anterior
-                </button>
-                <span class="tabular-nums">Página {{ list.page }}</span>
-                <button
-                  data-merchandising-next
-                  type="button"
-                  :disabled="locked || list.page * list.perPage >= list.total"
-                  class="adm-btn adm-btn--secondary adm-btn--sm"
-                  @click="move(1)"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </nav>
-          </template>
-        </div>
-
-        <div v-if="mode || historyRuleId" class="adm-stack min-w-0">
-          <AdminCard
-            v-if="mode"
-            :title="formTitle"
-            description="El motivo y la fecha de fin son obligatorios. Una regla dura como máximo 180 días y nunca destaca productos que no se pueden vender."
-          >
-            <form
-              :id="prefix + '-form'"
-              ref="formRef"
-              data-merchandising-form
-              class="adm-stack"
-              @submit.prevent="submit"
-            >
-              <div v-if="conflict" data-merchandising-conflict role="alert" class="adm-stack">
-                <UAlert
-                  color="warning"
-                  variant="subtle"
-                  icon="i-lucide-triangle-alert"
-                  title="Otra persona ha cambiado esta regla"
-                  description="Hay un conflicto de versión: la regla se modificó o se retiró mientras la editabas. Carga la versión actual para continuar."
-                />
-                <div>
-                  <button
-                    data-merchandising-conflict-reload
-                    type="button"
-                    :disabled="working || looking || reloadingConflict"
-                    class="adm-btn adm-btn--secondary"
-                    @click="reloadConflict"
-                  >
-                    Cargar la versión actual
-                  </button>
-                </div>
-              </div>
-
-              <template v-if="mode === 'save'">
-                <div class="adm-field">
-                  <label :for="prefix + '-term'" class="adm-label">Cuando el cliente busca</label>
-                  <input
-                    :id="prefix + '-term'"
-                    v-model="term"
-                    data-merchandising-term
-                    maxlength="160"
-                    required
-                    :disabled="locked"
-                    class="w-full min-w-0"
-                  />
-                </div>
-
-                <div class="adm-field">
-                  <label :for="prefix + '-kind'" class="adm-label">Qué hace la regla</label>
-                  <select
-                    :id="prefix + '-kind'"
-                    v-model="kind"
-                    data-merchandising-kind
-                    :disabled="locked"
-                    class="w-full min-w-0"
-                  >
-                    <option value="boost">Subir un producto en los resultados</option>
-                    <option value="bury">Bajar un producto en los resultados</option>
-                    <option value="redirect">Llevar la búsqueda a otra página de la tienda</option>
-                  </select>
-                </div>
-
-                <template v-if="kind !== 'redirect'">
-                  <div class="adm-field">
-                    <label :for="prefix + '-product'" class="adm-label">Identificador del producto publicado</label>
-                    <input
-                      :id="prefix + '-product'"
-                      v-model="productId"
-                      data-merchandising-product-id
-                      required
-                      :disabled="locked"
-                      placeholder="10000000-0000-4000-8000-000000000001"
-                      class="w-full min-w-0"
-                    />
-                  </div>
-                  <div class="adm-field">
-                    <label :for="prefix + '-weight'" class="adm-label">Fuerza de la regla (1 a 10)</label>
-                    <input
-                      :id="prefix + '-weight'"
-                      v-model="weightInput"
-                      data-merchandising-weight
-                      type="number"
-                      min="1"
-                      max="10"
-                      required
-                      :disabled="locked"
-                      class="w-full min-w-0"
-                    />
-                  </div>
-                </template>
-
-                <div v-else class="adm-field">
-                  <label :for="prefix + '-redirect'" class="adm-label">Página de destino</label>
-                  <input
-                    :id="prefix + '-redirect'"
-                    v-model="redirectPath"
-                    data-merchandising-redirect-path
-                    maxlength="300"
-                    required
-                    :aria-describedby="prefix + '-redirect-help'"
-                    :disabled="locked"
-                    placeholder="/catalogo?familia=desinfeccion"
-                    class="w-full min-w-0"
-                  />
-                  <p :id="prefix + '-redirect-help'" class="adm-help">
-                    Solo páginas de la tienda: /catalogo, /contenido, /recursos o /producto/nombre-del-producto.
-                  </p>
-                </div>
-
-                <div class="adm-form-grid">
-                  <div class="adm-field">
-                    <label :for="prefix + '-valid-from'" class="adm-label">Empieza</label>
-                    <input
-                      :id="prefix + '-valid-from'"
-                      v-model="validFrom"
-                      data-merchandising-valid-from
-                      required
-                      :disabled="locked"
-                      placeholder="2026-10-29T00:00:00Z"
-                      class="w-full min-w-0"
-                    />
-                  </div>
-                  <div class="adm-field">
-                    <label :for="prefix + '-valid-until'" class="adm-label">Termina</label>
-                    <input
-                      :id="prefix + '-valid-until'"
-                      v-model="validUntil"
-                      data-merchandising-valid-until
-                      required
-                      :disabled="locked"
-                      placeholder="2026-12-29T00:00:00Z"
-                      class="w-full min-w-0"
-                    />
-                  </div>
-                </div>
-                <p class="adm-help">
-                  Fechas en hora universal con el formato del ejemplo (año-mes-díaThora:minuto:segundoZ).
+          <ol v-else-if="historyStatus === 'success'" class="adm-list">
+            <li v-for="rev in historyItems" :key="rev.version">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  {{ adminDate(rev.updatedAt, true) }}
+                  <AdminBadge :tone="STATE_TONES[rev.state]">{{ stateLabel(rev.state) }}</AdminBadge>
                 </p>
-              </template>
-
-              <p v-else>
-                Vas a retirar la regla de <strong>{{ target?.term }}</strong
-                >. No se puede deshacer y queda anotado en sus cambios.
-              </p>
-
-              <div class="adm-field">
-                <label :for="prefix + '-reason'" class="adm-label">Motivo</label>
-                <textarea
-                  :id="prefix + '-reason'"
-                  v-model="reason"
-                  data-merchandising-reason
-                  required
-                  maxlength="500"
-                  :aria-describedby="prefix + '-reason-help'"
-                  :disabled="locked"
-                  class="w-full min-w-0"
-                />
-                <p :id="prefix + '-reason-help'" class="adm-help">Obligatorio, entre 3 y 500 caracteres.</p>
+                <p>
+                  {{ kindLabel(rev.kind) }} ·
+                  <template v-if="rev.kind === 'redirect'">{{ rev.redirectPath }}</template>
+                  <template v-else>producto {{ shortId(rev.productId) }} · fuerza {{ rev.weight }}</template>
+                </p>
+                <p>Motivo: {{ rev.reason }}</p>
+                <p class="adm-help">
+                  Del {{ adminDate(rev.validFrom) }} al {{ adminDate(rev.validUntil) }} · cambio n.º {{ rev.version }} ·
+                  por el usuario {{ shortId(rev.authorId) }}
+                </p>
               </div>
-            </form>
-            <template #footer>
-              <button type="button" :disabled="locked" class="adm-btn adm-btn--secondary" @click="clearForm">
-                Cancelar
-              </button>
-              <button
-                data-merchandising-submit
-                type="submit"
-                :form="prefix + '-form'"
-                :disabled="locked"
-                class="adm-btn"
-                :class="mode === 'retire' ? 'adm-btn--danger' : 'adm-btn--primary'"
-              >
-                {{
-                  working
-                    ? 'Enviando…'
-                    : mode === 'retire'
-                      ? 'Confirmar retirada'
-                      : target
-                        ? 'Guardar cambios'
-                        : 'Crear regla'
-                }}
-              </button>
-            </template>
-          </AdminCard>
-
-          <section v-if="historyRuleId" data-merchandising-history aria-label="Historial de la regla" class="adm-card">
-            <div class="adm-card__head">
-              <div class="min-w-0">
-                <h2 class="adm-card__title">Cambios de la regla</h2>
-                <p class="adm-card__hint">{{ historyTerm }}</p>
-              </div>
-              <button
-                data-merchandising-history-close
-                type="button"
-                class="adm-btn adm-btn--ghost adm-btn--sm"
-                @click="closeHistory"
-              >
-                Cerrar
-              </button>
-            </div>
-            <div class="adm-card__body adm-card__body--flush">
-              <div v-if="historyStatus === 'pending'" class="adm-table-skeleton" role="status" aria-busy="true">
-                <span class="sr-only">Cargando los cambios…</span>
-                <div v-for="row in 3" :key="row"><i /><i /></div>
-              </div>
-              <div v-else-if="historyStatus === 'error'" role="alert">
-                <AdminEmptyState variant="error" compact title="No se ha podido cargar el historial de la regla">
-                  <button
-                    data-merchandising-history-retry
-                    type="button"
-                    class="adm-btn adm-btn--secondary"
-                    @click="loadHistory(historyRuleId)"
-                  >
-                    <UIcon name="i-lucide-rotate-cw" class="size-4 shrink-0" />Reintentar
-                  </button>
-                </AdminEmptyState>
-              </div>
-              <ol v-else-if="historyStatus === 'success'" class="adm-list">
-                <li v-for="rev in historyItems" :key="rev.version">
-                  <div class="min-w-0 flex-1">
-                    <p class="adm-list__title">
-                      Versión {{ rev.version }}
-                      <AdminBadge :tone="STATE_TONES[rev.state]">{{ stateLabel(rev.state) }}</AdminBadge>
-                    </p>
-                    <p>
-                      {{ kindLabel(rev.kind) }} ·
-                      <template v-if="rev.kind === 'redirect'">{{ rev.redirectPath }}</template>
-                      <template v-else>producto {{ shortId(rev.productId) }} · peso {{ rev.weight }}</template>
-                    </p>
-                    <p>Motivo: {{ rev.reason }}</p>
-                    <p class="adm-help">
-                      Del {{ adminDate(rev.validFrom) }} al {{ adminDate(rev.validUntil) }} · cambiado el
-                      {{ adminDate(rev.updatedAt, true) }} por {{ shortId(rev.authorId) }}
-                    </p>
-                  </div>
-                </li>
-              </ol>
-            </div>
-          </section>
+            </li>
+          </ol>
         </div>
-      </div>
+        <template #footer>
+          <button
+            data-merchandising-history-close
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            @click="closeHistory"
+          >
+            Cerrar
+          </button>
+        </template>
+      </AdminDrawer>
     </template>
   </section>
 </template>

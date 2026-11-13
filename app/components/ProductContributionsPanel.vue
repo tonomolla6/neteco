@@ -52,7 +52,8 @@ const loading = ref(false),
   pendingLocal = ref(false),
   revoked = ref(false),
   message = ref(''),
-  sent = ref(false)
+  sent = ref(false),
+  secondFactorRejected = ref(false)
 type Intent = {
   action: ProductContributionReceipt['action']
   target: string | null
@@ -126,6 +127,7 @@ watch(
   () => {
     purge()
     revoked.value = false
+    secondFactorRejected.value = false
   },
   { flush: 'sync' }
 )
@@ -150,6 +152,8 @@ function failure(error: unknown, generation: number, ambiguous = false) {
   if ([401, 403].includes(Number(status(error)))) {
     purge()
     revoked.value = true
+    secondFactorRejected.value =
+      (error as { data?: { error?: { code?: unknown } } } | null)?.data?.error?.code === 'mfa_required'
     message.value = 'La autorización ha cambiado. No se conserva contenido privado.'
     return
   }
@@ -466,43 +470,84 @@ const ADMIN_ACTIONS: Record<string, string> = {
   submit: 'Enviar aportación',
   reply: 'Enviar réplica'
 }
+const adminFormId = useId()
+/** La revisión se hace en un panel lateral; con un envío sin confirmar no se puede descartar. */
+const adminDrawer = computed({
+  get: () => adminView.value && (selected.value !== null || intent.value !== null),
+  set: (open: boolean) => {
+    if (open || loading.value || preparing.value) return
+    if (intent.value) {
+      if (sent.value) return
+      cancelReview()
+    }
+    selected.value = null
+  }
+})
+function adminRowClick(item: ProductContributionSnapshot, event: MouseEvent) {
+  if ((event.target as HTMLElement).closest('a,button,input,label,select')) return
+  if (item.capabilities.canModerate || item.capabilities.canReply) select(item)
+}
+/** Se pide el día; se guarda a mediodía para que no cambie de fecha al mostrarse en hora peninsular. */
+function adminSetDueDay(event: Event) {
+  const day = (event.target as HTMLInputElement).value
+  dueAt.value = day ? `${day}T12:00` : ''
+}
+const ADMIN_FIELDS: Array<[string, string]> = [
+  ['title', 'Título'],
+  ['body', 'Contenido'],
+  ['score', 'Valoración'],
+  ['reason', 'Motivo'],
+  ['reviewReference', 'Referencia de la revisión'],
+  ['slaDueAt', 'Fecha de seguimiento']
+]
+const adminReviewedFields = computed(() => {
+  if (!intent.value) return []
+  const value = intent.value.body as Record<string, unknown>
+  return ADMIN_FIELDS.flatMap(([key, label]) => {
+    const raw = value[key]
+    if (typeof raw !== 'string' && typeof raw !== 'number') return []
+    const text = key === 'slaDueAt' ? adminDate(raw) : key === 'score' ? `${raw} de 5` : String(raw)
+    return [{ label, value: text }]
+  })
+})
 const adminMessageTone = computed(() =>
   message.value.startsWith('Aportación confirmada') ? 'success' : revoked.value ? 'error' : 'warning'
 )
 </script>
 <template>
   <section v-if="adminView" aria-label="Moderación de aportaciones de productos" class="adm-stack min-w-0">
-    <UAlert
-      v-if="message"
-      role="status"
-      aria-live="polite"
-      :color="adminMessageTone"
-      variant="subtle"
-      :icon="adminMessageTone === 'success' ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
-      :title="message"
-    />
-    <AdminEmptyState
-      v-if="!active"
-      role="status"
-      icon="i-lucide-lock"
-      title="No puedes ver las reseñas y preguntas ahora mismo"
-      description="La consulta no está disponible con la autorización actual. Comprueba que tu cuenta tiene permiso de atención al cliente y la verificación en dos pasos activa."
-    />
-    <div
-      v-else-if="privateEnabled"
-      class="grid items-start gap-5"
-      :class="(selected || intent) && 'xl:grid-cols-[minmax(0,1fr)_26rem]'"
-    >
-      <AdminCard
-        title="Reseñas y preguntas recibidas"
-        description="Nada se publica en la tienda hasta que alguien del equipo lo revisa."
-        flush
-      >
-        <template #actions>
-          <button type="button" class="adm-btn adm-btn--primary" :disabled="busy" @click="loadPrivate(1)">
-            Consultar cola de moderación
-          </button>
-        </template>
+    <AdminCard v-if="!active">
+      <AdminEmptyState
+        v-if="secondFactorRejected"
+        role="status"
+        icon="i-lucide-shield-check"
+        title="Hace falta la verificación en dos pasos"
+        description="Por seguridad, las reseñas y preguntas de clientes solo se pueden consultar con la verificación en dos pasos activada en tu cuenta. En la demostración pública no está disponible."
+      />
+      <AdminEmptyState
+        v-else
+        role="status"
+        icon="i-lucide-lock"
+        title="No puedes ver las reseñas y preguntas ahora mismo"
+        description="Comprueba que tu cuenta tiene permiso de atención al cliente y el correo verificado. Si acabas de cambiar algo en tu cuenta, vuelve a entrar."
+      />
+    </AdminCard>
+    <template v-else-if="privateEnabled">
+      <AdminPageActions>
+        <button type="button" class="adm-btn adm-btn--primary" :disabled="busy" @click="loadPrivate(1)">
+          <UIcon name="i-lucide-rotate-cw" class="size-4" />{{ adminLoaded ? 'Actualizar' : 'Consultar' }}
+        </button>
+      </AdminPageActions>
+      <UAlert
+        v-if="message && !adminDrawer"
+        role="status"
+        aria-live="polite"
+        :color="adminMessageTone"
+        variant="subtle"
+        :icon="adminMessageTone === 'success' ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+        :title="message"
+      />
+      <AdminCard flush>
         <div v-if="items.length" class="adm-tablecard__bar">
           <AdminToolbar v-model:search="adminSearch" placeholder="Buscar en esta página…">
             <AdminFilters v-model="adminState" :options="adminStateOptions" label="Filtrar por estado" />
@@ -514,13 +559,19 @@ const adminMessageTone = computed(() =>
         <AdminEmptyState
           v-else-if="!items.length"
           icon="i-lucide-message-square-text"
-          :title="adminLoaded ? 'No hay aportaciones en esta página' : 'Consulta la cola para ver las aportaciones'"
+          :title="
+            adminLoaded ? 'No hay reseñas ni preguntas por revisar' : 'Consulta las reseñas y preguntas recibidas'
+          "
           :description="
             adminLoaded
-              ? 'Vuelve a consultar la cola para ver si han llegado nuevas.'
+              ? 'Vuelve a consultar más tarde para ver si han llegado nuevas.'
               : 'Por privacidad, las reseñas y preguntas de clientes solo se cargan cuando lo pides.'
           "
-        />
+        >
+          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="loadPrivate(1)">
+            {{ adminLoaded ? 'Volver a consultar' : 'Consultar ahora' }}
+          </button>
+        </AdminEmptyState>
         <AdminEmptyState
           v-else-if="!adminItems.length"
           variant="filtered"
@@ -544,7 +595,13 @@ const adminMessageTone = computed(() =>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="item in adminItems" :key="item.id" :data-selected="selected?.id === item.id || undefined">
+              <tr
+                v-for="item in adminItems"
+                :key="item.id"
+                :data-selected="selected?.id === item.id || undefined"
+                :class="(item.capabilities.canModerate || item.capabilities.canReply) && 'cursor-pointer'"
+                @click="adminRowClick(item, $event)"
+              >
                 <td class="min-w-0 max-w-md break-words">
                   <p class="font-semibold text-[var(--text-strong)]">{{ item.title }}</p>
                   <p class="adm-help line-clamp-2 whitespace-pre-wrap">{{ item.body }}</p>
@@ -570,7 +627,7 @@ const adminMessageTone = computed(() =>
                     :disabled="busy"
                     @click="select(item)"
                   >
-                    Revisar aportación
+                    Revisar
                   </button>
                 </td>
               </tr>
@@ -603,153 +660,170 @@ const adminMessageTone = computed(() =>
         </template>
       </AdminCard>
 
-      <AdminCard v-if="selected && !intent" :title="`Revisar: ${selected.title}`">
-        <div class="adm-stack">
-          <div class="break-words">
-            <p class="adm-help">
-              {{ selected.kind === 'question' ? 'Pregunta' : 'Reseña' }} · {{ originLabel(selected.origin) }} ·
-              {{ adminDate(selected.createdAt, true) }}
-            </p>
-            <p class="mt-2 whitespace-pre-wrap">{{ selected.body }}</p>
-            <p v-if="selected.answer" class="mt-2 whitespace-pre-wrap">
-              <strong>Respuesta del equipo:</strong> {{ selected.answer }}
-            </p>
-            <p v-if="selected.reply" class="mt-2 whitespace-pre-wrap">
-              <strong>Réplica del cliente:</strong> {{ selected.reply }}
-            </p>
-            <p v-if="selected.kind === 'question'" class="adm-help mt-2">
+      <AdminDrawer
+        v-model:open="adminDrawer"
+        :title="intent ? 'Confirma el cambio' : (selected?.title ?? 'Revisar')"
+        :description="
+          !intent && selected
+            ? `${selected.kind === 'question' ? 'Pregunta' : 'Reseña'} · ${originLabel(selected.origin)} · ${adminDate(selected.createdAt, true)}`
+            : undefined
+        "
+      >
+        <div class="adm-stack min-w-0">
+          <UAlert
+            v-if="message"
+            role="status"
+            aria-live="polite"
+            :color="adminMessageTone"
+            variant="subtle"
+            :icon="adminMessageTone === 'success' ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+            :title="message"
+          />
+          <div v-if="intent" class="adm-stack" aria-live="polite">
+            <p>
+              <strong>{{ ADMIN_ACTIONS[intent.action] ?? adminHumanize(intent.action) }}.</strong>
               {{
-                selected.slaDueAt
-                  ? `Seguimiento acordado: ${adminDate(selected.slaDueAt, true)}`
-                  : 'Sin fecha de seguimiento acordada.'
+                intent.action === 'submit' || intent.action === 'reply'
+                  ? 'El contenido quedará pendiente de moderación.'
+                  : 'Lo que se ve en la tienda cambiará según esta revisión.'
               }}
             </p>
-          </div>
-          <form data-contribution-review @submit.prevent="prepareReview">
-            <fieldset :disabled="busy" class="adm-stack">
-              <legend class="sr-only">Revisión de {{ selected.title }}</legend>
-              <AdminFormField v-slot="{ id }" label="Qué quieres hacer">
-                <select :id="id" v-model="action" data-contribution-action class="w-full">
-                  <option value="publish">Publicar tal como está</option>
-                  <option v-if="selected.kind === 'question'" value="answer">Responder y publicar</option>
-                  <option v-if="selected.kind === 'question'" value="close">Cerrar la pregunta</option>
-                  <option value="withdraw">Retirar de la tienda</option>
-                </select>
-              </AdminFormField>
-              <AdminFormField v-if="action === 'answer'" v-slot="{ id }" label="Respuesta del equipo" required>
-                <textarea
-                  :id="id"
-                  v-model="answer"
-                  data-contribution-answer
-                  required
-                  minlength="10"
-                  maxlength="3000"
-                  rows="4"
-                  class="w-full"
-                />
-              </AdminFormField>
-              <AdminFormField
-                v-slot="{ id }"
-                label="Motivo"
-                help="Queda guardado en el registro de actividad. Mínimo 10 caracteres."
-                required
-              >
-                <textarea
-                  :id="id"
-                  v-model="reason"
-                  data-contribution-reason
-                  required
-                  minlength="10"
-                  maxlength="500"
-                  class="w-full"
-                />
-              </AdminFormField>
-              <AdminFormField
-                v-if="action === 'publish' || action === 'answer'"
-                v-slot="{ id }"
-                label="Referencia de la revisión"
-                help="Documento o procedimiento en el que te has basado."
-                required
-              >
-                <input
-                  :id="id"
-                  v-model="reference"
-                  data-contribution-reference
-                  required
-                  minlength="3"
-                  maxlength="200"
-                  class="w-full"
-                />
-              </AdminFormField>
-              <AdminFormField
-                v-if="action === 'publish' && selected.kind === 'question'"
-                v-slot="{ id }"
-                label="Fecha de seguimiento (opcional)"
-                help="En hora universal (UTC)."
-              >
-                <input :id="id" v-model="dueAt" type="datetime-local" class="w-full" />
-              </AdminFormField>
-              <div class="flex flex-wrap justify-end gap-2">
-                <button type="button" class="adm-btn adm-btn--secondary" @click="selected = null">Cancelar</button>
-                <button type="submit" class="adm-btn adm-btn--primary">Revisar cambios</button>
+            <dl class="grid gap-3 break-words">
+              <div v-for="field in adminReviewedFields" :key="field.label">
+                <dt class="adm-help">{{ field.label }}</dt>
+                <dd class="whitespace-pre-wrap text-[var(--text-strong)]">{{ field.value }}</dd>
               </div>
-            </fieldset>
-          </form>
-        </div>
-      </AdminCard>
-
-      <AdminCard v-if="intent" title="Confirma el cambio" aria-live="polite">
-        <div class="adm-stack">
-          <p>
-            <strong>{{ ADMIN_ACTIONS[intent.action] ?? adminHumanize(intent.action) }}.</strong>
-            {{
-              intent.action === 'submit' || intent.action === 'reply'
-                ? 'El contenido quedará pendiente de moderación.'
-                : 'Lo que se ve en la tienda cambiará según esta revisión.'
-            }}
-          </p>
-          <dl class="grid gap-3 break-words">
-            <div v-for="field in reviewedFields" :key="field.label">
-              <dt class="adm-help">{{ field.label }}</dt>
-              <dd class="whitespace-pre-wrap text-[var(--text-strong)]">{{ field.value }}</dd>
+            </dl>
+            <p v-if="!sent" class="adm-help">
+              Comprueba el contenido antes de confirmar. No afecta a pagos ni a existencias, y no envía correos.
+            </p>
+          </div>
+          <template v-else-if="selected">
+            <div class="break-words">
+              <p v-if="selected.score !== null" class="adm-help">Valoración: {{ selected.score }} de 5</p>
+              <p class="whitespace-pre-wrap">{{ selected.body }}</p>
+              <p v-if="selected.answer" class="mt-2 whitespace-pre-wrap">
+                <strong>Respuesta del equipo:</strong> {{ selected.answer }}
+              </p>
+              <p v-if="selected.reply" class="mt-2 whitespace-pre-wrap">
+                <strong>Réplica del cliente:</strong> {{ selected.reply }}
+              </p>
+              <p v-if="selected.kind === 'question'" class="adm-help mt-2">
+                {{
+                  selected.slaDueAt
+                    ? `Seguimiento acordado: ${adminDate(selected.slaDueAt)}`
+                    : 'Sin fecha de seguimiento acordada.'
+                }}
+              </p>
             </div>
-          </dl>
-          <p v-if="!sent" class="adm-help">
-            Comprueba el contenido antes de confirmar. No afecta a pagos ni a existencias, y no envía correos.
-          </p>
+            <form :id="adminFormId" data-contribution-review @submit.prevent="prepareReview">
+              <fieldset :disabled="busy" class="adm-stack">
+                <legend class="sr-only">Revisión de {{ selected.title }}</legend>
+                <AdminFormField v-slot="{ id }" label="Qué quieres hacer">
+                  <select :id="id" v-model="action" data-contribution-action class="w-full">
+                    <option value="publish">Publicar tal como está</option>
+                    <option v-if="selected.kind === 'question'" value="answer">Responder y publicar</option>
+                    <option v-if="selected.kind === 'question'" value="close">Cerrar la pregunta</option>
+                    <option value="withdraw">Retirar de la tienda</option>
+                  </select>
+                </AdminFormField>
+                <AdminFormField v-if="action === 'answer'" v-slot="{ id }" label="Respuesta del equipo" required>
+                  <textarea
+                    :id="id"
+                    v-model="answer"
+                    data-contribution-answer
+                    required
+                    minlength="10"
+                    maxlength="3000"
+                    rows="4"
+                    class="w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Motivo"
+                  help="Queda guardado en el registro de actividad. Mínimo 10 caracteres."
+                  required
+                >
+                  <textarea
+                    :id="id"
+                    v-model="reason"
+                    data-contribution-reason
+                    required
+                    minlength="10"
+                    maxlength="500"
+                    class="w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField
+                  v-if="action === 'publish' || action === 'answer'"
+                  v-slot="{ id }"
+                  label="Referencia de la revisión"
+                  help="Documento o procedimiento en el que te has basado."
+                  required
+                >
+                  <input
+                    :id="id"
+                    v-model="reference"
+                    data-contribution-reference
+                    required
+                    minlength="3"
+                    maxlength="200"
+                    class="w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField
+                  v-if="action === 'publish' && selected.kind === 'question'"
+                  v-slot="{ id }"
+                  label="Fecha de seguimiento (opcional)"
+                  help="Día en el que el equipo volverá a revisar esta pregunta."
+                >
+                  <input :id="id" :value="dueAt.slice(0, 10)" type="date" class="w-full" @input="adminSetDueDay" />
+                </AdminFormField>
+              </fieldset>
+            </form>
+          </template>
         </div>
         <template #footer>
-          <button
-            v-if="!sent"
-            type="button"
-            class="adm-btn adm-btn--secondary"
-            :disabled="loading"
-            @click="cancelReview"
-          >
-            Volver a editar
-          </button>
-          <button
-            v-if="!sent"
-            type="button"
-            class="adm-btn adm-btn--primary"
-            :disabled="loading || pending"
-            @click="send"
-          >
-            Confirmar aportación
-          </button>
-          <button
-            v-if="sent"
-            type="button"
-            class="adm-btn adm-btn--primary"
-            :disabled="loading || pending"
-            @click="recover"
-          >
-            Comprobar aportación
-          </button>
+          <template v-if="intent">
+            <button
+              v-if="!sent"
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              :disabled="loading"
+              @click="cancelReview"
+            >
+              Volver a editar
+            </button>
+            <button
+              v-if="!sent"
+              type="button"
+              class="adm-btn adm-btn--primary"
+              :disabled="loading || pending"
+              @click="send"
+            >
+              Confirmar
+            </button>
+            <button
+              v-if="sent"
+              type="button"
+              class="adm-btn adm-btn--primary"
+              :disabled="loading || pending"
+              @click="recover"
+            >
+              Comprobar si se ha guardado
+            </button>
+          </template>
+          <template v-else>
+            <button type="button" class="adm-btn adm-btn--secondary" @click="selected = null">Cancelar</button>
+            <button type="submit" :form="adminFormId" class="adm-btn adm-btn--primary" :disabled="busy">
+              Revisar cambios
+            </button>
+          </template>
         </template>
-      </AdminCard>
-    </div>
-    <p v-if="loading || preparing" role="status" class="adm-help">Comprobando…</p>
+      </AdminDrawer>
+    </template>
+    <p v-if="loading || preparing" role="status" class="sr-only">Comprobando…</p>
   </section>
   <section
     v-else

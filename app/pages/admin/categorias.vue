@@ -82,7 +82,7 @@ const TABS = [
   { value: 'familias', label: 'Familias' },
   { value: 'caracteristicas', label: 'Características por familia' }
 ]
-const managed = ref<{ id: number } | null>(null)
+const managed = ref<{ id: number; action?: 'edit' | 'retire' } | null>(null)
 const validTree = computed(() => {
   if (cloudflare) return privateView.value !== null
   if (!Array.isArray(catData.value?.roots) || !Array.isArray(catData.value?.flat)) return false
@@ -396,11 +396,17 @@ watch([canCreate, canEdit, canDelete], ([create, edit, remove]) => {
 
       <AdminTabs v-if="cloudflare && canRead" v-model="tab" :tabs="TABS" label="Apartados de familias" />
 
-      <div
-        v-show="tab === 'familias'"
-        class="grid items-start gap-5"
-        :class="cloudflare && 'xl:grid-cols-[minmax(0,1fr)_24rem]'"
-      >
+      <div v-show="tab === 'familias'" class="adm-stack">
+        <CategoryCrudEditor
+          v-if="cloudflare"
+          :view="catData"
+          :read-status="fetchStatus"
+          :runtime="runtime"
+          :authorize="privateCategoryAuthority"
+          :refresh="reload"
+          :focus="managed"
+          :header-actions="tab === 'familias'"
+        />
         <div class="adm-card adm-tablecard min-w-0">
           <div v-if="canRead" class="adm-tablecard__bar">
             <div class="adm-toolbar" role="search">
@@ -486,7 +492,7 @@ watch([canCreate, canEdit, canDelete], ([create, edit, remove]) => {
               canCreate
                 ? 'Las familias organizan el catálogo y generan el menú de la tienda. Crea la primera para empezar.'
                 : cloudflare && privateCategoryAuthority() && hasCapability('categoryCreate')
-                  ? 'Crea la primera familia desde el panel de la derecha. Se guardará como borrador hasta que la publiques.'
+                  ? 'Crea la primera con «Nueva familia». Se guardará como borrador hasta que la publiques.'
                   : 'No hay familias que mostrar. Tu sesión no permite crear familias.'
             "
           >
@@ -540,12 +546,20 @@ watch([canCreate, canEdit, canDelete], ([create, edit, remove]) => {
 
               <div v-if="canEdit || canDelete || canManage" class="flex shrink-0 gap-0.5">
                 <AdminButton
-                  v-if="canManage"
+                  v-if="canManage && hasCapability('categoryUpdate') && row.status !== 'discontinued'"
                   variant="ghost"
                   size="sm"
                   icon="i-lucide-pencil"
-                  :label="`Gestionar ${row.name}`"
-                  @click="managed = { id: row.id }"
+                  :label="`Editar ${row.name}`"
+                  @click="managed = { id: row.id, action: 'edit' }"
+                />
+                <AdminButton
+                  v-if="canManage && hasCapability('categoryDelete') && row.status !== 'discontinued'"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-archive"
+                  :label="`Retirar ${row.name}`"
+                  @click="managed = { id: row.id, action: 'retire' }"
                 />
                 <AdminButton
                   v-if="canEdit"
@@ -583,16 +597,6 @@ watch([canCreate, canEdit, canDelete], ([create, edit, remove]) => {
             <template v-else>El recuento suma los productos de sus subfamilias.</template>
           </p>
         </div>
-
-        <CategoryCrudEditor
-          v-if="cloudflare"
-          :view="catData"
-          :read-status="fetchStatus"
-          :runtime="runtime"
-          :authorize="privateCategoryAuthority"
-          :refresh="reload"
-          :focus="managed"
-        />
       </div>
 
       <div v-if="cloudflare" v-show="tab === 'caracteristicas'">
@@ -604,55 +608,63 @@ watch([canCreate, canEdit, canDelete], ([create, edit, remove]) => {
       </div>
 
       <!-- Alta -->
-      <UModal v-if="canCreate" v-model:open="creating" title="Nueva familia">
-        <template #body>
-          <form id="new-family" class="space-y-4" @submit.prevent="createCategory">
-            <UFormField label="Nombre" required>
-              <UInput v-model="createForm.name" class="w-full" placeholder="Por ejemplo: desengrasantes" />
-            </UFormField>
-            <UFormField label="Dentro de" hint="Déjalo en «familia principal» para crear una raíz del menú">
-              <USelect v-model="createForm.parentId" :items="parentOptions" class="w-full" />
-            </UFormField>
-          </form>
-        </template>
+      <AdminDrawer v-if="canCreate" v-model:open="creating" title="Nueva familia">
+        <form id="new-family" class="adm-stack" @submit.prevent="createCategory">
+          <AdminFormField v-slot="{ id }" label="Nombre" required>
+            <input :id="id" v-model="createForm.name" type="text" required placeholder="Por ejemplo: desengrasantes" />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Dentro de"
+            help="Déjalo en «familia principal» para crear una entrada nueva del menú."
+          >
+            <select :id="id" v-model="createForm.parentId">
+              <option v-for="option in parentOptions" :key="option.value ?? 'root'" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </AdminFormField>
+        </form>
         <template #footer>
-          <div class="flex w-full justify-end gap-2">
-            <AdminButton @click="creating = false">Cancelar</AdminButton>
-            <AdminButton variant="primary" type="submit" form="new-family" :loading="saving">Crear familia</AdminButton>
-          </div>
+          <AdminButton @click="creating = false">Cancelar</AdminButton>
+          <AdminButton variant="primary" type="submit" form="new-family" :loading="saving">Crear familia</AdminButton>
         </template>
-      </UModal>
+      </AdminDrawer>
 
       <!-- Editar -->
-      <UModal
+      <AdminDrawer
         v-if="canEdit"
         :open="Boolean(editing)"
-        title="Editar familia"
-        @update:open="(value) => !value && (editing = null)"
+        :title="`Editar «${editing?.name ?? ''}»`"
+        @update:open="(value: boolean) => !value && (editing = null)"
       >
-        <template #body>
-          <form v-if="editing" id="edit-family" class="space-y-4" @submit.prevent="saveEdit">
-            <UFormField label="Nombre" required>
-              <UInput v-model="editForm.name" class="w-full" />
-            </UFormField>
-            <UFormField label="Dentro de" hint="Al mover una familia se mueven también sus subfamilias y sus productos">
-              <USelect v-model="editForm.parentId" :items="moveOptions" class="w-full" />
-            </UFormField>
-            <p class="adm-help">
-              Número de familia en el programa de gestión: <span class="font-mono">{{ editing.id }}</span
-              >. No se puede cambiar porque enlaza con la importación del catálogo.
-            </p>
-          </form>
-        </template>
+        <form v-if="editing" id="edit-family" class="adm-stack" @submit.prevent="saveEdit">
+          <AdminFormField v-slot="{ id }" label="Nombre" required>
+            <input :id="id" v-model="editForm.name" type="text" required />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Dentro de"
+            help="Al mover una familia se mueven también sus subfamilias y sus productos."
+          >
+            <select :id="id" v-model="editForm.parentId">
+              <option v-for="option in moveOptions" :key="option.value ?? 'root'" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </AdminFormField>
+          <p class="adm-help">
+            Número de familia en el programa de gestión: {{ editing.id }}. No se puede cambiar porque enlaza con la
+            importación del catálogo.
+          </p>
+        </form>
         <template #footer>
-          <div class="flex w-full justify-end gap-2">
-            <AdminButton @click="editing = null">Cancelar</AdminButton>
-            <AdminButton variant="primary" type="submit" form="edit-family" :loading="saving"
-              >Guardar cambios</AdminButton
-            >
-          </div>
+          <AdminButton @click="editing = null">Cancelar</AdminButton>
+          <AdminButton variant="primary" type="submit" form="edit-family" :loading="saving"
+            >Guardar cambios</AdminButton
+          >
         </template>
-      </UModal>
+      </AdminDrawer>
 
       <!-- Eliminar -->
       <AdminConfirm

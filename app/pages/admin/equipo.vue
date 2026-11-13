@@ -32,14 +32,6 @@ const scopeKey = computed(() =>
   <AdminPage>
     <div class="adm-stack">
       <UAlert
-        v-if="runtime.public.serverRuntime !== 'cloudflare'"
-        role="status"
-        color="warning"
-        variant="subtle"
-        icon="i-lucide-info"
-        title="Las invitaciones no están disponibles en esta instalación"
-      />
-      <UAlert
         v-if="pending"
         role="status"
         aria-live="polite"

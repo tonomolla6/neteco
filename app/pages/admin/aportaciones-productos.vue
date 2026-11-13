@@ -39,7 +39,22 @@ const scope = computed(() =>
         title="Hay un cambio pendiente de confirmar"
         description="Comprueba que se ha guardado antes de continuar con otra aportación."
       />
+      <AdminCard v-if="runtime.public.serverRuntime !== 'cloudflare'">
+        <AdminEmptyState
+          icon="i-lucide-message-square-text"
+          title="Las reseñas y preguntas no se gestionan desde esta instalación"
+          description="Solo están disponibles en la tienda publicada."
+        />
+      </AdminCard>
+      <AdminCard v-else-if="ready && loggedIn && user?.mfaVerified !== true">
+        <AdminEmptyState
+          icon="i-lucide-shield-check"
+          title="Hace falta la verificación en dos pasos"
+          description="Por seguridad, las reseñas y preguntas de clientes solo se pueden consultar con la verificación en dos pasos activada en tu cuenta. En la demostración pública no está disponible."
+        />
+      </AdminCard>
       <AdminProductContributionsPanel
+        v-else
         :enabled="enabled"
         :scope-key="scope"
         :pending="false"
