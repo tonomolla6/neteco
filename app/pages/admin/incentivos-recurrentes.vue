@@ -16,29 +16,27 @@ function updateCompany() {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
-      <div class="flex flex-wrap items-center gap-3">
-        <label for="company-picker" class="text-xs font-semibold text-slate-700">Identificador de Empresa B2B:</label>
-        <input
-          id="company-picker"
-          v-model="companyId"
-          data-test="company-input"
-          type="text"
-          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-mono"
-          placeholder="ej. comp-turia"
-          @keyup.enter="updateCompany"
-        />
-        <button
-          type="button"
-          class="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800"
-          @click="updateCompany"
-        >
-          Cargar empresa
-        </button>
+  <AdminPage>
+    <div class="adm-stack">
+      <div class="adm-card">
+        <div class="adm-card__body">
+          <div class="adm-toolbar">
+            <label for="company-picker" class="adm-label">Empresa</label>
+            <input
+              id="company-picker"
+              v-model="companyId"
+              data-test="company-input"
+              type="text"
+              class="adm-input w-auto min-w-0 flex-1 sm:max-w-xs"
+              placeholder="Identificador de la empresa, p. ej. comp-turia"
+              @keyup.enter="updateCompany"
+            />
+            <AdminButton icon="i-lucide-search" @click="updateCompany">Ver acuerdo</AdminButton>
+          </div>
+        </div>
       </div>
-    </div>
 
-    <AdminRecurringIncentivesPanel :key="appliedCompanyId" :company-id="appliedCompanyId" />
-  </div>
+      <AdminRecurringIncentivesPanel :key="appliedCompanyId" :company-id="appliedCompanyId" />
+    </div>
+  </AdminPage>
 </template>

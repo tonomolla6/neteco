@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   validateStrictNoSedeNoHierarchy,
   type CampaignOptimizationMetrics,
@@ -33,7 +33,7 @@ const togglingKillSwitch = ref<string | null>(null)
 
 function errorText(error: unknown, fallback: string): string {
   const c = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return c ? `${fallback} (${c})` : fallback
+  return c ? `${fallback}. Vuelve a intentarlo.` : fallback
 }
 
 async function loadData() {
@@ -56,7 +56,7 @@ async function loadData() {
       rules.value = rulesRes.rules
     }
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al cargar datos de optimización predictiva')
+    errorMessage.value = errorText(error, 'No se han podido cargar los datos de optimización')
   } finally {
     loading.value = false
   }
@@ -72,12 +72,12 @@ async function handleCreateRule() {
   })
 
   if (!check.valid) {
-    validationError.value = check.reason || 'Segmentación por sede o jerarquía prohibida en Neteco.'
+    validationError.value = check.reason || 'No se admite segmentar por sede ni por jerarquía.'
     return
   }
 
   if (maxDiscount.value > 50 || maxDiscount.value <= 0) {
-    validationError.value = 'El descuento máximo no puede superar el 50% por guardrails de margen.'
+    validationError.value = 'El descuento máximo debe estar entre el 1 % y el 50 % para proteger el margen.'
     return
   }
 
@@ -96,7 +96,7 @@ async function handleCreateRule() {
     })
 
     showModal.value = false
-    successMessage.value = 'Regla de optimización automática creada con guardrails activos.'
+    successMessage.value = 'Regla creada con sus límites activos.'
     ruleName.value = ''
     ruleId.value = ''
     await loadData()
@@ -117,19 +117,47 @@ async function handleToggleKillSwitch(rule: CampaignOptimizationRule) {
         active: nextState,
         reason: nextState
           ? 'Parada de emergencia activada desde el panel de control'
-          : 'Reactivación autorizada tras verificación de guardrails'
+          : 'Reactivación autorizada tras verificar los límites'
       }
     })
     rule.killSwitchActive = nextState
     rule.status = nextState ? 'killed' : 'active'
     successMessage.value = nextState
-      ? `Kill switch ACTIVADO para la regla ${rule.name}. Optimización y envíos detenidos inmediatamente.`
-      : `Kill switch DESACTIVADO para la regla ${rule.name}.`
+      ? `Parada de emergencia activada en «${rule.name}». La optimización y los envíos se han detenido.`
+      : `La regla «${rule.name}» vuelve a estar en marcha.`
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al cambiar estado del kill switch')
+    errorMessage.value = errorText(error, 'No se ha podido cambiar la parada de emergencia')
   } finally {
     togglingKillSwitch.value = null
   }
+}
+
+// Estado de interfaz: búsqueda y confirmación de la parada de emergencia.
+const search = ref('')
+const rows = computed(() => {
+  const term = search.value.toLowerCase()
+  return term ? rules.value.filter((rule) => rule.name.toLowerCase().includes(term)) : rules.value
+})
+const columns = [
+  { key: 'name', label: 'Regla', sortable: true },
+  { key: 'maxDiscountPercent', label: 'Descuento máximo', numeric: true, sortable: true },
+  { key: 'autoApprovalMaxDiscount', label: 'Sin revisión hasta', numeric: true, hideOnMobile: true },
+  { key: 'frequencyCapDays', label: 'Frecuencia', hideOnMobile: true },
+  { key: 'budgetCapCents', label: 'Presupuesto gastado', numeric: true },
+  { key: 'killSwitchActive', label: 'Estado' }
+]
+const signed = (value: string, amount: number) => (amount > 0 ? `+${value}` : value)
+const ruleToToggle = ref<CampaignOptimizationRule | null>(null)
+const confirmToggle = computed({
+  get: () => ruleToToggle.value !== null,
+  set: (open: boolean) => {
+    if (!open) ruleToToggle.value = null
+  }
+})
+async function confirmToggleRule() {
+  const rule = ruleToToggle.value
+  ruleToToggle.value = null
+  if (rule) await handleToggleKillSwitch(rule)
 }
 
 onMounted(() => {
@@ -138,297 +166,229 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto space-y-8" role="region" aria-label="Panel de Optimización Predictiva y Guardrails">
-    <!-- Header -->
-    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-          <span>Personalización Predictiva & Optimización de Campañas</span>
-          <span
-            class="text-xs font-semibold px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-          >
-            MKT-037 / MKT-038
-          </span>
-        </h1>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
-          Control de sesgo, incrementalidad A/B (Holdout vs Test), guardrails de margen y kill switch de emergencia.
-        </p>
-      </div>
-      <button
-        data-test="create-rule-btn"
-        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        @click="showModal = true"
-      >
-        Nueva Regla con Guardrails
-      </button>
-    </header>
+  <div class="adm-stack" role="region" aria-label="Panel de optimización predictiva y límites">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" data-test="create-rule-btn" @click="showModal = true">
+        Nueva regla
+      </AdminButton>
+    </AdminPageActions>
 
-    <!-- Alerts -->
-    <div v-if="errorMessage" data-test="error-alert" class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm">
-      {{ errorMessage }}
-    </div>
-    <div
+    <UAlert
+      v-if="errorMessage"
+      data-test="error-alert"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert
       v-if="successMessage"
       data-test="success-alert"
-      class="p-4 bg-emerald-50 border border-emerald-400 text-emerald-700 text-sm flex justify-between items-center"
-    >
-      <span>{{ successMessage }}</span>
-      <button class="text-emerald-700 hover:underline text-xs" @click="successMessage = ''">Cerrar</button>
-    </div>
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+      close
+      @update:open="successMessage = ''"
+    />
 
-    <!-- Loading State -->
-    <div v-if="loading" data-test="loading-state" class="py-12 text-center text-gray-500">
-      <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2"></div>
-      <p>Cargando telemetría de personalización y guardrails de campañas...</p>
+    <div v-if="loading" data-test="loading-state" class="adm-card adm-table-skeleton" aria-busy="true">
+      <span class="sr-only">Cargando resultados y reglas…</span>
+      <div v-for="row in 4" :key="row"><i /><i /><i /></div>
     </div>
 
     <template v-else>
-      <!-- Incremental Lift Cards (MKT-037) -->
-      <section aria-labelledby="metrics-heading" class="space-y-4">
-        <h2 id="metrics-heading" class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-          Incrementalidad A/B (Holdout vs Personalización Predictiva)
-        </h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div class="bg-white dark:bg-gray-800 p-5 rounded-lg border shadow-sm">
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase"
-              >Margen Incremental Ganado</span
-            >
-            <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-2">
-              +{{ ((metrics?.incrementalMarginLiftCents ?? 0) / 100).toFixed(2) }} €
-            </div>
-            <p class="text-xs text-gray-500 mt-1">Margen Test vs Grupo Holdout estático</p>
+      <section aria-labelledby="metrics-heading" class="adm-section">
+        <div class="adm-section__head">
+          <div class="min-w-0">
+            <h2 id="metrics-heading" class="adm-section__title">Resultado frente al grupo de control</h2>
+            <p class="adm-help">
+              Compara a los clientes que reciben ofertas personalizadas con un grupo que no las recibe.
+            </p>
           </div>
-
-          <div class="bg-white dark:bg-gray-800 p-5 rounded-lg border shadow-sm">
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Lift en Conversión (CVR)</span>
-            <div class="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-2">
-              +{{ (metrics?.conversionLiftPercent ?? 0).toFixed(1) }}%
-            </div>
-            <p class="text-xs text-gray-500 mt-1">Mejora relativa en tasa de compra</p>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 p-5 rounded-lg border shadow-sm">
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Sesiones Grupo Test</span>
-            <div class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-2">
-              {{ metrics?.testImpressions ?? 0 }}
-            </div>
-            <p class="text-xs text-gray-500 mt-1">{{ metrics?.testConversions ?? 0 }} conversiones realizadas</p>
-          </div>
-
-          <div class="bg-white dark:bg-gray-800 p-5 rounded-lg border shadow-sm">
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase"
-              >Sesiones Holdout (Control)</span
-            >
-            <div class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-2">
-              {{ metrics?.holdoutImpressions ?? 0 }}
-            </div>
-            <p class="text-xs text-gray-500 mt-1">{{ metrics?.holdoutConversions ?? 0 }} conversiones control</p>
-          </div>
+        </div>
+        <div class="adm-grid">
+          <AdminStat
+            label="Margen adicional conseguido"
+            :value="
+              signed(adminMoney(metrics?.incrementalMarginLiftCents ?? 0), metrics?.incrementalMarginLiftCents ?? 0)
+            "
+            hint="Frente al grupo de control"
+            icon="i-lucide-trending-up"
+          />
+          <AdminStat
+            label="Mejora en compras"
+            :value="
+              signed(
+                `${(metrics?.conversionLiftPercent ?? 0).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %`,
+                metrics?.conversionLiftPercent ?? 0
+              )
+            "
+            hint="Aumento relativo de visitas que acaban en pedido"
+            icon="i-lucide-shopping-cart"
+          />
+          <AdminStat
+            label="Visitas con personalización"
+            :value="(metrics?.testImpressions ?? 0).toLocaleString('es-ES')"
+            :hint="`${metrics?.testConversions ?? 0} pedidos`"
+            icon="i-lucide-sparkles"
+          />
+          <AdminStat
+            label="Visitas del grupo de control"
+            :value="(metrics?.holdoutImpressions ?? 0).toLocaleString('es-ES')"
+            :hint="`${metrics?.holdoutConversions ?? 0} pedidos`"
+            icon="i-lucide-users"
+          />
         </div>
       </section>
 
-      <!-- Optimization Rules & Guardrails Table (MKT-038) -->
-      <section aria-labelledby="rules-heading" class="space-y-4">
-        <div class="flex items-center justify-between">
-          <h2 id="rules-heading" class="text-lg font-semibold text-gray-800 dark:text-gray-200">
-            Reglas de Optimización con Guardrails Activos
-          </h2>
-          <span class="text-xs text-gray-500">Tope máximo: 50% desc · Frecuencia mín: 1 impacto/7d</span>
+      <section aria-labelledby="rules-heading" class="adm-section">
+        <div class="adm-section__head">
+          <div class="min-w-0">
+            <h2 id="rules-heading" class="adm-section__title">Reglas de optimización y sus límites</h2>
+            <p class="adm-help">
+              Ninguna regla puede superar el 50 % de descuento ni contactar al mismo cliente más de una vez por semana.
+            </p>
+          </div>
         </div>
 
-        <div
-          v-if="rules.length === 0"
-          data-test="empty-rules"
-          class="p-8 text-center bg-gray-50 dark:bg-gray-800 rounded-lg border border-dashed"
+        <div v-if="rules.length === 0" class="adm-card">
+          <AdminEmptyState
+            data-test="empty-rules"
+            icon="i-lucide-sliders-horizontal"
+            title="Todavía no hay reglas de optimización"
+            description="Crea una regla para ajustar las ofertas de una campaña dentro de unos límites seguros."
+          >
+            <AdminButton icon="i-lucide-plus" @click="showModal = true">Crear la primera regla</AdminButton>
+          </AdminEmptyState>
+        </div>
+
+        <AdminTable
+          v-else
+          :rows="rows"
+          :columns="columns"
+          :row-key="(row) => row.id"
+          :filtered="Boolean(search)"
+          @clear-filters="search = ''"
         >
-          <p class="text-gray-600 dark:text-gray-400">No hay reglas de optimización automáticas registradas.</p>
-          <button class="mt-3 text-sm text-indigo-600 hover:underline" @click="showModal = true">
-            Crear primera regla con guardrails
-          </button>
-        </div>
-
-        <div v-else class="overflow-x-auto bg-white dark:bg-gray-800 rounded-lg border shadow-sm">
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
-            <thead class="bg-gray-50 dark:bg-gray-700 text-gray-500 dark:text-gray-300">
-              <tr>
-                <th scope="col" class="px-4 py-3 text-left font-medium">Regla / Campaña</th>
-                <th scope="col" class="px-4 py-3 text-left font-medium">Tope Descuento</th>
-                <th scope="col" class="px-4 py-3 text-left font-medium">Auto-Aprobación</th>
-                <th scope="col" class="px-4 py-3 text-left font-medium">Cap Frecuencia</th>
-                <th scope="col" class="px-4 py-3 text-left font-medium">Presupuesto</th>
-                <th scope="col" class="px-4 py-3 text-left font-medium">Kill Switch</th>
-                <th scope="col" class="px-4 py-3 text-right font-medium">Acción</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-for="r in rules" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-750">
-                <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
-                  <div>{{ r.name }}</div>
-                  <div class="text-xs text-gray-500 font-mono">{{ r.id }} ({{ r.campaignId }})</div>
-                </td>
-                <td class="px-4 py-3 text-gray-700 dark:text-gray-300 font-semibold">
-                  Hasta {{ r.maxDiscountPercent }}%
-                </td>
-                <td class="px-4 py-3 text-gray-600 dark:text-gray-400">&le; {{ r.autoApprovalMaxDiscount }}% auto</td>
-                <td class="px-4 py-3 text-gray-600 dark:text-gray-400">1 impacto / {{ r.frequencyCapDays }} días</td>
-                <td class="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono">
-                  {{ (r.currentSpendCents / 100).toFixed(2) }} / {{ (r.budgetCapCents / 100).toFixed(2) }} €
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    :class="[
-                      'inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold',
-                      r.killSwitchActive
-                        ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-                    ]"
-                  >
-                    {{ r.killSwitchActive ? 'PARADA EMERGENCIA' : 'OPERATIVO' }}
-                  </span>
-                </td>
-                <td class="px-4 py-3 text-right">
-                  <button
-                    :data-test="'kill-switch-btn-' + r.id"
-                    :disabled="togglingKillSwitch === r.id"
-                    :class="[
-                      'px-3 py-1 text-xs font-medium rounded shadow-sm focus:outline-none',
-                      r.killSwitchActive
-                        ? 'bg-gray-200 hover:bg-gray-300 text-gray-800'
-                        : 'bg-red-600 hover:bg-red-700 text-white'
-                    ]"
-                    @click="handleToggleKillSwitch(r)"
-                  >
-                    {{ r.killSwitchActive ? 'Reanudar' : 'Activar Kill Switch' }}
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+          <template #toolbar>
+            <AdminToolbar v-model:search="search" placeholder="Buscar regla…" />
+          </template>
+          <template #cell-name="{ row }">
+            <p class="font-semibold text-[var(--text-strong)]">{{ row.name }}</p>
+            <p class="adm-help">Campaña {{ row.campaignId }}</p>
+          </template>
+          <template #cell-maxDiscountPercent="{ row }">{{ row.maxDiscountPercent }} %</template>
+          <template #cell-autoApprovalMaxDiscount="{ row }">{{ row.autoApprovalMaxDiscount }} %</template>
+          <template #cell-frequencyCapDays="{ row }">
+            1 contacto cada {{ row.frequencyCapDays }} {{ row.frequencyCapDays === 1 ? 'día' : 'días' }}
+          </template>
+          <template #cell-budgetCapCents="{ row }">
+            {{ adminMoney(row.currentSpendCents) }} de {{ adminMoney(row.budgetCapCents) }}
+          </template>
+          <template #cell-killSwitchActive="{ row }">
+            <AdminBadge :tone="row.killSwitchActive ? 'danger' : 'success'">
+              {{ row.killSwitchActive ? 'Detenida' : 'En marcha' }}
+            </AdminBadge>
+          </template>
+          <template #actions="{ row }">
+            <button
+              type="button"
+              class="adm-btn adm-btn--sm"
+              :class="row.killSwitchActive ? 'adm-btn--secondary' : 'adm-btn--danger-soft'"
+              :data-test="'kill-switch-btn-' + row.id"
+              :disabled="togglingKillSwitch === row.id"
+              @click="ruleToToggle = row"
+            >
+              {{ row.killSwitchActive ? 'Reanudar' : 'Detener' }}
+            </button>
+          </template>
+        </AdminTable>
       </section>
     </template>
 
-    <!-- Modal Create Rule -->
-    <div
-      v-if="showModal"
-      data-test="create-rule-modal"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-      role="dialog"
-      aria-modal="true"
+    <AdminDrawer
+      v-model:open="showModal"
+      title="Nueva regla de optimización"
+      description="La regla ajusta las ofertas de una campaña sin salirse de los límites que marques."
     >
-      <div class="bg-white dark:bg-gray-800 rounded-lg max-w-lg w-full p-6 space-y-4 shadow-xl">
-        <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">Nueva Regla con Guardrails</h3>
-
-        <div v-if="validationError" class="p-3 bg-red-50 text-red-700 text-sm rounded">
-          {{ validationError }}
-        </div>
-
-        <form class="space-y-4" @submit.prevent="handleCreateRule">
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Nombre de la Regla</label>
+      <div data-test="create-rule-modal" class="adm-stack">
+        <UAlert
+          v-if="validationError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="validationError"
+        />
+        <form id="predictive-rule-form" class="adm-stack" @submit.prevent="handleCreateRule">
+          <AdminFormField v-slot="{ id }" label="Nombre de la regla" required>
             <input
+              :id="id"
               v-model="ruleName"
               data-test="rule-name-input"
               type="text"
               required
-              class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border"
-              placeholder="Ej: Auto-tune Lavanderías Industriales Q4"
+              placeholder="Por ejemplo: lavanderías industriales, 4.º trimestre"
             />
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">ID Regla</label>
-              <input
-                v-model="ruleId"
-                type="text"
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border font-mono"
-                placeholder="rule-opt-01"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">ID Campaña Destino</label>
-              <input
-                v-model="campaignId"
-                type="text"
-                required
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border font-mono"
-                placeholder="camp-b2b-turia-vip"
-              />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-                >Tope Descuento Máximo (%)</label
-              >
-              <input
-                v-model.number="maxDiscount"
-                type="number"
-                min="1"
-                max="50"
-                required
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-                >Límite Auto-Aprobación (%)</label
-              >
-              <input
-                v-model.number="autoApprovalMaxDiscount"
-                type="number"
-                min="1"
-                max="50"
-                required
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border"
-              />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Cap Frecuencia (Días)</label>
-              <input
-                v-model.number="frequencyCapDays"
-                type="number"
-                min="1"
-                max="90"
-                required
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Presupuesto Límite (€)</label>
-              <input
-                v-model.number="budgetCapEur"
-                type="number"
-                min="10"
-                required
-                class="mt-1 block w-full rounded border-gray-300 shadow-sm text-sm p-2 border"
-              />
-            </div>
-          </div>
-
-          <div class="flex justify-end gap-3 pt-4 border-t">
-            <button
-              type="button"
-              class="px-4 py-2 border rounded text-sm text-gray-600 hover:bg-gray-50"
-              @click="showModal = false"
+          </AdminFormField>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Campaña" help="Código de la campaña a la que se aplica." required>
+              <input :id="id" v-model="campaignId" type="text" required placeholder="camp-b2b-turia-vip" />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Referencia de la regla"
+              help="Opcional. Si la dejas vacía se genera sola."
             >
-              Cancelar
-            </button>
-            <button
-              data-test="save-rule-btn"
-              type="submit"
-              class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-sm font-medium"
+              <input :id="id" v-model="ruleId" type="text" placeholder="rule-opt-01" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Descuento máximo (%)" required>
+              <input :id="id" v-model.number="maxDiscount" type="number" min="1" max="50" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Sin revisión hasta (%)"
+              help="Los descuentos mayores necesitan tu aprobación."
+              required
             >
-              Guardar Regla Activa
-            </button>
+              <input :id="id" v-model.number="autoApprovalMaxDiscount" type="number" min="1" max="50" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Días entre contactos"
+              help="Mínimo de días entre dos ofertas al mismo cliente."
+              required
+            >
+              <input :id="id" v-model.number="frequencyCapDays" type="number" min="1" max="90" required />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Presupuesto máximo (€)" required>
+              <input :id="id" v-model.number="budgetCapEur" type="number" min="10" required />
+            </AdminFormField>
           </div>
         </form>
       </div>
-    </div>
+      <template #footer>
+        <AdminButton @click="showModal = false">Cancelar</AdminButton>
+        <button data-test="save-rule-btn" type="submit" form="predictive-rule-form" class="adm-btn adm-btn--primary">
+          Guardar regla
+        </button>
+      </template>
+    </AdminDrawer>
+
+    <AdminConfirm
+      v-model:open="confirmToggle"
+      :title="ruleToToggle?.killSwitchActive ? 'Reanudar regla' : 'Detener regla'"
+      :description="
+        ruleToToggle?.killSwitchActive
+          ? `«${ruleToToggle?.name ?? ''}» volverá a ajustar ofertas y a enviar comunicaciones.`
+          : `«${ruleToToggle?.name ?? ''}» dejará de ajustar ofertas y de enviar comunicaciones de inmediato.`
+      "
+      :confirm-label="ruleToToggle?.killSwitchActive ? 'Reanudar' : 'Detener ahora'"
+      :danger="!ruleToToggle?.killSwitchActive"
+      @confirm="confirmToggleRule"
+    />
   </div>
 </template>

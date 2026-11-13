@@ -16,7 +16,7 @@ import {
 } from '~~/shared/marketing-modals'
 
 /**
- * Administration of marketing modals (MKT-009). Writes are frozen commands: the reviewed body and
+ * Administration of marketing modals. Writes are frozen commands: the reviewed body and
  * its Idempotency-Key are kept until the server confirms the receipt. An uncertain outcome is never
  * resent automatically; it must be verified first and then replayed with the exact same key.
  */
@@ -93,14 +93,13 @@ function errorCode(cause: unknown): string | undefined {
 }
 
 const FINAL_ERRORS: Record<string, string> = {
-  version_conflict: 'La modal ha cambiado desde que la abriste. Consulta de nuevo antes de guardar.',
-  idempotency_conflict:
-    'El comando no coincide con la clave registrada. Consulta de nuevo; no lo repitas con otra clave.',
-  code_immutable: 'El código de una modal no puede cambiarse.',
-  code_conflict: 'Ya existe una modal con ese código.',
-  modal_retired: 'Una modal retirada no puede modificarse.',
+  version_conflict: 'La ventana ha cambiado desde que la abriste. Consulta de nuevo antes de guardar.',
+  idempotency_conflict: 'Este cambio no coincide con el que ya se registró. Consulta de nuevo antes de repetirlo.',
+  code_immutable: 'El nombre interno de una ventana no puede cambiarse.',
+  code_conflict: 'Ya existe una ventana con ese nombre interno.',
+  modal_retired: 'Una ventana retirada no puede modificarse.',
   forbidden: 'No tienes permiso para esta operación.',
-  mfa_required: 'Verifica el segundo factor y consulta de nuevo.',
+  mfa_required: 'Confirma la verificación en dos pasos y consulta de nuevo.',
   unauthenticated: 'Inicia sesión y consulta de nuevo.',
   invalid_input: 'El servidor ha rechazado los datos. Revisa los campos y el motivo.',
   rate_limited: 'Hay demasiados intentos. Espera antes de volver a intentarlo.'
@@ -209,7 +208,7 @@ async function review() {
   formError.value = ''
   const parsed = adminMarketingModalInputSchema.safeParse(buildRaw())
   if (!parsed.success) {
-    formError.value = 'Revisa los campos: hay datos que no cumplen las reglas de la modal.'
+    formError.value = 'Revisa los campos: hay datos incompletos o que no cumplen las reglas de la ventana.'
     return
   }
   const raw = parsed.data
@@ -244,7 +243,7 @@ async function loadList() {
     if (!parsed.success) throw new Error('unconfirmed_list')
     list.value = parsed.data
   } catch (cause) {
-    loadError.value = apiErrorMessage(cause, 'No se han podido cargar las modales.')
+    loadError.value = apiErrorMessage(cause, 'No se han podido cargar las ventanas emergentes.')
   }
 }
 
@@ -252,7 +251,7 @@ async function inspect(id: string) {
   try {
     const parsed = adminMarketingModalDetailSchema.safeParse(await request(`${COLLECTION}/${id}`))
     detail.value = parsed.success ? parsed.data : null
-    if (!parsed.success) loadError.value = 'No se ha podido confirmar el historial de la modal.'
+    if (!parsed.success) loadError.value = 'No se ha podido confirmar el historial de la ventana.'
   } catch (cause) {
     loadError.value = apiErrorMessage(cause, 'No se ha podido cargar el historial.')
   }
@@ -273,7 +272,7 @@ async function confirmWrite(replay: boolean) {
     if (!parsed.success || parsed.data.payloadHash !== command.payloadHash) throw new Error('unconfirmed_receipt')
     frozen.value = null
     editing.value = false
-    notice.value = `Modal «${parsed.data.item.definition.code}» guardada en la versión ${parsed.data.version}.`
+    notice.value = `Ventana «${parsed.data.item.definition.title}» guardada (versión ${parsed.data.version}).`
     await loadList()
   } catch (cause) {
     const code = errorCode(cause)
@@ -284,8 +283,8 @@ async function confirmWrite(replay: boolean) {
     } else {
       command.uncertain = true
       formError.value = replay
-        ? 'El reintento tampoco se ha podido confirmar. Verifica el resultado antes de volver a intentarlo.'
-        : 'No se ha podido confirmar el resultado. Verifica el resultado antes de reintentar; no se reenviará automáticamente.'
+        ? 'El reintento tampoco se ha podido confirmar. Comprueba el resultado antes de volver a intentarlo.'
+        : 'No se ha podido confirmar el resultado. Compruébalo antes de reintentar; no se reenviará automáticamente.'
     }
   } finally {
     busy.value = false
@@ -324,7 +323,7 @@ async function reviewPolicy() {
     reason: policyReason.value
   })
   if (!parsed.success) {
-    formError.value = 'La pausa global debe estar entre 60 segundos y 7 días, con un motivo de al menos 5 caracteres.'
+    formError.value = 'La pausa debe estar entre 60 segundos y 7 días, con un motivo de al menos 5 caracteres.'
     return
   }
   policyFrozen.value = {
@@ -357,7 +356,7 @@ async function savePolicy() {
       policyKey.value = null
       formError.value = FINAL_ERRORS[code]!
     } else {
-      formError.value = 'No se ha podido confirmar el cambio de pausa global. Consulta antes de reintentar.'
+      formError.value = 'No se ha podido confirmar el cambio de pausa. Consulta antes de reintentar.'
     }
   } finally {
     busy.value = false
@@ -372,14 +371,87 @@ function triggerLabel(item: AdminMarketingModalItem) {
   const trigger = item.definition.trigger
   switch (trigger.kind) {
     case 'scroll_depth':
-      return `Scroll ≥ ${trigger.minPercent} %`
+      return `Al bajar un ${trigger.minPercent} % de la página`
     case 'exit_intent':
-      return `Intención de salida (escritorio, ≥ ${trigger.minSeconds} s)`
+      return `Al ir a salir (ordenador, tras ${trigger.minSeconds} s)`
     case 'page_views':
-      return `Páginas vistas ≥ ${trigger.minPageViews}`
+      return `Tras ver ${trigger.minPageViews} páginas`
     default:
-      return `Tiempo en página ≥ ${trigger.minSeconds} s`
+      return `Tras ${trigger.minSeconds} s en la página`
   }
+}
+
+// Estado de interfaz: panel lateral, pestañas del formulario y columnas del listado.
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'Todas' },
+  { value: 'published', label: 'Publicadas' },
+  { value: 'draft', label: 'Borradores' },
+  { value: 'retired', label: 'Retiradas' }
+]
+const EDITOR_TABS = [
+  { value: 'content', label: 'Contenido' },
+  { value: 'display', label: 'Cuándo y a quién' },
+  { value: 'limits', label: 'Límites y fechas' }
+]
+const editorTab = ref('content')
+const columns = [
+  { key: 'title', label: 'Ventana' },
+  { key: 'status', label: 'Estado' },
+  { key: 'trigger', label: 'Cuándo aparece', hideOnMobile: true },
+  {
+    key: 'impressions',
+    label: 'Mostrada',
+    numeric: true,
+    value: (row: AdminMarketingModalItem) => row.stats.impressions
+  },
+  {
+    key: 'dismissals',
+    label: 'Cierres',
+    numeric: true,
+    hideOnMobile: true,
+    value: (row: AdminMarketingModalItem) => row.stats.dismissals
+  },
+  {
+    key: 'conversions',
+    label: 'Conversiones',
+    numeric: true,
+    value: (row: AdminMarketingModalItem) => row.stats.conversions
+  }
+]
+const statusTone = (status: string): 'success' | 'neutral' | 'warning' =>
+  status === 'published' ? 'success' : status === 'retired' ? 'neutral' : 'warning'
+const tableStatus = computed<'success' | 'error' | 'pending'>(() =>
+  list.value ? 'success' : loadError.value ? 'error' : 'pending'
+)
+const totals = computed(() => {
+  if (!list.value) return null
+  const sum = list.value.items.reduce(
+    (acc, item) => ({
+      impressions: acc.impressions + item.stats.impressions,
+      dismissals: acc.dismissals + item.stats.dismissals,
+      conversions: acc.conversions + item.stats.conversions
+    }),
+    { impressions: 0, dismissals: 0, conversions: 0 }
+  )
+  return {
+    ...sum,
+    rate: sum.impressions
+      ? `${Math.round((sum.conversions / sum.impressions) * 100)} % de las veces mostradas`
+      : undefined
+  }
+})
+const editorOpen = computed({
+  get: () => editing.value,
+  set: (open: boolean) => {
+    if (!open) closeEditor()
+  }
+})
+function setStatusFilter(value: string) {
+  statusFilter.value = value as typeof statusFilter.value
+}
+function clearFilters() {
+  search.value = ''
+  statusFilter.value = 'all'
 }
 
 onMounted(() => {
@@ -389,404 +461,441 @@ onMounted(() => {
 watch([statusFilter, page], () => {
   void loadList()
 })
+watch(search, () => {
+  if (page.value !== 1) page.value = 1
+  else void loadList()
+})
+watch(editing, (open) => {
+  if (open) editorTab.value = 'content'
+})
 </script>
 
 <template>
-  <div class="space-y-8">
-    <section class="rounded-xl border border-slate-200 p-5">
-      <h2 class="text-lg font-semibold">Pausa global entre modales</h2>
-      <p class="mt-1 text-sm text-slate-600">
-        Tras cerrar o convertir una modal, ningún otro modal aparece durante este tiempo. Vigente:
-        <strong data-testid="modal-policy-current">{{ list?.policy.globalCooldownSeconds ?? '—' }} s</strong>
-      </p>
-      <form class="mt-4 grid gap-3 sm:grid-cols-[12rem_1fr_auto] sm:items-end" @submit.prevent="reviewPolicy">
-        <label class="text-sm">
-          Pausa (segundos)
+  <div class="adm-stack">
+    <AdminPageActions>
+      <button type="button" data-testid="modal-create" class="adm-btn adm-btn--primary" @click="startCreate">
+        <UIcon name="i-lucide-plus" class="size-4 shrink-0" />
+        Nueva ventana
+      </button>
+    </AdminPageActions>
+
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
+    <UAlert
+      v-if="loadError && list"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="loadError"
+    />
+    <UAlert
+      v-if="formError && !editing"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="formError"
+    />
+
+    <div class="adm-grid">
+      <AdminStat label="Ventanas" :value="list?.total ?? null" icon="i-lucide-app-window" />
+      <AdminStat label="Veces mostradas" :value="totals?.impressions ?? null" hint="En las ventanas de esta página" />
+      <AdminStat label="Cierres" :value="totals?.dismissals ?? null" />
+      <AdminStat label="Conversiones" :value="totals?.conversions ?? null" :hint="totals?.rate" />
+    </div>
+
+    <AdminTable
+      v-model:page="page"
+      :rows="list?.items ?? []"
+      :columns="columns"
+      :row-key="(row) => row.definition.id"
+      :status="tableStatus"
+      :total="list?.total ?? 0"
+      :per-page="list?.perPage ?? 25"
+      :filtered="search.trim() !== '' || statusFilter !== 'all'"
+      :error-message="loadError || undefined"
+      caption="Ventanas emergentes"
+      empty-title="Todavía no hay ventanas emergentes"
+      empty-description="Crea la primera para captar suscripciones o destacar una promoción."
+      empty-icon="i-lucide-app-window"
+      @retry="loadList"
+      @clear-filters="clearFilters"
+    >
+      <template #toolbar>
+        <AdminToolbar
+          v-model:search="search"
+          placeholder="Buscar por nombre o título…"
+          search-label="Buscar ventanas emergentes"
+        >
+          <AdminFilters
+            :model-value="statusFilter"
+            :options="STATUS_OPTIONS"
+            label="Filtrar por estado"
+            data-testid="modal-status-filter"
+            @update:model-value="setStatusFilter"
+          />
+        </AdminToolbar>
+      </template>
+      <template #cell-title="{ row }">
+        <p class="font-semibold text-[var(--text-strong)]">{{ row.definition.title }}</p>
+        <p class="adm-help">{{ row.definition.code }}</p>
+      </template>
+      <template #cell-status="{ row }">
+        <AdminBadge :tone="statusTone(row.definition.status)">{{ statusLabel(row.definition.status) }}</AdminBadge>
+        <AdminBadge v-if="row.definition.abVariant" tone="info" plain>Con variante B</AdminBadge>
+      </template>
+      <template #cell-trigger="{ row }">{{ triggerLabel(row) }}</template>
+      <template #cell-conversions="{ row }">
+        {{ row.stats.conversions }}
+        <span v-if="row.stats.impressions" class="adm-help">
+          ({{ Math.round((row.stats.conversions / row.stats.impressions) * 100) }} %)
+        </span>
+      </template>
+      <template #actions="{ row }">
+        <button
+          type="button"
+          :data-testid="`modal-inspect-${row.definition.id}`"
+          class="adm-btn adm-btn--ghost adm-btn--sm"
+          @click="inspect(row.definition.id)"
+        >
+          Historial
+        </button>
+        <button
+          v-if="row.definition.status !== 'retired'"
+          type="button"
+          :data-testid="`modal-edit-${row.definition.id}`"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          @click="startEdit(row)"
+        >
+          Editar
+        </button>
+      </template>
+      <template #empty-action>
+        <AdminButton variant="primary" icon="i-lucide-plus" @click="startCreate">Nueva ventana</AdminButton>
+      </template>
+    </AdminTable>
+
+    <AdminCard
+      v-if="detail"
+      :title="`Historial de «${detail.item.definition.title}»`"
+      description="Cada cambio guardado, con su motivo."
+      aria-label="Historial de auditoría"
+      flush
+    >
+      <template #actions>
+        <AdminButton size="sm" variant="ghost" icon="i-lucide-x" label="Cerrar historial" @click="detail = null" />
+      </template>
+      <ol class="adm-list">
+        <li v-for="entry in detail.history" :key="`${entry.definition.version}-${entry.createdAt}`">
+          <span class="adm-list__index">{{ entry.definition.version }}</span>
+          <div class="min-w-0 flex-1">
+            <p class="adm-list__title">{{ entry.reason }}</p>
+            <p class="adm-help">{{ adminDate(entry.createdAt, true) }} · {{ statusLabel(entry.definition.status) }}</p>
+          </div>
+        </li>
+      </ol>
+    </AdminCard>
+
+    <AdminCard
+      title="Pausa entre ventanas"
+      description="Después de cerrar una ventana o de aceptar su propuesta, el visitante no ve ninguna otra durante este tiempo."
+    >
+      <template #actions>
+        <span class="adm-help">
+          Ahora:
+          <strong data-testid="modal-policy-current" class="text-[var(--text-strong)]"
+            >{{ list?.policy.globalCooldownSeconds ?? '—' }} s</strong
+          >
+        </span>
+      </template>
+      <form class="grid gap-4 sm:grid-cols-[10rem_1fr_auto] sm:items-end" @submit.prevent="reviewPolicy">
+        <AdminFormField v-slot="{ id }" label="Pausa (segundos)">
           <input
+            :id="id"
             v-model="policyCooldown"
             type="number"
             min="60"
             max="604800"
             data-testid="modal-policy-cooldown"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
+            class="adm-input"
           />
-        </label>
-        <label class="text-sm">
-          Motivo
-          <input
-            v-model="policyReason"
-            type="text"
-            data-testid="modal-policy-reason"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <button type="submit" class="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
-          Revisar pausa
-        </button>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Motivo del cambio">
+          <input :id="id" v-model="policyReason" type="text" data-testid="modal-policy-reason" class="adm-input" />
+        </AdminFormField>
+        <button type="submit" class="adm-btn adm-btn--secondary">Revisar pausa</button>
       </form>
-      <div v-if="policyFrozen" class="mt-4 rounded-lg bg-amber-50 p-3 text-sm">
-        <p>
-          Se aplicará una pausa de {{ policyFrozen.raw.globalCooldownSeconds }} s. Motivo: {{ policyFrozen.raw.reason }}
-        </p>
-        <button
-          type="button"
-          data-testid="modal-policy-confirm"
-          class="mt-2 rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white"
-          :disabled="busy"
-          @click="savePolicy"
-        >
-          Confirmar pausa
-        </button>
-      </div>
-    </section>
-
-    <section class="space-y-4">
-      <div class="flex flex-wrap items-end gap-3">
-        <label class="text-sm">
-          Buscar
-          <input
-            v-model="search"
-            type="search"
-            data-testid="modal-search"
-            class="mt-1 rounded-lg border border-slate-300 px-3 py-2"
-            @keyup.enter="loadList"
-          />
-        </label>
-        <label class="text-sm">
-          Estado
-          <select
-            v-model="statusFilter"
-            data-testid="modal-status-filter"
-            class="mt-1 rounded-lg border border-slate-300 px-3 py-2"
-          >
-            <option value="all">Todas</option>
-            <option value="draft">Borrador</option>
-            <option value="published">Publicadas</option>
-            <option value="retired">Retiradas</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          data-testid="modal-create"
-          class="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
-          @click="startCreate"
-        >
-          Nueva modal
-        </button>
-      </div>
-
-      <p v-if="notice" role="status" class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-900">{{ notice }}</p>
-      <p v-if="loadError" role="alert" class="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{{ loadError }}</p>
-
-      <table v-if="list" class="w-full text-left text-sm">
-        <caption class="sr-only">
-          Modales de marketing
-        </caption>
-        <thead>
-          <tr class="border-b border-slate-200">
-            <th scope="col" class="py-2 pr-3">Código</th>
-            <th scope="col" class="py-2 pr-3">Título</th>
-            <th scope="col" class="py-2 pr-3">Estado</th>
-            <th scope="col" class="py-2 pr-3">Disparador</th>
-            <th scope="col" class="py-2 pr-3">Impr. / cierre / conv.</th>
-            <th scope="col" class="py-2"><span class="sr-only">Acciones</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="item in list.items" :key="item.definition.id" class="border-b border-slate-100 align-top">
-            <td class="py-2 pr-3 font-mono text-xs">{{ item.definition.code }}</td>
-            <td class="py-2 pr-3">{{ item.definition.title }}</td>
-            <td class="py-2 pr-3">{{ statusLabel(item.definition.status) }} · v{{ item.definition.version }}</td>
-            <td class="py-2 pr-3">{{ triggerLabel(item) }}</td>
-            <td class="py-2 pr-3 tabular-nums">
-              {{ item.stats.impressions }} / {{ item.stats.dismissals }} / {{ item.stats.conversions }}
-            </td>
-            <td class="py-2 text-right">
-              <button
-                type="button"
-                :data-testid="`modal-inspect-${item.definition.id}`"
-                class="mr-2 rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                @click="inspect(item.definition.id)"
-              >
-                Historial
-              </button>
-              <button
-                v-if="item.definition.status !== 'retired'"
-                type="button"
-                :data-testid="`modal-edit-${item.definition.id}`"
-                class="rounded-lg border border-slate-300 px-2 py-1 text-xs"
-                @click="startEdit(item)"
-              >
-                Editar
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <section v-if="detail" class="rounded-xl border border-slate-200 p-4" aria-label="Historial de auditoría">
-        <h3 class="font-semibold">Historial de {{ detail.item.definition.code }}</h3>
-        <ol class="mt-2 space-y-2 text-sm">
-          <li v-for="entry in detail.history" :key="`${entry.definition.version}-${entry.createdAt}`">
-            v{{ entry.definition.version }} · {{ entry.createdAt }} · {{ entry.reason }}
-          </li>
-        </ol>
-      </section>
-    </section>
-
-    <section v-if="editing" class="rounded-xl border border-slate-200 p-5" aria-labelledby="modal-editor-title">
-      <h2 id="modal-editor-title" class="text-lg font-semibold">
-        {{ editingVersion ? `Editar modal (versión ${editingVersion} → ${editingVersion + 1})` : 'Nueva modal' }}
-      </h2>
-      <form class="mt-4 grid gap-4 sm:grid-cols-2" @submit.prevent="review">
-        <label class="text-sm">
-          Código
-          <input
-            v-model="draft.code"
-            data-testid="modal-code"
-            :disabled="editingVersion > 0"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Estado
-          <select
-            v-model="draft.status"
-            data-testid="modal-status"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          >
-            <option value="draft">Borrador</option>
-            <option value="published">Publicada</option>
-            <option value="retired">Retirada</option>
-          </select>
-        </label>
-        <label class="text-sm sm:col-span-2">
-          Título
-          <input
-            v-model="draft.title"
-            data-testid="modal-title"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm sm:col-span-2">
-          Texto (sin HTML)
-          <textarea
-            v-model="draft.body"
-            data-testid="modal-body"
-            rows="3"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Texto del botón
-          <input
-            v-model="draft.ctaLabel"
-            data-testid="modal-cta-label"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Ruta del botón (interna)
-          <input
-            v-model="draft.ctaPath"
-            data-testid="modal-cta-path"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Objetivo
-          <select
-            v-model="draft.objective"
-            data-testid="modal-objective"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          >
-            <option value="newsletter_subscription">Suscripción al boletín</option>
-            <option value="professional_lead">Captación profesional</option>
-            <option value="catalog_discovery">Descubrimiento de catálogo</option>
-            <option value="promotion_redemption">Canje de promoción</option>
-            <option value="support_guidance">Orientación de soporte</option>
-          </select>
-        </label>
-        <label class="text-sm">
-          Disparador
-          <select
-            v-model="draft.triggerKind"
-            data-testid="modal-trigger-kind"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          >
-            <option value="time_on_page">Tiempo en página (s)</option>
-            <option value="scroll_depth">Scroll (%)</option>
-            <option value="exit_intent">Intención de salida, escritorio (s)</option>
-            <option value="page_views">Páginas vistas</option>
-          </select>
-        </label>
-        <label class="text-sm">
-          Valor del disparador
-          <input
-            v-model="draft.triggerValue"
-            type="number"
-            data-testid="modal-trigger-value"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <fieldset class="text-sm">
-          <legend>Audiencia</legend>
-          <label class="mr-3"><input v-model="draft.segments" type="checkbox" value="anonymous" /> Anónimos</label>
-          <label class="mr-3"><input v-model="draft.segments" type="checkbox" value="customer" /> Clientes</label>
-          <label class="mr-3"
-            ><input v-model="draft.segments" type="checkbox" value="professional" /> Profesionales</label
-          >
-          <select
-            v-model="draft.marketingConsent"
-            data-testid="modal-consent"
-            class="mt-2 block rounded-lg border border-slate-300 px-3 py-2"
-          >
-            <option value="any">Con o sin consentimiento</option>
-            <option value="with_consent">Solo con consentimiento de marketing</option>
-            <option value="without_consent">Solo sin consentimiento de marketing</option>
-          </select>
-        </fieldset>
-        <label class="text-sm">
-          Páginas incluidas (prefijos)
-          <input
-            v-model="draft.includePrefixes"
-            data-testid="modal-include"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Páginas excluidas (prefijos)
-          <input
-            v-model="draft.excludePrefixes"
-            data-testid="modal-exclude"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Prioridad (0-1000)
-          <input
-            v-model="draft.priority"
-            type="number"
-            data-testid="modal-priority"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Nivel de prioridad
-          <select
-            v-model="draft.priorityTier"
-            data-testid="modal-priority-tier"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          >
-            <option value="normal">Normal</option>
-            <option value="high">Alta</option>
-            <option value="critical">Crítica (salta el límite por sesión)</option>
-          </select>
-        </label>
-        <label class="text-sm">
-          Impresiones máximas por visitante
-          <input
-            v-model="draft.maxImpressions"
-            type="number"
-            min="1"
-            max="50"
-            data-testid="modal-max-impressions"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Ventana de frecuencia (s)
-          <input
-            v-model="draft.windowSeconds"
-            type="number"
-            min="60"
-            data-testid="modal-window"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Inicio de vigencia
-          <input
-            v-model="draft.startsAt"
-            type="datetime-local"
-            data-testid="modal-starts-at"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm">
-          Fin de vigencia (opcional)
-          <input
-            v-model="draft.endsAt"
-            type="datetime-local"
-            data-testid="modal-ends-at"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <label class="text-sm sm:col-span-2">
-          Motivo del cambio (auditoría)
-          <input
-            v-model="draft.reason"
-            data-testid="modal-reason"
-            class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2"
-          />
-        </label>
-        <div class="sm:col-span-2 flex flex-wrap gap-3">
+      <UAlert
+        v-if="policyFrozen"
+        class="mt-4"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-clock"
+        :title="`Se aplicará una pausa de ${policyFrozen.raw.globalCooldownSeconds} s`"
+        :description="`Motivo: ${policyFrozen.raw.reason}`"
+      >
+        <template #actions>
           <button
-            type="submit"
-            data-testid="modal-review"
-            class="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white"
-          >
-            Revisar cambios
-          </button>
-          <button type="button" class="rounded-lg border border-slate-300 px-4 py-2 text-sm" @click="closeEditor">
-            Cerrar editor
-          </button>
-        </div>
-      </form>
-
-      <div v-if="frozen" class="mt-5 rounded-lg bg-amber-50 p-4 text-sm" data-testid="modal-frozen">
-        <p class="font-semibold">Revisa el comando antes de confirmarlo</p>
-        <p class="mt-1">
-          «{{ frozen.raw.definition.title }}» ({{ frozen.raw.definition.code }}), versión
-          {{ frozen.raw.definition.version }}, estado {{ statusLabel(frozen.raw.definition.status) }}.
-        </p>
-        <div class="mt-3 flex flex-wrap gap-3">
-          <button
-            v-if="!frozen.uncertain"
             type="button"
-            data-testid="modal-confirm"
+            data-testid="modal-policy-confirm"
+            class="adm-btn adm-btn--primary adm-btn--sm"
             :disabled="busy"
-            class="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white"
-            @click="confirmWrite(false)"
+            @click="savePolicy"
           >
-            Confirmar y guardar
+            Confirmar pausa
           </button>
-          <button type="button" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm" @click="cancelReview">
-            Volver al formulario
-          </button>
+        </template>
+      </UAlert>
+    </AdminCard>
+
+    <AdminDrawer
+      v-model:open="editorOpen"
+      wide
+      :title="editingVersion ? 'Editar ventana emergente' : 'Nueva ventana emergente'"
+      :description="
+        editingVersion
+          ? `Versión ${editingVersion} → ${editingVersion + 1}`
+          : 'Se guarda como borrador hasta que la publiques.'
+      "
+    >
+      <div class="adm-stack">
+        <UAlert
+          v-if="formError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="formError"
+        />
+
+        <div v-if="frozen" class="adm-card" data-testid="modal-frozen">
+          <div class="adm-card__body">
+            <p class="font-semibold text-[var(--text-strong)]">Revisa el cambio antes de guardarlo</p>
+            <p class="adm-help mt-1">
+              «{{ frozen.raw.definition.title }}» ({{ frozen.raw.definition.code }}), versión
+              {{ frozen.raw.definition.version }}, estado {{ statusLabel(frozen.raw.definition.status) }}.
+            </p>
+            <p v-if="frozen.uncertain" class="adm-help mt-2">
+              No sabemos si el cambio llegó a guardarse. Comprueba el resultado antes de volver a enviarlo.
+            </p>
+          </div>
+        </div>
+
+        <form v-show="!frozen" id="modal-editor-form" class="adm-stack" @submit.prevent="review">
+          <AdminTabs v-model="editorTab" :tabs="EDITOR_TABS" label="Apartados de la ventana" />
+
+          <div v-show="editorTab === 'content'" class="adm-form-grid">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Nombre interno"
+              help="Identificador corto, sin espacios. No se puede cambiar después."
+              required
+            >
+              <input
+                :id="id"
+                v-model="draft.code"
+                data-testid="modal-code"
+                :disabled="editingVersion > 0"
+                class="adm-input"
+              />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Estado">
+              <select :id="id" v-model="draft.status" data-testid="modal-status" class="adm-input">
+                <option value="draft">Borrador</option>
+                <option value="published">Publicada</option>
+                <option value="retired">Retirada</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Título" class="col-span-full" required>
+              <input :id="id" v-model="draft.title" data-testid="modal-title" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Texto" help="Texto sin formato." class="col-span-full" required>
+              <textarea :id="id" v-model="draft.body" data-testid="modal-body" rows="3" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Texto del botón" required>
+              <input :id="id" v-model="draft.ctaLabel" data-testid="modal-cta-label" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Página a la que lleva el botón"
+              help="Ruta de la tienda, por ejemplo /contacto."
+              required
+            >
+              <input :id="id" v-model="draft.ctaPath" data-testid="modal-cta-path" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Objetivo">
+              <select :id="id" v-model="draft.objective" data-testid="modal-objective" class="adm-input">
+                <option value="newsletter_subscription">Suscripción al boletín</option>
+                <option value="professional_lead">Captación profesional</option>
+                <option value="catalog_discovery">Descubrimiento de catálogo</option>
+                <option value="promotion_redemption">Canje de promoción</option>
+                <option value="support_guidance">Orientación de soporte</option>
+              </select>
+            </AdminFormField>
+          </div>
+
+          <div v-show="editorTab === 'display'" class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Cuándo aparece">
+              <select :id="id" v-model="draft.triggerKind" data-testid="modal-trigger-kind" class="adm-input">
+                <option value="time_on_page">Tras un tiempo en la página (segundos)</option>
+                <option value="scroll_depth">Al bajar por la página (%)</option>
+                <option value="exit_intent">Al ir a salir, solo en ordenador (segundos mínimos)</option>
+                <option value="page_views">Tras ver varias páginas</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Valor">
+              <input
+                :id="id"
+                v-model="draft.triggerValue"
+                type="number"
+                data-testid="modal-trigger-value"
+                class="adm-input"
+              />
+            </AdminFormField>
+            <fieldset class="adm-field col-span-full">
+              <legend class="adm-label">A quién se muestra</legend>
+              <div class="flex flex-wrap gap-x-5 gap-y-2">
+                <label class="adm-check">
+                  <input v-model="draft.segments" type="checkbox" value="anonymous" /> Visitantes sin cuenta
+                </label>
+                <label class="adm-check">
+                  <input v-model="draft.segments" type="checkbox" value="customer" /> Clientes
+                </label>
+                <label class="adm-check">
+                  <input v-model="draft.segments" type="checkbox" value="professional" /> Profesionales
+                </label>
+              </div>
+              <select
+                v-model="draft.marketingConsent"
+                data-testid="modal-consent"
+                aria-label="Consentimiento de publicidad"
+                class="adm-input mt-2"
+              >
+                <option value="any">Con o sin consentimiento de publicidad</option>
+                <option value="with_consent">Solo con consentimiento de publicidad</option>
+                <option value="without_consent">Solo sin consentimiento de publicidad</option>
+              </select>
+            </fieldset>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Páginas donde aparece"
+              help="Comienzo de la ruta, separados por comas: /catalogo, /producto."
+            >
+              <input :id="id" v-model="draft.includePrefixes" data-testid="modal-include" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Páginas donde no aparece" help="Separadas por comas. Opcional.">
+              <input :id="id" v-model="draft.excludePrefixes" data-testid="modal-exclude" class="adm-input" />
+            </AdminFormField>
+          </div>
+
+          <div v-show="editorTab === 'limits'" class="adm-form-grid">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Prioridad"
+              help="De 0 a 1000. Si coinciden varias, gana la más alta."
+            >
+              <input :id="id" v-model="draft.priority" type="number" data-testid="modal-priority" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Nivel de prioridad">
+              <select :id="id" v-model="draft.priorityTier" data-testid="modal-priority-tier" class="adm-input">
+                <option value="normal">Normal</option>
+                <option value="high">Alta</option>
+                <option value="critical">Crítica (se muestra aunque se haya alcanzado el límite de la visita)</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Veces máximas por visitante">
+              <input
+                :id="id"
+                v-model="draft.maxImpressions"
+                type="number"
+                min="1"
+                max="50"
+                data-testid="modal-max-impressions"
+                class="adm-input"
+              />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Periodo del límite (segundos)" help="86400 equivale a un día.">
+              <input
+                :id="id"
+                v-model="draft.windowSeconds"
+                type="number"
+                min="60"
+                data-testid="modal-window"
+                class="adm-input"
+              />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Empieza">
+              <input
+                :id="id"
+                v-model="draft.startsAt"
+                type="datetime-local"
+                data-testid="modal-starts-at"
+                class="adm-input"
+              />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Termina" help="Opcional.">
+              <input
+                :id="id"
+                v-model="draft.endsAt"
+                type="datetime-local"
+                data-testid="modal-ends-at"
+                class="adm-input"
+              />
+            </AdminFormField>
+          </div>
+
+          <AdminFormField
+            v-slot="{ id }"
+            label="Motivo del cambio"
+            help="Queda guardado en el historial de la ventana."
+            required
+          >
+            <input :id="id" v-model="draft.reason" data-testid="modal-reason" class="adm-input" />
+          </AdminFormField>
+        </form>
+      </div>
+
+      <template #footer>
+        <template v-if="frozen">
+          <button type="button" class="adm-btn adm-btn--secondary" @click="cancelReview">Volver al formulario</button>
           <button
             v-if="frozen.uncertain && !frozen.absent"
             type="button"
             data-testid="modal-verify-receipt"
             :disabled="busy"
-            class="rounded-lg border border-slate-900 px-3 py-1.5 text-sm font-semibold"
+            class="adm-btn adm-btn--primary"
             @click="verifyReceipt"
           >
-            Verificar resultado
+            Comprobar resultado
           </button>
           <button
             v-if="frozen.uncertain && frozen.absent"
             type="button"
             data-testid="modal-replay"
             :disabled="busy"
-            class="rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-semibold text-white"
+            class="adm-btn adm-btn--primary"
             @click="confirmWrite(true)"
           >
-            Reintentar con la misma clave
+            Volver a enviar el mismo cambio
           </button>
-        </div>
-      </div>
-      <p v-if="formError" role="alert" class="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{{ formError }}</p>
-    </section>
+          <button
+            v-if="!frozen.uncertain"
+            type="button"
+            data-testid="modal-confirm"
+            :disabled="busy"
+            class="adm-btn adm-btn--primary"
+            @click="confirmWrite(false)"
+          >
+            Confirmar y guardar
+          </button>
+        </template>
+        <template v-else>
+          <button type="button" class="adm-btn adm-btn--secondary" @click="closeEditor">Cancelar</button>
+          <button type="submit" form="modal-editor-form" data-testid="modal-review" class="adm-btn adm-btn--primary">
+            Revisar cambios
+          </button>
+        </template>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

@@ -59,7 +59,7 @@ onMounted(() => {
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-xl font-bold text-neutral-900">Observabilidad de Automatizaciones y Marketing (OBS-027)</h2>
+        <h2 class="text-xl font-bold text-neutral-900">Observabilidad de automatizaciones y marketing</h2>
         <p class="text-sm text-neutral-600 mt-0.5">
           Monitorización continua por flujo: disparos, supresión justificada, entregabilidad, conversión, quejas,
           impacto financiero de descuentos y margen neto.
@@ -93,22 +93,22 @@ onMounted(() => {
       <!-- High-level KPI summary cards -->
       <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div class="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Disparos Totales</div>
+          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Disparos totales</div>
           <div class="mt-1 text-2xl font-bold text-neutral-900">{{ totalTriggers.toLocaleString('es-ES') }}</div>
         </div>
 
         <div class="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Entregas Efectivas</div>
+          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Entregas efectivas</div>
           <div class="mt-1 text-2xl font-bold text-neutral-900">{{ totalDeliveries.toLocaleString('es-ES') }}</div>
         </div>
 
         <div class="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Conversiones Atribuidas</div>
+          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Conversiones atribuidas</div>
           <div class="mt-1 text-2xl font-bold text-emerald-600">{{ totalConversions.toLocaleString('es-ES') }}</div>
         </div>
 
         <div class="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Margen Neto Acumulado</div>
+          <div class="text-xs font-semibold text-neutral-500 uppercase tracking-wider">Margen neto acumulado</div>
           <div class="mt-1 text-2xl font-bold" :class="totalNetMargin >= 0 ? 'text-neutral-900' : 'text-red-600'">
             {{ formatCents(totalNetMargin) }}
           </div>
@@ -134,13 +134,13 @@ onMounted(() => {
           <table class="w-full text-left text-xs border-collapse">
             <thead class="bg-neutral-100 text-neutral-700 font-semibold border-b border-neutral-200">
               <tr>
-                <th scope="col" class="py-3 px-4">Flujo de Automatización</th>
+                <th scope="col" class="py-3 px-4">Flujo de automatización</th>
                 <th scope="col" class="py-3 px-3">Disparos</th>
                 <th scope="col" class="py-3 px-3">Supresión</th>
                 <th scope="col" class="py-3 px-3">Entrega</th>
                 <th scope="col" class="py-3 px-3">Conversión</th>
                 <th scope="col" class="py-3 px-3">Quejas</th>
-                <th scope="col" class="py-3 px-3">Descuento / Margen</th>
+                <th scope="col" class="py-3 px-3">Descuento / margen</th>
                 <th scope="col" class="py-3 px-3">Errores</th>
                 <th scope="col" class="py-3 px-4 text-right">Detalle</th>
               </tr>
@@ -156,19 +156,19 @@ onMounted(() => {
                       v-if="w.hasHighErrorRate"
                       class="inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800"
                     >
-                      Alerta de Error ({{ w.errorRatePercent }}%)
+                      Alerta de error ({{ w.errorRatePercent }}%)
                     </span>
                     <span
                       v-if="w.hasHighComplaintRate"
                       class="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
                     >
-                      Alerta de Quejas ({{ w.complaintRatePercent }}%)
+                      Alerta de quejas ({{ w.complaintRatePercent }}%)
                     </span>
                     <span
                       v-if="w.hasNegativeMargin"
                       class="inline-flex items-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-800"
                     >
-                      Margen Negativo
+                      Margen negativo
                     </span>
                   </div>
                 </td>
@@ -272,7 +272,7 @@ onMounted(() => {
         <!-- Suppression Breakdown -->
         <div class="space-y-2">
           <div class="text-xs font-bold uppercase tracking-wider text-neutral-700">
-            Desglose de Supresión (Exclusiones Justificadas):
+            Desglose de supresión (exclusiones justificadas):
           </div>
           <div
             v-if="Object.keys(selectedWorkflow.suppressionBreakdown).length === 0"
@@ -294,7 +294,7 @@ onMounted(() => {
 
         <!-- Error Breakdown -->
         <div class="space-y-2">
-          <div class="text-xs font-bold uppercase tracking-wider text-neutral-700">Desglose de Errores Técnicos:</div>
+          <div class="text-xs font-bold uppercase tracking-wider text-neutral-700">Desglose de errores técnicos:</div>
           <div
             v-if="Object.keys(selectedWorkflow.errorBreakdown).length === 0"
             class="text-xs text-neutral-500 italic p-2 bg-neutral-50 rounded"

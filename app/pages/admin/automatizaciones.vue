@@ -9,7 +9,12 @@ import { catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Automatizaciones de marketing · Admin', robots: 'noindex, nofollow, noarchive' })
 
-const activeTab = ref<'policies' | 'metrics' | 'observability'>('policies')
+const activeTab = ref('policies')
+const tabs = [
+  { value: 'policies', label: 'Reglas y pruebas' },
+  { value: 'metrics', label: 'Resultados' },
+  { value: 'observability', label: 'Seguimiento de envíos' }
+]
 const { ready, loggedIn, user } = useUserSession()
 const runtime = useRuntimeConfig().public.serverRuntime
 const navigation = useAdminNavigation()
@@ -29,46 +34,19 @@ const authorize = computed(
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div v-if="authorize" class="space-y-6">
-      <div class="flex rounded-lg border border-neutral-200 bg-neutral-100 p-1 text-xs font-semibold w-fit">
-        <button
-          class="rounded-md px-3 py-1.5 transition-colors"
-          :class="
-            activeTab === 'policies' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600 hover:text-neutral-900'
-          "
-          @click="activeTab = 'policies'"
-        >
-          Políticas y Despacho
-        </button>
-        <button
-          class="rounded-md px-3 py-1.5 transition-colors"
-          :class="
-            activeTab === 'metrics' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600 hover:text-neutral-900'
-          "
-          @click="activeTab = 'metrics'"
-        >
-          Medición e Incrementales (DAT-016)
-        </button>
-        <button
-          class="rounded-md px-3 py-1.5 transition-colors"
-          :class="
-            activeTab === 'observability'
-              ? 'bg-white text-neutral-900 shadow-sm'
-              : 'text-neutral-600 hover:text-neutral-900'
-          "
-          @click="activeTab = 'observability'"
-        >
-          Observabilidad Flujos (OBS-027)
-        </button>
-      </div>
-
+  <AdminPage>
+    <div v-if="authorize" class="adm-stack">
+      <AdminTabs v-model="activeTab" :tabs="tabs" label="Apartados de automatizaciones" />
       <AdminMarketingAutomations v-if="activeTab === 'policies'" />
       <AdminCrmMetricsPanel v-else-if="activeTab === 'metrics'" />
       <AdminMarketingObservabilityPanel v-else-if="activeTab === 'observability'" />
     </div>
-    <p v-else role="status" class="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">
-      Requiere sesión verificada con MFA y permiso de administración. Los permisos se verifican de nuevo en el servidor.
-    </p>
-  </div>
+    <AdminEmptyState
+      v-else
+      role="status"
+      icon="i-lucide-lock"
+      title="No puedes gestionar las automatizaciones desde esta sesión"
+      description="Hace falta iniciar sesión con verificación en dos pasos y tener permiso de administración. Los permisos se comprueban de nuevo en el servidor."
+    />
+  </AdminPage>
 </template>

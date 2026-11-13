@@ -38,7 +38,8 @@ async function loadData() {
       metrics.value = metricsRes.metrics
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al cargar datos de recuperación de navegación'
+    errorMessage.value =
+      err instanceof Error ? err.message : 'No se han podido cargar los datos de recuperación de visitas.'
   } finally {
     loading.value = false
   }
@@ -65,7 +66,7 @@ async function savePolicy() {
       successMessage.value = 'Política de navegación guardada con éxito (v' + res.policy.version + ')'
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al guardar la política'
+    errorMessage.value = err instanceof Error ? err.message : 'No se han podido guardar los ajustes.'
   } finally {
     saving.value = false
   }
@@ -77,172 +78,163 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-lg font-bold text-neutral-900">Automatización de Navegación Abandonada (MKT-014)</h2>
-        <p class="text-xs text-neutral-500">
-          Recuperación consentida con protección de categorías sensibles y medición de incrementalidad por grupo de
-          control.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="rounded-md bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-200"
-        :disabled="loading"
-        @click="loadData"
-      >
-        Recargar
-      </button>
-    </div>
+  <div class="adm-stack">
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
 
-    <!-- Feedback messages -->
-    <div v-if="loading" role="status" class="rounded-lg bg-neutral-100 p-4 text-sm text-neutral-600">
-      Cargando configuración y métricas de navegación...
-    </div>
-
-    <div v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-800">
-      {{ errorMessage }}
-    </div>
-
-    <div v-if="successMessage" role="status" class="rounded-lg bg-green-50 p-4 text-sm text-green-800">
-      {{ successMessage }}
-    </div>
-
-    <!-- Policy Card -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm space-y-4">
-      <h3 class="text-sm font-semibold text-neutral-900">Política de Recuperación y Holdout Experimental</h3>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <label class="flex items-center space-x-2">
-          <input
-            v-model="policy.enabled"
-            type="checkbox"
-            class="rounded border-neutral-300 text-blue-600"
-            data-testid="browse-enabled-input"
-          />
-          <span class="font-medium text-neutral-700">Automatización activa</span>
-        </label>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Ventana de abandono (minutos) </label>
-          <input
-            v-model.number="policy.abandonmentWindowMinutes"
-            type="number"
-            min="15"
-            max="1440"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="abandonment-window-input"
-          />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Cooldown / Cap de frecuencia (horas) </label>
-          <input
-            v-model.number="policy.cooldownHours"
-            type="number"
-            min="1"
-            max="720"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="cooldown-hours-input"
-          />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Grupo de Control Holdout (%) </label>
-          <input
-            v-model.number="policy.holdoutPercent"
-            type="number"
-            min="0"
-            max="50"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="holdout-percent-input"
-          />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Ventana de atribución (días) </label>
-          <input
-            v-model.number="policy.attributionWindowDays"
-            type="number"
-            min="1"
-            max="30"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="attribution-window-input"
-          />
-        </div>
-
-        <div class="flex items-end">
-          <button
-            type="button"
-            class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            :disabled="saving"
-            data-testid="save-browse-policy-button"
-            @click="savePolicy"
-          >
-            {{ saving ? 'Guardando...' : 'Guardar Política' }}
-          </button>
-        </div>
-      </div>
-
-      <div class="rounded-md bg-amber-50 p-3 text-xs text-amber-800">
-        <strong>Protección de Privacidad:</strong> Productos y categorías sensibles (biocidas médicos, desinfectantes
-        clínicos, etc.) quedan estrictamente suprimidos para evitar revelación no consentida de hábitos.
-      </div>
-    </div>
-
-    <!-- Incrementality Metrics Card -->
-    <div v-if="metrics" class="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm space-y-4">
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-semibold text-neutral-900">Medición de Incrementalidad (Treatment vs Control)</h3>
-        <span
-          class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
-          :class="
-            metrics.lift.statisticallySignificant ? 'bg-green-100 text-green-800' : 'bg-neutral-100 text-neutral-600'
-          "
+    <AdminSection
+      v-if="metrics"
+      title="Resultado de los recordatorios"
+      description="Compara a quienes recibieron el recordatorio con el grupo de control, que no lo recibió."
+    >
+      <template #actions>
+        <AdminBadge
+          :tone="metrics.lift.statisticallySignificant ? 'success' : 'neutral'"
           data-testid="significance-badge"
         >
-          {{ metrics.lift.statisticallySignificant ? 'Estadísticamente significativo' : 'Muestra preliminar' }}
-        </span>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Tratamiento (Enviados)</p>
-          <p class="text-xl font-bold text-neutral-900" data-testid="treatment-exposures">
-            {{ metrics.treatment.exposures }}
-          </p>
-          <p class="text-xs text-neutral-600 mt-1">
-            Conversiones: {{ metrics.treatment.conversions }} (CVR:
-            {{ (metrics.treatment.conversionRate * 100).toFixed(2) }}%)
+          {{ metrics.lift.statisticallySignificant ? 'Resultado fiable' : 'Aún faltan datos' }}
+        </AdminBadge>
+      </template>
+      <div class="adm-grid">
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Recordatorios enviados</p>
+          <p class="adm-stat__value" data-testid="treatment-exposures">{{ metrics.treatment.exposures }}</p>
+          <p class="adm-stat__foot">
+            {{ metrics.treatment.conversions }} compras ·
+            {{ (metrics.treatment.conversionRate * 100).toLocaleString('es-ES', { maximumFractionDigits: 2 }) }} %
           </p>
         </div>
-
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Control (Holdout)</p>
-          <p class="text-xl font-bold text-neutral-900" data-testid="control-exposures">
-            {{ metrics.control.exposures }}
-          </p>
-          <p class="text-xs text-neutral-600 mt-1">
-            Conversiones: {{ metrics.control.conversions }} (CVR:
-            {{ (metrics.control.conversionRate * 100).toFixed(2) }}%)
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Grupo de control</p>
+          <p class="adm-stat__value" data-testid="control-exposures">{{ metrics.control.exposures }}</p>
+          <p class="adm-stat__foot">
+            {{ metrics.control.conversions }} compras ·
+            {{ (metrics.control.conversionRate * 100).toLocaleString('es-ES', { maximumFractionDigits: 2 }) }} %
           </p>
         </div>
-
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Lift Incremental Estimado</p>
-          <p
-            class="text-xl font-bold"
-            :class="metrics.lift.relativeLiftPercent >= 0 ? 'text-green-600' : 'text-red-600'"
-            data-testid="relative-lift"
-          >
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Mejora frente al grupo de control</p>
+          <p class="adm-stat__value" data-testid="relative-lift">
             {{ metrics.lift.relativeLiftPercent > 0 ? '+' : '' }}{{ metrics.lift.relativeLiftPercent.toFixed(1) }}%
           </p>
-          <p class="text-xs text-neutral-600 mt-1">
-            Ingresos incrementales: {{ (metrics.lift.incrementalRevenueGrossCents / 100).toFixed(2) }} €
+          <p class="adm-stat__foot">
+            <span
+              class="adm-stat__delta"
+              :class="metrics.lift.relativeLiftPercent >= 0 ? 'adm-stat__delta--up' : 'adm-stat__delta--down'"
+            >
+              {{ adminMoney(metrics.lift.incrementalRevenueGrossCents) }}
+            </span>
+            <span>de ventas adicionales</span>
           </p>
         </div>
       </div>
-    </div>
+    </AdminSection>
+
+    <AdminCard
+      title="Ajustes de los recordatorios"
+      description="Se envían solo a clientes que han dado su consentimiento y han visto productos sin comprar."
+    >
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Actualizar</AdminButton>
+      </template>
+      <p v-if="loading" role="status" class="sr-only">Cargando ajustes y resultados…</p>
+      <div class="adm-stack">
+        <label class="adm-check">
+          <input v-model="policy.enabled" type="checkbox" data-testid="browse-enabled-input" />
+          Enviar recordatorios automáticamente
+        </label>
+        <div class="adm-form-grid">
+          <AdminFormField
+            v-slot="{ id }"
+            label="Espera antes de enviar (minutos)"
+            help="Tiempo sin actividad para considerar que la visita se ha abandonado."
+          >
+            <input
+              :id="id"
+              v-model.number="policy.abandonmentWindowMinutes"
+              type="number"
+              min="15"
+              max="1440"
+              class="adm-input"
+              data-testid="abandonment-window-input"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Descanso entre recordatorios (horas)"
+            help="Tiempo mínimo antes de volver a escribir al mismo cliente."
+          >
+            <input
+              :id="id"
+              v-model.number="policy.cooldownHours"
+              type="number"
+              min="1"
+              max="720"
+              class="adm-input"
+              data-testid="cooldown-hours-input"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Grupo de control (%)"
+            help="Clientes que no reciben recordatorio, para medir si funciona."
+          >
+            <input
+              :id="id"
+              v-model.number="policy.holdoutPercent"
+              type="number"
+              min="0"
+              max="50"
+              class="adm-input"
+              data-testid="holdout-percent-input"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Periodo de medición (días)"
+            help="Días tras el recordatorio en los que una compra cuenta como resultado."
+          >
+            <input
+              :id="id"
+              v-model.number="policy.attributionWindowDays"
+              type="number"
+              min="1"
+              max="30"
+              class="adm-input"
+              data-testid="attribution-window-input"
+            />
+          </AdminFormField>
+        </div>
+        <p class="adm-help">
+          Por privacidad, los productos y categorías sensibles (biocidas de uso médico, desinfectantes clínicos…) nunca
+          se incluyen en estos recordatorios.
+        </p>
+      </div>
+      <template #footer>
+        <button
+          type="button"
+          class="adm-btn adm-btn--primary"
+          :disabled="saving"
+          data-testid="save-browse-policy-button"
+          @click="savePolicy"
+        >
+          {{ saving ? 'Guardando…' : 'Guardar ajustes' }}
+        </button>
+      </template>
+    </AdminCard>
   </div>
 </template>

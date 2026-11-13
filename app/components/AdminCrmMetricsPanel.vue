@@ -94,7 +94,7 @@ onMounted(() => {
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <div>
-        <h2 class="text-xl font-bold tracking-tight text-neutral-900">Medición de Automatizaciones CRM (DAT-016)</h2>
+        <h2 class="text-xl font-bold tracking-tight text-neutral-900">Medición de automatizaciones CRM</h2>
         <p class="text-sm text-neutral-600 mt-1">
           Monitorización continua de entrega, clics, conversiones, bajas, quejas y margen por flujo, con holdout
           incremental.
@@ -140,9 +140,9 @@ onMounted(() => {
             <th class="px-4 py-3">Entregas</th>
             <th class="px-4 py-3">Clics (CTR)</th>
             <th class="px-4 py-3">Conversión</th>
-            <th class="px-4 py-3">Bajas / Quejas</th>
-            <th class="px-4 py-3">Ingresos / Margen</th>
-            <th class="px-4 py-3">Holdout Incremental</th>
+            <th class="px-4 py-3">Bajas / quejas</th>
+            <th class="px-4 py-3">Ingresos / margen</th>
+            <th class="px-4 py-3">Holdout incremental</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-neutral-200">
@@ -203,7 +203,7 @@ onMounted(() => {
 
     <!-- Holdout Policy Configuration -->
     <div class="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-      <h3 class="text-base font-semibold text-neutral-900">Configuración de Grupo de Control (Holdout) por Flujo</h3>
+      <h3 class="text-base font-semibold text-neutral-900">Configuración de grupo de control (holdout) por flujo</h3>
 
       <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div>
@@ -220,7 +220,7 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Porcentaje Holdout (%)</label>
+          <label class="block text-xs font-medium text-neutral-700 mb-1">Porcentaje holdout (%)</label>
           <input
             v-model.number="editHoldoutPercentage"
             type="number"
@@ -231,7 +231,7 @@ onMounted(() => {
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Muestra Mínima</label>
+          <label class="block text-xs font-medium text-neutral-700 mb-1">Muestra mínima</label>
           <input
             v-model.number="editMinSampleSize"
             type="number"

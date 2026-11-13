@@ -40,7 +40,7 @@ async function loadData() {
       excludedProductText.value = (res.policy.excludedProductIds ?? []).join(', ')
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al cargar la política de cupón de bienvenida'
+    errorMessage.value = failureText(err, 'No se ha podido cargar el cupón de bienvenida. Vuelve a intentarlo.')
   } finally {
     loading.value = false
   }
@@ -78,10 +78,13 @@ async function savePolicy() {
     })
     if (res?.policy) {
       policy.value = { ...res.policy }
-      successMessage.value = 'Política de cupón de bienvenida guardada con éxito (v' + res.policy.version + ')'
+      successMessage.value = 'Cambios guardados. Los cupones nuevos ya usan estas condiciones.'
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al guardar la política'
+    errorMessage.value = failureText(
+      err,
+      'No se han podido guardar los cambios. Revisa los valores y vuelve a intentarlo.'
+    )
   } finally {
     saving.value = false
   }
@@ -90,203 +93,222 @@ async function savePolicy() {
 onMounted(() => {
   loadData()
 })
+
+/** Mensaje legible: si otra persona guardó antes, se dice; nunca se enseña el error técnico. */
+function failureText(err: unknown, fallback: string) {
+  const failure = err as { statusCode?: number; status?: number; response?: { status?: number } }
+  return (failure?.statusCode ?? failure?.status ?? failure?.response?.status) === 409
+    ? 'Otra persona ha cambiado el cupón mientras lo editabas. Pulsa «Recargar» y vuelve a aplicar tus cambios.'
+    : fallback
+}
+/** Importes en céntimos y margen en centésimas de punto: en pantalla se editan en euros y en %. */
+function hundredths(key: 'maxDiscountCents' | 'minOrderCents' | 'marginFloorBasisPoints') {
+  return computed<number | ''>({
+    get: () => (Number.isFinite(policy.value[key]) ? policy.value[key] / 100 : ''),
+    set: (entered) => {
+      const value = Number(entered)
+      policy.value[key] = (entered as unknown) === '' || !Number.isFinite(value) ? Number.NaN : Math.round(value * 100)
+    }
+  })
+}
+const maxDiscountEuros = hundredths('maxDiscountCents')
+const minOrderEuros = hundredths('minOrderCents')
+const marginFloorPercent = hundredths('marginFloorBasisPoints')
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-lg font-bold text-neutral-900">Cupón de Bienvenida Administrable (MKT-016)</h2>
-        <p class="text-xs text-neutral-500">
-          Un único uso por identidad física/fiscal con reglas antifraude, caducidad estricta y exclusiones de margen.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="rounded-md bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-200"
-        :disabled="loading"
-        @click="loadData"
-      >
-        Recargar
-      </button>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Recargar</AdminButton>
+    </AdminPageActions>
+
+    <p v-if="loading" role="status" class="adm-help">Cargando el cupón de bienvenida…</p>
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
+
+    <div class="adm-grid">
+      <AdminStat
+        label="Estado"
+        :value="policy.status === 'active' ? 'Activo' : 'En pausa'"
+        :hint="policy.status === 'active' ? 'Se entrega a cada cliente nuevo' : 'No se entregan cupones nuevos'"
+      />
+      <AdminStat
+        label="Descuento"
+        :value="`${policy.discountPercent} %`"
+        :hint="`Hasta ${adminMoney(policy.maxDiscountCents)} por pedido`"
+      />
+      <AdminStat label="Pedido mínimo" :value="adminMoney(policy.minOrderCents)" />
+      <AdminStat label="Caduca a los" :value="`${policy.validityDays} días`" hint="Desde el alta del cliente" />
     </div>
 
-    <!-- Messages -->
-    <div v-if="loading" role="status" class="rounded-lg bg-neutral-100 p-4 text-sm text-neutral-600">
-      Cargando configuración de cupón de bienvenida...
-    </div>
-
-    <div v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-800">
-      {{ errorMessage }}
-    </div>
-
-    <div v-if="successMessage" role="status" class="rounded-lg bg-green-50 p-4 text-sm text-green-800">
-      {{ successMessage }}
-    </div>
-
-    <!-- Policy Form -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm space-y-4">
-      <h3 class="text-sm font-semibold text-neutral-900">Condiciones y Reglas Comerciales</h3>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">Estado de emisión</label>
-          <select
-            v-model="policy.status"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="welcome-coupon-status"
-          >
+    <AdminCard title="Descuento" description="Lo que recibe cada cliente nuevo, una sola vez.">
+      <div class="adm-form-grid">
+        <AdminFormField v-slot="{ id }" label="Estado" help="En pausa no se entregan cupones nuevos.">
+          <select :id="id" v-model="policy.status" class="w-full" data-testid="welcome-coupon-status">
             <option value="active">Activo</option>
-            <option value="paused">Pausado</option>
+            <option value="paused">En pausa</option>
           </select>
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">Prefijo de código</label>
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Comienzo del código"
+          help="Cada cupón empieza así y termina con una parte única."
+        >
           <input
+            :id="id"
             v-model="policy.codePrefix"
             type="text"
             maxlength="16"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm uppercase"
+            class="w-full uppercase"
             data-testid="welcome-coupon-prefix"
           />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">Porcentaje de Descuento (%)</label>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Descuento (%)" help="Entre 1 y 50.">
           <input
+            :id="id"
             v-model.number="policy.discountPercent"
             type="number"
             min="1"
             max="50"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+            class="w-full"
             data-testid="welcome-coupon-percent"
           />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">Tope máximo de descuento (céntimos)</label>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Descuento máximo por pedido (€)" help="Entre 1 € y 500 €.">
           <input
-            v-model.number="policy.maxDiscountCents"
+            :id="id"
+            v-model="maxDiscountEuros"
             type="number"
-            min="100"
-            max="50000"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+            min="1"
+            max="500"
+            step="0.01"
+            class="w-full"
             data-testid="welcome-coupon-max-cents"
           />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">Pedido mínimo requerido (céntimos)</label>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Pedido mínimo (€)" help="0 si no exiges importe mínimo.">
           <input
-            v-model.number="policy.minOrderCents"
+            :id="id"
+            v-model="minOrderEuros"
             type="number"
             min="0"
-            max="100000"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+            max="1000"
+            step="0.01"
+            class="w-full"
             data-testid="welcome-coupon-min-cents"
           />
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">Caducidad de cupón (días tras alta)</label>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Días de validez" help="Desde el alta del cliente. Entre 1 y 90.">
           <input
+            :id="id"
             v-model.number="policy.validityDays"
             type="number"
             min="1"
             max="90"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
+            class="w-full"
             data-testid="welcome-coupon-validity-days"
           />
-        </div>
+        </AdminFormField>
+      </div>
+    </AdminCard>
 
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"
-            >Suelo de margen bruto (bps, ej: 2000 = 20%)</label
+    <AdminCard title="Protección del margen" description="Dónde no se aplica el cupón para no vender sin beneficio.">
+      <div class="adm-stack">
+        <div class="adm-form-grid">
+          <AdminFormField
+            v-slot="{ id }"
+            label="Margen mínimo (%)"
+            help="El cupón no rebaja un producto por debajo de este margen. Entre 10 y 50."
           >
-          <input
-            v-model.number="policy.marginFloorBasisPoints"
-            type="number"
-            min="1000"
-            max="5000"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="welcome-coupon-margin-floor"
-          />
-        </div>
-
-        <div class="flex items-center space-x-2 pt-6">
-          <label class="flex items-center space-x-2">
             <input
-              v-model="policy.excludeAlreadyDiscounted"
-              type="checkbox"
-              class="rounded border-neutral-300 text-blue-600"
-              data-testid="welcome-coupon-exclude-discounted"
+              :id="id"
+              v-model="marginFloorPercent"
+              type="number"
+              min="10"
+              max="50"
+              step="0.01"
+              class="w-full"
+              data-testid="welcome-coupon-margin-floor"
             />
-            <span class="font-medium text-neutral-700">Excluir artículos con descuento por volumen</span>
-          </label>
+          </AdminFormField>
+          <div class="adm-field justify-center">
+            <label class="adm-check">
+              <input
+                v-model="policy.excludeAlreadyDiscounted"
+                type="checkbox"
+                data-testid="welcome-coupon-exclude-discounted"
+              />
+              No aplicar a productos con descuento por volumen
+            </label>
+          </div>
         </div>
-
-        <div class="md:col-span-2">
-          <label class="block text-xs font-medium text-neutral-600 mb-1">
-            Categorías excluidas (IDs separados por coma)
-          </label>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Categorías excluidas"
+          help="Identificadores de categoría separados por comas. Vacío: ninguna."
+        >
           <input
+            :id="id"
             v-model="excludedCategoryText"
             type="text"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            placeholder="cat-1, cat-2"
+            class="w-full"
             data-testid="welcome-coupon-excluded-cats"
           />
-        </div>
-
-        <div class="md:col-span-2">
-          <label class="block text-xs font-medium text-neutral-600 mb-1">
-            Productos excluidos (IDs separados por coma)
-          </label>
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Productos excluidos"
+          help="Identificadores de producto separados por comas. Vacío: ninguno."
+        >
           <input
+            :id="id"
             v-model="excludedProductText"
             type="text"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            placeholder="prod-1, prod-2"
+            class="w-full"
             data-testid="welcome-coupon-excluded-prods"
           />
-        </div>
-
-        <div class="md:col-span-2 flex justify-end">
-          <button
-            type="button"
-            class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            :disabled="saving"
-            data-testid="save-welcome-coupon-button"
-            @click="savePolicy"
-          >
-            {{ saving ? 'Guardando...' : 'Guardar Política de Bienvenida' }}
-          </button>
-        </div>
+        </AdminFormField>
       </div>
+      <template #footer>
+        <AdminButton :disabled="loading || saving" @click="loadData">Descartar cambios</AdminButton>
+        <button
+          type="button"
+          class="adm-btn adm-btn--primary"
+          :disabled="saving"
+          data-testid="save-welcome-coupon-button"
+          @click="savePolicy"
+        >
+          {{ saving ? 'Guardando…' : 'Guardar cambios' }}
+        </button>
+      </template>
+    </AdminCard>
 
-      <!-- Anti-fraud disclosure -->
-      <div class="rounded-md bg-neutral-50 p-4 border border-neutral-200 text-xs text-neutral-600 space-y-1">
-        <p class="font-semibold text-neutral-800">
-          Mecanismos Antifraude y Cumplimiento Normativo (Directiva Ómnibus):
-        </p>
-        <ul class="list-disc pl-5 space-y-0.5">
-          <li>
-            Normalización de correo canónico con descarte de alias Gmail (+promo, puntos) para evitar registros
-            duplicados.
-          </li>
-          <li>
-            Comprobación cruzada de teléfono nacional/internacional y NIF/CIF fiscal en histórico de emisiones y canjes.
-          </li>
-          <li>
-            Verificación frente a precio de referencia en 30 días para evitar descuentos sobre precios inflados
-            artificialmente.
-          </li>
-          <li>
-            Estricto único uso: el cupón queda bloqueado tras la primera compra y no se permite descuento perpetuo.
-          </li>
-        </ul>
-      </div>
-    </div>
+    <AdminCard
+      title="Cómo se evita el abuso"
+      description="Estas comprobaciones se aplican siempre; no hay que configurarlas."
+    >
+      <ul class="list-disc space-y-1 pl-5 text-[var(--text-muted)]">
+        <li>Un solo cupón por persona: se detectan las variantes de un mismo correo (alias y puntos).</li>
+        <li>También se comparan el teléfono y el NIF o CIF con los cupones ya entregados y usados.</li>
+        <li>
+          El descuento se calcula sobre el precio más bajo de los últimos 30 días, como exige la normativa de rebajas.
+        </li>
+        <li>Un único uso: el cupón queda bloqueado tras la primera compra.</li>
+      </ul>
+    </AdminCard>
   </div>
 </template>

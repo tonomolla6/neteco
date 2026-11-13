@@ -129,72 +129,179 @@ async function sendWa() {
 }
 </script>
 <template>
-  <section aria-labelledby="messages-title">
-    <h1 id="messages-title">Avisos de alto valor</h1>
-    <p>Las operaciones de envío disponibles aquí son simulaciones; no envían mensajes externos.</p>
-    <form data-test="load" @submit.prevent="load">
-      <label for="messages-customer">Identificador de cliente</label
-      ><input id="messages-customer" v-model="customer" name="customer" :disabled="loading" /><button
-        :disabled="loading"
+  <section aria-label="Avisos importantes por SMS y WhatsApp" class="adm-stack">
+    <AdminCard
+      title="Buscar cliente"
+      description="Consulta si un cliente acepta avisos importantes por SMS o WhatsApp antes de registrar cambios o hacer pruebas."
+    >
+      <form data-test="load" class="flex flex-wrap items-end gap-3" @submit.prevent="load">
+        <div class="adm-field min-w-0 flex-1 sm:max-w-md">
+          <label for="messages-customer" class="adm-label">Identificador de cliente</label>
+          <input
+            id="messages-customer"
+            v-model="customer"
+            name="customer"
+            placeholder="Pega el identificador de la ficha del cliente"
+            :disabled="loading"
+          />
+        </div>
+        <button class="adm-btn adm-btn--primary" :disabled="loading">Consultar</button>
+      </form>
+    </AdminCard>
+
+    <p v-if="loading" role="status" class="adm-help">Cargando…</p>
+    <UAlert v-if="error" role="alert" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="error" />
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
+
+    <template v-if="consent && target === customer.trim()">
+      <AdminCard
+        title="Consentimiento del cliente"
+        description="Cada cambio queda registrado junto a la referencia que lo justifica."
       >
-        Consultar
-      </button>
-    </form>
-    <p v-if="loading" role="status">Cargando…</p>
-    <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="notice" role="status">{{ notice }}</p>
-    <div v-if="consent && target === customer.trim()">
-      <label for="messages-proof">Referencia de evidencia</label
-      ><input id="messages-proof" v-model="proof" name="proof" autocomplete="off" />
-      <section v-for="channel in ['sms', 'whatsapp'] as const" :key="channel">
-        <h2>{{ channel === 'sms' ? 'SMS' : 'WhatsApp' }}</h2>
-        <p>
-          {{ consent[channel].granted ? 'Consentimiento activo' : 'Sin consentimiento activo' }} · versión
-          {{ consent[channel].version }}
-        </p>
-        <button
-          type="button"
-          :data-action="`grant-${channel}`"
-          :disabled="loading"
-          @click="changeConsent(channel, 'grant')"
-        >
-          Registrar consentimiento</button
-        ><button
-          type="button"
-          :data-action="`revoke-${channel}`"
-          :disabled="loading"
-          @click="changeConsent(channel, 'revoke')"
-        >
-          Registrar baja
-        </button>
-      </section>
-      <label for="messages-event-id">Identificador del evento</label
-      ><input id="messages-event-id" v-model="eventId" name="eventId" autocomplete="off" />
-      <label for="messages-event">Evento</label
-      ><select id="messages-event" v-model="event">
-        <option value="recall">Retirada de producto</option>
-        <option value="delivery_exception">Incidencia de entrega</option>
-        <option value="security_alert">Aviso de seguridad</option>
-      </select>
-      <button type="button" data-action="simulate-sms" :disabled="loading" @click="sendSms">Simular SMS</button>
-      <div v-if="wa">
-        <h2>Simulación de WhatsApp</h2>
-        <p>Versión {{ wa.version }} · {{ wa.handoff ? 'Atención humana' : 'Automatización disponible' }}</p>
-        <label for="messages-template">Identificador de plantilla</label
-        ><input id="messages-template" v-model="templateId" /><label for="messages-approval"
-          >Referencia de aprobación</label
-        ><input id="messages-approval" v-model="approvalRef" /><button
-          type="button"
-          :disabled="loading"
-          @click="changeWa('approve_template')"
-        >
-          Registrar plantilla simulada</button
-        ><button type="button" :disabled="loading" @click="changeWa('inbound')">Simular mensaje entrante</button
-        ><button type="button" :disabled="loading" @click="changeWa('handoff')">Solicitar atención humana</button
-        ><button type="button" :disabled="loading" @click="changeWa('resume')">Reanudar simulación</button
-        ><button type="button" :disabled="loading || wa.handoff" @click="sendWa">Simular WhatsApp</button>
-      </div>
-      <p v-else>La simulación de WhatsApp no está disponible.</p>
-    </div>
+        <div class="adm-stack">
+          <div class="adm-field sm:max-w-md">
+            <label for="messages-proof" class="adm-label">Referencia de evidencia</label>
+            <input id="messages-proof" v-model="proof" name="proof" autocomplete="off" />
+            <p class="adm-help">Por ejemplo, el número de la consulta o del formulario donde el cliente lo pidió.</p>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <section
+              v-for="channel in ['sms', 'whatsapp'] as const"
+              :key="channel"
+              class="rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <h2>{{ channel === 'sms' ? 'SMS' : 'WhatsApp' }}</h2>
+                <AdminBadge :tone="consent[channel].granted ? 'success' : 'neutral'">
+                  {{ consent[channel].granted ? 'Consentimiento activo' : 'Sin consentimiento activo' }}
+                </AdminBadge>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :data-action="`grant-${channel}`"
+                  :disabled="loading"
+                  @click="changeConsent(channel, 'grant')"
+                >
+                  Registrar consentimiento
+                </button>
+                <button
+                  type="button"
+                  class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                  :data-action="`revoke-${channel}`"
+                  :disabled="loading"
+                  @click="changeConsent(channel, 'revoke')"
+                >
+                  Registrar baja
+                </button>
+              </div>
+            </section>
+          </div>
+        </div>
+      </AdminCard>
+
+      <AdminCard title="Aviso de prueba" description="Simula un aviso para comprobar qué recibiría este cliente.">
+        <div class="adm-form-grid">
+          <div class="adm-field">
+            <label for="messages-event-id" class="adm-label">Identificador del evento</label>
+            <input id="messages-event-id" v-model="eventId" name="eventId" autocomplete="off" />
+          </div>
+          <div class="adm-field">
+            <label for="messages-event" class="adm-label">Tipo de aviso</label>
+            <select id="messages-event" v-model="event">
+              <option value="recall">Retirada de producto</option>
+              <option value="delivery_exception">Incidencia de entrega</option>
+              <option value="security_alert">Aviso de seguridad</option>
+            </select>
+          </div>
+        </div>
+        <template #footer>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            data-action="simulate-sms"
+            :disabled="loading"
+            @click="sendSms"
+          >
+            Simular SMS
+          </button>
+          <button
+            v-if="wa"
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading || wa.handoff"
+            @click="sendWa"
+          >
+            Simular WhatsApp
+          </button>
+        </template>
+      </AdminCard>
+
+      <AdminCard v-if="wa" title="Simulación de WhatsApp">
+        <template #actions>
+          <AdminBadge :tone="wa.handoff ? 'warning' : 'success'">
+            {{ wa.handoff ? 'Atención humana' : 'Automatización disponible' }}
+          </AdminBadge>
+        </template>
+        <div class="adm-stack">
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label for="messages-template" class="adm-label">Identificador de plantilla</label>
+              <input id="messages-template" v-model="templateId" />
+            </div>
+            <div class="adm-field">
+              <label for="messages-approval" class="adm-label">Referencia de aprobación</label>
+              <input id="messages-approval" v-model="approvalRef" />
+            </div>
+          </div>
+          <p v-if="wa.templates.length" class="adm-help">
+            {{ wa.templates.length }}
+            {{ wa.templates.length === 1 ? 'plantilla registrada' : 'plantillas registradas' }} para este cliente.
+          </p>
+        </div>
+        <template #footer>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="loading"
+            @click="changeWa('approve_template')"
+          >
+            Registrar plantilla simulada
+          </button>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="loading"
+            @click="changeWa('inbound')"
+          >
+            Simular mensaje entrante
+          </button>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="loading"
+            @click="changeWa('handoff')"
+          >
+            Solicitar atención humana
+          </button>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="loading"
+            @click="changeWa('resume')"
+          >
+            Reanudar simulación
+          </button>
+        </template>
+      </AdminCard>
+      <UAlert
+        v-else
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-info"
+        title="La simulación de WhatsApp no está disponible."
+      />
+    </template>
   </section>
 </template>

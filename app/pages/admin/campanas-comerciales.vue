@@ -9,5 +9,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <AdminCommercialCampaignManager />
+  <AdminPage>
+    <AdminCommercialCampaignManager />
+  </AdminPage>
 </template>

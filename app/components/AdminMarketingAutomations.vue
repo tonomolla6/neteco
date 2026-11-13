@@ -168,55 +168,75 @@ async function triggerPostpurchaseSimulation() {
 onMounted(() => {
   loadData()
 })
+
+const STREAM_LABELS: Record<string, string> = {
+  transactional_safety_usage: 'Seguridad y uso del producto (informativo)',
+  commercial_replenishment: 'Reposición (comercial)'
+}
+const streamLabel = (code: string) => STREAM_LABELS[code] ?? adminHumanize(code)
+const countTotal = (counts?: Record<string, number>) =>
+  counts ? Object.values(counts).reduce((sum, value) => sum + value, 0) : null
 </script>
 
 <template>
-  <main class="space-y-8 p-6" role="region" aria-label="Automatizaciones de Marketing">
-    <header class="flex items-center justify-between border-b pb-4">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-slate-900">Automatizaciones de Marketing</h1>
-        <p class="text-sm text-slate-600">
-          Gobierno integral de series de bienvenida, reactivación comercial win-back y postcompra útil.
-        </p>
-      </div>
+  <div class="adm-stack" role="region" aria-label="Automatizaciones de marketing">
+    <AdminPageActions>
       <button
         type="button"
-        class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-indigo-500 disabled:opacity-50"
+        class="adm-btn adm-btn--primary"
         :disabled="saving || loading"
         aria-label="Guardar configuración de políticas"
         @click="savePolicy"
       >
-        {{ saving ? 'Guardando...' : 'Guardar políticas' }}
+        {{ saving ? 'Guardando…' : 'Guardar cambios' }}
       </button>
-    </header>
+    </AdminPageActions>
 
-    <div v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-700">
-      {{ errorMessage }}
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+
+    <div v-if="overview" class="adm-grid">
+      <AdminStat
+        label="Correos de bienvenida"
+        :value="countTotal(overview.counts.welcomeDispatches)"
+        icon="i-lucide-hand"
+      />
+      <AdminStat
+        label="Clientes inactivos evaluados"
+        :value="countTotal(overview.counts.winbackEvaluations)"
+        icon="i-lucide-user-round-search"
+      />
+      <AdminStat
+        label="Mensajes tras la compra"
+        :value="countTotal(overview.counts.postpurchaseDispatches)"
+        icon="i-lucide-package-check"
+      />
     </div>
 
-    <!-- MKT-015: Serie de Bienvenida -->
-    <section class="rounded-lg border bg-white p-6 shadow-sm" aria-labelledby="heading-mkt-015">
-      <div class="flex items-center justify-between">
-        <h2 id="heading-mkt-015" class="text-lg font-semibold text-slate-800">MKT-015: Serie de Bienvenida</h2>
+    <AdminCard
+      description="Correos para nuevos clientes: qué ofrecemos a profesionales, categorías, servicio local y un descuento con límites."
+      aria-labelledby="heading-mkt-015"
+    >
+      <template #title><span id="heading-mkt-015">Serie de bienvenida</span></template>
+      <template #actions>
         <button
           type="button"
           data-test="trigger-welcome"
-          class="rounded border border-indigo-600 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
           aria-label="Probar simulación de bienvenida"
           @click="triggerWelcomeSimulation"
         >
-          Simular paso de bienvenida
+          Probar envío
         </button>
-      </div>
-      <p class="mt-1 text-sm text-slate-500">
-        Secuencia educativa con valor B2B, categorías especializadas, servicio local y descuento gobernado.
-      </p>
-
-      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div>
-          <label for="welcomeDiscountPercent" class="block text-xs font-medium text-slate-700">
-            Descuento bienvenida (%)
-          </label>
+      </template>
+      <div class="adm-form-grid">
+        <AdminFormField label="Descuento de bienvenida (%)" for="welcomeDiscountPercent">
           <input
             id="welcomeDiscountPercent"
             v-model.number="policy.welcomeDiscountPercent"
@@ -225,66 +245,68 @@ onMounted(() => {
             min="1"
             max="30"
             aria-label="Porcentaje de descuento de bienvenida"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label for="welcomeDiscountMaxCents" class="block text-xs font-medium text-slate-700">
-            Tope de descuento (céntimos)
-          </label>
+        </AdminFormField>
+        <AdminFormField
+          label="Descuento máximo (céntimos)"
+          for="welcomeDiscountMaxCents"
+          :help="`Ahora: ${adminMoney(policy.welcomeDiscountMaxCents)}`"
+        >
           <input
             id="welcomeDiscountMaxCents"
             v-model.number="policy.welcomeDiscountMaxCents"
             name="welcomeDiscountMaxCents"
             type="number"
             aria-label="Tope de descuento en céntimos"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label for="welcomeMarginFloorBasisPoints" class="block text-xs font-medium text-slate-700">
-            Suelo de margen (puntos básicos)
-          </label>
+        </AdminFormField>
+        <AdminFormField
+          label="Margen mínimo (centésimas de %)"
+          for="welcomeMarginFloorBasisPoints"
+          :help="`Ahora: ${policy.welcomeMarginFloorBasisPoints / 100} %. Por debajo no se aplica el descuento.`"
+        >
           <input
             id="welcomeMarginFloorBasisPoints"
             v-model.number="policy.welcomeMarginFloorBasisPoints"
             name="welcomeMarginFloorBasisPoints"
             type="number"
             aria-label="Suelo de margen en puntos básicos"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
+        </AdminFormField>
       </div>
+      <UAlert
+        v-if="welcomeStatus"
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="welcomeStatus"
+        class="mt-4"
+      />
+    </AdminCard>
 
-      <div v-if="welcomeStatus" role="status" class="mt-3 text-sm font-medium text-emerald-600">
-        {{ welcomeStatus }}
-      </div>
-    </section>
-
-    <!-- MKT-018: Win-back por Inactividad -->
-    <section class="rounded-lg border bg-white p-6 shadow-sm" aria-labelledby="heading-mkt-018">
-      <div class="flex items-center justify-between">
-        <h2 id="heading-mkt-018" class="text-lg font-semibold text-slate-800">MKT-018: Win-back por Inactividad</h2>
+    <AdminCard
+      description="Reactivación automática de clientes que llevan tiempo sin comprar. Se excluyen quienes tienen incidencias abiertas, impagos o han pedido no recibir comunicaciones."
+      aria-labelledby="heading-mkt-018"
+    >
+      <template #title><span id="heading-mkt-018">Recuperación de clientes inactivos</span></template>
+      <template #actions>
         <button
           type="button"
           data-test="trigger-winback"
-          class="rounded border border-indigo-600 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
           aria-label="Probar evaluación de winback"
           @click="triggerWinbackSimulation"
         >
-          Evaluar cliente win-back
+          Probar evaluación
         </button>
-      </div>
-      <p class="mt-1 text-sm text-slate-500">
-        Reactivación automática con exclusión de incidencias abiertas, impagos/deuda, bajas comerciales y periodo de
-        enfriamiento.
-      </p>
-
-      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div>
-          <label for="winbackInactivityDays" class="block text-xs font-medium text-slate-700">
-            Días de inactividad umbral
-          </label>
+      </template>
+      <div class="adm-form-grid">
+        <AdminFormField
+          label="Días sin comprar"
+          for="winbackInactivityDays"
+          help="A partir de aquí se considera inactivo."
+        >
           <input
             id="winbackInactivityDays"
             v-model.number="policy.winbackInactivityDays"
@@ -293,67 +315,61 @@ onMounted(() => {
             min="14"
             max="365"
             aria-label="Días de inactividad para activar winback"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label for="winbackCooldownDays" class="block text-xs font-medium text-slate-700">
-            Enfriamiento / Anti-gaming (días)
-          </label>
+        </AdminFormField>
+        <AdminFormField
+          label="Días de espera entre ofertas"
+          for="winbackCooldownDays"
+          help="Evita que un cliente reciba la oferta una y otra vez."
+        >
           <input
             id="winbackCooldownDays"
             v-model.number="policy.winbackCooldownDays"
             name="winbackCooldownDays"
             type="number"
             aria-label="Días de enfriamiento de winback"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
-        <div>
-          <label for="winbackDiscountPercent" class="block text-xs font-medium text-slate-700">
-            Descuento win-back (%)
-          </label>
+        </AdminFormField>
+        <AdminFormField label="Descuento de recuperación (%)" for="winbackDiscountPercent">
           <input
             id="winbackDiscountPercent"
             v-model.number="policy.winbackDiscountPercent"
             name="winbackDiscountPercent"
             type="number"
             aria-label="Porcentaje de descuento de winback"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
+        </AdminFormField>
       </div>
+      <UAlert
+        v-if="winbackStatus"
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="winbackStatus"
+        :description="winbackCode ? `Código: ${winbackCode}` : undefined"
+        class="mt-4"
+      />
+    </AdminCard>
 
-      <div v-if="winbackStatus" role="status" class="mt-3 text-sm font-medium text-emerald-600">
-        {{ winbackStatus }}
-        <span v-if="winbackCode" class="ml-2 font-mono font-bold text-slate-900"> Código: {{ winbackCode }} </span>
-      </div>
-    </section>
-
-    <!-- MKT-019: Postcompra Útil -->
-    <section class="rounded-lg border bg-white p-6 shadow-sm" aria-labelledby="heading-mkt-019">
-      <div class="flex items-center justify-between">
-        <h2 id="heading-mkt-019" class="text-lg font-semibold text-slate-800">MKT-019: Postcompra Útil</h2>
+    <AdminCard
+      description="Tras cada pedido: información de seguridad y uso del producto para todos, y propuestas comerciales solo a quien ha dado su consentimiento."
+      aria-labelledby="heading-mkt-019"
+    >
+      <template #title><span id="heading-mkt-019">Mensajes tras la compra</span></template>
+      <template #actions>
         <button
           type="button"
           data-test="trigger-postpurchase"
-          class="rounded border border-indigo-600 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
           aria-label="Probar emisión postcompra"
           @click="triggerPostpurchaseSimulation"
         >
-          Emitir flujos postcompra
+          Probar envío
         </button>
-      </div>
-      <p class="mt-1 text-sm text-slate-500">
-        Separación estricta entre canal transaccional (seguridad, dilución, FDS y EPIs) y canal comercial condicionado a
-        consentimiento expreso.
-      </p>
-
-      <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label for="postpurchaseDelayHours" class="block text-xs font-medium text-slate-700">
-            Demora de emisión (horas)
-          </label>
+      </template>
+      <div class="adm-form-grid">
+        <AdminFormField label="Espera antes de enviar (horas)" for="postpurchaseDelayHours">
           <input
             id="postpurchaseDelayHours"
             v-model.number="policy.postpurchaseDelayHours"
@@ -362,19 +378,18 @@ onMounted(() => {
             min="0"
             max="168"
             aria-label="Horas de demora postcompra"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
           />
-        </div>
+        </AdminFormField>
       </div>
-
-      <div v-if="postpurchaseStatus" role="status" class="mt-3">
-        <p class="text-sm font-medium text-emerald-600">{{ postpurchaseStatus }}</p>
-        <ul class="mt-2 space-y-1">
-          <li v-for="d in postpurchaseDispatches" :key="d.id" class="text-xs font-mono text-slate-700">
-            Canal: <span class="font-bold">{{ d.streamType }}</span> (Estado: {{ d.status }})
+      <div v-if="postpurchaseStatus" role="status" class="mt-4">
+        <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" :title="postpurchaseStatus" />
+        <ul v-if="postpurchaseDispatches.length" class="mt-3 space-y-2">
+          <li v-for="d in postpurchaseDispatches" :key="d.id" class="flex flex-wrap items-center gap-2">
+            <span>{{ streamLabel(d.streamType) }}</span>
+            <AdminBadge :status="d.status" />
           </li>
         </ul>
       </div>
-    </section>
-  </main>
+    </AdminCard>
+  </div>
 </template>

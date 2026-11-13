@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted, type Ref } from 'vue'
 import {
   CAMPAIGN_ASSET_TYPES,
   CAMPAIGN_CHANNEL_TYPES,
@@ -46,7 +46,7 @@ const linkEndAt = ref('2026-11-15T23:59:59Z')
 
 function extractErrorCode(err: unknown, fallback: string): string {
   const code = (err as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return code ? `Error: ${code}` : fallback
+  return code ? `${fallback}. Vuelve a intentarlo.` : fallback
 }
 
 async function loadCampaigns() {
@@ -146,6 +146,122 @@ async function handleUnlinkAsset(assetId: string) {
   }
 }
 
+const CHANNEL_LABELS: Record<string, string> = {
+  omnichannel: 'Todos los canales',
+  web: 'Web',
+  email: 'Correo',
+  mobile: 'Móvil'
+}
+const AUDIENCE_LABELS: Record<string, string> = {
+  all: 'Todos los clientes',
+  b2b: 'Empresas',
+  b2c: 'Particulares',
+  vip: 'Clientes VIP',
+  new_customers: 'Clientes nuevos'
+}
+const ASSET_LABELS: Record<string, string> = {
+  banner: 'Banner',
+  promotion: 'Promoción',
+  modal: 'Ventana emergente',
+  email: 'Correo',
+  landing: 'Página de campaña'
+}
+const CONFLICT_LABELS: Record<string, string> = {
+  banner_slot_overlap: 'Banners en el mismo espacio',
+  modal_collision: 'Ventanas emergentes coincidentes',
+  promotion_clash: 'Promociones incompatibles',
+  email_schedule_fatigue: 'Demasiados correos seguidos',
+  date_inconsistency: 'Fechas incoherentes'
+}
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Borrador',
+  scheduled: 'Programada',
+  active: 'Activa',
+  paused: 'En pausa',
+  completed: 'Finalizada',
+  cancelled: 'Cancelada'
+}
+const label = (map: Record<string, string>, code: string) => map[code] ?? adminHumanize(code)
+
+// Estado de interfaz: búsqueda, filtro, panel de detalle y confirmación.
+const search = ref('')
+const statusFilter = ref('all')
+const statusOptions = computed(() => [
+  { value: 'all', label: 'Todas', count: campaigns.value.length },
+  ...['active', 'scheduled', 'draft', 'completed'].map((value) => ({
+    value,
+    label: `${STATUS_LABELS[value]}s`.replace('Borradors', 'Borradores'),
+    count: campaigns.value.filter((entry) => entry.status === value).length
+  }))
+])
+const filteredCampaigns = computed(() => {
+  const term = search.value.toLowerCase()
+  return campaigns.value.filter(
+    (entry) =>
+      (statusFilter.value === 'all' || entry.status === statusFilter.value) &&
+      (!term || entry.name.toLowerCase().includes(term) || entry.code.toLowerCase().includes(term))
+  )
+})
+const sortKey = ref('')
+function clearFilters() {
+  search.value = ''
+  statusFilter.value = 'all'
+}
+const columns = [
+  { key: 'name', label: 'Campaña', sortable: true },
+  { key: 'channelType', label: 'Canal', hideOnMobile: true },
+  { key: 'targetAudience', label: 'Público', hideOnMobile: true },
+  { key: 'startAt', label: 'Vigencia', sortable: true },
+  { key: 'priority', label: 'Prioridad', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'status', label: 'Estado' }
+]
+const tabs = computed(() => [
+  { value: 'campaigns', label: 'Campañas', count: campaigns.value.length },
+  { value: 'calendar', label: 'Calendario comercial' }
+])
+const tabModel = computed({
+  get: (): string => activeTab.value,
+  set: (value: string) => {
+    activeTab.value = value === 'calendar' ? 'calendar' : 'campaigns'
+  }
+})
+const activeConflicts = computed(() => calendarFeed.value?.activeConflicts ?? [])
+const calendarDays = computed(() => calendarFeed.value?.days ?? [])
+const detailOpen = computed({
+  get: () => selectedCampaign.value !== null,
+  set: (open: boolean) => {
+    if (!open) {
+      selectedCampaign.value = null
+      showLinkModal.value = false
+    }
+  }
+})
+const assetToUnlink = ref<CampaignLinkedAsset | null>(null)
+const confirmUnlink = computed({
+  get: () => assetToUnlink.value !== null,
+  set: (open: boolean) => {
+    if (!open) assetToUnlink.value = null
+  }
+})
+async function confirmUnlinkAsset() {
+  const asset = assetToUnlink.value
+  assetToUnlink.value = null
+  if (asset) await handleUnlinkAsset(asset.id)
+}
+/** Los campos de fecha editan solo el día; el valor enviado conserva el formato ISO original. */
+function dayModel(target: Ref<string>, endOfDay: boolean) {
+  return computed({
+    get: () => target.value.slice(0, 10),
+    set: (day: string) => {
+      if (day) target.value = `${day}T${endOfDay ? '23:59:59' : '00:00:00'}Z`
+    }
+  })
+}
+const newStartDay = dayModel(newStartAt, false)
+const newEndDay = dayModel(newEndAt, true)
+const linkStartDay = dayModel(linkStartAt, false)
+const linkEndDay = dayModel(linkEndAt, true)
+
 onMounted(() => {
   void loadCampaigns()
   void loadCalendarFeed()
@@ -153,354 +269,308 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="admin-commercial-campaigns p-4 space-y-6 max-w-7xl mx-auto" aria-label="Gestor de Campañas Comerciales">
-    <!-- Header -->
-    <header class="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Gestor de Campañas y Calendario Comercial</h1>
-        <p class="text-sm text-gray-600">
-          ADM-026: Banners, promociones, modales, emails y landings vinculados; conflictos de fechas visibles.
-        </p>
-      </div>
+  <div class="admin-commercial-campaigns adm-stack" aria-label="Gestor de campañas comerciales">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="showCreateModal = true">Nueva campaña</AdminButton>
+    </AdminPageActions>
 
-      <nav class="flex gap-2" aria-label="Pestañas de campañas">
-        <button
-          type="button"
-          :class="[
-            'px-3 py-1.5 rounded font-medium text-sm transition',
-            activeTab === 'campaigns' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          ]"
-          @click="activeTab = 'campaigns'"
-        >
-          Campañas y Canales
-        </button>
-        <button
-          type="button"
-          :class="[
-            'px-3 py-1.5 rounded font-medium text-sm transition',
-            activeTab === 'calendar' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-          ]"
-          @click="activeTab = 'calendar'"
-        >
-          Calendario Comercial
-        </button>
-      </nav>
-    </header>
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
 
-    <!-- Error message banner -->
-    <div v-if="errorMessage" role="alert" class="p-3 bg-red-50 border border-red-300 text-red-800 rounded text-sm">
-      {{ errorMessage }}
-    </div>
-
-    <!-- Active Conflicts Alert (If Any) -->
-    <section
-      v-if="calendarFeed?.activeConflicts?.length"
-      class="p-4 bg-amber-50 border-2 border-amber-400 rounded-lg space-y-2"
+    <UAlert
+      v-if="activeConflicts.length"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-calendar-x"
+      :title="`Hay ${activeConflicts.length} ${activeConflicts.length === 1 ? 'coincidencia' : 'coincidencias'} entre campañas este mes`"
     >
-      <div class="flex items-center gap-2">
-        <h2 class="text-sm font-bold text-amber-900">
-          Conflictos Comerciales y Colisiones de Fechas Detectados ({{ calendarFeed.activeConflicts.length }})
-        </h2>
-      </div>
-      <ul class="divide-y divide-amber-200 text-xs">
-        <li v-for="c in calendarFeed.activeConflicts" :key="c.conflictId" class="py-2 flex items-start justify-between">
-          <div>
-            <span class="font-bold text-red-700 mr-2">[{{ c.type.toUpperCase() }}]</span>
-            <span class="text-gray-900">{{ c.message }}</span>
-          </div>
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 uppercase">
-            {{ c.severity }}
-          </span>
-        </li>
-      </ul>
-    </section>
-
-    <!-- TAB 1: Campaigns List & Details -->
-    <div v-if="activeTab === 'campaigns'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Left: Campaigns List -->
-      <section class="lg:col-span-1 space-y-4 border-r pr-4" aria-label="Lista de Campañas">
-        <div class="flex items-center justify-between">
-          <h2 class="text-base font-bold text-gray-900">Campañas Registradas</h2>
-          <button
-            type="button"
-            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-medium transition"
-            @click="showCreateModal = true"
-          >
-            + Nueva Campaña
-          </button>
-        </div>
-
-        <div v-if="loading" class="text-center py-4 text-xs text-gray-500">Cargando campañas…</div>
-
-        <ul v-else class="space-y-2" role="list">
-          <li
-            v-for="c in campaigns"
-            :key="c.id"
-            class="p-3 border rounded-lg cursor-pointer transition"
-            :class="
-              selectedCampaign?.id === c.id
-                ? 'border-blue-500 bg-blue-50/30 ring-1 ring-blue-500'
-                : 'bg-white hover:bg-gray-50'
-            "
-            @click="loadCampaignDetail(c.id)"
-          >
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-mono font-bold text-gray-500">{{ c.code }}</span>
-              <span class="px-2 py-0.5 text-[10px] font-semibold rounded bg-gray-100 text-gray-700 uppercase">{{
-                c.status
-              }}</span>
-            </div>
-            <h3 class="font-bold text-sm text-gray-900 mt-1">{{ c.name }}</h3>
-            <p class="text-xs text-gray-500 mt-1">
-              {{ c.startAt.slice(0, 10) }} al {{ c.endAt.slice(0, 10) }} · Prioridad: {{ c.priority }}
-            </p>
+      <template #description>
+        <ul class="space-y-1">
+          <li v-for="c in activeConflicts" :key="c.conflictId" class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <AdminBadge :tone="c.severity === 'critical' ? 'danger' : 'warning'">
+              {{ c.severity === 'critical' ? 'Grave' : 'Aviso' }}
+            </AdminBadge>
+            <span class="font-semibold">{{ label(CONFLICT_LABELS, c.type) }}:</span>
+            <span>{{ c.message }}</span>
           </li>
         </ul>
-      </section>
+      </template>
+    </UAlert>
 
-      <!-- Right: Campaign Details & Linked Touchpoints -->
-      <section class="lg:col-span-2 space-y-4" aria-label="Detalle de Campaña y Elementos Vinculados">
-        <div v-if="selectedCampaign" class="bg-white p-5 border rounded-lg space-y-4">
-          <div class="flex items-start justify-between border-b pb-3">
-            <div>
-              <span class="text-xs font-mono text-gray-400">{{ selectedCampaign.code }}</span>
-              <h2 class="text-xl font-bold text-gray-900">{{ selectedCampaign.name }}</h2>
-              <p class="text-xs text-gray-600 mt-1">{{ selectedCampaign.description }}</p>
-            </div>
-            <button
-              type="button"
-              class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-medium transition"
-              @click="showLinkModal = true"
-            >
-              + Vincular Elemento
-            </button>
-          </div>
+    <AdminTabs v-model="tabModel" :tabs="tabs" label="Pestañas de campañas" />
 
-          <!-- Linked Assets Categories -->
-          <div>
-            <h3 class="text-sm font-bold text-gray-800 mb-2">
-              Canales y Elementos Vinculados ({{ selectedCampaign.linkedAssets.length }})
-            </h3>
-            <div
-              v-if="selectedCampaign.linkedAssets.length === 0"
-              class="text-xs text-gray-400 p-4 border border-dashed rounded text-center"
-            >
-              No hay elementos vinculados. Añade banners, promociones, modales, emails o landings.
-            </div>
-
-            <ul v-else class="divide-y border rounded-lg text-xs" role="list">
-              <li v-for="a in selectedCampaign.linkedAssets" :key="a.id" class="p-3 flex items-center justify-between">
-                <div>
-                  <span
-                    class="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-100 text-blue-800 mr-2"
-                  >
-                    {{ a.assetType }}
-                  </span>
-                  <span class="font-semibold text-gray-900">{{ a.assetName }}</span>
-                  <span v-if="a.placementOrSlot" class="text-gray-500 font-mono ml-2">({{ a.placementOrSlot }})</span>
-                  <p class="text-gray-400 text-[10px] mt-0.5">
-                    Fechas: {{ a.startAt.slice(0, 10) }} — {{ a.endAt.slice(0, 10) }}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  class="text-red-600 hover:text-red-800 p-1"
-                  title="Desvincular"
-                  @click="handleUnlinkAsset(a.id)"
-                >
-                  Desvincular
-                </button>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div v-else class="text-center py-12 text-sm text-gray-400 border border-dashed rounded-lg">
-          Selecciona una campaña para ver sus elementos vinculados (banners, promociones, modales, emails, landings).
-        </div>
-      </section>
-    </div>
-
-    <!-- TAB 2: Commercial Calendar View -->
-    <section v-if="activeTab === 'calendar'" class="space-y-4" aria-label="Calendario Comercial">
-      <div class="flex items-center justify-between bg-gray-50 p-3 rounded-lg border">
-        <h2 class="text-sm font-bold text-gray-800">Calendario comercial mensual</h2>
-        <div class="flex items-center gap-2">
-          <label class="text-xs font-semibold text-gray-600">Mes:</label>
-          <input
-            v-model="activeMonth"
-            type="month"
-            class="px-2 py-1 border rounded text-xs bg-white font-medium"
-            @change="loadCalendarFeed"
-          />
-        </div>
-      </div>
-
-      <!-- Calendar Grid -->
-      <div class="grid grid-cols-7 gap-2">
-        <div
-          v-for="d in calendarFeed?.days"
-          :key="d.date"
-          class="p-2 border rounded min-h-[90px] flex flex-col justify-between text-xs transition"
-          :class="{
-            'bg-amber-50/50 border-amber-300': d.conflicts.length > 0,
-            'bg-white': d.conflicts.length === 0,
-            'border-blue-400 bg-blue-50/20': d.campaignsCount > 0
-          }"
-        >
-          <div class="flex items-center justify-between">
-            <span class="font-bold text-gray-700">{{ d.date.slice(8, 10) }}</span>
-            <span v-if="d.conflicts.length" class="text-amber-600 font-bold text-[10px]" title="Conflicto detectado"
-              >Conflicto</span
-            >
-          </div>
-
-          <div class="space-y-1 mt-1">
-            <div
-              v-for="c in d.campaigns"
-              :key="c.id"
-              class="truncate px-1 py-0.5 rounded bg-blue-100 text-blue-900 text-[10px]"
-            >
-              {{ c.name }}
-            </div>
-          </div>
-
-          <div class="text-[9px] text-gray-400 mt-1">{{ d.assets.length }} elementos</div>
-        </div>
-      </div>
+    <section v-if="activeTab === 'campaigns'" aria-label="Lista de campañas">
+      <AdminTable
+        v-model:sort-key="sortKey"
+        :rows="filteredCampaigns"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="loading ? 'pending' : 'idle'"
+        :filtered="Boolean(search) || statusFilter !== 'all'"
+        empty-title="Todavía no hay campañas"
+        empty-description="Crea la primera campaña para coordinar banners, promociones y correos en unas mismas fechas."
+        empty-icon="i-lucide-megaphone"
+        class="[&_tbody_tr]:cursor-pointer"
+        @row-click="(row) => loadCampaignDetail(row.id)"
+        @clear-filters="clearFilters"
+      >
+        <template #toolbar>
+          <AdminToolbar v-model:search="search" placeholder="Buscar por nombre o código…">
+            <AdminFilters v-model="statusFilter" :options="statusOptions" label="Filtrar por estado" />
+          </AdminToolbar>
+        </template>
+        <template #cell-name="{ row }">
+          <p class="font-semibold text-[var(--text-strong)]">{{ row.name }}</p>
+          <p class="adm-help">{{ row.code }}</p>
+        </template>
+        <template #cell-channelType="{ row }">{{ label(CHANNEL_LABELS, row.channelType) }}</template>
+        <template #cell-targetAudience="{ row }">{{ label(AUDIENCE_LABELS, row.targetAudience) }}</template>
+        <template #cell-startAt="{ row }">{{ adminDate(row.startAt) }} – {{ adminDate(row.endAt) }}</template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="adminStatusTone(row.status)">{{ label(STATUS_LABELS, row.status) }}</AdminBadge>
+        </template>
+        <template #actions="{ row }">
+          <AdminButton size="sm" variant="ghost" @click="loadCampaignDetail(row.id)">Ver elementos</AdminButton>
+        </template>
+        <template #empty-action>
+          <AdminButton variant="primary" icon="i-lucide-plus" @click="showCreateModal = true">
+            Nueva campaña
+          </AdminButton>
+        </template>
+      </AdminTable>
     </section>
 
-    <!-- Modal Create Campaign -->
-    <div v-if="showCreateModal" class="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-      <div class="bg-white rounded-lg p-6 max-w-md w-full space-y-4">
-        <h3 class="text-lg font-bold text-gray-900">Crear Campaña Comercial</h3>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Código (slug):</label>
+    <section v-if="activeTab === 'calendar'" aria-label="Calendario comercial">
+      <AdminCard title="Calendario comercial mensual" description="Campañas y elementos activos cada día del mes.">
+        <template #actions>
+          <label for="commercial-calendar-month" class="adm-label">Mes</label>
           <input
-            v-model="newCode"
-            type="text"
-            class="w-full px-3 py-1.5 border rounded text-sm font-mono"
-            placeholder="camp-quimicos-2026"
+            id="commercial-calendar-month"
+            v-model="activeMonth"
+            type="month"
+            class="adm-input w-auto"
+            @change="loadCalendarFeed"
           />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Nombre:</label>
-          <input
-            v-model="newName"
-            type="text"
-            class="w-full px-3 py-1.5 border rounded text-sm"
-            placeholder="Campaña Descuento Hostelería"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Descripción:</label>
-          <textarea
-            v-model="newDesc"
-            class="w-full px-3 py-1.5 border rounded text-sm"
-            rows="2"
-            placeholder="Detalle comercial"
-          ></textarea>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Canal:</label>
-            <select v-model="newChannel" class="w-full px-2 py-1.5 border rounded text-xs bg-white">
-              <option v-for="ch in CAMPAIGN_CHANNEL_TYPES" :key="ch" :value="ch">{{ ch }}</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Audiencia:</label>
-            <select v-model="newAudience" class="w-full px-2 py-1.5 border rounded text-xs bg-white">
-              <option v-for="aud in CAMPAIGN_AUDIENCES" :key="aud" :value="aud">{{ aud }}</option>
-            </select>
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Fecha Inicio:</label>
-            <input v-model="newStartAt" type="text" class="w-full px-2 py-1 border rounded text-xs" />
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Fecha Fin:</label>
-            <input v-model="newEndAt" type="text" class="w-full px-2 py-1 border rounded text-xs" />
-          </div>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" class="px-3 py-1.5 border rounded text-sm" @click="showCreateModal = false">
-            Cancelar
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium"
-            @click="handleCreateCampaign"
+        </template>
+        <AdminEmptyState
+          v-if="!calendarDays.length"
+          compact
+          icon="i-lucide-calendar"
+          title="No hay datos de este mes"
+        />
+        <div v-else class="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+          <div
+            v-for="d in calendarDays"
+            :key="d.date"
+            class="flex min-h-[5.5rem] flex-col gap-1 rounded-[var(--radius-control)] border border-[var(--border)] p-2 text-xs"
+            :class="d.campaignsCount > 0 ? 'bg-[var(--surface)]' : 'bg-[var(--surface-sunken)]'"
           >
-            Crear Campaña
-          </button>
+            <div class="flex items-center justify-between gap-1">
+              <span class="font-semibold text-[var(--text-strong)]">{{ d.date.slice(8, 10) }}</span>
+              <AdminBadge v-if="d.conflicts.length" tone="warning" title="Coincidencia detectada"
+                >Coincidencia</AdminBadge
+              >
+            </div>
+            <div class="flex-1 space-y-1">
+              <div
+                v-for="c in d.campaigns"
+                :key="c.id"
+                class="truncate rounded bg-neteco-50 px-1.5 py-0.5 text-neteco-900"
+                :title="c.name"
+              >
+                {{ c.name }}
+              </div>
+            </div>
+            <p v-if="d.assets.length" class="text-[var(--text-muted)]">
+              {{ d.assets.length }} {{ d.assets.length === 1 ? 'elemento' : 'elementos' }}
+            </p>
+          </div>
         </div>
-      </div>
-    </div>
+      </AdminCard>
+    </section>
 
-    <!-- Modal Link Asset -->
-    <div v-if="showLinkModal" class="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-      <div class="bg-white rounded-lg p-6 max-w-md w-full space-y-4">
-        <h3 class="text-lg font-bold text-gray-900">Vincular Elemento a Campaña</h3>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Tipo de Elemento:</label>
-          <select v-model="linkType" class="w-full px-3 py-1.5 border rounded text-sm bg-white uppercase">
-            <option v-for="t in CAMPAIGN_ASSET_TYPES" :key="t" :value="t">{{ t }}</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Identificador / Ref:</label>
-          <input
-            v-model="linkAssetId"
-            type="text"
-            class="w-full px-3 py-1.5 border rounded text-sm font-mono"
-            placeholder="banner-hero-5l"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Nombre Descriptivo:</label>
-          <input
-            v-model="linkAssetName"
-            type="text"
-            class="w-full px-3 py-1.5 border rounded text-sm"
-            placeholder="Banner Principal Portada"
-          />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Slot / Ubicación / URL:</label>
-          <input
-            v-model="linkSlot"
-            type="text"
-            class="w-full px-3 py-1.5 border rounded text-sm"
-            placeholder="home_hero o /landing-quimicos"
-          />
-        </div>
-        <div class="grid grid-cols-2 gap-2">
+    <!-- Detalle de la campaña y elementos vinculados -->
+    <AdminDrawer
+      v-model:open="detailOpen"
+      wide
+      :title="selectedCampaign?.name ?? 'Campaña'"
+      :description="selectedCampaign?.description || undefined"
+    >
+      <div v-if="selectedCampaign" class="adm-stack" aria-label="Detalle de campaña y elementos vinculados">
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-4">
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Inicio:</label>
-            <input v-model="linkStartAt" type="text" class="w-full px-2 py-1 border rounded text-xs" />
+            <dt class="adm-help">Estado</dt>
+            <dd>
+              <AdminBadge :tone="adminStatusTone(selectedCampaign.status)">
+                {{ label(STATUS_LABELS, selectedCampaign.status) }}
+              </AdminBadge>
+            </dd>
           </div>
           <div>
-            <label class="block text-xs font-semibold text-gray-700 mb-1">Fin:</label>
-            <input v-model="linkEndAt" type="text" class="w-full px-2 py-1 border rounded text-xs" />
+            <dt class="adm-help">Canal</dt>
+            <dd>{{ label(CHANNEL_LABELS, selectedCampaign.channelType) }}</dd>
           </div>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" class="px-3 py-1.5 border rounded text-sm" @click="showLinkModal = false">
-            Cancelar
-          </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 bg-green-600 text-white rounded text-sm font-medium"
-            @click="handleLinkAsset"
-          >
-            Vincular Elemento
-          </button>
-        </div>
+          <div>
+            <dt class="adm-help">Público</dt>
+            <dd>{{ label(AUDIENCE_LABELS, selectedCampaign.targetAudience) }}</dd>
+          </div>
+          <div>
+            <dt class="adm-help">Vigencia</dt>
+            <dd>{{ adminDate(selectedCampaign.startAt) }} – {{ adminDate(selectedCampaign.endAt) }}</dd>
+          </div>
+        </dl>
+
+        <AdminCard
+          :title="`Elementos vinculados (${selectedCampaign.linkedAssets.length})`"
+          description="Banners, promociones, ventanas emergentes, correos y páginas que forman la campaña."
+          flush
+        >
+          <template #actions>
+            <AdminButton v-if="!showLinkModal" size="sm" icon="i-lucide-link" @click="showLinkModal = true">
+              Vincular elemento
+            </AdminButton>
+          </template>
+          <AdminEmptyState
+            v-if="selectedCampaign.linkedAssets.length === 0"
+            compact
+            icon="i-lucide-link"
+            title="Sin elementos vinculados"
+            description="Añade los banners, promociones, ventanas emergentes, correos o páginas de esta campaña."
+          />
+          <ul v-else class="adm-list" role="list">
+            <li v-for="a in selectedCampaign.linkedAssets" :key="a.id">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  {{ a.assetName }}
+                  <AdminBadge tone="info" plain>{{ label(ASSET_LABELS, a.assetType) }}</AdminBadge>
+                </p>
+                <p class="adm-help">
+                  <template v-if="a.placementOrSlot">{{ a.placementOrSlot }} · </template>
+                  {{ adminDate(a.startAt) }} – {{ adminDate(a.endAt) }}
+                </p>
+              </div>
+              <AdminButton size="sm" variant="danger-soft" @click="assetToUnlink = a">Desvincular</AdminButton>
+            </li>
+          </ul>
+        </AdminCard>
+
+        <AdminCard v-if="showLinkModal" title="Vincular elemento a la campaña">
+          <div class="adm-stack">
+            <AdminFormField v-slot="{ id }" label="Tipo de elemento">
+              <select :id="id" v-model="linkType">
+                <option v-for="t in CAMPAIGN_ASSET_TYPES" :key="t" :value="t">{{ label(ASSET_LABELS, t) }}</option>
+              </select>
+            </AdminFormField>
+            <div class="adm-form-grid">
+              <AdminFormField
+                v-slot="{ id }"
+                label="Referencia"
+                help="Identificador del elemento, por ejemplo banner-hero-5l."
+                required
+              >
+                <input :id="id" v-model="linkAssetId" type="text" placeholder="banner-hero-5l" />
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="Nombre descriptivo" required>
+                <input :id="id" v-model="linkAssetName" type="text" placeholder="Banner principal de portada" />
+              </AdminFormField>
+            </div>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Ubicación o dirección"
+              help="Espacio de la web donde aparece o dirección de la página."
+            >
+              <input :id="id" v-model="linkSlot" type="text" placeholder="home_hero o /landing-quimicos" />
+            </AdminFormField>
+            <div class="adm-form-grid">
+              <AdminFormField v-slot="{ id }" label="Desde">
+                <input :id="id" v-model="linkStartDay" type="date" />
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="Hasta">
+                <input :id="id" v-model="linkEndDay" type="date" />
+              </AdminFormField>
+            </div>
+          </div>
+          <template #footer>
+            <AdminButton @click="showLinkModal = false">Cancelar</AdminButton>
+            <AdminButton variant="primary" :disabled="!linkAssetId || !linkAssetName" @click="handleLinkAsset">
+              Vincular elemento
+            </AdminButton>
+          </template>
+        </AdminCard>
       </div>
-    </div>
+      <template #footer>
+        <AdminButton @click="detailOpen = false">Cerrar</AdminButton>
+      </template>
+    </AdminDrawer>
+
+    <!-- Nueva campaña -->
+    <AdminDrawer v-model:open="showCreateModal" title="Nueva campaña comercial">
+      <div class="adm-stack">
+        <AdminFormField v-slot="{ id }" label="Nombre" required>
+          <input :id="id" v-model="newName" type="text" placeholder="Campaña descuento hostelería" />
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Código"
+          help="Identificador corto en minúsculas y con guiones, sin espacios."
+          required
+        >
+          <input :id="id" v-model="newCode" type="text" placeholder="camp-quimicos-2026" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Descripción">
+          <textarea :id="id" v-model="newDesc" rows="2" placeholder="Objetivo y detalle comercial"></textarea>
+        </AdminFormField>
+        <div class="adm-form-grid">
+          <AdminFormField v-slot="{ id }" label="Canal">
+            <select :id="id" v-model="newChannel">
+              <option v-for="ch in CAMPAIGN_CHANNEL_TYPES" :key="ch" :value="ch">
+                {{ label(CHANNEL_LABELS, ch) }}
+              </option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Público">
+            <select :id="id" v-model="newAudience">
+              <option v-for="aud in CAMPAIGN_AUDIENCES" :key="aud" :value="aud">
+                {{ label(AUDIENCE_LABELS, aud) }}
+              </option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Fecha de inicio">
+            <input :id="id" v-model="newStartDay" type="date" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Fecha de fin">
+            <input :id="id" v-model="newEndDay" type="date" />
+          </AdminFormField>
+        </div>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Prioridad"
+          help="De 1 a 100. Si dos campañas coinciden, se muestra antes la de mayor prioridad."
+        >
+          <input :id="id" v-model.number="newPriority" type="number" min="1" max="100" />
+        </AdminFormField>
+      </div>
+      <template #footer>
+        <AdminButton @click="showCreateModal = false">Cancelar</AdminButton>
+        <AdminButton variant="primary" :disabled="!newCode || !newName" @click="handleCreateCampaign">
+          Crear campaña
+        </AdminButton>
+      </template>
+    </AdminDrawer>
+
+    <AdminConfirm
+      v-model:open="confirmUnlink"
+      title="Desvincular elemento"
+      :description="`«${assetToUnlink?.assetName ?? ''}» dejará de formar parte de esta campaña.`"
+      confirm-label="Desvincular"
+      danger
+      @confirm="confirmUnlinkAsset"
+    />
   </div>
 </template>

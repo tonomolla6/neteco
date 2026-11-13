@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   SPANISH_LIVA_RAPPEL_FISCAL_CLAUSE,
   type IncentiveAgreement,
@@ -24,7 +24,7 @@ const approving = ref(false)
 
 function errorText(error: unknown, fallback: string): string {
   const c = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return c ? `${fallback} (${c})` : fallback
+  return c ? `${fallback}. Vuelve a intentarlo.` : fallback
 }
 
 async function loadData() {
@@ -63,152 +63,193 @@ async function approveSettlement() {
   }
 }
 
+const FISCAL_REVIEW: Record<string, [string, 'success' | 'warning' | 'danger']> = {
+  pending_review: ['Revisión fiscal pendiente', 'warning'],
+  fiscal_approved: ['Revisión fiscal aprobada', 'success'],
+  fiscal_rejected: ['Revisión fiscal rechazada', 'danger']
+}
+const VAT_TREATMENT: Record<string, string> = {
+  credit_note_art80_liva: 'Factura rectificativa (abono)',
+  commercial_discount_subsequent_invoice: 'Descuento en la factura siguiente'
+}
+const SETTLEMENT_STATUS: Record<string, [string, 'neutral' | 'success' | 'warning' | 'danger' | 'info']> = {
+  calculated: ['Pendiente de aprobar', 'warning'],
+  approved: ['Aprobada', 'success'],
+  credit_issued: ['Abono emitido', 'success'],
+  rejected: ['Rechazada', 'danger']
+}
+const percent = (basisPoints: number) =>
+  `${(basisPoints / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })} %`
+const settlementColumns = [
+  { key: 'settlementPeriod', label: 'Periodo' },
+  { key: 'rebateNetCents', label: 'Descuento', numeric: true },
+  { key: 'vatTaxCents', label: 'IVA', numeric: true, hideOnMobile: true },
+  { key: 'totalCreditGrossCents', label: 'Total a abonar', numeric: true },
+  { key: 'creditNoteRef', label: 'Factura rectificativa', hideOnMobile: true },
+  { key: 'settlementStatus', label: 'Estado' }
+]
+const approvalOpen = computed({
+  get: () => activeSettlement.value !== null,
+  set: (open: boolean) => {
+    if (!open) activeSettlement.value = null
+  }
+})
+
 onMounted(() => {
   loadData()
 })
 </script>
 
 <template>
-  <div class="admin-recurring-incentives-panel p-6 max-w-5xl mx-auto space-y-6">
-    <header class="border-b pb-4">
-      <h1 class="text-2xl font-bold text-slate-900">Incentivos por Recurrencia B2B (MKT-036)</h1>
-      <p class="text-sm text-slate-600 mt-1">
-        Beneficio basado en volumen, margen y SLA. Sin puntos opacos. Contrato y fiscalidad formalmente revisados.
-      </p>
-    </header>
-
-    <!-- Fiscal Legal Note Alert -->
-    <div class="bg-blue-50 border border-blue-500 p-4 rounded text-xs text-blue-900">
-      <span class="font-bold">Marco Tributario Aplicable:</span>
-      <p class="mt-0.5">{{ SPANISH_LIVA_RAPPEL_FISCAL_CLAUSE }}</p>
+  <div class="admin-recurring-incentives-panel adm-stack">
+    <div v-if="loading" class="adm-card adm-table-skeleton" aria-busy="true">
+      <span class="sr-only">Cargando el acuerdo de descuentos por volumen…</span>
+      <div v-for="row in 4" :key="row"><i /><i /><i /></div>
     </div>
+    <UAlert
+      v-else-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
 
-    <!-- Loading & Error -->
-    <div v-if="loading" class="p-8 text-center text-slate-500 animate-pulse">Cargando acuerdo de rappel B2B...</div>
-    <div v-else-if="errorMessage" class="p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-      {{ errorMessage }}
-    </div>
-
-    <!-- Agreement Content -->
-    <div v-else-if="agreement" class="space-y-6">
-      <div class="bg-white border rounded p-6 shadow-sm space-y-4">
-        <div class="flex items-center justify-between border-b pb-3">
-          <div>
-            <span class="text-xs font-mono text-slate-500">Contrato: {{ agreement.contractRef }}</span>
-            <h2 class="text-lg font-bold text-slate-900">
-              Acuerdo de Rappel Trimestral (Versión {{ agreement.contractTermsVersion }})
-            </h2>
-          </div>
-          <span
-            :class="[
-              'text-xs px-2.5 py-1 rounded font-semibold uppercase',
-              agreement.fiscalReviewStatus === 'fiscal_approved'
-                ? 'bg-green-100 text-green-800'
-                : 'bg-amber-100 text-amber-800'
-            ]"
-          >
-            Fiscal: {{ agreement.fiscalReviewStatus }}
-          </span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <div class="p-3 bg-slate-50 rounded border">
-            <span class="text-xs text-slate-500 block">Suelo de margen bruto</span>
-            <span class="font-bold text-slate-800">{{ agreement.minGrossMarginBasisPoints / 100 }}%</span>
-          </div>
-          <div class="p-3 bg-slate-50 rounded border">
-            <span class="text-xs text-slate-500 block">Condiciones SLA</span>
-            <span class="font-medium text-slate-800">
-              Pago puntual: {{ agreement.slaPunctualPaymentRequired ? 'Sí' : 'No' }} | Factura-e:
-              {{ agreement.slaEinvoiceRequired ? 'Sí' : 'No' }}
-            </span>
-          </div>
-          <div class="p-3 bg-slate-50 rounded border">
-            <span class="text-xs text-slate-500 block">Tratamiento de IVA</span>
-            <span class="font-medium text-slate-800 font-mono text-xs">
-              {{ agreement.fiscalVatTreatment }}
-            </span>
-          </div>
-        </div>
-
-        <div class="border-t pt-3">
-          <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
-            Tramos por volumen (Turnover Tiers)
-          </h3>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div
-              v-for="(tier, idx) in agreement.volumeTiers"
-              :key="idx"
-              class="p-2.5 bg-slate-50 border rounded text-xs flex justify-between items-center"
-            >
-              <span>A partir de €{{ (tier.minVolumeCents / 100).toLocaleString() }}</span>
-              <span class="font-bold text-blue-700">{{ tier.rebatePercentBasisPoints / 100 }}% rappel</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="border-t pt-3 text-xs text-slate-600">
-          <strong>Notas fiscales:</strong> {{ agreement.fiscalNotes }}
-        </div>
-
-        <!-- Settlements and Fiscal Approval Section -->
-        <div v-if="settlements.length" class="border-t pt-4 space-y-3">
-          <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wide">Liquidaciones Periódicas de Rappel</h3>
-          <div
-            v-for="stl in settlements"
-            :key="stl.id"
-            class="p-3 bg-slate-50 border rounded text-xs flex justify-between items-center"
-          >
-            <div>
-              <span class="font-bold text-slate-800">{{ stl.settlementPeriod }}</span
-              >: €{{ (stl.rebateNetCents / 100).toFixed(2) }} neto + 21% IVA (€{{ (stl.vatTaxCents / 100).toFixed(2) }})
-              = €{{ (stl.totalCreditGrossCents / 100).toFixed(2) }} total
-              <span v-if="stl.creditNoteRef" class="ml-2 font-mono text-slate-500">(Ref: {{ stl.creditNoteRef }})</span>
-            </div>
-            <button
-              v-if="stl.settlementStatus === 'calculated'"
-              class="px-2.5 py-1 bg-green-600 hover:bg-green-700 text-white rounded font-medium"
-              @click="activeSettlement = stl"
-            >
-              Aprobar fiscalmente
-            </button>
-          </div>
-        </div>
-
-        <!-- Approval Action Box -->
-        <div v-if="activeSettlement" class="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
-          <h4 class="text-sm font-bold text-amber-900">
-            Aprobar Abono Fiscal para {{ activeSettlement.settlementPeriod }}
-          </h4>
-          <input
-            v-model="creditNoteRef"
-            type="text"
-            placeholder="Referencia de factura rectificativa (ej: ABONO-2026-01)"
-            class="border rounded p-2 text-xs w-full"
-          />
-          <input
-            v-model="approvalNotes"
-            type="text"
-            placeholder="Notas de fiscalidad / revisión"
-            class="border rounded p-2 text-xs w-full"
-          />
-          <div class="flex justify-end gap-2">
-            <button class="px-3 py-1 text-xs text-slate-600" @click="activeSettlement = null">Cancelar</button>
-            <button
-              :disabled="approving || !creditNoteRef.trim()"
-              class="px-3 py-1 bg-green-600 text-white text-xs rounded font-medium"
-              @click="approveSettlement"
-            >
-              {{ approving ? 'Guardando...' : 'Confirmar aprobación' }}
-            </button>
-          </div>
-        </div>
+    <template v-else-if="agreement">
+      <div class="adm-grid">
+        <AdminStat
+          label="Margen bruto mínimo"
+          :value="percent(agreement.minGrossMarginBasisPoints)"
+          hint="El descuento nunca lo rebaja"
+          icon="i-lucide-shield-check"
+        />
+        <AdminStat
+          label="Pago puntual"
+          :value="agreement.slaPunctualPaymentRequired ? 'Obligatorio' : 'No se exige'"
+          hint="Condición para cobrar el descuento"
+          icon="i-lucide-calendar-check"
+        />
+        <AdminStat
+          label="Factura electrónica"
+          :value="agreement.slaEinvoiceRequired ? 'Obligatoria' : 'No se exige'"
+          hint="Condición para cobrar el descuento"
+          icon="i-lucide-file-text"
+        />
+        <AdminStat
+          label="Cómo se abona"
+          :value="VAT_TREATMENT[agreement.fiscalVatTreatment] ?? adminHumanize(agreement.fiscalVatTreatment)"
+          hint="Con el IVA desglosado"
+          icon="i-lucide-receipt"
+        />
       </div>
+
+      <AdminCard
+        title="Acuerdo de descuento trimestral por volumen"
+        :description="`Contrato ${agreement.contractRef} · versión ${agreement.contractTermsVersion} de las condiciones`"
+      >
+        <template #actions>
+          <AdminBadge :tone="FISCAL_REVIEW[agreement.fiscalReviewStatus]?.[1] ?? 'neutral'">
+            {{ FISCAL_REVIEW[agreement.fiscalReviewStatus]?.[0] ?? adminHumanize(agreement.fiscalReviewStatus) }}
+          </AdminBadge>
+        </template>
+        <div class="adm-stack">
+          <div>
+            <h3 class="adm-label">Tramos por volumen de compra</h3>
+            <ul class="mt-2 grid gap-2 sm:grid-cols-3">
+              <li
+                v-for="(tier, idx) in agreement.volumeTiers"
+                :key="idx"
+                class="flex items-center justify-between gap-2 rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2"
+              >
+                <span>Desde {{ adminMoney(tier.minVolumeCents) }}</span>
+                <span class="font-semibold text-[var(--text-strong)]">
+                  {{ percent(tier.rebatePercentBasisPoints) }}
+                </span>
+              </li>
+            </ul>
+          </div>
+          <p v-if="agreement.fiscalNotes">
+            <span class="adm-label">Notas fiscales</span>
+            {{ agreement.fiscalNotes }}
+          </p>
+        </div>
+        <template #footer>
+          <p class="adm-help mr-auto"><strong>Marco tributario:</strong> {{ SPANISH_LIVA_RAPPEL_FISCAL_CLAUSE }}</p>
+        </template>
+      </AdminCard>
+
+      <AdminSection
+        v-if="settlements.length"
+        title="Liquidaciones del descuento"
+        description="Importe a abonar al cliente en cada periodo."
+      >
+        <AdminTable :rows="settlements" :columns="settlementColumns" :row-key="(row) => row.id">
+          <template #cell-rebateNetCents="{ row }">{{ adminMoney(row.rebateNetCents) }}</template>
+          <template #cell-vatTaxCents="{ row }">{{ adminMoney(row.vatTaxCents) }}</template>
+          <template #cell-totalCreditGrossCents="{ row }">{{ adminMoney(row.totalCreditGrossCents) }}</template>
+          <template #cell-creditNoteRef="{ row }">{{ row.creditNoteRef ?? '—' }}</template>
+          <template #cell-settlementStatus="{ row }">
+            <AdminBadge :tone="SETTLEMENT_STATUS[row.settlementStatus]?.[1] ?? 'neutral'">
+              {{ SETTLEMENT_STATUS[row.settlementStatus]?.[0] ?? adminHumanize(row.settlementStatus) }}
+            </AdminBadge>
+          </template>
+          <template #actions="{ row }">
+            <AdminButton v-if="row.settlementStatus === 'calculated'" size="sm" @click="activeSettlement = row">
+              Aprobar
+            </AdminButton>
+          </template>
+        </AdminTable>
+      </AdminSection>
+    </template>
+
+    <div v-else class="adm-card">
+      <AdminEmptyState
+        icon="i-lucide-handshake"
+        title="Esta empresa no tiene acuerdo de descuentos por volumen"
+        description="Comprueba el identificador de la empresa o crea el acuerdo desde su contrato."
+      />
     </div>
 
-    <!-- Empty State -->
-    <div v-else class="p-8 text-center bg-slate-50 border rounded text-slate-500">
-      No se ha encontrado ningún acuerdo de incentivos activo para esta empresa.
-    </div>
+    <AdminDrawer
+      v-model:open="approvalOpen"
+      :title="`Aprobar el abono de ${activeSettlement?.settlementPeriod ?? ''}`"
+      description="Al aprobar se registra la factura rectificativa con la que se abona el descuento."
+    >
+      <div v-if="activeSettlement" class="adm-stack">
+        <dl class="grid grid-cols-3 gap-3">
+          <div>
+            <dt class="adm-help">Descuento</dt>
+            <dd>{{ adminMoney(activeSettlement.rebateNetCents) }}</dd>
+          </div>
+          <div>
+            <dt class="adm-help">IVA</dt>
+            <dd>{{ adminMoney(activeSettlement.vatTaxCents) }}</dd>
+          </div>
+          <div>
+            <dt class="adm-help">Total a abonar</dt>
+            <dd class="font-semibold text-[var(--text-strong)]">
+              {{ adminMoney(activeSettlement.totalCreditGrossCents) }}
+            </dd>
+          </div>
+        </dl>
+        <AdminFormField v-slot="{ id }" label="Número de la factura rectificativa" required>
+          <input :id="id" v-model="creditNoteRef" type="text" placeholder="Por ejemplo: ABONO-2026-01" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Notas de la revisión fiscal">
+          <input :id="id" v-model="approvalNotes" type="text" />
+        </AdminFormField>
+      </div>
+      <template #footer>
+        <AdminButton @click="activeSettlement = null">Cancelar</AdminButton>
+        <AdminButton
+          variant="primary"
+          :loading="approving"
+          :disabled="!creditNoteRef.trim()"
+          @click="approveSettlement"
+        >
+          Confirmar aprobación
+        </AdminButton>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

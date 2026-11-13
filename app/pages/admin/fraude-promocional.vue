@@ -4,4 +4,8 @@ definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Fraude promocional', robots: 'noindex, nofollow' })
 </script>
 
-<template><AdminPromoFraudCases /></template>
+<template>
+  <AdminPage>
+    <AdminPromoFraudCases />
+  </AdminPage>
+</template>

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  SECTOR_LABELS,
   SEASON_LABELS,
   type SectorType,
   type SeasonType,
@@ -11,7 +10,7 @@ import {
 definePageMeta({
   layout: 'admin',
   middleware: 'admin',
-  title: 'Campañas Estacionales por Sector'
+  title: 'Campañas estacionales por sector'
 })
 
 useSeoMeta({
@@ -51,6 +50,83 @@ const {
 
 const campaigns = computed(() => feedData.value?.campaigns ?? [])
 
+type SeasonalCampaignRow = CalendarFeedResponse['campaigns'][number]
+
+/** Nombres en español llano: las etiquetas compartidas vienen con mayúsculas de título. */
+const SECTOR_NAMES: Record<SectorType, string> = {
+  horeca: 'Hostelería y restauración',
+  healthcare: 'Sanidad, clínicas y residencias',
+  education: 'Centros educativos',
+  industrial: 'Industria y talleres',
+  facility_services: 'Empresas de limpieza',
+  food_processing: 'Industria agroalimentaria',
+  general_b2b: 'Comercio y oficinas'
+}
+const SEASON_NAMES: Record<SeasonType, string> = { ...SEASON_LABELS, custom: 'Especial' }
+const STATUS_NAMES: Record<string, string> = {
+  draft: 'Borrador',
+  planned: 'Planificada',
+  active: 'Activa',
+  paused: 'En pausa',
+  completed: 'Finalizada',
+  cancelled: 'Cancelada'
+}
+const STATUS_TONES: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
+  planned: 'info',
+  active: 'success',
+  paused: 'warning'
+}
+const PROFILE_NAMES: Record<string, string> = {
+  parcel: 'Paquetería',
+  pallet: 'Palé',
+  adr: 'Mercancías peligrosas'
+}
+const years = [2025, 2026, 2027, 2028]
+
+const search = ref('')
+const rows = computed(() => {
+  const term = search.value.toLowerCase()
+  return term
+    ? campaigns.value.filter((camp) => camp.name.toLowerCase().includes(term) || camp.code.toLowerCase().includes(term))
+    : campaigns.value
+})
+const hasFilters = computed(() => Boolean(search.value || selectedSector.value || selectedSeason.value))
+function clearFilters() {
+  search.value = ''
+  selectedSector.value = ''
+  selectedSeason.value = ''
+}
+const columns = [
+  { key: 'name', label: 'Campaña', sortable: true },
+  { key: 'sector', label: 'Sector', hideOnMobile: true },
+  { key: 'season', label: 'Temporada', hideOnMobile: true },
+  { key: 'window', label: 'Venta', value: (row: SeasonalCampaignRow) => row.window.windowStartAt, sortable: true },
+  {
+    key: 'target',
+    label: 'Objetivo',
+    numeric: true,
+    sortable: true,
+    hideOnMobile: true,
+    value: (row: SeasonalCampaignRow) => row.margin.targetRevenueCents
+  },
+  { key: 'coordination', label: 'Preparación' },
+  { key: 'status', label: 'Estado' }
+]
+const summary = computed(() => ({
+  total: campaigns.value.length,
+  active: campaigns.value.filter((camp) => camp.status === 'active').length,
+  incomplete: campaigns.value.filter((camp) => !camp.coordination.isFullyCoordinated).length,
+  target: campaigns.value.reduce((sum, camp) => sum + camp.margin.targetRevenueCents, 0)
+}))
+
+const selected = shallowRef<SeasonalCampaignRow | null>(null)
+const detailOpen = computed({
+  get: () => selected.value !== null,
+  set: (open: boolean) => {
+    if (!open) selected.value = null
+  }
+})
+
 function formatEuros(cents: number): string {
   return new Intl.NumberFormat('es-ES', {
     style: 'currency',
@@ -69,216 +145,196 @@ function formatDate(iso: string): string {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-slate-900">Calendario de Campañas Estacionales por Sector</h1>
-        <p class="mt-1 text-sm text-slate-500">
-          Coordinación integral de necesidad, ventana, inventario, logística, contenido, margen y postmortem por campaña
-          (MKT-032).
-        </p>
+  <AdminPage>
+    <div class="adm-stack">
+      <div class="adm-grid">
+        <AdminStat label="Campañas del año" :value="summary.total" icon="i-lucide-calendar-range" />
+        <AdminStat label="Activas ahora" :value="summary.active" icon="i-lucide-megaphone" />
+        <AdminStat
+          label="Con preparación incompleta"
+          :value="summary.incomplete"
+          icon="i-lucide-list-checks"
+          hint="Les falta stock, logística, contenido o margen"
+        />
+        <AdminStat label="Objetivo de facturación" :value="formatEuros(summary.target)" icon="i-lucide-target" />
       </div>
 
-      <!-- Filtros -->
-      <div class="flex flex-wrap items-center gap-3">
-        <select
-          v-model="selectedYear"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-xs focus:border-neteco-600 focus:outline-hidden"
-          aria-label="Filtrar por año"
-        >
-          <option :value="2025">2025</option>
-          <option :value="2026">2026</option>
-          <option :value="2027">2027</option>
-          <option :value="2028">2028</option>
-        </select>
-
-        <select
-          v-model="selectedSector"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-xs focus:border-neteco-600 focus:outline-hidden"
-          aria-label="Filtrar por sector"
-        >
-          <option value="">Todos los sectores</option>
-          <option v-for="(label, key) in SECTOR_LABELS" :key="key" :value="key">
-            {{ label }}
-          </option>
-        </select>
-
-        <select
-          v-model="selectedSeason"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-xs focus:border-neteco-600 focus:outline-hidden"
-          aria-label="Filtrar por estación"
-        >
-          <option value="">Todas las estaciones</option>
-          <option v-for="(label, key) in SEASON_LABELS" :key="key" :value="key">
-            {{ label }}
-          </option>
-        </select>
-
-        <button
-          type="button"
-          class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          @click="refresh()"
-        >
-          Actualizar
-        </button>
-      </div>
-    </div>
-
-    <!-- Estados de carga / error -->
-    <div v-if="status === 'pending'" class="py-12 text-center text-sm text-slate-500">
-      Cargando calendario de campañas estacionales...
-    </div>
-
-    <div v-else-if="error" class="rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-800">
-      Error al cargar el calendario: {{ error.message }}
-    </div>
-
-    <div v-else-if="!campaigns.length" class="rounded-2xl border border-dashed border-slate-300 p-12 text-center">
-      <h3 class="text-base font-semibold text-slate-900">No hay campañas para los filtros seleccionados</h3>
-      <p class="mt-1 text-sm text-slate-500">
-        Prueba a cambiar el sector, la estación o el año en los selectores superiores.
-      </p>
-    </div>
-
-    <!-- Lista y cuadrícula de campañas coordinadas -->
-    <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div
-        v-for="camp in campaigns"
-        :key="camp.id"
-        class="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs transition-shadow hover:shadow-md"
+      <AdminTable
+        :rows="rows"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="status"
+        :filtered="hasFilters"
+        :error-message="error ? 'No hemos podido cargar el calendario de campañas. Vuelve a intentarlo.' : undefined"
+        empty-title="No hay campañas estacionales este año"
+        empty-description="Prueba con otro año en el selector de la barra."
+        empty-icon="i-lucide-calendar-range"
+        class="[&_tbody_tr]:cursor-pointer"
+        @row-click="(row) => (selected = row)"
+        @retry="refresh()"
+        @clear-filters="clearFilters"
       >
-        <!-- Header de la campaña -->
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
-                {{ SECTOR_LABELS[camp.sector] }}
-              </span>
-              <span class="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
-                {{ SEASON_LABELS[camp.season] }} {{ camp.year }}
-              </span>
-              <span
-                class="rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase"
-                :class="[
-                  camp.status === 'active'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : camp.status === 'completed'
-                      ? 'bg-purple-100 text-purple-800'
-                      : 'bg-amber-100 text-amber-800'
-                ]"
-              >
-                {{ camp.status }}
-              </span>
-            </div>
-            <h2 class="mt-2 text-lg font-bold text-slate-900">{{ camp.name }}</h2>
-            <p class="font-mono text-xs text-slate-500">{{ camp.code }}</p>
-          </div>
+        <template #toolbar>
+          <AdminToolbar v-model:search="search" placeholder="Buscar campaña…">
+            <select v-model="selectedYear" class="adm-input w-auto" aria-label="Filtrar por año">
+              <option v-for="year in years" :key="year" :value="year">{{ year }}</option>
+            </select>
+            <select v-model="selectedSector" class="adm-input w-auto" aria-label="Filtrar por sector">
+              <option value="">Todos los sectores</option>
+              <option v-for="(name, key) in SECTOR_NAMES" :key="key" :value="key">{{ name }}</option>
+            </select>
+            <select v-model="selectedSeason" class="adm-input w-auto" aria-label="Filtrar por estación">
+              <option value="">Todas las estaciones</option>
+              <option v-for="(name, key) in SEASON_NAMES" :key="key" :value="key">{{ name }}</option>
+            </select>
+            <template #actions>
+              <AdminButton icon="i-lucide-rotate-cw" :loading="status === 'pending'" @click="refresh()">
+                Actualizar
+              </AdminButton>
+            </template>
+          </AdminToolbar>
+        </template>
+        <template #cell-name="{ row }">
+          <p class="font-semibold text-[var(--text-strong)]">{{ row.name }}</p>
+          <p class="adm-help">{{ row.code }}</p>
+        </template>
+        <template #cell-sector="{ row }">{{ SECTOR_NAMES[row.sector] }}</template>
+        <template #cell-season="{ row }">{{ SEASON_NAMES[row.season] }} {{ row.year }}</template>
+        <template #cell-window="{ row }">
+          {{ formatDate(row.window.windowStartAt) }} – {{ formatDate(row.window.windowEndAt) }}
+        </template>
+        <template #cell-target="{ row }">{{ formatEuros(row.margin.targetRevenueCents) }}</template>
+        <template #cell-coordination="{ row }">
+          <AdminBadge :tone="row.coordination.isFullyCoordinated ? 'success' : 'warning'">
+            {{ row.coordination.isFullyCoordinated ? 'Completa' : 'Incompleta' }}
+          </AdminBadge>
+        </template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="STATUS_TONES[row.status] ?? 'neutral'">
+            {{ STATUS_NAMES[row.status] ?? adminHumanize(row.status) }}
+          </AdminBadge>
+        </template>
+        <template #actions="{ row }">
+          <AdminButton size="sm" variant="ghost" @click="selected = row">Ver plan</AdminButton>
+        </template>
+      </AdminTable>
 
-          <!-- Indicador de los 6 Pilares Coordinados -->
-          <div class="text-right">
-            <span
-              class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold"
-              :class="[
-                camp.coordination.isFullyCoordinated
-                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                  : 'bg-amber-50 text-amber-800 border border-amber-200'
-              ]"
+      <AdminDrawer
+        v-model:open="detailOpen"
+        wide
+        :title="selected?.name ?? 'Campaña'"
+        :description="
+          selected ? `${SECTOR_NAMES[selected.sector]} · ${SEASON_NAMES[selected.season]} ${selected.year}` : undefined
+        "
+      >
+        <div v-if="selected" class="adm-stack">
+          <div class="flex flex-wrap items-center gap-2">
+            <AdminBadge :tone="STATUS_TONES[selected.status] ?? 'neutral'">
+              {{ STATUS_NAMES[selected.status] ?? adminHumanize(selected.status) }}
+            </AdminBadge>
+            <AdminBadge :tone="selected.coordination.isFullyCoordinated ? 'success' : 'warning'">
+              {{ selected.coordination.isFullyCoordinated ? 'Preparación completa' : 'Preparación incompleta' }}
+            </AdminBadge>
+            <AdminBadge
+              v-if="selected.hasPostmortem || selected.status === 'completed'"
+              :tone="selected.hasPostmortem ? 'success' : 'warning'"
             >
-              {{ camp.coordination.isFullyCoordinated ? '✓ 6/6 Pilares Coordinados' : '⚠ Incompleto' }}
-            </span>
+              {{ selected.hasPostmortem ? 'Balance final registrado' : 'Balance final pendiente' }}
+            </AdminBadge>
           </div>
+
+          <AdminCard title="Por qué se hace">
+            <p>{{ selected.need.needJustification }}</p>
+          </AdminCard>
+
+          <AdminCard title="Fechas">
+            <dl class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt class="adm-help">Inicio de compras a proveedores</dt>
+                <dd>{{ formatDate(selected.window.procurementStartAt) }}</dd>
+              </div>
+              <div>
+                <dt class="adm-help">Periodo de venta</dt>
+                <dd>{{ formatDate(selected.window.windowStartAt) }} – {{ formatDate(selected.window.windowEndAt) }}</dd>
+              </div>
+            </dl>
+          </AdminCard>
+
+          <AdminCard
+            title="Stock previsto"
+            :description="`${selected.inventory.items.length} ${selected.inventory.items.length === 1 ? 'producto' : 'productos'} con un ${selected.inventory.bufferPercentage} % de margen de seguridad.`"
+            flush
+          >
+            <ul class="adm-list">
+              <li v-for="item in selected.inventory.items" :key="item.sku">
+                <span class="min-w-0 flex-1 truncate">{{ item.sku }}</span>
+                <span class="tabular-nums">{{ item.plannedUnits.toLocaleString('es-ES') }} uds.</span>
+              </li>
+            </ul>
+          </AdminCard>
+
+          <AdminCard title="Envíos">
+            <dl class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt class="adm-help">Tipos de envío</dt>
+                <dd>
+                  {{
+                    selected.logistics.allowedProfiles.map((profile) => PROFILE_NAMES[profile] ?? profile).join(', ')
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt class="adm-help">Plazo máximo de entrega</dt>
+                <dd>{{ selected.logistics.maxLeadTimeDays }} días</dd>
+              </div>
+              <div v-if="selected.logistics.carrierNotes" class="sm:col-span-2">
+                <dt class="adm-help">Notas para el transportista</dt>
+                <dd>{{ selected.logistics.carrierNotes }}</dd>
+              </div>
+            </dl>
+          </AdminCard>
+
+          <AdminCard title="Contenido en la tienda">
+            <dl class="grid gap-3 sm:grid-cols-2">
+              <div>
+                <dt class="adm-help">Página de la campaña</dt>
+                <dd>{{ selected.content.landingSlug ? `/${selected.content.landingSlug}` : '—' }}</dd>
+              </div>
+              <div>
+                <dt class="adm-help">Espacios de banner</dt>
+                <dd>{{ selected.content.bannerSlots.join(', ') || '—' }}</dd>
+              </div>
+            </dl>
+          </AdminCard>
+
+          <AdminCard title="Objetivos económicos">
+            <dl class="grid gap-3 sm:grid-cols-3">
+              <div>
+                <dt class="adm-help">Facturación objetivo</dt>
+                <dd class="font-semibold text-[var(--text-strong)]">
+                  {{ formatEuros(selected.margin.targetRevenueCents) }}
+                </dd>
+              </div>
+              <div>
+                <dt class="adm-help">Margen mínimo</dt>
+                <dd class="font-semibold text-[var(--text-strong)]">
+                  {{
+                    (selected.margin.minMarginBasisPoints / 100).toLocaleString('es-ES', { maximumFractionDigits: 1 })
+                  }}
+                  %
+                </dd>
+              </div>
+              <div>
+                <dt class="adm-help">Presupuesto máximo</dt>
+                <dd>{{ formatEuros(selected.margin.budgetLimitCents) }}</dd>
+              </div>
+            </dl>
+          </AdminCard>
         </div>
-
-        <!-- Los 6 Pilares Coordinados -->
-        <div class="mt-5 space-y-3 rounded-xl bg-slate-50 p-4 text-xs">
-          <!-- Pilar 1: Necesidad -->
-          <div>
-            <span class="font-semibold text-slate-900">1. Necesidad / Justificación:</span>
-            <p class="mt-0.5 text-slate-600">{{ camp.need.needJustification }}</p>
-          </div>
-
-          <!-- Pilar 2: Ventana -->
-          <div class="flex flex-wrap gap-4 border-t border-slate-200/60 pt-2">
-            <div>
-              <span class="font-semibold text-slate-700">Aprovisionamiento:</span>
-              <span class="ml-1 text-slate-600">{{ formatDate(camp.window.procurementStartAt) }}</span>
-            </div>
-            <div>
-              <span class="font-semibold text-slate-700">Ventana comercial:</span>
-              <span class="ml-1 text-slate-600">
-                {{ formatDate(camp.window.windowStartAt) }} – {{ formatDate(camp.window.windowEndAt) }}
-              </span>
-            </div>
-          </div>
-
-          <!-- Pilar 3: Inventario -->
-          <div class="border-t border-slate-200/60 pt-2">
-            <span class="font-semibold text-slate-900">3. Inventario coordinado:</span>
-            <span class="ml-1 text-slate-600">
-              {{ camp.inventory.items.length }} productos planificados (Buffer: {{ camp.inventory.bufferPercentage }}%)
-            </span>
-            <div class="mt-1 flex flex-wrap gap-1.5">
-              <span
-                v-for="item in camp.inventory.items"
-                :key="item.sku"
-                class="rounded bg-white px-2 py-0.5 font-mono text-[11px] text-slate-700 border border-slate-200"
-              >
-                {{ item.sku }}: {{ item.plannedUnits }} uds
-              </span>
-            </div>
-          </div>
-
-          <!-- Pilar 4: Logística -->
-          <div class="border-t border-slate-200/60 pt-2">
-            <span class="font-semibold text-slate-900">4. Logística:</span>
-            <span class="ml-1 text-slate-600">
-              Perfiles: {{ camp.logistics.allowedProfiles.join(', ') }} · Plazo máx:
-              {{ camp.logistics.maxLeadTimeDays }} días
-            </span>
-            <p v-if="camp.logistics.carrierNotes" class="mt-0.5 italic text-slate-500">
-              Nota carrier: {{ camp.logistics.carrierNotes }}
-            </p>
-          </div>
-
-          <!-- Pilar 5: Contenido -->
-          <div class="border-t border-slate-200/60 pt-2">
-            <span class="font-semibold text-slate-900">5. Contenido:</span>
-            <span class="ml-1 text-slate-600">
-              Landing: /{{ camp.content.landingSlug || '—' }} · Slots: {{ camp.content.bannerSlots.join(', ') || '—' }}
-            </span>
-          </div>
-
-          <!-- Pilar 6: Margen & Presupuesto -->
-          <div class="flex flex-wrap gap-4 border-t border-slate-200/60 pt-2">
-            <div>
-              <span class="font-semibold text-slate-700">Objetivo facturación:</span>
-              <span class="ml-1 font-bold text-slate-900">{{ formatEuros(camp.margin.targetRevenueCents) }}</span>
-            </div>
-            <div>
-              <span class="font-semibold text-slate-700">Margen mín:</span>
-              <span class="ml-1 font-bold text-slate-900"
-                >{{ (camp.margin.minMarginBasisPoints / 100).toFixed(1) }}%</span
-              >
-            </div>
-            <div>
-              <span class="font-semibold text-slate-700">Presupuesto máx:</span>
-              <span class="ml-1 text-slate-600">{{ formatEuros(camp.margin.budgetLimitCents) }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Postmortem por campaña -->
-        <div v-if="camp.hasPostmortem || camp.status === 'completed'" class="mt-4 border-t border-slate-100 pt-3">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-slate-700">
-              Postmortem de campaña:
-              <span v-if="camp.hasPostmortem" class="text-emerald-700 font-semibold">Completado y registrado</span>
-              <span v-else class="text-amber-700 font-semibold">Pendiente de registro</span>
-            </span>
-          </div>
-        </div>
-      </div>
+        <template #footer>
+          <AdminButton @click="detailOpen = false">Cerrar</AdminButton>
+        </template>
+      </AdminDrawer>
     </div>
-  </div>
+  </AdminPage>
 </template>

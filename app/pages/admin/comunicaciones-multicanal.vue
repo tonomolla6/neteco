@@ -6,7 +6,7 @@ useSeoMeta({ title: 'Comunicaciones multicanal · Admin', robots: 'noindex, nofo
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminMultichannelCommunications />
-  </div>
+  </AdminPage>
 </template>

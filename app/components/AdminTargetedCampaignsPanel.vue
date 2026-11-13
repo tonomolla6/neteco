@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   validateStrictNoSedeNoHierarchy,
   type CampaignReportingMetrics,
@@ -33,7 +33,7 @@ const loadingReport = ref(false)
 
 function errorText(error: unknown, fallback: string): string {
   const c = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return c ? `${fallback} (${c})` : fallback
+  return c ? `${fallback}. Vuelve a intentarlo.` : fallback
 }
 
 async function loadCampaigns() {
@@ -111,192 +111,231 @@ async function viewReporting(campaignId: string) {
   }
 }
 
+const TARGET_LABELS: Record<string, string> = { sector: 'Sector', company: 'Empresa', customer: 'Cliente' }
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Borrador',
+  active: 'Activa',
+  paused: 'En pausa',
+  completed: 'Finalizada'
+}
+const percent = (value: number) => `${value.toLocaleString('es-ES', { maximumFractionDigits: 1 })}%`
+function offerLabel(camp: TargetedCampaign): string {
+  if (camp.discountPercent !== null && camp.discountPercent !== undefined)
+    return `${percent(camp.discountPercent)} de descuento`
+  if (camp.fixedPriceCents !== null && camp.fixedPriceCents !== undefined)
+    return `Precio fijo ${adminMoney(camp.fixedPriceCents)}`
+  return camp.tariffType === 'rebate_bonus' ? 'Bonificación por volumen' : 'Tarifa especial'
+}
+
+// Estado de interfaz: búsqueda, filtro y paneles laterales.
+const search = ref('')
+const statusFilter = ref('all')
+const statusOptions = computed(() => [
+  { value: 'all', label: 'Todas', count: campaigns.value.length },
+  { value: 'active', label: 'Activas', count: campaigns.value.filter((camp) => camp.status === 'active').length },
+  { value: 'paused', label: 'En pausa', count: campaigns.value.filter((camp) => camp.status === 'paused').length },
+  {
+    value: 'completed',
+    label: 'Finalizadas',
+    count: campaigns.value.filter((camp) => camp.status === 'completed').length
+  }
+])
+const rows = computed(() => {
+  const term = search.value.toLowerCase()
+  return campaigns.value.filter(
+    (camp) =>
+      (statusFilter.value === 'all' || camp.status === statusFilter.value) &&
+      (!term || camp.name.toLowerCase().includes(term) || camp.code.toLowerCase().includes(term))
+  )
+})
+function clearFilters() {
+  search.value = ''
+  statusFilter.value = 'all'
+}
+const columns = [
+  { key: 'name', label: 'Campaña', sortable: true },
+  { key: 'targetId', label: 'Dirigida a' },
+  { key: 'discountPercent', label: 'Oferta' },
+  { key: 'marginFloorBasisPoints', label: 'Margen mínimo', numeric: true, hideOnMobile: true },
+  { key: 'startAt', label: 'Vigencia', sortable: true, hideOnMobile: true },
+  { key: 'status', label: 'Estado' }
+]
+const reportOpen = computed({
+  get: () => activeReport.value !== null,
+  set: (open: boolean) => {
+    if (!open) activeReport.value = null
+  }
+})
+/** El margen mínimo se edita en porcentaje; se guarda en puntos básicos como hasta ahora. */
+const marginFloorPercent = computed({
+  get: () => marginFloorBasisPoints.value / 100,
+  set: (value: number) => (marginFloorBasisPoints.value = Math.round(Number(value) * 100))
+})
+
 onMounted(() => {
   loadCampaigns()
 })
 </script>
 
 <template>
-  <div class="admin-targeted-campaigns-panel p-6 max-w-6xl mx-auto space-y-6">
-    <header class="flex items-center justify-between border-b pb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Campañas B2B Segmentadas (MKT-035)</h1>
-        <p class="text-sm text-slate-600 mt-1">
-          Segmentación por cliente, empresa o sector. Estrictamente sin targeting por sede o jerarquía de compradores.
-        </p>
-      </div>
-      <button
-        data-test="create-campaign-btn"
-        class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium transition"
-        @click="showModal = true"
-      >
+  <div class="admin-targeted-campaigns-panel adm-stack">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" data-test="create-campaign-btn" @click="showModal = true">
         Nueva campaña
-      </button>
-    </header>
+      </AdminButton>
+    </AdminPageActions>
 
-    <!-- Loading & Error -->
-    <div v-if="loading" class="p-8 text-center text-slate-500 animate-pulse">Cargando campañas comerciales...</div>
-    <div v-else-if="errorMessage" class="p-4 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-      {{ errorMessage }}
-    </div>
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
 
-    <!-- Campaigns List -->
-    <div v-else class="space-y-4">
-      <div v-if="campaigns.length === 0" class="p-8 text-center bg-slate-50 border rounded text-slate-500">
-        No hay campañas segmentadas configuradas actualmente.
+    <AdminTable
+      :rows="rows"
+      :columns="columns"
+      :row-key="(row) => row.id"
+      :status="loading ? 'pending' : 'idle'"
+      :filtered="Boolean(search) || statusFilter !== 'all'"
+      empty-title="Todavía no hay campañas segmentadas"
+      empty-description="Crea una campaña con condiciones especiales para un sector, una empresa o un cliente."
+      empty-icon="i-lucide-target"
+      @clear-filters="clearFilters"
+    >
+      <template #toolbar>
+        <AdminToolbar v-model:search="search" placeholder="Buscar por nombre o código…">
+          <AdminFilters v-model="statusFilter" :options="statusOptions" label="Filtrar por estado" />
+        </AdminToolbar>
+      </template>
+      <template #cell-name="{ row }">
+        <p class="font-semibold text-[var(--text-strong)]">{{ row.name }}</p>
+        <p class="adm-help">{{ row.code }}</p>
+      </template>
+      <template #cell-targetId="{ row }">
+        <p>{{ adminHumanize(row.targetId) }}</p>
+        <p class="adm-help">{{ TARGET_LABELS[row.targetType] ?? adminHumanize(row.targetType) }}</p>
+      </template>
+      <template #cell-discountPercent="{ row }">{{ offerLabel(row) }}</template>
+      <template #cell-marginFloorBasisPoints="{ row }">{{ percent(row.marginFloorBasisPoints / 100) }}</template>
+      <template #cell-startAt="{ row }">{{ adminDate(row.startAt) }} – {{ adminDate(row.endAt) }}</template>
+      <template #cell-status="{ row }">
+        <AdminBadge :tone="adminStatusTone(row.status)">
+          {{ STATUS_LABELS[row.status] ?? adminHumanize(row.status) }}
+        </AdminBadge>
+      </template>
+      <template #actions="{ row }">
+        <AdminButton size="sm" icon="i-lucide-chart-column" :loading="loadingReport" @click="viewReporting(row.id)">
+          Ver resultados
+        </AdminButton>
+      </template>
+      <template #empty-action>
+        <AdminButton variant="primary" icon="i-lucide-plus" @click="showModal = true">Nueva campaña</AdminButton>
+      </template>
+    </AdminTable>
+
+    <!-- Resultados de la campaña -->
+    <AdminDrawer
+      v-model:open="reportOpen"
+      wide
+      :title="activeReport ? `Resultados de «${activeReport.campaign.name}»` : 'Resultados'"
+      :description="
+        activeReport
+          ? `${adminDate(activeReport.campaign.startAt)} – ${adminDate(activeReport.campaign.endAt)}`
+          : undefined
+      "
+    >
+      <div v-if="activeReport" class="grid gap-4 sm:grid-cols-2">
+        <AdminStat label="Envíos" :value="activeReport.metrics.totalDispatched" icon="i-lucide-send" />
+        <AdminStat
+          label="Aperturas"
+          :value="activeReport.metrics.totalOpened"
+          :hint="`${percent(activeReport.metrics.openRatePercent)} de los envíos`"
+          icon="i-lucide-mail-open"
+        />
+        <AdminStat
+          label="Clics"
+          :value="activeReport.metrics.totalClicked"
+          :hint="`${percent(activeReport.metrics.clickRatePercent)} de los envíos`"
+          icon="i-lucide-mouse-pointer-click"
+        />
+        <AdminStat
+          label="Pedidos conseguidos"
+          :value="activeReport.metrics.totalConverted"
+          :hint="`${percent(activeReport.metrics.conversionRatePercent)} de los envíos`"
+          icon="i-lucide-shopping-cart"
+        />
+        <AdminStat
+          class="sm:col-span-2"
+          label="Facturación sin impuestos"
+          :value="adminMoney(activeReport.metrics.totalRevenueNetCents)"
+          icon="i-lucide-euro"
+        />
       </div>
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="camp in campaigns"
-          :key="camp.id"
-          class="bg-white border rounded p-4 shadow-sm space-y-3 flex flex-col justify-between"
-        >
-          <div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-mono font-semibold text-slate-500">{{ camp.code }}</span>
-              <span class="text-xs px-2 py-0.5 rounded font-semibold uppercase bg-slate-100 text-slate-700">
-                {{ camp.targetType }}: {{ camp.targetId }}
-              </span>
-            </div>
-            <h2 class="text-base font-bold text-slate-900 mt-1">{{ camp.name }}</h2>
-            <p class="text-xs text-slate-600 mt-1 line-clamp-2">{{ camp.description }}</p>
-            <div class="mt-2 text-xs text-slate-700 space-y-0.5">
-              <div>
-                Tarifa: <span class="font-medium">{{ camp.discountPercent }}% dto.</span>
-              </div>
-              <div>
-                Suelo de margen: <span class="font-medium">{{ camp.marginFloorBasisPoints / 100 }}%</span>
-              </div>
-              <div>
-                Vigencia:
-                <span class="font-medium">{{ camp.startAt.slice(0, 10) }} a {{ camp.endAt.slice(0, 10) }}</span>
-              </div>
-            </div>
-          </div>
-          <button
-            class="w-full text-xs py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium rounded transition"
-            @click="viewReporting(camp.id)"
+      <template #footer>
+        <AdminButton @click="reportOpen = false">Cerrar</AdminButton>
+      </template>
+    </AdminDrawer>
+
+    <!-- Nueva campaña -->
+    <AdminDrawer v-model:open="showModal" title="Nueva campaña segmentada">
+      <div class="adm-stack">
+        <UAlert
+          v-if="validationError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="validationError"
+        />
+        <AdminFormField v-slot="{ id }" label="Nombre de la campaña" required>
+          <input
+            :id="id"
+            v-model="name"
+            data-test="campaign-name"
+            type="text"
+            placeholder="Descuento peróxidos lavanderías"
+          />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Código" help="Identificador corto y único, sin espacios." required>
+          <input :id="id" v-model="code" type="text" placeholder="camp-ejemplo-2026" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Descripción">
+          <textarea :id="id" v-model="description" rows="2"></textarea>
+        </AdminFormField>
+        <div class="adm-form-grid">
+          <AdminFormField v-slot="{ id }" label="Dirigida a">
+            <select :id="id" v-model="targetType">
+              <option value="sector">Un sector</option>
+              <option value="company">Una empresa</option>
+              <option value="customer">Un cliente</option>
+            </select>
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Sector, empresa o cliente"
+            help="Referencia del destinatario. No se admite segmentar por sede."
           >
-            Ver reporting & analítica &rarr;
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Reporting Modal / Drawer -->
-    <div v-if="activeReport" class="bg-slate-50 border-2 border-blue-400 p-6 rounded space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold text-slate-900">
-          Informe de Rendimiento: {{ activeReport.campaign.name }} ({{ activeReport.campaign.code }})
-        </h2>
-        <button class="text-xs text-slate-500 hover:text-slate-800 underline" @click="activeReport = null">
-          Cerrar informe
-        </button>
-      </div>
-
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-        <div class="bg-white p-3 rounded border">
-          <span class="text-xs text-slate-500 block">Enviados</span>
-          <span class="text-xl font-bold text-slate-900">{{ activeReport.metrics.totalDispatched }}</span>
-        </div>
-        <div class="bg-white p-3 rounded border">
-          <span class="text-xs text-slate-500 block">Aperturas (Open Rate)</span>
-          <span class="text-xl font-bold text-blue-700">
-            {{ activeReport.metrics.totalOpened }} ({{ activeReport.metrics.openRatePercent }}%)
-          </span>
-        </div>
-        <div class="bg-white p-3 rounded border">
-          <span class="text-xs text-slate-500 block">Clics (Click Rate)</span>
-          <span class="text-xl font-bold text-indigo-700">
-            {{ activeReport.metrics.totalClicked }} ({{ activeReport.metrics.clickRatePercent }}%)
-          </span>
-        </div>
-        <div class="bg-white p-3 rounded border">
-          <span class="text-xs text-slate-500 block">Conversiones & Facturación</span>
-          <span class="text-xl font-bold text-green-700">
-            {{ activeReport.metrics.totalConverted }} (€{{
-              (activeReport.metrics.totalRevenueNetCents / 100).toFixed(2)
-            }})
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Create Campaign Modal -->
-    <div v-if="showModal" class="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-      <div class="bg-white rounded-lg max-w-lg w-full p-6 space-y-4 shadow-xl">
-        <h2 class="text-lg font-bold text-slate-900">Crear nueva campaña segmentada</h2>
-        <div v-if="validationError" class="p-3 bg-red-50 border border-red-200 rounded text-red-700 text-xs">
-          {{ validationError }}
-        </div>
-        <div class="space-y-3 text-sm">
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Código único</label>
-            <input v-model="code" type="text" placeholder="camp-ejemplo-2026" class="w-full border rounded p-2" />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Nombre de la campaña</label>
-            <input
-              v-model="name"
-              data-test="campaign-name"
-              type="text"
-              placeholder="Descuento peróxidos lavanderías"
-              class="w-full border rounded p-2"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700">Descripción</label>
-            <textarea v-model="description" rows="2" class="w-full border rounded p-2"></textarea>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Tipo de destinatario</label>
-              <select v-model="targetType" class="w-full border rounded p-2">
-                <option value="sector">Sector</option>
-                <option value="company">Empresa</option>
-                <option value="customer">Cliente</option>
-              </select>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Identificador objetivo</label>
-              <input v-model="targetId" type="text" class="w-full border rounded p-2" />
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Descuento (%)</label>
-              <input
-                v-model.number="discountPercent"
-                type="number"
-                min="1"
-                max="50"
-                class="w-full border rounded p-2"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-slate-700">Suelo de margen (p.b.)</label>
-              <input
-                v-model.number="marginFloorBasisPoints"
-                type="number"
-                min="500"
-                max="5000"
-                class="w-full border rounded p-2"
-              />
-            </div>
-          </div>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button class="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-800" @click="showModal = false">
-            Cancelar
-          </button>
-          <button
-            class="px-4 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded font-medium"
-            @click="handleCreateCampaign"
+            <input :id="id" v-model="targetId" type="text" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Descuento (%)">
+            <input :id="id" v-model.number="discountPercent" type="number" min="1" max="50" />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Margen mínimo (%)"
+            help="La campaña nunca venderá por debajo de este margen."
           >
-            Crear campaña
-          </button>
+            <input :id="id" v-model.number="marginFloorPercent" type="number" min="5" max="50" step="0.5" />
+          </AdminFormField>
         </div>
       </div>
-    </div>
+      <template #footer>
+        <AdminButton @click="showModal = false">Cancelar</AdminButton>
+        <AdminButton variant="primary" @click="handleCreateCampaign">Crear campaña</AdminButton>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

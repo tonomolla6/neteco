@@ -4,7 +4,7 @@ import { useAdminNavigation } from '~/composables/useAdminNavigation'
 import { catalogPolicyUuidSchema } from '~~/shared/catalog-publication-policy'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Modales de marketing · Admin', robots: 'noindex, nofollow, noarchive' })
+useSeoMeta({ title: 'Ventanas emergentes · Admin', robots: 'noindex, nofollow, noarchive' })
 
 const { ready, loggedIn, user } = useUserSession()
 const runtime = useRuntimeConfig().public.serverRuntime
@@ -25,12 +25,13 @@ const authorize = computed(
 </script>
 
 <template>
-  <div class="space-y-6">
-    <h1 class="text-2xl font-bold">Modales de marketing</h1>
+  <AdminPage>
     <AdminMarketingModals v-if="authorize" />
-    <p v-else>
-      Requiere sesión verificada con MFA y permiso de administración de marketing. Los permisos se verifican de nuevo en
-      el servidor.
-    </p>
-  </div>
+    <AdminEmptyState
+      v-else
+      icon="i-lucide-lock"
+      title="No puedes gestionar las ventanas emergentes"
+      description="Requiere sesión verificada con MFA y permiso de administración de marketing. Los permisos se verifican de nuevo en el servidor."
+    />
+  </AdminPage>
 </template>
