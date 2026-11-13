@@ -22,13 +22,46 @@ const activeViewId = ref<string | null>(null)
 
 // New view creation modal
 const showNewViewModal = ref(false)
+const WIDGETS: Record<string, [string, string]> = {
+  mandatory_alerts: ['Avisos obligatorios', 'Avisos de seguridad que todo el equipo debe ver.'],
+  operational_critical_alerts: ['Incidencias críticas', 'Roturas de stock, incidentes químicos y bloqueos.'],
+  orders_summary: ['Resumen de pedidos', 'Pedidos del día por estado.'],
+  orders_recent_table: ['Últimos pedidos', 'Tabla con los pedidos más recientes.'],
+  shipping_exceptions: ['Incidencias de envío', 'Envíos retrasados o con problemas.'],
+  inventory_low_stock: ['Stock bajo', 'Productos por debajo de su mínimo.'],
+  sales_summary: ['Resumen de ventas', 'Ventas del periodo y comparación.'],
+  support_queue: ['Consultas pendientes', 'Consultas de clientes por responder.'],
+  returns_pending: ['Devoluciones pendientes', 'Devoluciones por recibir o resolver.'],
+  campaigns_active: ['Campañas activas', 'Campañas en curso y su resultado.'],
+  catalog_quality: ['Calidad del catálogo', 'Fichas incompletas o por revisar.'],
+  finance_summary: ['Cobros y facturación', 'Cobros pendientes y facturas emitidas.']
+}
+const widgetName = (id: string) => WIDGETS[id]?.[0] ?? adminHumanize(id)
+const widgetHint = (id: string) => WIDGETS[id]?.[1] ?? ''
+const ROLE_NAMES: Record<string, string> = {
+  content_manager: 'Gestor de contenidos',
+  finance_analyst: 'Analista financiero'
+}
+const roleName = (code: string) => ROLE_NAMES[code] ?? adminRoleLabel(code)
+const viewToDelete = ref<RoleSavedView | null>(null)
+const confirmDelete = computed({
+  get: () => viewToDelete.value !== null,
+  set: (open: boolean) => {
+    if (!open) viewToDelete.value = null
+  }
+})
+async function confirmDeleteView() {
+  const view = viewToDelete.value
+  viewToDelete.value = null
+  if (view) await deleteView(view)
+}
 const newViewName = ref('')
 const newViewScope = ref<'role_shared' | 'personal'>('role_shared')
 const newViewIsDefault = ref(false)
 
 function extractErrorCode(err: unknown, fallback: string): string {
   const code = (err as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return code ? `Error: ${code}` : fallback
+  return code ? `${fallback}. Vuelve a intentarlo.` : fallback
 }
 
 async function loadDashboardConfig() {
@@ -165,233 +198,139 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="admin-role-dashboard p-4 space-y-6 max-w-7xl mx-auto" aria-label="Panel Configurable por Rol">
-    <!-- Header -->
-    <header class="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900">Panel Configurable por Rol</h1>
-        <p class="text-sm text-gray-600">
-          ADM-025: Widgets, columnas y vistas guardadas sin ocultar alertas obligatorias.
-        </p>
-      </div>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <label for="role-select" class="adm-label">Perfil</label>
+      <select id="role-select" v-model="selectedRole" class="adm-input" @change="onRoleChange">
+        <option v-for="r in SYSTEM_ROLE_CODES" :key="r" :value="r">{{ roleName(r) }}</option>
+      </select>
+      <AdminButton variant="primary" :loading="saving" :disabled="!currentConfig" @click="saveLayout">
+        Guardar cambios
+      </AdminButton>
+    </AdminPageActions>
 
-      <!-- Role Selector -->
-      <div class="flex items-center gap-2">
-        <label for="role-select" class="text-sm font-semibold text-gray-700">Rol Activo:</label>
-        <select
-          id="role-select"
-          v-model="selectedRole"
-          class="px-3 py-1.5 border rounded-lg text-sm bg-white font-medium"
-          @change="onRoleChange"
-        >
-          <option v-for="r in SYSTEM_ROLE_CODES" :key="r" :value="r">
-            {{ r.toUpperCase() }}
-          </option>
-        </select>
-      </div>
-    </header>
-
-    <!-- MANDATORY ALERTS BANNER (Always Present & Visible) -->
-    <section
-      aria-label="Alertas obligatorias del sistema"
-      class="p-4 bg-red-50 border-2 border-red-400 rounded-lg shadow-sm"
-    >
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-2">
-          <span
-            class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-600 text-white font-bold text-xs"
-            >!</span
-          >
-          <h2 class="text-base font-bold text-red-900">Canal de Alertas Obligatorias y Críticas</h2>
-        </div>
-        <span class="px-2.5 py-0.5 rounded text-xs font-bold bg-red-200 text-red-900 uppercase"
-          >Obligatorio por Gobernanza</span
-        >
-      </div>
-      <p class="text-xs text-red-800 mt-1">
-        Las alertas operativas, incidentes químicos, rupturas de stock críticas y avisos de seguridad permanecen fijas e
-        inmutables para todos los roles.
-      </p>
-    </section>
-
-    <!-- Feedback messages -->
-    <div v-if="errorMessage" role="alert" class="p-3 bg-red-100 border border-red-300 text-red-800 rounded text-sm">
-      {{ errorMessage }}
-    </div>
-    <div
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert
       v-if="successMessage"
       role="status"
-      class="p-3 bg-green-100 border border-green-300 text-green-800 rounded text-sm"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
+
+    <AdminCard
+      title="Bloques del panel"
+      :description="`Lo que ve el perfil «${roleName(selectedRole)}» al entrar, en este orden.`"
+      flush
     >
-      {{ successMessage }}
-    </div>
-
-    <!-- Saved Views Section -->
-    <section class="bg-gray-50 p-4 rounded-lg border space-y-3" aria-label="Vistas Guardadas">
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm font-bold text-gray-800">Vistas Guardadas para Pedidos</h2>
-        <button
-          type="button"
-          class="px-3 py-1 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition"
-          @click="showNewViewModal = true"
-        >
-          + Guardar Vista Actual
-        </button>
+      <div v-if="loading && !currentConfig" class="adm-table-skeleton" aria-busy="true">
+        <div v-for="row in 4" :key="row"><i /><i /><i /></div>
       </div>
-
-      <div class="flex flex-wrap gap-2 items-center">
-        <button
-          type="button"
-          :class="[
-            'px-3 py-1.5 rounded-full text-xs font-medium border transition',
-            !activeViewId ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 hover:bg-gray-100'
-          ]"
-          @click="activeViewId = null"
-        >
-          Vista Predeterminada
-        </button>
-
-        <div
-          v-for="v in savedViews"
-          :key="v.id"
-          class="inline-flex items-center rounded-full border bg-white pl-3 pr-1 py-0.5 text-xs font-medium"
-          :class="activeViewId === v.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-gray-300'"
-        >
-          <button type="button" class="mr-1 text-gray-800" @click="activeViewId = v.id">
-            {{ v.name }}
-            <span v-if="v.isDefault" class="text-[10px] text-blue-600 font-bold ml-1">(Default)</span>
-          </button>
-          <button
-            type="button"
-            class="text-gray-400 hover:text-red-600 p-1"
-            title="Archivar vista"
-            @click="deleteView(v)"
-          >
-            ×
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Widgets Layout Configurator -->
-    <section v-if="currentConfig" class="space-y-4" aria-label="Configuración de Widgets">
-      <div class="flex items-center justify-between border-b pb-2">
-        <h2 class="text-lg font-bold text-gray-900">Disposición de Widgets para el Rol ({{ selectedRole }})</h2>
-        <button
-          type="button"
-          class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium text-sm rounded shadow transition"
-          :disabled="saving"
-          @click="saveLayout"
-        >
-          {{ saving ? 'Guardando…' : 'Guardar Disposición' }}
-        </button>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div
-          v-for="(w, idx) in currentConfig.widgets"
-          :key="w.widgetId"
-          class="p-4 rounded-lg border bg-white shadow-sm flex flex-col justify-between"
-          :class="{
-            'border-red-300 bg-red-50/20 ring-1 ring-red-300': isWidgetMandatory(w.widgetId),
-            'opacity-60': !w.visible
-          }"
-        >
-          <div>
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-mono font-bold text-gray-500">#{{ w.order }}</span>
-              <span
-                v-if="isWidgetMandatory(w.widgetId)"
-                class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 uppercase"
-              >
-                Alerta Obligatoria
-              </span>
-            </div>
-
-            <h3 class="font-bold text-gray-900 text-sm mt-1">{{ w.widgetId }}</h3>
-            <p v-if="isWidgetMandatory(w.widgetId)" class="text-xs text-red-700 mt-1">
-              Protección obligatoria: Este widget no se puede ocultar para garantizar la seguridad operativa.
+      <AdminEmptyState
+        v-else-if="!currentConfig"
+        variant="error"
+        title="No se ha podido cargar el panel de este perfil"
+      >
+        <AdminButton icon="i-lucide-rotate-cw" @click="loadDashboardConfig">Reintentar</AdminButton>
+      </AdminEmptyState>
+      <ul v-else class="adm-list">
+        <li v-for="(w, idx) in currentConfig.widgets" :key="w.widgetId" :class="!w.visible && 'opacity-60'">
+          <span class="adm-list__index">{{ idx + 1 }}</span>
+          <div class="min-w-0 flex-1">
+            <p class="adm-list__title">
+              {{ widgetName(w.widgetId) }}
+              <AdminBadge v-if="isWidgetMandatory(w.widgetId)" tone="warning" plain>Siempre visible</AdminBadge>
             </p>
+            <p v-if="widgetHint(w.widgetId)" class="adm-help">{{ widgetHint(w.widgetId) }}</p>
           </div>
-
-          <div class="mt-4 pt-3 border-t flex items-center justify-between text-xs">
-            <!-- Visibility checkbox -->
-            <label class="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                :checked="w.visible"
-                :disabled="isWidgetMandatory(w.widgetId)"
-                class="rounded text-blue-600 disabled:opacity-50"
-                @change="toggleWidget(w)"
-              />
-              <span :class="isWidgetMandatory(w.widgetId) ? 'font-bold text-red-800' : 'text-gray-700'">
-                {{ isWidgetMandatory(w.widgetId) ? 'Siempre Visible (Bloqueado)' : w.visible ? 'Visible' : 'Oculto' }}
-              </span>
-            </label>
-
-            <!-- Reorder buttons -->
-            <div class="flex gap-1">
-              <button
-                type="button"
-                class="p-1 border rounded hover:bg-gray-100 disabled:opacity-30"
-                :disabled="idx === 0"
-                @click="moveWidget(idx, 'up')"
-              >
-                ▲
-              </button>
-              <button
-                type="button"
-                class="p-1 border rounded hover:bg-gray-100 disabled:opacity-30"
-                :disabled="idx === currentConfig.widgets.length - 1"
-                @click="moveWidget(idx, 'down')"
-              >
-                ▼
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Modal for new view -->
-    <div v-if="showNewViewModal" class="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-      <div class="bg-white rounded-lg p-6 max-w-md w-full space-y-4">
-        <h3 class="text-lg font-bold text-gray-900">Guardar Nueva Vista de Pedidos</h3>
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 mb-1">Nombre de la Vista:</label>
-          <input
-            v-model="newViewName"
-            type="text"
-            class="w-full px-3 py-1.5 border rounded text-sm"
-            placeholder="Ej: Pedidos Urgentes Químicos"
+          <label class="adm-check">
+            <input
+              type="checkbox"
+              :checked="w.visible"
+              :disabled="isWidgetMandatory(w.widgetId)"
+              @change="toggleWidget(w)"
+            />
+            Visible
+          </label>
+          <AdminButton
+            size="sm"
+            icon="i-lucide-arrow-up"
+            label="Subir"
+            :disabled="idx === 0"
+            @click="moveWidget(idx, 'up')"
           />
-        </div>
-        <div class="flex items-center gap-4 text-xs">
-          <label class="flex items-center gap-1">
-            <input v-model="newViewScope" type="radio" value="role_shared" /> Compartida con el rol
-          </label>
-          <label class="flex items-center gap-1">
-            <input v-model="newViewScope" type="radio" value="personal" /> Solo personal
-          </label>
-        </div>
-        <div>
-          <label class="flex items-center gap-1 text-xs">
-            <input v-model="newViewIsDefault" type="checkbox" /> Establecer como vista predeterminada
-          </label>
-        </div>
-        <div class="flex justify-end gap-2 pt-2">
-          <button type="button" class="px-3 py-1.5 border rounded text-sm" @click="showNewViewModal = false">
-            Cancelar
+          <AdminButton
+            size="sm"
+            icon="i-lucide-arrow-down"
+            label="Bajar"
+            :disabled="idx === currentConfig.widgets.length - 1"
+            @click="moveWidget(idx, 'down')"
+          />
+        </li>
+      </ul>
+      <template #footer>
+        <span class="adm-help mr-auto">
+          Los avisos de seguridad y las incidencias críticas no se pueden ocultar a ningún perfil.
+        </span>
+      </template>
+    </AdminCard>
+
+    <AdminCard title="Vistas guardadas de pedidos" description="Filtros y columnas que este perfil puede reutilizar.">
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-plus" @click="showNewViewModal = true">Guardar vista actual</AdminButton>
+      </template>
+      <div class="flex flex-wrap items-center gap-2">
+        <button type="button" class="adm-chip" :aria-pressed="!activeViewId" @click="activeViewId = null">
+          Vista predeterminada
+        </button>
+        <span v-for="v in savedViews" :key="v.id" class="adm-chip" :data-active="activeViewId === v.id || undefined">
+          <button type="button" :aria-pressed="activeViewId === v.id" @click="activeViewId = v.id">
+            {{ v.name }}<template v-if="v.isDefault"> · por defecto</template>
           </button>
-          <button
-            type="button"
-            class="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium"
-            @click="createView"
-          >
-            Guardar Vista
+          <button type="button" :aria-label="`Archivar la vista ${v.name}`" @click="viewToDelete = v">
+            <UIcon name="i-lucide-x" class="size-3.5" />
           </button>
-        </div>
+        </span>
       </div>
-    </div>
+    </AdminCard>
+
+    <AdminDrawer v-model:open="showNewViewModal" title="Guardar vista de pedidos">
+      <div class="adm-stack">
+        <AdminFormField v-slot="{ id }" label="Nombre de la vista" required>
+          <input :id="id" v-model="newViewName" type="text" placeholder="Por ejemplo: pedidos urgentes" />
+        </AdminFormField>
+        <fieldset class="adm-field">
+          <legend class="adm-label">Quién puede usarla</legend>
+          <label class="adm-check"
+            ><input v-model="newViewScope" type="radio" value="role_shared" /> Todo el perfil</label
+          >
+          <label class="adm-check"><input v-model="newViewScope" type="radio" value="personal" /> Solo yo</label>
+        </fieldset>
+        <label class="adm-check">
+          <input v-model="newViewIsDefault" type="checkbox" /> Usar como vista predeterminada
+        </label>
+      </div>
+      <template #footer>
+        <AdminButton @click="showNewViewModal = false">Cancelar</AdminButton>
+        <AdminButton variant="primary" :disabled="!newViewName.trim()" @click="createView">Guardar vista</AdminButton>
+      </template>
+    </AdminDrawer>
+
+    <AdminConfirm
+      v-model:open="confirmDelete"
+      title="Archivar vista"
+      :description="`La vista «${viewToDelete?.name ?? ''}» dejará de estar disponible para este perfil.`"
+      confirm-label="Archivar"
+      danger
+      @confirm="confirmDeleteView"
+    />
   </div>
 </template>

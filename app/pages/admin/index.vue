@@ -68,8 +68,11 @@ const {
     fulfillmentStatus: string
     total: number
     createdAt: string
+    name?: string | null
+    company?: string | null
   }>
-}>('/api/admin/orders')
+  pagination?: { total: number }
+}>('/api/admin/orders', { query: { perPage: 100 } })
 
 /**
  * Cada excepción declara su umbral de gravedad y dónde se resuelve.
@@ -195,165 +198,332 @@ const catalogue = computed(() => [
   { label: 'Familias', value: statCount('categories'), to: '/admin/categorias' },
   { label: 'Clientes', value: statCount('users'), to: '/admin/clientes' }
 ])
+
+/* ── Ventas: se calculan sobre los pedidos reales más recientes (hasta 100). ── */
+const navigation = useAdminNavigation()
+const DAY = 86_400_000
+const dayKey = (value: number | string) => new Date(value).toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' })
+const ordersReady = computed(() => ordersStatus.value === 'success' && Array.isArray(orders.value?.items))
+const valid = computed(() =>
+  (orders.value?.items ?? []).filter((order) => !['cancelado', 'cancelled'].includes(order.status))
+)
+/** El periodo alcanza hasta donde llega la muestra cargada; si hay más pedidos se avisa. */
+const partial = computed(() => (orders.value?.pagination?.total ?? 0) > (orders.value?.items.length ?? 0))
+const now = useState('admin-home-now', () => Date.now())
+function period(from: number, to: number) {
+  const rows = valid.value.filter((order) => {
+    const time = Date.parse(order.createdAt)
+    return time >= from && time < to
+  })
+  const sales = rows.reduce((sum, order) => sum + order.total, 0)
+  const buyers = new Set(rows.map((order) => order.company || order.name || order.id))
+  return { orders: rows.length, sales, ticket: rows.length ? sales / rows.length : null, buyers: buyers.size }
+}
+const week = computed(() => period(now.value - 7 * DAY, now.value + DAY))
+const previousWeek = computed(() => period(now.value - 14 * DAY, now.value - 7 * DAY))
+const today = computed(() => {
+  const key = dayKey(now.value)
+  const rows = valid.value.filter((order) => dayKey(order.createdAt) === key)
+  return { orders: rows.length, sales: rows.reduce((sum, order) => sum + order.total, 0) }
+})
+function change(current: number | null, before: number | null) {
+  return current === null || before === null || before === 0 ? null : (current - before) / before
+}
+const kpis = computed(() => {
+  if (!ordersReady.value) return null
+  return [
+    {
+      label: 'Ventas, últimos 7 días',
+      icon: 'i-lucide-banknote',
+      value: adminMoney(week.value.sales),
+      delta: change(week.value.sales, previousWeek.value.sales),
+      hint: `Hoy: ${adminMoney(today.value.sales)}`
+    },
+    {
+      label: 'Pedidos, últimos 7 días',
+      icon: 'i-lucide-receipt-text',
+      value: week.value.orders.toLocaleString('es-ES'),
+      delta: change(week.value.orders, previousWeek.value.orders),
+      hint: `Hoy: ${today.value.orders}`
+    },
+    {
+      label: 'Ticket medio',
+      icon: 'i-lucide-shopping-basket',
+      value: week.value.ticket === null ? '—' : adminMoney(week.value.ticket),
+      delta: change(week.value.ticket, previousWeek.value.ticket),
+      hint: 'Por pedido'
+    },
+    {
+      label: 'Clientes que han comprado',
+      icon: 'i-lucide-users',
+      value: week.value.buyers.toLocaleString('es-ES'),
+      delta: change(week.value.buyers, previousWeek.value.buyers),
+      hint: statCount('users') === null ? '' : `${statCount('users')} cuentas en total`
+    }
+  ]
+})
+const salesByDay = computed(() => {
+  const totals = new Map<string, number>()
+  for (const order of valid.value) {
+    const key = dayKey(order.createdAt)
+    totals.set(key, (totals.get(key) ?? 0) + order.total)
+  }
+  return Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(now.value - (29 - index) * DAY)
+    return {
+      label: date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'Europe/Madrid' }),
+      detail: date.toLocaleDateString('es-ES', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        timeZone: 'Europe/Madrid'
+      }),
+      value: totals.get(dayKey(date.getTime())) ?? 0
+    }
+  })
+})
+const monthSales = computed(() => salesByDay.value.reduce((sum, day) => sum + day.value, 0))
+const byStatus = computed(() => {
+  const counts = new Map<string, number>()
+  for (const order of orders.value?.items ?? []) counts.set(order.status, (counts.get(order.status) ?? 0) + 1)
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([status, value]) => ({ label: ORDER_STATUS[status]?.label ?? adminStatusLabel(status), value }))
+})
+const latest = computed(() => (orders.value?.items ?? []).slice(0, 8))
+const STATUS_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+  warning: 'warning',
+  success: 'success',
+  error: 'danger',
+  info: 'info',
+  primary: 'info',
+  neutral: 'neutral'
+}
+const orderColumns = [
+  { key: 'id', label: 'Pedido' },
+  { key: 'customer', label: 'Cliente', hideOnMobile: true },
+  { key: 'createdAt', label: 'Fecha', hideOnMobile: true },
+  { key: 'status', label: 'Estado' },
+  { key: 'total', label: 'Importe', numeric: true }
+]
+const tasks = computed(() =>
+  [
+    {
+      label: 'Pedidos por preparar',
+      hint: 'Pagados y pendientes de expedir',
+      value: readyToShip.value,
+      to: '/admin/pedidos',
+      icon: 'i-lucide-package-check'
+    },
+    {
+      label: 'Pedidos esperando cobro',
+      hint: 'Sin pago confirmado',
+      value: statsStatus.value === 'error' ? null : awaitingPayment.value,
+      to: '/admin/pedidos',
+      icon: 'i-lucide-hourglass'
+    },
+    ...active.value.map((item) => ({
+      label: item.label,
+      hint: item.hint,
+      value: observedCount(item.key),
+      to: item.to,
+      icon: item.severity === 'critical' ? 'i-lucide-octagon-alert' : 'i-lucide-triangle-alert',
+      severity: item.severity
+    }))
+  ].filter((task) => task.value !== null)
+)
+const shortcuts = computed(() =>
+  navigation.tree.value
+    .filter((section) => section.id !== 'inicio')
+    .map((section) => ({
+      ...section,
+      links: section.items.map((item) => ({ label: item.label, to: item.tabs[0]!.to }))
+    }))
+)
 </script>
 
 <template>
-  <div>
-    <UiPageHeader title="Hoy" description="Lo que está bloqueado y espera una decisión.">
-      <template #actions>
-        <UButton color="neutral" variant="outline" icon="i-lucide-rotate-cw" @click="refreshDashboard()"
-          >Actualizar</UButton
-        >
-        <UButton v-if="node" to="/admin/productos/nuevo" icon="i-lucide-plus">Nuevo producto</UButton>
-      </template>
-    </UiPageHeader>
+  <AdminPage>
+    <template #actions>
+      <AdminButton icon="i-lucide-rotate-cw" @click="refreshDashboard()">Actualizar</AdminButton>
+      <AdminButton v-if="node" variant="primary" to="/admin/productos/nuevo" icon="i-lucide-plus">
+        Nuevo producto
+      </AdminButton>
+      <AdminButton v-else variant="primary" to="/admin/pedidos" icon="i-lucide-receipt-text">Ver pedidos</AdminButton>
+    </template>
 
-    <!-- Cola de trabajo: los dos montones que hay que vaciar cada día -->
-    <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
-      <NuxtLink
-        to="/admin/pedidos"
-        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 transition-colors hover:border-neteco-300"
-      >
-        <div class="flex items-center gap-2 text-[var(--text-muted)]">
-          <UIcon name="i-lucide-package-check" class="size-4" />
-          <span class="text-sm font-medium">Pagados y sin expedir</span>
-        </div>
-        <p class="tabular mt-2 font-display text-4xl font-bold text-[var(--text-strong)]">{{ readyToShip ?? '—' }}</p>
-        <p class="mt-1 text-sm text-[var(--text-muted)]">
-          {{
-            readyToShip === null
-              ? 'Expedición no disponible en este entorno'
-              : readyToShip
-                ? 'Listos para preparar en almacén'
-                : 'Nada pendiente de preparar'
-          }}
-        </p>
-      </NuxtLink>
-
-      <NuxtLink
-        to="/admin/pedidos"
-        class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] p-5 transition-colors hover:border-neteco-300"
-      >
-        <div class="flex items-center gap-2 text-[var(--text-muted)]">
-          <UIcon name="i-lucide-hourglass" class="size-4" />
-          <span class="text-sm font-medium">Esperando cobro</span>
-        </div>
-        <p class="tabular mt-2 font-display text-4xl font-bold text-[var(--text-strong)]">
-          {{ statsStatus === 'error' ? '—' : (awaitingPayment ?? '—') }}
-        </p>
-        <p class="mt-1 text-sm text-[var(--text-muted)]">
-          {{
-            awaitingPayment === null || statsStatus === 'error'
-              ? 'Recuento no disponible'
-              : awaitingPayment
-                ? 'Pedidos sin pago confirmado'
-                : 'No hay pedidos esperando cobro'
-          }}
-        </p>
-      </NuxtLink>
-    </div>
-
-    <!-- Excepciones -->
-    <section class="mt-8">
-      <div class="flex flex-wrap items-baseline justify-between gap-3 pb-3">
-        <h2 class="text-lg font-bold text-[var(--text-strong)]">Excepciones</h2>
-        <p v-if="hasObservedExceptions" class="text-sm text-[var(--text-muted)]">
-          Comprobado a las
-          {{
-            new Date(ops!.generatedAt).toLocaleTimeString('es-ES', {
-              hour: '2-digit',
-              minute: '2-digit',
-              timeZone: 'Europe/Madrid'
-            })
-          }}
-        </p>
+    <div class="adm-stack">
+      <!-- Cifras clave de la semana frente a la anterior -->
+      <div v-if="kpis" class="adm-grid">
+        <AdminStat
+          v-for="kpi in kpis"
+          :key="kpi.label"
+          :label="kpi.label"
+          :icon="kpi.icon"
+          :value="kpi.value"
+          :delta="kpi.delta"
+          :hint="kpi.hint"
+        />
       </div>
-
-      <div v-if="status === 'pending'" class="grid gap-3 grid-cols-1 sm:grid-cols-2">
+      <div v-else-if="ordersStatus === 'pending'" class="adm-grid" aria-hidden="true">
         <div
           v-for="row in 4"
           :key="row"
-          class="h-24 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)]"
+          class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
         />
       </div>
-
-      <UiSurface v-else-if="status === 'error'" padding="none">
-        <UiEmptyState
+      <AdminCard v-else>
+        <AdminEmptyState
+          compact
           variant="error"
-          title="No hemos podido comprobar el estado de la tienda"
-          description="Sin este dato no se puede saber qué está bloqueado. Vuelve a intentarlo."
+          title="No hemos podido cargar las ventas"
+          description="Vuelve a intentarlo en unos segundos."
         >
-          <UButton icon="i-lucide-rotate-cw" @click="refresh()">Reintentar</UButton>
-        </UiEmptyState>
-      </UiSurface>
+          <AdminButton icon="i-lucide-rotate-cw" @click="refreshOrders()">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
 
-      <UiSurface v-else-if="!hasObservedExceptions" padding="none">
-        <UiEmptyState
-          icon="i-lucide-circle-help"
-          title="Estado de los procesos no disponible"
-          description="No hay contadores de incidencias verificables. No se puede confirmar que todo esté resuelto."
+      <div class="grid gap-5 xl:grid-cols-3">
+        <AdminCard
+          class="xl:col-span-2"
+          title="Ventas por día"
+          :description="`Últimos 30 días · ${adminMoney(monthSales)}${partial ? ' · calculado sobre los 100 pedidos más recientes' : ''}`"
         >
-          <UButton icon="i-lucide-rotate-cw" @click="refresh()">Reintentar</UButton>
-        </UiEmptyState>
-      </UiSurface>
+          <AdminChart
+            :points="salesByDay"
+            :format="(value: number) => adminMoney(value)"
+            summary="Ventas diarias de los últimos 30 días, impuestos incluidos."
+          />
+        </AdminCard>
 
-      <UiSurface v-else-if="!active.length" padding="none">
-        <UiEmptyState
-          icon="i-lucide-circle-check"
-          :title="cloudflare ? 'Sin incidencias en los procesos observados' : 'No hay nada bloqueado'"
-          :description="
-            cloudflare
-              ? 'Revisados únicamente los contadores disponibles. Consulta Operaciones para conocer los procesos sin cobertura.'
-              : 'Ningún reembolso atascado, ninguna transferencia sin conciliar y ningún ticket fuera de plazo.'
-          "
-        />
-      </UiSurface>
-
-      <div v-else class="grid gap-3 grid-cols-1 sm:grid-cols-2">
-        <NuxtLink
-          v-for="item in active"
-          :key="item.key"
-          :to="item.to"
-          class="flex items-start gap-4 rounded-[var(--radius-panel)] border bg-[var(--surface)] p-4 transition-colors"
-          :class="
-            item.severity === 'critical'
-              ? 'border-red-200 hover:border-red-400'
-              : 'border-amber-200 hover:border-amber-400'
-          "
-        >
-          <span
-            class="tabular flex size-11 shrink-0 items-center justify-center rounded-[var(--radius-surface)] text-lg font-bold"
-            :class="item.severity === 'critical' ? 'bg-red-50 text-red-800' : 'bg-amber-50 text-amber-900'"
-          >
-            {{ ops!.summary[item.key] }}
-          </span>
-          <div class="min-w-0">
-            <p class="font-semibold text-[var(--text-strong)]">{{ item.label }}</p>
-            <p class="mt-0.5 text-sm text-[var(--text-muted)]">{{ item.hint }}</p>
-          </div>
-        </NuxtLink>
+        <AdminCard title="Pedidos por estado" description="Sobre los pedidos más recientes">
+          <AdminBreakdown v-if="byStatus.length" :items="byStatus" />
+          <AdminEmptyState v-else compact icon="i-lucide-receipt-text" title="Aún no hay pedidos" />
+        </AdminCard>
       </div>
 
-      <p v-if="criticalCount" class="mt-3 text-sm text-[var(--text-muted)]">
-        {{ criticalCount }} {{ criticalCount === 1 ? 'excepción crítica' : 'excepciones críticas' }}: cuestan dinero o
-        incumplen un plazo comprometido.
-      </p>
-    </section>
+      <div class="grid gap-5 xl:grid-cols-3">
+        <div class="xl:col-span-2">
+          <AdminSection title="Últimos pedidos">
+            <template #actions>
+              <AdminButton size="sm" to="/admin/pedidos">Ver todos</AdminButton>
+            </template>
+            <AdminTable
+              :rows="latest"
+              :columns="orderColumns"
+              :row-key="(row) => row.id"
+              :row-to="(row) => `/admin/pedidos/${row.id}`"
+              :status="ordersStatus === 'pending' ? 'pending' : ordersStatus === 'error' ? 'error' : 'idle'"
+              :per-page="8"
+              empty-title="Aún no hay pedidos"
+              empty-description="Cuando entre el primer pedido aparecerá aquí."
+              empty-icon="i-lucide-receipt-text"
+              caption="Últimos pedidos recibidos"
+              @retry="refreshOrders()"
+            >
+              <template #cell-id="{ row }">
+                <NuxtLink :to="`/admin/pedidos/${row.id}`" class="font-semibold text-[var(--link)] hover:underline">
+                  #{{ row.id.slice(0, 8).toUpperCase() }}
+                </NuxtLink>
+              </template>
+              <template #cell-customer="{ row }">{{ row.company || row.name || '—' }}</template>
+              <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt, true) }}</template>
+              <template #cell-status="{ row }">
+                <AdminBadge :tone="STATUS_TONE[ORDER_STATUS[row.status]?.color ?? 'neutral'] ?? 'neutral'">
+                  {{ ORDER_STATUS[row.status]?.label ?? adminStatusLabel(row.status) }}
+                </AdminBadge>
+              </template>
+              <template #cell-total="{ row }">{{ adminMoney(row.total) }}</template>
+            </AdminTable>
+          </AdminSection>
+        </div>
 
-    <!-- El inventario del catálogo pasa al final: es contexto, no una tarea -->
-    <section class="mt-8">
-      <h2 class="pb-3 text-lg font-bold text-[var(--text-strong)]">Catálogo</h2>
-      <div class="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        <NuxtLink
-          v-for="card in catalogue"
-          :key="card.label"
-          :to="card.to"
-          class="rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface)] px-4 py-3 transition-colors hover:border-neteco-300"
-        >
-          <p class="tabular font-display text-2xl font-bold text-[var(--text-strong)]">{{ card.value ?? '—' }}</p>
-          <p class="text-sm text-[var(--text-muted)]">{{ card.label }}</p>
-        </NuxtLink>
+        <AdminSection title="Tareas pendientes">
+          <template v-if="hasObservedExceptions" #actions>
+            <span class="adm-help">
+              Comprobado a las
+              {{
+                new Date(ops!.generatedAt).toLocaleTimeString('es-ES', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  timeZone: 'Europe/Madrid'
+                })
+              }}
+            </span>
+          </template>
+          <AdminCard flush>
+            <AdminEmptyState
+              v-if="status === 'error'"
+              compact
+              variant="error"
+              title="No hemos podido comprobar el estado de la tienda"
+              description="Sin este dato no se sabe qué está bloqueado."
+            >
+              <AdminButton icon="i-lucide-rotate-cw" @click="refresh()">Reintentar</AdminButton>
+            </AdminEmptyState>
+            <template v-else>
+              <ul class="adm-tasks">
+                <li v-for="task in tasks" :key="task.label">
+                  <NuxtLink :to="task.to" class="adm-task">
+                    <span
+                      class="adm-task__count"
+                      :data-tone="!task.value ? 'none' : 'severity' in task ? task.severity : 'info'"
+                    >
+                      {{ task.value }}
+                    </span>
+                    <span class="min-w-0 flex-1">
+                      <span class="adm-task__label">{{ task.label }}</span>
+                      <span class="adm-task__hint">{{ task.hint }}</span>
+                    </span>
+                    <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-[var(--text-muted)]" />
+                  </NuxtLink>
+                </li>
+              </ul>
+              <AdminEmptyState
+                v-if="!tasks.length"
+                compact
+                icon="i-lucide-circle-check"
+                title="Nada pendiente"
+                description="No hay pedidos ni incidencias esperando una decisión."
+              />
+              <p v-else-if="!active.length && hasObservedExceptions" class="adm-tasks__note">
+                <UIcon name="i-lucide-circle-check" class="size-4 text-emerald-700" />
+                Sin incidencias en los procesos revisados.
+              </p>
+              <p v-if="criticalCount" class="adm-tasks__note">
+                {{ criticalCount }}
+                {{ criticalCount === 1 ? 'incidencia crítica' : 'incidencias críticas' }}: cuestan dinero o incumplen un
+                plazo.
+              </p>
+            </template>
+          </AdminCard>
+        </AdminSection>
       </div>
-    </section>
-  </div>
+
+      <AdminSection title="Catálogo y clientes">
+        <div class="adm-grid">
+          <AdminStat
+            v-for="card in catalogue"
+            :key="card.label"
+            :label="card.label"
+            :value="card.value"
+            :to="card.to"
+          />
+        </div>
+      </AdminSection>
+
+      <AdminSection v-if="shortcuts.length" title="Accesos rápidos" description="Todas las secciones del panel.">
+        <div class="adm-shortcuts">
+          <AdminCard v-for="section in shortcuts" :key="section.id">
+            <p class="adm-shortcuts__title"><UIcon :name="section.icon" class="size-4" />{{ section.label }}</p>
+            <ul>
+              <li v-for="link in section.links" :key="link.to">
+                <NuxtLink :to="link.to">{{ link.label }}</NuxtLink>
+              </li>
+            </ul>
+          </AdminCard>
+        </div>
+      </AdminSection>
+    </div>
+  </AdminPage>
 </template>

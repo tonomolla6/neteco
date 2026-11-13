@@ -9,5 +9,7 @@ useSeoMeta({
 </script>
 
 <template>
-  <AdminConfigurableRoleDashboard />
+  <AdminPage>
+    <AdminConfigurableRoleDashboard />
+  </AdminPage>
 </template>

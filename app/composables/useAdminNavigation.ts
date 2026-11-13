@@ -1,6 +1,8 @@
 import {
   adminCapabilitiesSchema,
+  ADMIN_NAVIGATION_PERMISSIONS,
   adminNavigationGroups,
+  adminNavigationTree,
   canNavigateAdmin,
   type AdminCapabilities
 } from '~~/shared/admin-navigation'
@@ -11,6 +13,21 @@ const pendingReads = new WeakMap<
   object,
   Map<string, { generation: number; promise: Promise<AdminCapabilities | null> }>
 >()
+
+const LEGACY_PATHS = new Set([
+  '/admin',
+  '/admin/pedidos',
+  '/admin/devoluciones',
+  '/admin/soporte',
+  '/admin/clientes',
+  '/admin/productos',
+  '/admin/categorias',
+  '/admin/precios',
+  '/admin/medios',
+  '/admin/contenido',
+  '/admin/operaciones',
+  '/admin/busqueda'
+])
 
 /** Ephemeral self-read, bound to the current identity, session and route. Never
  * used as server authorization or persisted to localStorage/cookies. */
@@ -112,8 +129,28 @@ export function useAdminNavigation() {
     { immediate: true, flush: 'sync' }
   )
   const groups = computed(() => adminNavigationGroups(capabilities.value))
+  // The Node runtime has no capability endpoint: its panel exposes this fixed set.
+  const tree = computed(() => {
+    if (cloudflare.value) return adminNavigationTree(capabilities.value)
+    const everything = adminNavigationTree({
+      source: 'cloudflare',
+      identityId: '',
+      sessionId: '',
+      sessionVersion: 1,
+      state: 'ready',
+      permissions: [...ADMIN_NAVIGATION_PERMISSIONS]
+    })
+    return everything
+      .map((section) => ({
+        ...section,
+        items: section.items
+          .map((item) => ({ ...item, tabs: item.tabs.filter((entry) => LEGACY_PATHS.has(entry.to)) }))
+          .filter((item) => item.tabs.length > 0)
+      }))
+      .filter((section) => section.items.length > 0)
+  })
   const staffEntry = computed(() => capabilities.value !== null && capabilities.value.state !== 'forbidden')
   const routeAllowed = computed(() => canNavigateAdmin(router.currentRoute.value.path, capabilities.value))
   const requiresLogin = (path: string) => state.value.key === keyFor(path) && state.value.status === 'unauthenticated'
-  return { cloudflare, capabilities, status, groups, staffEntry, routeAllowed, refresh, requiresLogin }
+  return { cloudflare, capabilities, status, groups, tree, staffEntry, routeAllowed, refresh, requiresLogin }
 }

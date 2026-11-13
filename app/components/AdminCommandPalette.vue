@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
       aria-keyshortcuts="Control+K Meta+K"
       :aria-expanded="opened"
       :aria-controls="prefix + '-dialog'"
-      class="inline-flex max-w-full items-center gap-2 rounded-[var(--radius-control)] border border-current px-3 py-2 text-sm disabled:opacity-50"
+      class="inline-flex h-9 w-full max-w-md items-center gap-2 rounded-[var(--radius-control)] border border-white/15 bg-white/10 px-3 text-sm text-slate-200 transition-colors hover:bg-white/15 disabled:opacity-50"
       @click="open"
     >
       <svg
@@ -184,13 +184,13 @@ onBeforeUnmount(() => {
         fill="none"
         stroke="currentColor"
         stroke-width="2"
-        class="size-4 shrink-0 sm:hidden"
+        class="size-4 shrink-0"
       >
         <circle cx="10.5" cy="10.5" r="6.5" />
         <path d="m16 16 4.5 4.5" />
       </svg>
-      <span class="sr-only sm:not-sr-only sm:truncate">Buscar secciones</span
-      ><kbd class="hidden shrink-0 text-xs sm:inline">Ctrl / ⌘ K</kbd>
+      <span class="sr-only sm:not-sr-only sm:flex-1 sm:truncate sm:text-left">Ir a una sección…</span
+      ><kbd class="hidden shrink-0 rounded border border-white/20 px-1.5 text-[11px] text-slate-300 sm:inline">Ctrl K</kbd>
     </button>
     <p v-if="error" role="alert" class="text-sm">{{ error }}</p>
     <div
@@ -240,7 +240,7 @@ onBeforeUnmount(() => {
             @keydown="searchKey"
           />
           <p :id="prefix + '-hint'" class="text-xs text-[var(--text-muted)]">
-            Busca secciones, no datos privados. Usa ↑ y ↓ para elegir, Enter para abrir y Escape para cerrar.
+            Busca secciones, no datos privados. Usa ↑ y ↓ para elegir, enter para abrir y escape para cerrar.
           </p>
         </div>
         <p v-if="!matches.length" data-palette-empty role="status" class="px-4 pb-4">

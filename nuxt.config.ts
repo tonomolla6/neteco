@@ -19,6 +19,8 @@ export default defineNuxtConfig({
     screens: { xs: 320, sm: 640, md: 768, lg: 1024, xl: 1280 }
   },
   css: ['~/assets/css/main.css'],
+  // Sistema de diseño del panel: AdminPage, AdminTable… sin prefijo de carpeta.
+  components: [{ path: '~/components/admin/ui', pathPrefix: false }, '~/components'],
   sourcemap: {
     server: true,
     client: true
