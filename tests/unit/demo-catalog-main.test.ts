@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { afterEach, beforeEach, test, vi } from 'vitest'
 import { applyDemoMainCatalog, planDemoMainCatalog } from '../../scripts/cloudflare-demo-remote'
 import { CATALOG_PDF_PARENT_CATEGORY_ID, planCatalogPdf, withLoaderSession } from '../../scripts/lib/demo-catalog-pdf'
 import { planCatalogPrices } from '../../scripts/lib/demo-catalog-prices'
@@ -11,8 +11,11 @@ import { applyGeneratedSeed, d1OverSqlite, openAccountSecurityDatabase } from '.
 import worker from '../../workers/canary'
 import type { ProductListResponse } from '../../shared/types/catalog'
 import { provisionPublicationValidityFixture } from '../../tests/support/publication-validity-fixture'
+import { pinSqlClock } from '../support/independent-sql-clock'
 
-const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+const now = '2026-11-12T12:00:00Z'
+beforeEach(() => vi.setSystemTime(new Date(now)))
+afterEach(() => vi.useRealTimers())
 // Minimal synthetic assortment: two populated children and 16 products per new root.
 const families = [
   'Ollas y cazos',
@@ -46,6 +49,7 @@ const source = {
 const expected = [16, 16, 16, 16]
 async function fixture(real = false) {
   const sqlite = await openAccountSecurityDatabase()
+  pinSqlClock(sqlite, now)
   for (const render of [renderD1CategorySeed, renderD1ProductSeed, renderD1InventorySeed, renderD1ShippingSeed])
     applyGeneratedSeed(sqlite, render())
   const db = d1OverSqlite(sqlite)
