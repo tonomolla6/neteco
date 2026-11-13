@@ -5,16 +5,21 @@ import type { ProductCardData } from '~~/shared/types/catalog'
  * Tarjeta de producto, como en las grandes tiendas: foto libre, nombre, precio y cuándo
  * llega. Toda la tarjeta es un único enlace a la ficha: ahí se elige formato y cantidad.
  *
- * No lleva cantidad, botón de añadir, referencia ni disponibilidad. Lo que no se puede
- * servir no se enseña en los listados, y el plazo se dice con la fecha de entrega.
+ * No lleva cantidad, referencia ni disponibilidad. Lo que no se puede servir no se enseña
+ * en los listados, y el plazo se dice con la fecha de entrega.
+ *
+ * Solo en los listados (`listingAction`) añade debajo «Añadir a la cesta» / «Ver opciones».
+ * En portada y franjas la tarjeta va sin botones.
  */
 const props = withDefaults(
   defineProps<{
     product: ProductCardData
     /** Solo cuando el listado mezcla marcas; si todo es de la misma, es ruido. */
     showBrand?: boolean
+    /** Botón «Añadir a la cesta» bajo la fecha de entrega; solo en los listados. */
+    listingAction?: boolean
   }>(),
-  { showBrand: false }
+  { showBrand: false, listingAction: false }
 )
 
 const single = computed(() => props.product.single ?? null)
@@ -89,6 +94,8 @@ const discount = computed(() => {
         >
           {{ delivery }}
         </p>
+        <!-- Por encima del enlace estirado de la tarjeta, para que el clic sea del botón. -->
+        <ProductListingAction v-if="listingAction" :product="product" class="relative z-10 mt-2.5" />
       </div>
     </div>
   </article>

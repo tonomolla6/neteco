@@ -3,8 +3,8 @@ import type { ProductCardData } from '~~/shared/types/catalog'
 
 /**
  * Fila de la vista de lista: la misma foto grande que la cuadrícula, con nombre, precio y
- * fecha de entrega al lado, y el pedido directo a la derecha para quien repone y ya sabe
- * lo que quiere. La foto y el nombre llevan a la ficha.
+ * fecha de entrega al lado, y a la derecha el mismo «Añadir a la cesta» / «Ver opciones»
+ * de la cuadrícula. La foto y el nombre llevan a la ficha.
  */
 const props = withDefaults(defineProps<{ product: ProductCardData; showBrand?: boolean }>(), { showBrand: false })
 
@@ -19,7 +19,7 @@ const discount = computed(() => {
 <template>
   <article
     data-product-row
-    class="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 rounded-[var(--radius-surface)] bg-[var(--surface)] p-3 transition-shadow hover:shadow-[var(--shadow-raised)] sm:grid-cols-[11rem_minmax(0,1fr)] sm:p-4 lg:grid-cols-[14rem_minmax(0,1fr)_17rem] lg:items-center lg:gap-x-6"
+    class="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-x-4 gap-y-3 rounded-[var(--radius-surface)] bg-[var(--surface)] p-3 transition-shadow hover:shadow-[var(--shadow-raised)] sm:grid-cols-[11rem_minmax(0,1fr)] sm:p-4 lg:grid-cols-[14rem_minmax(0,1fr)_15rem] lg:items-center lg:gap-x-6"
   >
     <NuxtLink :to="`/producto/${product.slug}`" tabindex="-1" aria-hidden="true" class="block self-start">
       <ProductImage :product="product" bare sizes="(max-width: 640px) 120px, 224px" />
@@ -66,8 +66,9 @@ const discount = computed(() => {
     </div>
 
     <div class="col-span-2 flex flex-col gap-2 lg:col-span-1">
-      <ProductOrderControls :product="product" />
-      <CompareToggle :slug="product.slug" :name="product.name" with-label class="self-start" />
+      <ProductListingAction :product="product" />
+      <!-- Comparador pausado por Tono 13/11/2026: ver COMPARE_ENABLED en utils/compare.ts -->
+      <CompareToggle v-if="COMPARE_ENABLED" :slug="product.slug" :name="product.name" with-label class="self-start" />
     </div>
   </article>
 </template>

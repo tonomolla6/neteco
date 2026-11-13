@@ -37,7 +37,7 @@ const visible = computed(() => props.items.filter(listingOrderable))
     class="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-4 min-[1500px]:grid-cols-5"
     :class="pending ? 'opacity-60' : ''"
   >
-    <ProductCard v-for="p in visible" :key="p.id" :product="p" />
+    <ProductCard v-for="p in visible" :key="p.id" :product="p" listing-action />
   </div>
   <div v-else class="flex flex-col gap-3" :class="pending ? 'opacity-60' : ''">
     <ProductRow v-for="p in visible" :key="p.id" :product="p" />

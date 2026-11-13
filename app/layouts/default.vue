@@ -18,7 +18,8 @@ const bottomBar = computed(() => appBottomBarVisible(route.path))
     </main>
     <AppFooter :class="bottomBar ? 'mb-14 lg:mb-0' : ''" />
     <AppBottomBar />
-    <ClientOnly><CompareFloatingBar /></ClientOnly>
+    <!-- Comparador pausado por Tono 13/11/2026: ver COMPARE_ENABLED en utils/compare.ts -->
+    <ClientOnly v-if="COMPARE_ENABLED"><CompareFloatingBar /></ClientOnly>
     <ConsentManager />
     <MarketingModalHost />
   </div>
