@@ -170,13 +170,17 @@ onBeforeUnmount(() => {
         data-timeline-refresh
         type="button"
         :disabled="status === 'loading'"
-        class="rounded border px-3 py-2 text-sm focus-visible:outline-2"
+        :class="
+          audience === 'admin'
+            ? 'adm-btn adm-btn--secondary adm-btn--sm'
+            : 'rounded border px-3 py-2 text-sm focus-visible:outline-2'
+        "
         @click="refresh"
       >
         Actualizar historial
       </button>
     </div>
-    <p class="text-xs text-muted">
+    <p class="text-xs text-[var(--text-muted)]">
       Hitos registrados, del más reciente al más antiguo. Fechas del servidor en UTC. No anticipa entregas ni confirma
       liquidaciones bancarias.
     </p>
@@ -188,7 +192,14 @@ onBeforeUnmount(() => {
         No se ha podido confirmar el historial. La vista anterior se ha descartado; puedes reintentar la lectura o
         actualizar desde el inicio.
       </p>
-      <button data-timeline-retry type="button" class="rounded border px-3 py-2 focus-visible:outline-2" @click="retry">
+      <button
+        data-timeline-retry
+        type="button"
+        :class="
+          audience === 'admin' ? 'adm-btn adm-btn--secondary' : 'rounded border px-3 py-2 focus-visible:outline-2'
+        "
+        @click="retry"
+      >
         Reintentar lectura del historial
       </button>
     </div>
@@ -207,7 +218,7 @@ onBeforeUnmount(() => {
         class="min-w-0 break-words py-3 [overflow-wrap:anywhere]"
       >
         <p class="text-sm font-medium">{{ label(item) }}</p>
-        <time :datetime="item.createdAt" class="block text-xs text-muted"
+        <time :datetime="item.createdAt" class="block text-xs text-[var(--text-muted)]"
           >{{ item.createdAt.slice(0, 10) }} {{ item.createdAt.slice(11, 19) }} UTC</time
         >
         <p v-if="item.validationOnly === true" class="mt-1 text-sm">
@@ -225,7 +236,11 @@ onBeforeUnmount(() => {
       v-if="status === 'ready' && nextCursor !== null"
       data-timeline-more
       type="button"
-      class="rounded border px-3 py-2 text-sm focus-visible:outline-2"
+      :class="
+        audience === 'admin'
+          ? 'adm-btn adm-btn--secondary adm-btn--sm'
+          : 'rounded border px-3 py-2 text-sm focus-visible:outline-2'
+      "
       @click="more"
     >
       Ver hitos anteriores

@@ -4,7 +4,9 @@ useSeoMeta({ title: 'Pedidos en Borrador Sujetos a Aprobación · Admin' })
 </script>
 
 <template>
-  <div class="p-6">
-    <AdminDraftOrdersPanel />
-  </div>
+  <AdminPage>
+    <div class="p-6">
+      <AdminDraftOrdersPanel />
+    </div>
+  </AdminPage>
 </template>

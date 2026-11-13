@@ -97,16 +97,16 @@ async function handleReject() {
   }
 }
 
-const statusBadgeClass = computed(() => {
+const statusTone = computed(() => {
   switch (data.value?.approvalStatus) {
     case 'approved':
-      return 'bg-green-100 text-green-800'
+      return 'success'
     case 'rejected':
-      return 'bg-red-100 text-red-800'
+      return 'danger'
     case 'pending_approval':
-      return 'bg-amber-100 text-amber-800'
+      return 'warning'
     default:
-      return 'bg-gray-100 text-gray-800'
+      return 'neutral'
   }
 })
 
@@ -119,7 +119,7 @@ const statusLabel = computed(() => {
     case 'pending_approval':
       return 'Pendiente de aprobación'
     default:
-      return 'No requerida'
+      return 'No necesita aprobación'
   }
 })
 
@@ -129,107 +129,93 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-    <div class="flex items-center justify-between border-b border-slate-100 pb-4">
-      <div>
-        <h3 class="text-lg font-semibold text-slate-900">Datos de Compra y Aprobación</h3>
-        <p class="text-sm text-slate-500">PO contractual, centro de coste y gobernanza de compras</p>
-      </div>
-      <span
-        v-if="data"
-        class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
-        :class="statusBadgeClass"
-      >
-        {{ statusLabel }}
-      </span>
-    </div>
+  <AdminCard title="Compra de empresa" description="Orden de compra, centro de coste y aprobación">
+    <template v-if="data" #actions>
+      <AdminBadge :tone="statusTone">{{ statusLabel }}</AdminBadge>
+    </template>
 
-    <!-- Loading State -->
-    <div v-if="loading" class="py-8 text-center text-sm text-slate-500" aria-live="polite">
-      Cargando datos de compras...
-    </div>
+    <div v-if="loading" class="adm-help" aria-live="polite">Cargando datos de compra…</div>
 
-    <!-- Error State -->
-    <div v-else-if="error" class="my-4 rounded-md bg-red-50 p-4 text-sm text-red-700" role="alert">
-      Error: {{ error }}
-    </div>
+    <AdminEmptyState
+      v-else-if="error"
+      role="alert"
+      compact
+      variant="error"
+      title="No se han podido cargar los datos de compra"
+      description="Comprueba el pedido y vuelve a intentarlo."
+    >
+      <AdminButton icon="i-lucide-rotate-cw" @click="loadData">Reintentar</AdminButton>
+    </AdminEmptyState>
 
-    <!-- Content State -->
-    <div v-else-if="data" class="mt-4 space-y-4">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div class="rounded-md bg-slate-50 p-3">
-          <span class="block text-xs font-medium text-slate-500">Orden de Compra (PO):</span>
-          <span class="font-mono text-sm font-semibold text-slate-900">
-            {{ data.purchaseOrderReference || 'No asignada' }}
-          </span>
+    <div v-else-if="data" class="space-y-4">
+      <dl class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3">
+          <dt class="adm-help">Orden de compra del cliente</dt>
+          <dd class="font-semibold text-[var(--text-strong)] [overflow-wrap:anywhere]">
+            {{ data.purchaseOrderReference || 'Sin asignar' }}
+          </dd>
         </div>
-        <div class="rounded-md bg-slate-50 p-3">
-          <span class="block text-xs font-medium text-slate-500">Centro de Coste:</span>
-          <span class="font-mono text-sm font-semibold text-slate-900">
-            {{ data.costCenter || 'No asignado' }}
-          </span>
+        <div class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3">
+          <dt class="adm-help">Centro de coste</dt>
+          <dd class="font-semibold text-[var(--text-strong)] [overflow-wrap:anywhere]">
+            {{ data.costCenter || 'Sin asignar' }}
+          </dd>
         </div>
-      </div>
+      </dl>
 
-      <div
+      <UAlert
         v-if="data.requiresApproval"
-        class="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"
-      >
-        Este pedido superó el umbral de aprobación o las políticas del centro de coste y requiere validación de compras.
-      </div>
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-shield-alert"
+        title="Este pedido necesita la aprobación de compras"
+        description="Supera el importe máximo o las condiciones acordadas con la empresa."
+      />
+      <p v-if="data.approvalStatus === 'rejected' && data.rejectionReason" class="adm-help">
+        Motivo del rechazo: {{ data.rejectionReason }}
+      </p>
 
-      <!-- Action Buttons when Pending Approval -->
-      <div v-if="data.approvalStatus === 'pending_approval'" class="mt-4 flex items-center gap-3">
-        <button
-          data-testid="approve-btn"
-          type="button"
-          :disabled="submitting"
-          class="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
-          @click="handleApprove"
-        >
-          Aprobar Pedido
-        </button>
+      <div v-if="data.approvalStatus === 'pending_approval'" class="flex flex-wrap items-center justify-end gap-2">
         <button
           data-testid="reject-btn"
           type="button"
           :disabled="submitting"
-          class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50"
+          class="adm-btn adm-btn--danger-soft"
           @click="showRejectModal = true"
         >
-          Rechazar Pedido
+          Rechazar pedido
+        </button>
+        <button
+          data-testid="approve-btn"
+          type="button"
+          :disabled="submitting"
+          class="adm-btn adm-btn--secondary"
+          @click="handleApprove"
+        >
+          <UIcon name="i-lucide-check" class="size-4" />Aprobar pedido
         </button>
       </div>
+    </div>
 
-      <!-- Rejection Modal / Prompt -->
-      <div v-if="showRejectModal" class="mt-4 rounded-md border border-red-200 bg-red-50 p-4">
-        <label for="rejection-reason" class="block text-xs font-medium text-red-800">
-          Motivo del rechazo (obligatorio):
-        </label>
+    <AdminConfirm
+      v-model:open="showRejectModal"
+      title="¿Rechazar este pedido?"
+      description="La empresa verá el pedido como rechazado junto con el motivo."
+      confirm-label="Rechazar pedido"
+      danger
+      :loading="submitting"
+      :confirm-disabled="!rejectionReason.trim()"
+      @confirm="handleReject"
+    >
+      <AdminFormField label="Motivo del rechazo" required for="rejection-reason">
         <textarea
           id="rejection-reason"
           v-model="rejectionReason"
-          rows="2"
-          class="mt-1 block w-full rounded-md border-red-300 text-sm shadow-sm focus:border-red-500 focus:ring-red-500"
-          placeholder="Indique el motivo del rechazo del pedido..."
+          rows="3"
+          class="adm-input w-full"
+          placeholder="Por ejemplo: supera el presupuesto aprobado"
         />
-        <div class="mt-2 flex gap-2">
-          <button
-            type="button"
-            :disabled="submitting || !rejectionReason.trim()"
-            class="rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800 disabled:opacity-50"
-            @click="handleReject"
-          >
-            Confirmar Rechazo
-          </button>
-          <button
-            type="button"
-            class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-300 hover:bg-slate-50"
-            @click="showRejectModal = false"
-          >
-            Cancelar
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
+      </AdminFormField>
+    </AdminConfirm>
+  </AdminCard>
 </template>

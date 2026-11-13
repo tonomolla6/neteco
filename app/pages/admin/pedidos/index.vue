@@ -199,207 +199,202 @@ function meta(status: string) {
 </script>
 
 <template>
-  <AdminOrderWorkbench v-if="cloudflare" />
-  <div v-else>
-    <UiPageHeader
-      title="Pedidos"
-      :count="total"
-      :count-label="total === 1 ? 'pedido' : 'pedidos'"
-      description="Estado de cobro, preparación y expedición de cada pedido."
-    />
+  <AdminPage :count="total" :count-label="total === 1 ? 'pedido' : 'pedidos'">
+    <AdminOrderWorkbench v-if="cloudflare" />
+    <div v-else class="adm-stack">
+      <UiDataTable
+        v-model:selected="selected"
+        :rows="paged"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="fetchStatus === 'pending' ? 'pending' : fetchStatus === 'error' ? 'error' : 'idle'"
+        :total="total"
+        :page="page"
+        :per-page="perPage"
+        selectable
+        search-placeholder="Buscar por pedido, cliente o email"
+        empty-title="Todavía no hay pedidos"
+        empty-description="Los pedidos aparecerán aquí en cuanto entre el primero."
+        error-message="No hemos podido cargar los pedidos."
+        @search="(value) => (query = value)"
+        @sort="({ key, direction }) => ((sortKey = key), (sortDir = direction))"
+        @update:page="(value) => (page = value)"
+        @retry="refresh()"
+      >
+        <template #filters>
+          <USelect v-model="bucket" :items="BUCKETS" class="w-56" aria-label="Filtrar por situación" />
+        </template>
 
-    <UiDataTable
-      v-model:selected="selected"
-      :rows="paged"
-      :columns="columns"
-      :row-key="(row) => row.id"
-      :status="fetchStatus === 'pending' ? 'pending' : fetchStatus === 'error' ? 'error' : 'idle'"
-      :total="total"
-      :page="page"
-      :per-page="perPage"
-      selectable
-      search-placeholder="Buscar por pedido, cliente o email"
-      empty-title="Todavía no hay pedidos"
-      empty-description="Los pedidos aparecerán aquí en cuanto entre el primero."
-      error-message="No hemos podido cargar los pedidos."
-      @search="(value) => (query = value)"
-      @sort="({ key, direction }) => ((sortKey = key), (sortDir = direction))"
-      @update:page="(value) => (page = value)"
-      @retry="refresh()"
-    >
-      <template #filters>
-        <USelect v-model="bucket" :items="BUCKETS" class="w-56" aria-label="Filtrar por situación" />
-      </template>
+        <template #bulk-actions>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-printer" disabled>
+            Imprimir etiquetas
+          </UButton>
+          <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-download" disabled>Exportar</UButton>
+        </template>
 
-      <template #bulk-actions>
-        <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-printer" disabled>
-          Imprimir etiquetas
-        </UButton>
-        <UButton size="xs" color="neutral" variant="outline" icon="i-lucide-download" disabled>Exportar</UButton>
-      </template>
+        <template #cell-id="{ row }">
+          <NuxtLink :to="`/admin/pedidos/${row.id}`" class="tabular font-medium text-neteco-700 hover:underline">
+            {{ row.id }}
+          </NuxtLink>
+        </template>
 
-      <template #cell-id="{ row }">
-        <NuxtLink :to="`/admin/pedidos/${row.id}`" class="tabular font-medium text-neteco-700 hover:underline">
-          {{ row.id }}
-        </NuxtLink>
-      </template>
+        <template #cell-createdAt="{ row }">
+          <span class="text-[var(--text-muted)]">{{ formatDate(row.createdAt) }}</span>
+        </template>
 
-      <template #cell-createdAt="{ row }">
-        <span class="text-[var(--text-muted)]">{{ formatDate(row.createdAt) }}</span>
-      </template>
+        <template #cell-name="{ row }">
+          <p class="font-medium text-[var(--text-strong)]">
+            {{ row.company || row.name }}
+          </p>
+          <p class="max-w-[18rem] truncate text-xs text-[var(--text-muted)]">
+            {{ formatPlace(row.city) }} · {{ row.lines }} {{ row.lines === 1 ? 'línea' : 'líneas' }}
+          </p>
+        </template>
 
-      <template #cell-name="{ row }">
-        <p class="font-medium text-[var(--text-strong)]">
-          {{ row.company || row.name }}
-        </p>
-        <p class="max-w-[18rem] truncate text-xs text-[var(--text-muted)]">
-          {{ formatPlace(row.city) }} · {{ row.lines }} {{ row.lines === 1 ? 'línea' : 'líneas' }}
-        </p>
-      </template>
+        <template #cell-total="{ row }">
+          <span class="font-semibold">{{ formatPrice(row.total) }}</span>
+        </template>
 
-      <template #cell-total="{ row }">
-        <span class="font-semibold">{{ formatPrice(row.total) }}</span>
-      </template>
+        <template #cell-status="{ row }">
+          <UBadge :color="meta(row.status).color" :icon="meta(row.status).icon" variant="subtle">
+            {{ meta(row.status).label }}
+          </UBadge>
+        </template>
 
-      <template #cell-status="{ row }">
-        <UBadge :color="meta(row.status).color" :icon="meta(row.status).icon" variant="subtle">
-          {{ meta(row.status).label }}
-        </UBadge>
-      </template>
-
-      <template #cell-shipment="{ row }">
-        <div v-if="row.shipmentId" class="flex items-center gap-1">
+        <template #cell-shipment="{ row }">
+          <div v-if="row.shipmentId" class="flex items-center gap-1">
+            <UButton
+              :to="`/api/admin/shipments/${row.shipmentId}/label`"
+              target="_blank"
+              external
+              size="xs"
+              variant="soft"
+              icon="i-lucide-printer"
+            >
+              {{ row.trackingNumber ?? 'Etiqueta' }}
+            </UButton>
+            <UButton
+              size="xs"
+              color="neutral"
+              variant="ghost"
+              icon="i-lucide-refresh-cw"
+              aria-label="Actualizar seguimiento"
+              @click="syncTracking(row)"
+            />
+          </div>
           <UButton
-            :to="`/api/admin/shipments/${row.shipmentId}/label`"
-            target="_blank"
-            external
+            v-else-if="canShip"
             size="xs"
-            variant="soft"
-            icon="i-lucide-printer"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-truck"
+            @click="startShipment(row)"
           >
-            {{ row.trackingNumber ?? 'Etiqueta' }}
+            Crear
+          </UButton>
+          <span v-else class="text-xs text-[var(--text-muted)]">No disponible</span>
+        </template>
+
+        <template #row-actions="{ row }">
+          <UButton
+            v-if="canChangeState"
+            size="xs"
+            color="neutral"
+            variant="outline"
+            icon="i-lucide-pencil"
+            :aria-label="`Cambiar el estado del pedido ${row.id}`"
+            @click="startChange(row)"
+          >
+            <span class="sr-only md:not-sr-only">Estado</span>
           </UButton>
           <UButton
+            :to="`/admin/pedidos/${row.id}`"
             size="xs"
             color="neutral"
             variant="ghost"
-            icon="i-lucide-refresh-cw"
-            aria-label="Actualizar seguimiento"
-            @click="syncTracking(row)"
+            icon="i-lucide-arrow-right"
+            :aria-label="`Abrir la ficha del pedido ${row.id}`"
           />
-        </div>
-        <UButton
-          v-else-if="canShip"
-          size="xs"
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-truck"
-          @click="startShipment(row)"
-        >
-          Crear
-        </UButton>
-        <span v-else class="text-xs text-[var(--text-muted)]">No disponible</span>
-      </template>
+        </template>
+      </UiDataTable>
+      <p v-if="data?.capabilities && !canShip" class="mt-3 text-sm text-[var(--text-muted)]">
+        Consulta de pedidos y cobros. La expedición y los cambios de estado no están habilitados en este entorno.
+      </p>
 
-      <template #row-actions="{ row }">
-        <UButton
-          v-if="canChangeState"
-          size="xs"
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-pencil"
-          :aria-label="`Cambiar el estado del pedido ${row.id}`"
-          @click="startChange(row)"
-        >
-          <span class="sr-only md:not-sr-only">Estado</span>
-        </UButton>
-        <UButton
-          :to="`/admin/pedidos/${row.id}`"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="i-lucide-arrow-right"
-          :aria-label="`Abrir la ficha del pedido ${row.id}`"
-        />
-      </template>
-    </UiDataTable>
-    <p v-if="data?.capabilities && !canShip" class="mt-3 text-sm text-[var(--text-muted)]">
-      Consulta de pedidos y cobros. La expedición y los cambios de estado no están habilitados en este entorno.
-    </p>
+      <UModal
+        :open="Boolean(changing)"
+        title="Cambiar el estado del pedido"
+        @update:open="(value) => !value && (changing = null)"
+      >
+        <template #body>
+          <div v-if="changing" class="space-y-4">
+            <p class="text-[var(--text)]">
+              Pedido <span class="tabular font-semibold">{{ changing.id }}</span> de
+              <span class="font-semibold">{{ changing.name }}</span
+              >, por <span class="tabular font-semibold">{{ formatPrice(changing.total) }}</span
+              >.
+            </p>
 
-    <UModal
-      :open="Boolean(changing)"
-      title="Cambiar el estado del pedido"
-      @update:open="(value) => !value && (changing = null)"
-    >
-      <template #body>
-        <div v-if="changing" class="space-y-4">
-          <p class="text-[var(--text)]">
-            Pedido <span class="tabular font-semibold">{{ changing.id }}</span> de
-            <span class="font-semibold">{{ changing.name }}</span
-            >, por <span class="tabular font-semibold">{{ formatPrice(changing.total) }}</span
-            >.
-          </p>
+            <div class="flex items-center gap-3 rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3">
+              <UBadge :color="meta(changing.status).color" variant="subtle">{{ meta(changing.status).label }}</UBadge>
+              <UIcon name="i-lucide-arrow-right" class="size-4 text-[var(--text-muted)]" />
+              <UBadge :color="meta(nextStatus).color" variant="subtle">{{ meta(nextStatus).label }}</UBadge>
+            </div>
 
-          <div class="flex items-center gap-3 rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3">
-            <UBadge :color="meta(changing.status).color" variant="subtle">{{ meta(changing.status).label }}</UBadge>
-            <UIcon name="i-lucide-arrow-right" class="size-4 text-[var(--text-muted)]" />
-            <UBadge :color="meta(nextStatus).color" variant="subtle">{{ meta(nextStatus).label }}</UBadge>
+            <UFormField label="Nuevo estado" required>
+              <USelect v-model="nextStatus" :items="statusOptions" class="w-full" />
+            </UFormField>
+
+            <UFormField
+              label="Motivo del cambio"
+              required
+              hint="Queda registrado en la auditoría con tu usuario"
+              :error="reasonError"
+            >
+              <UTextarea
+                v-model="reason"
+                class="w-full"
+                :rows="2"
+                placeholder="Por ejemplo: cobro confirmado por transferencia"
+              />
+            </UFormField>
           </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="ghost" @click="changing = null">Cancelar</UButton>
+            <UButton
+              :disabled="reason.trim().length < 3 || nextStatus === changing?.status"
+              :loading="saving"
+              @click="confirmChange"
+            >
+              Cambiar estado
+            </UButton>
+          </div>
+        </template>
+      </UModal>
 
-          <UFormField label="Nuevo estado" required>
-            <USelect v-model="nextStatus" :items="statusOptions" class="w-full" />
-          </UFormField>
-
-          <UFormField
-            label="Motivo del cambio"
-            required
-            hint="Queda registrado en la auditoría con tu usuario"
-            :error="reasonError"
-          >
-            <UTextarea
-              v-model="reason"
-              class="w-full"
-              :rows="2"
-              placeholder="Por ejemplo: cobro confirmado por transferencia"
-            />
-          </UFormField>
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="changing = null">Cancelar</UButton>
-          <UButton
-            :disabled="reason.trim().length < 3 || nextStatus === changing?.status"
-            :loading="saving"
-            @click="confirmChange"
-          >
-            Cambiar estado
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-
-    <UModal :open="Boolean(shipping)" title="Crear expedición" @update:open="(value) => !value && (shipping = null)">
-      <template #body>
-        <div v-if="shipping" class="space-y-4">
-          <p class="text-[var(--text)]">
-            Pedido <span class="tabular font-semibold">{{ shipping.id }}</span> ·
-            {{ SHIPPING_METHODS.find((m) => m.value === shipping!.shippingMethod)?.label ?? shipping.shippingMethod }}
-          </p>
-          <UFormField label="Código de servicio cotizado" required>
-            <UInput v-model="serviceCode" class="w-full font-mono" />
-          </UFormField>
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="shipping = null">Cancelar</UButton>
-          <UButton :disabled="!serviceCode.trim()" :loading="saving" @click="confirmShipment">
-            Crear expedición
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+      <UModal :open="Boolean(shipping)" title="Crear expedición" @update:open="(value) => !value && (shipping = null)">
+        <template #body>
+          <div v-if="shipping" class="space-y-4">
+            <p class="text-[var(--text)]">
+              Pedido <span class="tabular font-semibold">{{ shipping.id }}</span> ·
+              {{ SHIPPING_METHODS.find((m) => m.value === shipping!.shippingMethod)?.label ?? shipping.shippingMethod }}
+            </p>
+            <UFormField label="Código de servicio cotizado" required>
+              <UInput v-model="serviceCode" class="w-full font-mono" />
+            </UFormField>
+          </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="ghost" @click="shipping = null">Cancelar</UButton>
+            <UButton :disabled="!serviceCode.trim()" :loading="saving" @click="confirmShipment">
+              Crear expedición
+            </UButton>
+          </div>
+        </template>
+      </UModal>
+    </div>
+  </AdminPage>
 </template>

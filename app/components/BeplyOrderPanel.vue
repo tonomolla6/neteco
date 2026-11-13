@@ -146,7 +146,7 @@ onBeforeUnmount(purge)
     <form
       v-if="audience === 'admin' && snapshot?.status === 'manual_review' && !loading && !pending"
       data-beply-retry-form
-      class="space-y-3 rounded-2xl border border-amber-300 p-5"
+      class="space-y-3 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface)] p-5"
       @submit.prevent="retry"
     >
       <p role="status">La sincronización necesita revisión.</p>
@@ -160,13 +160,13 @@ onBeforeUnmount(purge)
           minlength="10"
           maxlength="500"
           :disabled="retrying || !!retryIntent"
-          class="mt-1 block w-full rounded-lg border border-slate-300 p-2"
+          class="mt-1 block w-full rounded-lg border border-[var(--border-strong)] p-2"
         />
       </label>
       <p v-if="retryFailed" role="alert">
         No se ha podido confirmar el reintento. Comprueba el motivo y vuelve a intentarlo.
       </p>
-      <button type="submit" :disabled="retrying" class="rounded-lg border border-slate-300 px-4 py-2">
+      <button type="submit" :disabled="retrying" class="rounded-lg border border-[var(--border-strong)] px-4 py-2">
         {{ retrying ? 'Comprobando…' : retryIntent ? 'Volver a comprobar' : 'Reintentar sincronización' }}
       </button>
     </form>

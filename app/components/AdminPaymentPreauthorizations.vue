@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import type { AdminTone } from '~/utils/adminLabels'
 
 interface PreauthView {
   id: string
@@ -33,6 +34,69 @@ const createError = ref<string | null>(null)
 
 // Action state
 const actingId = ref<string | null>(null)
+
+/* --- Presentación --- */
+const formId = useId()
+const createOpen = ref(false)
+const searched = ref(false)
+const asking = ref<{ item: PreauthView; action: 'capture' | 'cancel' } | null>(null)
+/** El importe se escribe en euros; la API sigue recibiendo céntimos. */
+const newAmountEuros = computed<number | ''>({
+  get: () => (newAmount.value ? Number(newAmount.value) / 100 : ''),
+  set: (value) =>
+    (newAmount.value = value === '' || !Number.isFinite(Number(value)) ? '' : Math.round(Number(value) * 100))
+})
+const reasonLabels: Record<string, string> = {
+  delayed_fulfillment: 'Envío aplazado',
+  custom_formulation: 'Producto a medida',
+  volume_reserve: 'Reserva de volumen'
+}
+const STATUS: Record<string, [string, AdminTone]> = {
+  requested: ['Solicitada', 'warning'],
+  authorized: ['Importe retenido', 'info'],
+  captured: ['Cobrada', 'success'],
+  cancelled: ['Anulada', 'neutral'],
+  expired: ['Caducada', 'neutral']
+}
+const preauthStatus = (status: string) => {
+  const [label, tone] = STATUS[status] ?? [adminStatusLabel(status), 'neutral' as AdminTone]
+  return { label, tone }
+}
+const columns = [
+  { key: 'merchantOrder', label: 'Referencia' },
+  { key: 'amount', label: 'Importe', numeric: true, value: (row: PreauthView) => row.amountCents },
+  { key: 'reason', label: 'Motivo', hideOnMobile: true },
+  { key: 'status', label: 'Estado' },
+  { key: 'createdAt', label: 'Fecha', hideOnMobile: true }
+]
+const ERRORS: Record<string, string> = {
+  not_found: 'No encontramos ese pedido.',
+  order_not_found: 'No encontramos ese pedido.',
+  validation_error: 'Revisa los datos e inténtalo de nuevo.',
+  forbidden: 'No tienes permiso para hacer esto.',
+  unauthenticated: 'Tu sesión ha caducado. Vuelve a entrar.',
+  version_conflict: 'La preautorización ha cambiado mientras tanto. Vuelve a buscar el pedido.',
+  error_servidor: 'Ha fallado la conexión. Vuelve a intentarlo.'
+}
+/** Los códigos internos de error nunca se enseñan tal cual. */
+const friendlyError = (code: string) =>
+  ERRORS[code] ?? (/^[a-z0-9_]+$/.test(code) ? 'Vuelve a intentarlo en unos minutos.' : code)
+function openCreate() {
+  createError.value = null
+  if (!newOrderId.value && searchOrderId.value) newOrderId.value = searchOrderId.value.trim()
+  createOpen.value = true
+}
+async function runSearch() {
+  await search()
+  searched.value = true
+}
+function confirmAsking() {
+  const request = asking.value
+  asking.value = null
+  if (!request) return
+  if (request.action === 'capture') void capturePreauth(request.item)
+  else void cancelPreauth(request.item)
+}
 
 function errorMessage(caught: unknown): string {
   const code = (caught as { data?: { error?: { code?: string } } })?.data?.error?.code
@@ -92,7 +156,9 @@ async function requestNewPreauth() {
       }
     })
 
-    successBanner.value = 'Preautorización solicitada con éxito.'
+    successBanner.value = 'Preautorización solicitada.'
+    createOpen.value = false
+    searched.value = true
     searchOrderId.value = newOrderId.value.trim()
     newAmount.value = 0
     newJustification.value = ''
@@ -124,7 +190,7 @@ async function capturePreauth(item: PreauthView) {
 
     const index = items.value.findIndex((p) => p.id === item.id)
     if (index !== -1) items.value[index] = updated
-    successBanner.value = `Preautorización ${item.merchantOrder} capturada.`
+    successBanner.value = `Preautorización ${item.merchantOrder} cobrada.`
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -152,7 +218,7 @@ async function cancelPreauth(item: PreauthView) {
 
     const index = items.value.findIndex((p) => p.id === item.id)
     if (index !== -1) items.value[index] = updated
-    successBanner.value = `Preautorización ${item.merchantOrder} cancelada.`
+    successBanner.value = `Preautorización ${item.merchantOrder} anulada.`
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -162,198 +228,188 @@ async function cancelPreauth(item: PreauthView) {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-bold text-slate-900">Preautorizaciones de pago</h1>
-      <p class="text-sm text-slate-600">
-        Gestión bancaria Redsys para retención de fondos con captura o anulación posterior (PAY-021).
-      </p>
-    </header>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="openCreate">Nueva preautorización</AdminButton>
+    </AdminPageActions>
 
-    <div
-      v-if="successBanner"
-      data-test="success-banner"
-      role="status"
-      aria-live="polite"
-      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
-    >
-      {{ successBanner }}
+    <div v-if="successBanner" data-test="success-banner" role="status" aria-live="polite">
+      <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" :title="successBanner" />
+    </div>
+    <div v-if="error" role="alert">
+      <UAlert
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se ha podido completar la operación"
+        :description="friendlyError(error)"
+      />
     </div>
 
-    <div v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      Error: {{ error }}
-    </div>
-
-    <!-- Search / Filter -->
-    <div class="grid gap-6 md:grid-cols-2">
-      <!-- Search By Order ID -->
-      <section aria-labelledby="search-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h2 id="search-heading" class="text-base font-semibold text-slate-900">Buscar por Pedido</h2>
-        <div class="mt-4 flex gap-2">
-          <input
-            v-model="searchOrderId"
-            data-test="search-order-id"
-            type="text"
-            placeholder="UUID del pedido..."
-            class="flex-1 rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-          />
-          <button
-            type="button"
-            data-test="search-btn"
-            :disabled="loading || !searchOrderId"
-            class="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-            @click="() => search()"
-          >
-            {{ loading ? 'Buscando...' : 'Buscar' }}
-          </button>
-        </div>
-      </section>
-
-      <!-- New Preauthorization Form -->
-      <section aria-labelledby="request-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h2 id="request-heading" class="text-base font-semibold text-slate-900">Solicitar preautorización</h2>
-        <form class="mt-4 space-y-3" @submit.prevent="requestNewPreauth">
-          <div>
-            <label for="new-order-id" class="block text-xs font-medium text-slate-700">UUID del Pedido</label>
-            <input
-              id="new-order-id"
-              v-model="newOrderId"
-              data-test="new-order-id"
-              type="text"
-              required
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-            />
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label for="new-amount" class="block text-xs font-medium text-slate-700">Importe (céntimos)</label>
-              <input
-                id="new-amount"
-                v-model.number="newAmount"
-                data-test="new-amount"
-                type="number"
-                min="1"
-                required
-                class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              />
-            </div>
-            <div>
-              <label for="new-reason" class="block text-xs font-medium text-slate-700">Motivo</label>
-              <select
-                id="new-reason"
-                v-model="newReasonCode"
-                data-test="new-reason-code"
-                class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              >
-                <option value="delayed_fulfillment">Expedición diferida</option>
-                <option value="custom_formulation">Formulación química a medida</option>
-                <option value="volume_reserve">Reserva de volumen</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label for="new-justification" class="block text-xs font-medium text-slate-700">Justificación</label>
-            <input
-              id="new-justification"
-              v-model="newJustification"
-              data-test="new-justification"
-              type="text"
-              class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm"
-              placeholder="Explicación interna..."
-            />
-          </div>
-
-          <p v-if="createError" role="alert" class="text-xs text-red-600">{{ createError }}</p>
-
-          <button
-            type="button"
-            data-test="request-preauth-btn"
-            :disabled="creating"
-            class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-            @click="requestNewPreauth"
-          >
-            {{ creating ? 'Solicitando...' : 'Solicitar preautorización' }}
-          </button>
-        </form>
-      </section>
-    </div>
-
-    <!-- Preauthorizations List -->
-    <section aria-labelledby="results-heading" class="space-y-4">
-      <h2 id="results-heading" class="text-lg font-semibold text-slate-900">Resultados de preautorizaciones</h2>
-
-      <div
-        v-if="!loading && items.length === 0"
-        data-test="empty-preauth"
-        class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"
+    <section aria-labelledby="results-heading">
+      <h2 id="results-heading" class="sr-only">Preautorizaciones del pedido</h2>
+      <AdminTable
+        :data-test="!loading && items.length === 0 ? 'empty-preauth' : undefined"
+        :rows="items"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="loading ? 'pending' : 'success'"
+        empty-icon="i-lucide-credit-card"
+        :empty-title="
+          searched ? 'Este pedido no tiene preautorizaciones' : 'Busca un pedido para ver sus preautorizaciones'
+        "
+        :empty-description="
+          searched
+            ? 'Puedes retener un importe en la tarjeta del cliente con «Nueva preautorización».'
+            : 'Pega el identificador del pedido en el buscador y pulsa «Buscar».'
+        "
       >
-        No hay preautorizaciones cargadas. Busca un pedido o solicita una nueva.
-      </div>
-
-      <div v-else-if="items.length > 0" class="overflow-x-auto rounded-lg border border-slate-200 bg-white">
-        <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-          <thead class="bg-slate-50 font-medium text-slate-600">
-            <tr>
-              <th scope="col" class="px-4 py-2.5">ID / Ref</th>
-              <th scope="col" class="px-4 py-2.5">Importe</th>
-              <th scope="col" class="px-4 py-2.5">Motivo</th>
-              <th scope="col" class="px-4 py-2.5">Estado</th>
-              <th scope="col" class="px-4 py-2.5 text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="item in items" :key="item.id" class="hover:bg-slate-50">
-              <td class="px-4 py-2 font-mono">
-                <span class="font-bold text-slate-900">{{ item.merchantOrder }}</span>
-                <span class="block text-[11px] text-slate-400">{{ item.id }}</span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2 font-semibold text-slate-900">
-                {{ formatCents(item.amountCents) }}
-              </td>
-              <td class="px-4 py-2 text-slate-600">
-                <span class="font-medium text-slate-800">{{ item.reasonCode }}</span>
-                <span class="block text-[11px] text-slate-500">{{ item.justification }}</span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2">
-                <span
-                  class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  :class="{
-                    'bg-amber-50 text-amber-700': item.status === 'requested' || item.status === 'authorized',
-                    'bg-emerald-50 text-emerald-700': item.status === 'captured',
-                    'bg-slate-100 text-slate-600': item.status === 'cancelled' || item.status === 'expired'
-                  }"
-                >
-                  {{ item.status }}
-                </span>
-              </td>
-              <td class="whitespace-nowrap px-4 py-2 text-right space-x-2">
-                <button
-                  v-if="item.status === 'authorized' || item.status === 'requested'"
-                  type="button"
-                  data-test="capture-btn"
-                  :disabled="actingId === item.id"
-                  class="rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-500 disabled:opacity-50"
-                  @click="capturePreauth(item)"
-                >
-                  Capturar
-                </button>
-                <button
-                  v-if="item.status === 'authorized' || item.status === 'requested'"
-                  type="button"
-                  data-test="cancel-btn"
-                  :disabled="actingId === item.id"
-                  class="rounded border border-red-300 px-2.5 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-                  @click="cancelPreauth(item)"
-                >
-                  Anular
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+        <template #toolbar>
+          <form class="adm-toolbar" role="search" @submit.prevent="runSearch">
+            <label class="adm-toolbar__search" for="search-order-id">
+              <span id="search-heading" class="sr-only">Buscar por pedido</span>
+              <UIcon name="i-lucide-search" class="size-4" />
+              <input
+                id="search-order-id"
+                v-model="searchOrderId"
+                data-test="search-order-id"
+                data-slot="adm-search"
+                type="search"
+                placeholder="Identificador del pedido"
+              />
+            </label>
+            <button
+              type="button"
+              data-test="search-btn"
+              :disabled="loading || !searchOrderId"
+              class="adm-btn adm-btn--secondary"
+              @click="runSearch"
+            >
+              {{ loading ? 'Buscando…' : 'Buscar' }}
+            </button>
+          </form>
+        </template>
+        <template #cell-merchantOrder="{ row }">
+          <span class="font-semibold tabular-nums text-[var(--text-strong)]" :title="row.id">{{
+            row.merchantOrder
+          }}</span>
+        </template>
+        <template #cell-amount="{ row }">
+          <span class="font-semibold text-[var(--text-strong)]">{{ formatCents(row.amountCents) }}</span>
+        </template>
+        <template #cell-reason="{ row }">
+          <p class="text-[var(--text-strong)]">{{ reasonLabels[row.reasonCode] ?? adminHumanize(row.reasonCode) }}</p>
+          <p v-if="row.justification" class="text-xs text-[var(--text-muted)]">{{ row.justification }}</p>
+        </template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="preauthStatus(row.status).tone">{{ preauthStatus(row.status).label }}</AdminBadge>
+        </template>
+        <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt, true) }}</template>
+        <template #actions="{ row }">
+          <template v-if="row.status === 'authorized' || row.status === 'requested'">
+            <button
+              type="button"
+              data-test="capture-btn"
+              :disabled="actingId === row.id"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="asking = { item: row, action: 'capture' }"
+            >
+              Cobrar
+            </button>
+            <button
+              type="button"
+              data-test="cancel-btn"
+              :disabled="actingId === row.id"
+              class="adm-btn adm-btn--danger-soft adm-btn--sm"
+              @click="asking = { item: row, action: 'cancel' }"
+            >
+              Anular
+            </button>
+          </template>
+        </template>
+      </AdminTable>
     </section>
+
+    <AdminDrawer
+      v-model:open="createOpen"
+      title="Nueva preautorización"
+      description="Retiene un importe en la tarjeta del cliente sin cobrarlo todavía."
+    >
+      <form :id="formId" aria-labelledby="request-heading" class="adm-stack" @submit.prevent="requestNewPreauth">
+        <h2 id="request-heading" class="sr-only">Solicitar preautorización</h2>
+        <AdminFormField label="Pedido" required for="new-order-id" help="Identificador completo del pedido.">
+          <input
+            id="new-order-id"
+            v-model="newOrderId"
+            data-test="new-order-id"
+            type="text"
+            required
+            class="adm-input w-full"
+          />
+        </AdminFormField>
+        <AdminFormField label="Importe (€)" required for="new-amount">
+          <input
+            id="new-amount"
+            v-model.number="newAmountEuros"
+            data-test="new-amount"
+            type="number"
+            min="0.01"
+            step="0.01"
+            required
+            class="adm-input w-full"
+          />
+        </AdminFormField>
+        <AdminFormField label="Motivo" for="new-reason">
+          <select id="new-reason" v-model="newReasonCode" data-test="new-reason-code" class="adm-input w-full">
+            <option v-for="(label, code) in reasonLabels" :key="code" :value="code">{{ label }}</option>
+          </select>
+        </AdminFormField>
+        <AdminFormField label="Nota interna" for="new-justification" help="Opcional. Solo la ve el equipo.">
+          <input
+            id="new-justification"
+            v-model="newJustification"
+            data-test="new-justification"
+            type="text"
+            class="adm-input w-full"
+          />
+        </AdminFormField>
+        <UAlert
+          v-if="createError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="friendlyError(createError)"
+        />
+      </form>
+      <template #footer>
+        <AdminButton @click="createOpen = false">Cancelar</AdminButton>
+        <button
+          type="button"
+          data-test="request-preauth-btn"
+          :disabled="creating"
+          class="adm-btn adm-btn--primary"
+          @click="requestNewPreauth"
+        >
+          {{ creating ? 'Solicitando…' : 'Solicitar preautorización' }}
+        </button>
+      </template>
+    </AdminDrawer>
+
+    <AdminConfirm
+      :open="asking !== null"
+      :title="asking?.action === 'cancel' ? '¿Anular esta preautorización?' : '¿Cobrar esta preautorización?'"
+      :description="
+        asking
+          ? asking.action === 'cancel'
+            ? `Se liberará la retención de ${formatCents(asking.item.amountCents)} en la tarjeta del cliente. No se puede deshacer.`
+            : `Se cobrarán ${formatCents(asking.item.amountCents)} al cliente.`
+          : undefined
+      "
+      :confirm-label="asking?.action === 'cancel' ? 'Anular' : 'Cobrar'"
+      :danger="asking?.action === 'cancel'"
+      @update:open="(value) => !value && (asking = null)"
+      @confirm="confirmAsking"
+    />
   </div>
 </template>

@@ -227,14 +227,21 @@ onBeforeUnmount(() => {
     <h2 :id="prefix + '-title'" class="text-base font-semibold">Cancelación del pedido</h2>
     <p class="text-sm">
       Puedes cancelar un pedido mientras no se haya pagado ni preparado. Para devolver algo que ya has recibido, usa
-      «Devolver productos».
+      «devolver productos».
     </p>
     <p v-if="status === 'loading'" data-cancel-loading role="status" aria-busy="true">
       Comprobando si la cancelación está disponible…
     </p>
     <div v-else-if="status === 'error'" data-cancel-error role="alert" class="space-y-2">
       <p>No se ha podido confirmar la disponibilidad. No se ha enviado una cancelación.</p>
-      <button type="button" class="rounded border px-3 py-2 focus-visible:outline-2" :disabled="!!busy" @click="load">
+      <button
+        type="button"
+        :class="
+          audience === 'admin' ? 'adm-btn adm-btn--secondary' : 'rounded border px-3 py-2 focus-visible:outline-2'
+        "
+        :disabled="!!busy"
+        @click="load"
+      >
         Reintentar consulta
       </button>
     </div>
@@ -277,7 +284,7 @@ onBeforeUnmount(() => {
         data-cancel-submit
         type="submit"
         :disabled="!canSubmit"
-        class="rounded border px-3 py-2 focus-visible:outline-2"
+        :class="audience === 'admin' ? 'adm-btn adm-btn--danger' : 'rounded border px-3 py-2 focus-visible:outline-2'"
       >
         Confirmar cancelación
       </button>
@@ -296,7 +303,9 @@ onBeforeUnmount(() => {
           data-cancel-check
           type="button"
           :disabled="!!busy"
-          class="rounded border px-3 py-2 focus-visible:outline-2"
+          :class="
+            audience === 'admin' ? 'adm-btn adm-btn--secondary' : 'rounded border px-3 py-2 focus-visible:outline-2'
+          "
           @click="check"
         >
           Comprobar cancelación
@@ -305,7 +314,9 @@ onBeforeUnmount(() => {
           data-cancel-replay
           type="button"
           :disabled="!!busy || !checked"
-          class="rounded border px-3 py-2 focus-visible:outline-2"
+          :class="
+            audience === 'admin' ? 'adm-btn adm-btn--secondary' : 'rounded border px-3 py-2 focus-visible:outline-2'
+          "
           @click="replay"
         >
           Reintentar la misma cancelación

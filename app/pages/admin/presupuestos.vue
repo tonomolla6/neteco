@@ -3,4 +3,8 @@ import SalesQuotesPanel from '~/components/SalesQuotesPanel.vue'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Presupuestos · Admin', robots: 'noindex, nofollow' })
 </script>
-<template><SalesQuotesPanel audience="admin" /></template>
+<template>
+  <AdminPage>
+    <SalesQuotesPanel audience="admin" />
+  </AdminPage>
+</template>

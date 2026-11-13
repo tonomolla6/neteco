@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { UiColor } from '~~/shared/types/catalog'
+import type { AdminTone } from '~/utils/adminLabels'
 import OrderFulfillmentSection from '~/components/OrderFulfillmentSection.vue'
 import OrderFiscalSection from '~/components/OrderFiscalSection.vue'
 import OrderRefundPanel from '~/components/refunds/OrderRefundPanel.vue'
@@ -172,14 +173,14 @@ function confirmFinancialNavigation() {
     return (
       import.meta.client &&
       window.confirm(
-        'Hay una operación del pedido pendiente de confirmar. Su recuperación sólo está disponible en esta pestaña; si sales perderás su intención y clave. ¿Quieres salir?'
+        'Hay un cambio del pedido sin confirmar. Si sales de esta pantalla no podrás comprobar su resultado. ¿Quieres salir?'
       )
     )
   return (
     !financialCommandPending.value ||
     (import.meta.client &&
       window.confirm(
-        'Hay una operación financiera pendiente de confirmar. Si sales, perderás su clave de recuperación en esta pantalla. ¿Quieres salir?'
+        'Hay un reembolso sin confirmar. Si sales de esta pantalla no podrás comprobar su resultado. ¿Quieres salir?'
       ))
   )
 }
@@ -251,6 +252,10 @@ async function cancellationConfirmed(raw: unknown) {
 useSeoMeta({ title: () => `Pedido ${orderId.value} · Admin` })
 
 const order = computed(() => data.value?.order)
+const TONES: Record<string, AdminTone> = { success: 'success', warning: 'warning', error: 'danger', info: 'info' }
+/** Color de estado heredado (`UiColor`) → tono de `AdminBadge`. */
+const tone = (color: string | undefined): AdminTone => TONES[color ?? ''] ?? 'neutral'
+const shortId = (id: string) => '#' + id.slice(0, 8).toUpperCase()
 const canChangeState = computed(() => data.value?.capabilities?.orderStatusUpdate ?? true)
 const canShip = computed(() => data.value?.capabilities?.shipments ?? true)
 function readState(map: Parameters<typeof metaFor>[0], value: string): ReturnType<typeof metaFor> {
@@ -258,8 +263,8 @@ function readState(map: Parameters<typeof metaFor>[0], value: string): ReturnTyp
     unavailable: 'No disponible',
     expired: 'Caducado',
     processing: 'Procesando',
-    provider_authorised: 'Autorizado por proveedor',
-    redirect_ready: 'Redirección preparada',
+    provider_authorised: 'Autorizado por el banco',
+    redirect_ready: 'Esperando al cliente en el banco',
     stock_exception: 'Incidencia de stock'
   }
   return labels[value]
@@ -465,118 +470,102 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
 </script>
 
 <template>
-  <div>
-    <UButton to="/admin/pedidos" variant="link" color="neutral" icon="i-lucide-arrow-left" class="-ml-2 mb-1 px-2">
-      Pedidos
-    </UButton>
+  <AdminPage :title="`Pedido ${shortId(orderId)}`" :back="{ to: '/admin/pedidos', label: 'Pedidos' }" description="">
+    <template v-if="order && statusMeta" #title-extra>
+      <AdminBadge :tone="tone(statusMeta.color)">{{ statusMeta.label }}</AdminBadge>
+    </template>
+    <template v-if="order" #actions>
+      <AdminButton
+        v-if="data?.capabilities?.customerPreview !== false"
+        icon="i-lucide-external-link"
+        :to="`/pedido/${order.id}`"
+        target="_blank"
+      >
+        Ver como el cliente
+      </AdminButton>
+      <AdminButton v-if="canChangeState" variant="primary" icon="i-lucide-pencil" @click="startChange">
+        Cambiar estado
+      </AdminButton>
+    </template>
 
-    <UiPageHeader :title="`Pedido ${orderId}`">
-      <template v-if="order" #actions>
-        <UButton
-          v-if="data?.capabilities?.customerPreview !== false"
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-external-link"
-          :to="`/pedido/${order.id}`"
-          target="_blank"
-        >
-          Ver como el cliente
-        </UButton>
-        <UButton v-if="canChangeState" icon="i-lucide-pencil" @click="startChange">Cambiar estado</UButton>
-      </template>
-    </UiPageHeader>
-
-    <div v-if="status === 'pending'" class="space-y-4">
-      <div class="h-24 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)]" />
-      <div class="grid gap-5 grid-cols-1 xl:grid-cols-3">
-        <div class="h-96 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)] xl:col-span-2" />
-        <div class="h-64 animate-pulse rounded-[var(--radius-panel)] bg-[var(--surface-sunken)]" />
+    <div v-if="status === 'pending'" class="adm-stack" aria-busy="true">
+      <span class="sr-only">Cargando el pedido…</span>
+      <div class="h-20 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]" />
+      <div class="grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div class="h-96 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] xl:col-span-2" />
+        <div class="h-64 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]" />
       </div>
     </div>
 
-    <template v-else-if="error || !data">
-      <UiSurface padding="none">
-        <UiEmptyState
-          :variant="notFound ? 'empty' : 'error'"
-          :icon="notFound ? 'i-lucide-file-question' : 'i-lucide-triangle-alert'"
-          :title="notFound ? 'Este pedido no existe' : 'No hemos podido cargar el pedido'"
-          :description="
-            notFound
-              ? 'Comprueba el identificador y vuelve al listado de pedidos.'
-              : 'Ha fallado la consulta al servidor. Vuelve a intentarlo.'
-          "
+    <AdminCard v-else-if="error || !data" flush>
+      <AdminEmptyState
+        :variant="notFound ? 'empty' : 'error'"
+        icon="i-lucide-file-question"
+        :title="notFound ? 'Este pedido no existe' : 'No hemos podido cargar el pedido'"
+        :description="
+          notFound
+            ? 'Comprueba el número y vuelve al listado de pedidos.'
+            : 'Puede ser un fallo puntual de conexión. Vuelve a intentarlo.'
+        "
+      >
+        <AdminButton v-if="notFound" to="/admin/pedidos" icon="i-lucide-arrow-left">Volver al listado</AdminButton>
+        <AdminButton v-else icon="i-lucide-rotate-cw" @click="refresh()">Reintentar</AdminButton>
+      </AdminEmptyState>
+    </AdminCard>
+
+    <div v-else-if="order" class="adm-stack">
+      <!-- Resumen: de un vistazo, en qué punto está cada parte del pedido -->
+      <AdminCard flush>
+        <div
+          class="flex flex-wrap items-center gap-x-6 gap-y-1 border-b border-[var(--border)] px-5 py-3 text-[var(--text-muted)]"
         >
-          <UButton v-if="notFound" to="/admin/pedidos" icon="i-lucide-arrow-left">Volver al listado</UButton>
-          <UButton v-else icon="i-lucide-refresh-cw" @click="refresh()">Reintentar</UButton>
-        </UiEmptyState>
-      </UiSurface>
-    </template>
-
-    <template v-else-if="order">
-      <p class="-mt-3 mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-muted)]">
-        <UBadge v-if="statusMeta" :color="statusMeta.color" :icon="statusMeta.icon" variant="subtle">
-          {{ statusMeta.label }}
-        </UBadge>
-        <span>·</span>
-        <span>{{ formatDate(order.createdAt) }}</span>
-        <span>·</span>
-        <span class="tabular font-semibold text-[var(--text-strong)]">{{ formatPrice(order.totals.total) }}</span>
-        <span>·</span>
-        <span>{{ unitsTotal }} {{ unitsTotal === 1 ? 'unidad' : 'unidades' }}</span>
-      </p>
-
-      <div v-if="order.purchaseOrderReference" data-testid="order-purchase-reference" class="mb-5 min-w-0 text-sm">
-        <p class="font-semibold">Referencia interna / PO</p>
-        <p class="[overflow-wrap:anywhere]">{{ order.purchaseOrderReference }}</p>
-      </div>
-
-      <!-- Tira de diagnóstico: las cinco máquinas de estado, de un vistazo -->
-      <UiSurface padding="none" class="mb-5 overflow-hidden">
-        <ul
-          class="grid divide-y divide-[var(--border)] grid-cols-1 sm:grid-cols-3 sm:divide-y-0 lg:grid-cols-5 sm:[&>li]:border-r sm:[&>li]:border-[var(--border)] sm:[&>li:last-child]:border-r-0"
-        >
-          <li v-for="machine in machines" :key="machine.key" class="p-4">
-            <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          <span>{{ adminDate(order.createdAt, true) }}</span>
+          <span class="font-semibold tabular-nums text-[var(--text-strong)]">{{
+            formatPrice(order.totals.total)
+          }}</span>
+          <span>{{ unitsTotal }} {{ unitsTotal === 1 ? 'unidad' : 'unidades' }}</span>
+          <span>{{ shippingLabel }}</span>
+          <span>{{ paymentLabel }}</span>
+          <span v-if="order.purchaseOrderReference" data-testid="order-purchase-reference" class="min-w-0">
+            Referencia del cliente:
+            <span class="font-medium text-[var(--text-strong)] [overflow-wrap:anywhere]">{{
+              order.purchaseOrderReference
+            }}</span>
+          </span>
+        </div>
+        <ul class="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-3 lg:grid-cols-5">
+          <li v-for="machine in machines" :key="machine.key" class="bg-[var(--surface)] px-5 py-3">
+            <p class="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-muted)]">
               <UIcon :name="machine.icon" class="size-3.5" />
               {{ machine.key }}
             </p>
-            <p class="mt-1.5 font-semibold" :class="STATE_TEXT[machine.meta.color]">
-              {{ machine.meta.label }}
-            </p>
+            <AdminBadge class="mt-1.5" :tone="tone(machine.meta.color)">{{ machine.meta.label }}</AdminBadge>
           </li>
         </ul>
-      </UiSurface>
+      </AdminCard>
 
-      <div class="grid items-start gap-5 grid-cols-1 xl:grid-cols-3">
-        <div class="space-y-5 xl:col-span-2">
-          <!-- Contenido -->
-          <UiSurface padding="none">
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] p-5">
-              <h2 class="font-semibold text-[var(--text-strong)]">
-                Contenido
-                <span class="ml-1 font-normal text-[var(--text-muted)]">
-                  {{ data.lines.length }} {{ data.lines.length === 1 ? 'referencia' : 'referencias' }}
-                </span>
-              </h2>
-              <p class="text-sm text-[var(--text-muted)]">{{ shippingLabel }} · {{ paymentLabel }}</p>
-            </div>
-
-            <div class="overflow-x-auto">
-              <table class="w-full min-w-[38rem] text-sm">
+      <div class="grid grid-cols-1 items-start gap-5 xl:grid-cols-3">
+        <div class="adm-stack min-w-0 xl:col-span-2">
+          <!-- Artículos -->
+          <AdminCard
+            title="Artículos"
+            :description="`${data.lines.length} ${data.lines.length === 1 ? 'referencia' : 'referencias'}`"
+            flush
+          >
+            <div class="adm-table-wrap">
+              <table class="adm-table min-w-[38rem]">
                 <thead>
-                  <tr
-                    class="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-muted)]"
-                  >
-                    <th scope="col" class="px-5 py-2.5 font-semibold">Referencia</th>
-                    <th scope="col" class="px-3 py-2.5 text-right font-semibold">Cantidad</th>
-                    <th scope="col" class="px-3 py-2.5 text-right font-semibold">Precio neto</th>
-                    <th scope="col" class="px-3 py-2.5 text-right font-semibold">IVA</th>
-                    <th scope="col" class="px-5 py-2.5 text-right font-semibold">Total</th>
+                  <tr>
+                    <th scope="col">Artículo</th>
+                    <th scope="col" data-numeric>Cantidad</th>
+                    <th scope="col" data-numeric>Precio sin IVA</th>
+                    <th scope="col" data-numeric>IVA</th>
+                    <th scope="col" data-numeric>Total</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-[var(--border)]">
+                <tbody>
                   <tr v-for="line in data.lines" :key="line.id">
-                    <td class="px-5 py-3">
+                    <td>
                       <div class="flex items-start gap-3">
                         <OrderLineThumb :line="line" size="sm" />
                         <div class="min-w-0">
@@ -589,31 +578,29 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
                             {{ line.name }}
                           </component>
                           <p class="text-xs text-[var(--text-muted)]">
-                            <span class="tabular">{{ line.sku }}</span> · {{ line.format }}
+                            <span class="tabular-nums">{{ line.sku }}</span> · {{ line.format }}
                           </p>
-                          <p v-if="!line.inCatalog" class="mt-1 text-xs text-[var(--ui-warning)]">
-                            Ya no está publicada en el catálogo
-                          </p>
-                          <p v-if="line.returned" class="mt-1 text-xs text-[var(--ui-warning)]">
-                            {{ line.returned }} {{ line.returned === 1 ? 'unidad devuelta' : 'unidades devueltas' }}
-                          </p>
+                          <div v-if="!line.inCatalog || line.returned" class="mt-1 flex flex-wrap gap-1.5">
+                            <AdminBadge v-if="!line.inCatalog" tone="warning">Ya no está en el catálogo</AdminBadge>
+                            <AdminBadge v-if="line.returned" tone="warning">
+                              {{ line.returned }} {{ line.returned === 1 ? 'unidad devuelta' : 'unidades devueltas' }}
+                            </AdminBadge>
+                          </div>
                         </div>
                       </div>
                     </td>
-                    <td class="tabular px-3 py-3 text-right align-top">
+                    <td data-numeric class="align-top">
                       {{ line.quantity }}
                       <span class="block text-xs text-[var(--text-muted)]">{{ line.unitLabel }}</span>
                     </td>
-                    <td class="tabular px-3 py-3 text-right align-top">
+                    <td data-numeric class="align-top">
                       {{ formatPrice(line.unitNet) }}
-                      <span v-if="line.discountNet" class="block text-xs text-[var(--ui-success)]">
-                        Descuento de línea: −{{ formatPrice(line.discountNet) }}
+                      <span v-if="line.discountNet" class="block text-xs text-[var(--text-muted)]">
+                        Descuento: −{{ formatPrice(line.discountNet) }}
                       </span>
                     </td>
-                    <td class="tabular px-3 py-3 text-right align-top text-[var(--text-muted)]">
-                      {{ line.taxRate / 100 }} %
-                    </td>
-                    <td class="tabular px-5 py-3 text-right align-top font-semibold">
+                    <td data-numeric class="align-top text-[var(--text-muted)]">{{ line.taxRate / 100 }} %</td>
+                    <td data-numeric class="align-top font-semibold text-[var(--text-strong)]">
                       {{ formatPrice(line.lineGross) }}
                     </td>
                   </tr>
@@ -621,105 +608,146 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
               </table>
             </div>
 
-            <dl class="space-y-1.5 border-t border-[var(--border)] p-5 text-sm">
+            <dl class="space-y-1.5 border-t border-[var(--border)] px-5 py-4 sm:ml-auto sm:max-w-sm">
               <div class="flex justify-between gap-4">
                 <dt class="text-[var(--text-muted)]">
                   {{ order.totals.discountNet ? 'Productos antes de descuentos (sin IVA)' : 'Productos (sin IVA)' }}
                 </dt>
-                <dd class="tabular">{{ formatPrice(order.totals.subtotalNet) }}</dd>
+                <dd class="tabular-nums">{{ formatPrice(order.totals.subtotalNet) }}</dd>
               </div>
               <div v-if="order.totals.discountNet" class="flex justify-between gap-4">
                 <dt class="text-[var(--text-muted)]">Descuentos</dt>
-                <dd class="tabular text-[var(--ui-success)]">−{{ formatPrice(order.totals.discountNet) }}</dd>
+                <dd class="tabular-nums">−{{ formatPrice(order.totals.discountNet) }}</dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-[var(--text-muted)]">Envío</dt>
-                <dd class="tabular">
+                <dd class="tabular-nums">
                   {{ order.totals.shippingNet ? formatPrice(order.totals.shippingNet) : 'Gratis' }}
                 </dd>
               </div>
               <div class="flex justify-between gap-4">
                 <dt class="text-[var(--text-muted)]">IVA</dt>
-                <dd class="tabular">{{ formatPrice(order.totals.tax) }}</dd>
+                <dd class="tabular-nums">{{ formatPrice(order.totals.tax) }}</dd>
               </div>
               <div
-                class="flex justify-between gap-4 border-t border-[var(--border)] pt-2 text-base font-semibold text-[var(--text-strong)]"
+                class="flex justify-between gap-4 border-t border-[var(--border)] pt-2 font-semibold text-[var(--text-strong)]"
               >
                 <dt>Total</dt>
-                <dd class="tabular">{{ formatPrice(order.totals.total) }}</dd>
+                <dd class="tabular-nums">{{ formatPrice(order.totals.total) }}</dd>
               </div>
               <div v-if="refundedTotal" class="flex justify-between gap-4 text-[var(--text-muted)]">
                 <dt>Reembolsado</dt>
-                <dd class="tabular">−{{ formatPrice(refundedTotal) }}</dd>
+                <dd class="tabular-nums">−{{ formatPrice(refundedTotal) }}</dd>
               </div>
             </dl>
-          </UiSurface>
+          </AdminCard>
 
-          <!-- Cobro -->
-          <UiSurface padding="none">
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] p-5">
-              <h2 class="font-semibold text-[var(--text-strong)]">Cobro</h2>
-              <UBadge :color="readState(PAYMENT_STATE, order.paymentStatus).color" variant="subtle">
-                {{ readState(PAYMENT_STATE, order.paymentStatus).label }}
-              </UBadge>
-            </div>
+          <!-- Preparación y entrega -->
+          <AdminCard
+            v-if="runtime === 'cloudflare' && !cancellationPending && !annotationsPending"
+            title="Preparación y entrega"
+          >
+            <OrderFulfillmentSection
+              :order-id="orderId"
+              :runtime="runtime"
+              @confirmed="refresh()"
+              @pending="fulfillmentCommandPending = $event"
+            />
+          </AdminCard>
 
-            <UiEmptyState
-              v-if="!data.payments.length"
-              icon="i-lucide-credit-card"
-              title="Sin intentos de pago"
-              description="No hay un intento de pago registrado para este pedido."
+          <!-- Envío -->
+          <AdminCard title="Envío" flush>
+            <template v-if="canShip && !data.shipments.length" #actions>
+              <AdminButton size="sm" icon="i-lucide-truck" @click="startShipment">Crear envío</AdminButton>
+            </template>
+
+            <AdminEmptyState
+              v-if="!data.shipments.length"
+              compact
+              icon="i-lucide-truck"
+              :title="canShip ? 'Todavía no hay envío' : 'Sin envíos con transportista'"
+              :description="
+                !canShip
+                  ? 'El seguimiento del pedido se lleva desde «Preparación y entrega».'
+                  : order.paymentStatus === 'captured'
+                    ? `El pedido está cobrado y listo para preparar. Entrega elegida por el cliente: ${shippingLabel}.`
+                    : 'El envío se crea cuando el cobro está confirmado.'
+              "
             />
 
             <ul v-else class="divide-y divide-[var(--border)]">
-              <li v-for="payment in data.payments" :key="payment.id" class="p-5">
-                <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <p class="font-medium text-[var(--text-strong)]">
-                    {{ PAYMENT_METHOD_LABEL[payment.method] ?? payment.method }}
-                    <span class="font-normal text-[var(--text-muted)]">vía {{ payment.provider }}</span>
-                  </p>
-                  <p class="tabular font-semibold">{{ formatPrice(payment.amount) }}</p>
+              <li v-for="shipment in data.shipments" :key="shipment.id" class="p-5">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="font-medium text-[var(--text-strong)]">
+                      {{ shipment.provider }}
+                      <span class="font-normal text-[var(--text-muted)]">· {{ shipment.serviceCode }}</span>
+                    </p>
+                    <div class="mt-1.5 flex flex-wrap items-center gap-2">
+                      <AdminBadge :tone="tone(metaFor(SHIPMENT_STATE, shipment.status).color)">
+                        {{ metaFor(SHIPMENT_STATE, shipment.status).label }}
+                      </AdminBadge>
+                      <span v-if="shipment.trackingNumber" class="text-xs tabular-nums text-[var(--text-muted)]">
+                        {{ shipment.trackingNumber }}
+                      </span>
+                    </div>
+                  </div>
+                  <div class="flex shrink-0 gap-2">
+                    <AdminButton
+                      v-if="shipment.hasLabel"
+                      :to="`/api/admin/shipments/${shipment.id}/label`"
+                      target="_blank"
+                      external
+                      size="sm"
+                      icon="i-lucide-printer"
+                    >
+                      Etiqueta
+                    </AdminButton>
+                    <AdminButton
+                      size="sm"
+                      icon="i-lucide-rotate-cw"
+                      :aria-label="`Actualizar el seguimiento de ${shipment.trackingNumber ?? shipment.serviceCode}`"
+                      @click="syncTracking(shipment.id)"
+                    >
+                      Actualizar seguimiento
+                    </AdminButton>
+                  </div>
                 </div>
 
-                <div class="mt-2 flex flex-wrap items-center gap-2">
-                  <UBadge :color="readState(PAYMENT_STATE, payment.status).color" variant="subtle">
-                    {{ readState(PAYMENT_STATE, payment.status).label }}
-                  </UBadge>
-                  <span v-if="payment.reference" class="tabular text-xs text-[var(--text-muted)]">
-                    Ref. {{ payment.reference }}
-                  </span>
-                  <span v-if="payment.refunded" class="text-xs text-[var(--text-muted)]">
-                    Reembolsado {{ formatPrice(payment.refunded) }}
-                  </span>
-                </div>
-
-                <p v-if="redsysReason(payment.lastResponseCode)" class="mt-2 text-sm text-[var(--text)]">
-                  {{ redsysReason(payment.lastResponseCode) }}
-                  <span v-if="payment.lastEventAt" class="text-[var(--text-muted)]">
-                    · {{ formatDate(payment.lastEventAt) }}
-                  </span>
-                </p>
-                <p v-else class="mt-2 text-sm text-[var(--text-muted)]">
-                  Iniciado el {{ formatDate(payment.createdAt) }}
-                </p>
+                <ol v-if="shipment.events.length" class="mt-4 space-y-2.5 border-l border-[var(--border)] pl-4">
+                  <li v-for="shipmentEvent in shipment.events" :key="shipmentEvent.occurredAt" class="relative">
+                    <span class="absolute -left-[1.3125rem] top-1.5 size-2 rounded-full bg-[var(--border-strong)]" />
+                    <p class="text-[var(--text-strong)]">
+                      {{ shipmentEvent.description || metaFor(SHIPMENT_STATE, shipmentEvent.status).label }}
+                    </p>
+                    <p class="text-xs text-[var(--text-muted)]">
+                      {{ adminDate(shipmentEvent.occurredAt, true) }}
+                      <template v-if="shipmentEvent.location"> · {{ formatPlace(shipmentEvent.location) }}</template>
+                    </p>
+                  </li>
+                </ol>
+                <p v-else class="adm-help mt-3">El transportista todavía no ha comunicado ningún movimiento.</p>
               </li>
             </ul>
-          </UiSurface>
+          </AdminCard>
 
-          <OrderCancellationPanel
+          <OrderTrackingPanel
             v-if="timelineReady"
             :order-id="orderId"
             audience="admin"
             :scope-key="originalTimelineScope"
             :enabled="timelineReady"
-            :pending="financialCommandPending || fulfillmentCommandPending || annotationsPending || saving"
-            @pending="cancellationPending = $event"
-            @confirmed="cancellationConfirmed"
+            :pending="financialCommandPending || cancellationPending || annotationsPending || fulfillmentCommandPending"
           />
-          <p v-if="cancellationPending" data-order-cancellation-pending role="status">
-            Hay una cancelación pendiente de confirmar. Conserva esta pestaña para recuperar su resultado antes de otra
-            operación.
-          </p>
+          <BeplyOrderPanel
+            v-if="timelineReady"
+            :order-id="orderId"
+            audience="admin"
+            :scope-key="originalTimelineScope"
+            :enabled="timelineReady"
+            :pending="financialCommandPending || cancellationPending || annotationsPending || fulfillmentCommandPending"
+          />
+
           <OrderRefundPanel
             v-if="runtime === 'cloudflare' && !cancellationPending && !annotationsPending"
             :key="orderId"
@@ -742,157 +770,50 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
             </template>
           </OrderRefundPanel>
 
-          <OrderFulfillmentSection
-            v-if="runtime === 'cloudflare' && !cancellationPending && !annotationsPending"
-            :order-id="orderId"
-            :runtime="runtime"
-            @confirmed="refresh()"
-            @pending="fulfillmentCommandPending = $event"
-          />
-
-          <!-- Envío -->
-          <UiSurface padding="none">
-            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] p-5">
-              <h2 class="font-semibold text-[var(--text-strong)]">Envío</h2>
-              <UButton v-if="canShip && !data.shipments.length" size="sm" icon="i-lucide-truck" @click="startShipment">
-                Crear expedición
-              </UButton>
-            </div>
-
-            <UiEmptyState
-              v-if="!data.shipments.length"
-              icon="i-lucide-truck"
-              :title="canShip ? 'Todavía no hay expedición' : 'Expedición no disponible'"
-              :description="
-                !canShip
-                  ? 'Este entorno conserva el método y la dirección de entrega, pero no dispone de expediciones ni seguimiento.'
-                  : order.paymentStatus === 'captured'
-                    ? `El pedido está cobrado y listo para preparar. Método elegido por el cliente: ${shippingLabel}.`
-                    : 'La expedición se crea cuando el cobro está confirmado.'
-              "
-            />
-
-            <ul v-else class="divide-y divide-[var(--border)]">
-              <li v-for="shipment in data.shipments" :key="shipment.id" class="p-5">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <p class="font-medium text-[var(--text-strong)]">
-                      {{ shipment.provider }}
-                      <span class="font-normal text-[var(--text-muted)]">· {{ shipment.serviceCode }}</span>
-                    </p>
-                    <div class="mt-1.5 flex flex-wrap items-center gap-2">
-                      <UBadge :color="metaFor(SHIPMENT_STATE, shipment.status).color" variant="subtle">
-                        {{ metaFor(SHIPMENT_STATE, shipment.status).label }}
-                      </UBadge>
-                      <span v-if="shipment.trackingNumber" class="tabular text-xs text-[var(--text-muted)]">
-                        {{ shipment.trackingNumber }}
-                      </span>
-                    </div>
-                  </div>
-                  <div class="flex shrink-0 gap-1">
-                    <UButton
-                      v-if="shipment.hasLabel"
-                      :to="`/api/admin/shipments/${shipment.id}/label`"
-                      target="_blank"
-                      external
-                      size="xs"
-                      variant="soft"
-                      icon="i-lucide-printer"
-                    >
-                      Etiqueta
-                    </UButton>
-                    <UButton
-                      size="xs"
-                      color="neutral"
-                      variant="outline"
-                      icon="i-lucide-refresh-cw"
-                      :aria-label="`Actualizar el seguimiento de ${shipment.trackingNumber ?? shipment.serviceCode}`"
-                      @click="syncTracking(shipment.id)"
-                    >
-                      Seguimiento
-                    </UButton>
-                  </div>
-                </div>
-
-                <ol v-if="shipment.events.length" class="mt-4 space-y-2.5 border-l border-[var(--border)] pl-4">
-                  <li v-for="shipmentEvent in shipment.events" :key="shipmentEvent.occurredAt" class="relative text-sm">
-                    <span class="absolute -left-[1.3125rem] top-1.5 size-2 rounded-full bg-[var(--border-strong)]" />
-                    <p class="text-[var(--text-strong)]">
-                      {{ shipmentEvent.description || metaFor(SHIPMENT_STATE, shipmentEvent.status).label }}
-                    </p>
-                    <p class="text-xs text-[var(--text-muted)]">
-                      {{ formatDate(shipmentEvent.occurredAt) }}
-                      <template v-if="shipmentEvent.location"> · {{ formatPlace(shipmentEvent.location) }}</template>
-                    </p>
-                  </li>
-                </ol>
-                <p v-else class="mt-3 text-sm text-[var(--text-muted)]">
-                  El transportista todavía no ha comunicado ningún movimiento.
-                </p>
-              </li>
-            </ul>
-          </UiSurface>
-
           <!-- Devoluciones, solo si las hay -->
-          <UiSurface v-if="data.returns.length" padding="none">
-            <h2 class="border-b border-[var(--border)] p-5 font-semibold text-[var(--text-strong)]">Devoluciones</h2>
+          <AdminCard v-if="data.returns.length" title="Devoluciones" flush>
             <ul class="divide-y divide-[var(--border)]">
               <li
                 v-for="returnRow in data.returns"
                 :key="returnRow.id"
-                class="flex flex-wrap items-start justify-between gap-3 p-5"
+                class="flex flex-wrap items-start justify-between gap-3 px-5 py-4"
               >
                 <div class="min-w-0">
-                  <p class="tabular font-medium text-[var(--text-strong)]">{{ returnRow.publicNumber }}</p>
-                  <p class="mt-0.5 text-sm text-[var(--text)]">{{ returnRow.reason }}</p>
+                  <p class="font-medium tabular-nums text-[var(--text-strong)]">{{ returnRow.publicNumber }}</p>
+                  <p class="mt-0.5 text-[var(--text)]">{{ returnRow.reason }}</p>
                   <p class="mt-1 text-xs text-[var(--text-muted)]">
                     {{ returnRow.units }} {{ returnRow.units === 1 ? 'unidad' : 'unidades' }} ·
-                    {{ formatDate(returnRow.createdAt) }}
+                    {{ adminDate(returnRow.createdAt) }}
                     <template v-if="returnRow.resolution"> · {{ returnRow.resolution }}</template>
                   </p>
                 </div>
-                <UBadge :color="metaFor(RETURN_STATE, returnRow.status).color" variant="subtle">
+                <AdminBadge :tone="tone(metaFor(RETURN_STATE, returnRow.status).color)">
                   {{ metaFor(RETURN_STATE, returnRow.status).label }}
-                </UBadge>
+                </AdminBadge>
               </li>
             </ul>
-          </UiSurface>
+          </AdminCard>
 
-          <!-- Traza -->
-          <BeplyOrderPanel
-            v-if="timelineReady"
+          <!-- Cronología -->
+          <OrderTimelinePanel
+            v-if="runtime === 'cloudflare' && timelineReady"
+            :key="cancellationRevision"
+            class="adm-card p-5"
             :order-id="orderId"
             audience="admin"
             :scope-key="originalTimelineScope"
             :enabled="timelineReady"
-            :pending="financialCommandPending || cancellationPending || annotationsPending || fulfillmentCommandPending"
+            :pending="status !== 'success' || timelineNavigation?.status.value !== 'ready'"
           />
-          <OrderTrackingPanel
-            v-if="timelineReady"
-            :order-id="orderId"
-            audience="admin"
-            :scope-key="originalTimelineScope"
-            :enabled="timelineReady"
-            :pending="financialCommandPending || cancellationPending || annotationsPending || fulfillmentCommandPending"
-          />
-          <UiSurface v-if="runtime === 'cloudflare' && timelineReady">
-            <OrderTimelinePanel
-              :key="cancellationRevision"
-              :order-id="orderId"
-              audience="admin"
-              :scope-key="originalTimelineScope"
-              :enabled="timelineReady"
-              :pending="status !== 'success' || timelineNavigation?.status.value !== 'ready'"
-            />
-          </UiSurface>
-          <UiSurface v-else-if="runtime !== 'cloudflare'" padding="none">
-            <h2 class="border-b border-[var(--border)] p-5 font-semibold text-[var(--text-strong)]">
-              Traza
-              <span class="ml-1 font-normal text-[var(--text-muted)]">quién hizo qué y cuándo</span>
-            </h2>
-
-            <UiEmptyState
+          <AdminCard
+            v-else-if="runtime !== 'cloudflare'"
+            title="Historial del pedido"
+            description="Quién hizo qué y cuándo"
+            flush
+          >
+            <AdminEmptyState
               v-if="!data.timeline.length"
+              compact
               icon="i-lucide-history"
               title="Sin movimientos registrados"
               description="Aquí aparece cada cambio de estado con su autor y su motivo."
@@ -910,40 +831,40 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
                 </span>
                 <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <p class="font-medium text-[var(--text-strong)]">
-                    {{ ORDER_EVENT[entry.eventType]?.label ?? entry.eventType }}
+                    {{ ORDER_EVENT[entry.eventType]?.label ?? adminHumanize(entry.eventType) }}
                   </p>
-                  <span class="text-xs text-[var(--text-muted)]">{{ formatDate(entry.createdAt) }}</span>
+                  <span class="text-xs text-[var(--text-muted)]">{{ adminDate(entry.createdAt, true) }}</span>
                 </div>
                 <p class="mt-0.5 text-xs text-[var(--text-muted)]">
-                  {{ EVENT_ACTOR[entry.actorType]?.label ?? entry.actorType }} · {{ entry.origin }}
+                  {{ EVENT_ACTOR[entry.actorType]?.label ?? adminHumanize(entry.actorType) }}
                 </p>
-                <p v-if="entry.reason" class="mt-1 text-sm text-[var(--text)]">«{{ entry.reason }}»</p>
+                <p v-if="entry.reason" class="mt-1 text-[var(--text)]">«{{ entry.reason }}»</p>
                 <ul
                   v-if="transition(entry).length"
                   class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--text-muted)]"
                 >
                   <li v-for="change in transition(entry)" :key="change.key">
-                    {{ MACHINE_LABEL[change.key] ?? change.key }}: {{ stateLabel(change.key, change.from) }} →
+                    {{ MACHINE_LABEL[change.key] ?? adminHumanize(change.key) }}:
+                    {{ stateLabel(change.key, change.from) }} →
                     <span class="font-medium text-[var(--text)]">{{ stateLabel(change.key, change.to) }}</span>
                   </li>
                 </ul>
               </li>
             </ol>
-          </UiSurface>
+          </AdminCard>
         </div>
 
-        <!-- Columna del cliente -->
-        <div class="space-y-5 xl:sticky xl:top-4">
-          <UiSurface>
-            <h2 class="font-semibold text-[var(--text-strong)]">Cliente</h2>
-            <p class="mt-2 font-medium text-[var(--text-strong)]">
+        <!-- Columna lateral: cliente, cobro, facturación y notas -->
+        <div class="adm-stack min-w-0 xl:sticky xl:top-4">
+          <AdminCard title="Cliente">
+            <p class="font-medium text-[var(--text-strong)]">
               {{ data.customer.company || data.customer.name || 'Sin nombre' }}
             </p>
-            <p v-if="data.customer.company && data.customer.name" class="text-sm text-[var(--text)]">
+            <p v-if="data.customer.company && data.customer.name" class="text-[var(--text)]">
               {{ data.customer.name }}
             </p>
 
-            <div class="mt-3 space-y-1.5 text-sm">
+            <div class="mt-3 space-y-1.5">
               <a
                 v-if="data.customer.email"
                 :href="`mailto:${data.customer.email}`"
@@ -962,46 +883,92 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
               </a>
               <p v-if="data.customer.taxId" class="flex items-center gap-2 text-[var(--text-muted)]">
                 <UIcon name="i-lucide-building-2" class="size-4 shrink-0" />
-                <span class="tabular">{{ data.customer.taxId }}</span>
+                <span class="tabular-nums">{{ data.customer.taxId }}</span>
               </p>
             </div>
 
             <div class="mt-3 flex flex-wrap gap-2">
-              <UBadge v-if="data.customer.isGuest" color="neutral" variant="subtle" icon="i-lucide-user-x">
-                Compró sin cuenta
-              </UBadge>
-              <UBadge
+              <AdminBadge v-if="data.customer.isGuest" plain>Compró sin cuenta</AdminBadge>
+              <AdminBadge
                 v-else-if="data.customer.companyStatus && COMPANY_STATUS[data.customer.companyStatus]"
-                :color="COMPANY_STATUS[data.customer.companyStatus]!.color"
-                variant="subtle"
+                :tone="tone(COMPANY_STATUS[data.customer.companyStatus]!.color)"
               >
                 Empresa {{ COMPANY_STATUS[data.customer.companyStatus]!.label.toLowerCase() }}
-              </UBadge>
+              </AdminBadge>
             </div>
-          </UiSurface>
 
-          <UiSurface>
-            <h2 class="font-semibold text-[var(--text-strong)]">Entrega</h2>
-            <address v-if="address(data.shippingAddress).length" class="mt-2 text-sm not-italic text-[var(--text)]">
-              <p v-for="part in address(data.shippingAddress)" :key="part">{{ part }}</p>
-            </address>
-            <p v-else class="mt-2 text-sm text-[var(--text-muted)]">
-              {{ order.shippingMethod === 'recogida' ? 'Recogida en almacén.' : 'Dirección de entrega no registrada.' }}
-            </p>
-            <p
-              v-if="data.shippingAddress?.instructions"
-              class="mt-2 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-2.5 text-sm text-[var(--text)]"
-            >
-              {{ data.shippingAddress.instructions }}
-            </p>
-          </UiSurface>
+            <div class="mt-4 border-t border-[var(--border)] pt-3">
+              <p class="adm-label">Dirección de entrega</p>
+              <address v-if="address(data.shippingAddress).length" class="mt-1 not-italic text-[var(--text)]">
+                <p v-for="part in address(data.shippingAddress)" :key="part">{{ part }}</p>
+              </address>
+              <p v-else class="adm-help mt-1">
+                {{ order.shippingMethod === 'recogida' ? 'Recogida en almacén.' : 'Sin dirección de entrega.' }}
+              </p>
+              <p
+                v-if="data.shippingAddress?.instructions"
+                class="mt-2 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-2.5 text-[var(--text)]"
+              >
+                {{ data.shippingAddress.instructions }}
+              </p>
+            </div>
+          </AdminCard>
 
-          <UiSurface>
-            <h2 class="font-semibold text-[var(--text-strong)]">Facturación</h2>
-            <address v-if="address(data.billingAddress).length" class="mt-2 text-sm not-italic text-[var(--text)]">
+          <!-- Cobro -->
+          <AdminCard title="Cobro" flush>
+            <template #actions>
+              <AdminBadge :tone="tone(readState(PAYMENT_STATE, order.paymentStatus).color)">
+                {{ readState(PAYMENT_STATE, order.paymentStatus).label }}
+              </AdminBadge>
+            </template>
+
+            <AdminEmptyState
+              v-if="!data.payments.length"
+              compact
+              icon="i-lucide-credit-card"
+              title="Sin intentos de pago"
+              description="Este pedido todavía no tiene ningún intento de pago."
+            />
+
+            <ul v-else class="divide-y divide-[var(--border)]">
+              <li v-for="payment in data.payments" :key="payment.id" class="px-5 py-4">
+                <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <p class="font-medium text-[var(--text-strong)]">
+                    {{ PAYMENT_METHOD_LABEL[payment.method] ?? adminHumanize(payment.method) }}
+                  </p>
+                  <p class="font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{ formatPrice(payment.amount) }}
+                  </p>
+                </div>
+
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <AdminBadge :tone="tone(readState(PAYMENT_STATE, payment.status).color)">
+                    {{ readState(PAYMENT_STATE, payment.status).label }}
+                  </AdminBadge>
+                  <span v-if="payment.reference" class="text-xs tabular-nums text-[var(--text-muted)]">
+                    Ref. {{ payment.reference }}
+                  </span>
+                  <span v-if="payment.refunded" class="text-xs text-[var(--text-muted)]">
+                    Reembolsado {{ formatPrice(payment.refunded) }}
+                  </span>
+                </div>
+
+                <p v-if="redsysReason(payment.lastResponseCode)" class="mt-2 text-[var(--text)]">
+                  {{ redsysReason(payment.lastResponseCode) }}
+                  <span v-if="payment.lastEventAt" class="text-[var(--text-muted)]">
+                    · {{ adminDate(payment.lastEventAt, true) }}
+                  </span>
+                </p>
+                <p v-else class="adm-help mt-2">Iniciado el {{ adminDate(payment.createdAt, true) }}</p>
+              </li>
+            </ul>
+          </AdminCard>
+
+          <AdminCard title="Facturación">
+            <address v-if="address(data.billingAddress).length" class="not-italic text-[var(--text)]">
               <p v-for="part in address(data.billingAddress)" :key="part">{{ part }}</p>
             </address>
-            <p v-else class="mt-2 text-sm text-[var(--text-muted)]">Dirección de facturación no registrada.</p>
+            <p v-else class="adm-help">Sin dirección de facturación.</p>
 
             <OrderFiscalSection
               v-if="runtime === 'cloudflare'"
@@ -1012,115 +979,149 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
             />
             <ul
               v-if="runtime !== 'cloudflare' && data.invoices.length"
-              class="mt-3 space-y-2 border-t border-[var(--border)] pt-3 text-sm"
+              class="mt-3 space-y-2 border-t border-[var(--border)] pt-3"
             >
               <li v-for="invoice in data.invoices" :key="invoice.id" class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
-                  <p class="tabular truncate text-[var(--text-strong)]">
+                  <p class="truncate tabular-nums text-[var(--text-strong)]">
                     {{ invoice.series }}
                     <span v-if="invoice.kind === 'credit_note'" class="text-[var(--text-muted)]">(rectificativa)</span>
                   </p>
-                  <p class="text-xs text-[var(--text-muted)]">{{ formatDate(invoice.createdAt) }}</p>
+                  <p class="text-xs text-[var(--text-muted)]">{{ adminDate(invoice.createdAt) }}</p>
                 </div>
-                <span class="tabular shrink-0">{{ formatPrice(invoice.amount) }}</span>
+                <span class="shrink-0 tabular-nums">{{ formatPrice(invoice.amount) }}</span>
               </li>
             </ul>
 
             <div v-if="runtime !== 'cloudflare'" class="mt-3 border-t border-[var(--border)] pt-3">
               <div class="flex items-center justify-between gap-3">
-                <span class="text-sm text-[var(--text-muted)]">Estado</span>
-                <UBadge :color="readState(INVOICE_STATE, order.invoiceStatus).color" variant="subtle">
+                <span class="text-[var(--text-muted)]">Estado de la factura</span>
+                <AdminBadge :tone="tone(readState(INVOICE_STATE, order.invoiceStatus).color)">
                   {{ readState(INVOICE_STATE, order.invoiceStatus).label }}
-                </UBadge>
+                </AdminBadge>
               </div>
-              <UButton
+              <AdminButton
                 v-if="
                   data.capabilities?.invoices !== false &&
                   ['failed', 'not_requested', 'queued'].includes(order.invoiceStatus) &&
                   order.paymentStatus === 'captured'
                 "
-                class="mt-3"
+                class="mt-3 w-full"
                 size="sm"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-refresh-cw"
-                block
+                icon="i-lucide-rotate-cw"
                 @click="retrying = true"
               >
-                Reintentar emisión
-              </UButton>
-              <p v-if="data.capabilities?.invoices === false" class="mt-3 text-sm text-[var(--text-muted)]">
-                No hay emisión ni documentos fiscales disponibles.
-                <template v-if="data.fiscalEvaluation">Evaluación fiscal: {{ data.fiscalEvaluation.status }}.</template>
+                Volver a emitir la factura
+              </AdminButton>
+              <p v-if="data.capabilities?.invoices === false" class="adm-help mt-3">
+                La emisión de facturas no está disponible.
+                <template v-if="data.fiscalEvaluation">
+                  Revisión fiscal: {{ adminStatusLabel(data.fiscalEvaluation.status).toLowerCase() }}.
+                </template>
               </p>
             </div>
-          </UiSurface>
+          </AdminCard>
 
-          <UiSurface v-if="data.history.length">
-            <h2 class="font-semibold text-[var(--text-strong)]">
-              Pedidos anteriores
-              <span class="ml-1 text-sm font-normal text-[var(--text-muted)]">del mismo cliente</span>
-            </h2>
-            <ul class="mt-2 divide-y divide-[var(--border)] text-sm">
-              <li v-for="other in data.history" :key="other.id" class="flex items-center justify-between gap-3 py-2">
-                <NuxtLink :to="`/admin/pedidos/${other.id}`" class="tabular text-neteco-700 hover:underline">
-                  {{ other.id }}
-                </NuxtLink>
-                <span class="text-xs text-[var(--text-muted)]">{{ formatDate(other.createdAt) }}</span>
-                <span class="tabular shrink-0 font-medium">{{ formatPrice(other.total) }}</span>
-              </li>
-            </ul>
-          </UiSurface>
-
-          <UiSurface v-if="annotationsReady">
-            <OrderAnnotationsPanel
-              :key="orderId"
-              :order-id="orderId"
-              :scope-key="originalTimelineScope"
-              :enabled="annotationsReady"
-              :pending="financialCommandPending || fulfillmentCommandPending || cancellationPending || saving"
-              @pending="annotationsPending = $event"
+          <OrderAnnotationsPanel
+            v-if="annotationsReady"
+            :key="orderId"
+            class="adm-card p-5"
+            :order-id="orderId"
+            :scope-key="originalTimelineScope"
+            :enabled="annotationsReady"
+            :pending="financialCommandPending || fulfillmentCommandPending || cancellationPending || saving"
+            @pending="annotationsPending = $event"
+          />
+          <div v-if="annotationsPending" data-order-annotations-pending role="status">
+            <UAlert
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-hourglass"
+              title="Hay un cambio de notas o etiquetas sin confirmar"
+              description="No cierres esta pestaña hasta comprobar su resultado."
             />
-          </UiSurface>
-          <p v-if="annotationsPending" data-order-annotations-pending role="status">
-            Hay una operación de notas o etiquetas pendiente de confirmar. Conserva esta pestaña para recuperar su
-            resultado antes de otra operación.
-          </p>
-          <UiSurface v-if="runtime !== 'cloudflare' && data.notes.length">
-            <h2 class="font-semibold text-[var(--text-strong)]">Notas internas</h2>
-            <ul class="mt-2 space-y-3 text-sm">
+          </div>
+          <AdminCard v-if="runtime !== 'cloudflare' && data.notes.length" title="Notas internas">
+            <ul class="space-y-3">
               <li v-for="note in data.notes" :key="note.id">
                 <p class="text-[var(--text)]">{{ note.note }}</p>
                 <p class="mt-0.5 text-xs text-[var(--text-muted)]">
-                  {{ note.author ?? 'Equipo' }} · {{ formatDate(note.createdAt) }}
+                  {{ note.author ?? 'Equipo' }} · {{ adminDate(note.createdAt, true) }}
                 </p>
               </li>
             </ul>
-          </UiSurface>
+          </AdminCard>
+
+          <AdminCard v-if="data.history.length" title="Pedidos anteriores" description="Del mismo cliente" flush>
+            <ul class="divide-y divide-[var(--border)]">
+              <li
+                v-for="other in data.history"
+                :key="other.id"
+                class="flex items-center justify-between gap-3 px-5 py-2.5"
+              >
+                <NuxtLink
+                  :to="`/admin/pedidos/${other.id}`"
+                  class="font-medium tabular-nums text-neteco-700 hover:underline"
+                  :title="other.id"
+                >
+                  {{ shortId(other.id) }}
+                </NuxtLink>
+                <span class="text-xs text-[var(--text-muted)]">{{ adminDate(other.createdAt) }}</span>
+                <span class="shrink-0 font-medium tabular-nums">{{ formatPrice(other.total) }}</span>
+              </li>
+            </ul>
+          </AdminCard>
+
+          <!-- Zona de riesgo: cancelar el pedido -->
+          <OrderCancellationPanel
+            v-if="timelineReady"
+            class="adm-card p-5"
+            :order-id="orderId"
+            audience="admin"
+            :scope-key="originalTimelineScope"
+            :enabled="timelineReady"
+            :pending="financialCommandPending || fulfillmentCommandPending || annotationsPending || saving"
+            @pending="cancellationPending = $event"
+            @confirmed="cancellationConfirmed"
+          />
+          <div v-if="cancellationPending" data-order-cancellation-pending role="status">
+            <UAlert
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-hourglass"
+              title="Hay una cancelación sin confirmar"
+              description="No cierres esta pestaña hasta comprobar su resultado."
+            />
+          </div>
         </div>
       </div>
-    </template>
+    </div>
 
-    <UModal v-model:open="changing" title="Cambiar el estado del pedido">
+    <UModal v-model:open="changing" title="Cambiar el estado del pedido" :ui="{ footer: 'justify-end gap-2' }">
       <template #body>
-        <div v-if="order" class="space-y-4">
+        <div v-if="order" class="adm space-y-4">
           <p class="text-[var(--text)]">
-            Pedido <span class="tabular font-semibold">{{ order.id }}</span> de
+            Pedido <span class="font-semibold tabular-nums">{{ shortId(order.id) }}</span> de
             <span class="font-semibold">{{ data?.customer.company || data?.customer.name }}</span
-            >, por <span class="tabular font-semibold">{{ formatPrice(order.totals.total) }}</span
+            >, por <span class="font-semibold tabular-nums">{{ formatPrice(order.totals.total) }}</span
             >.
           </p>
           <div class="flex items-center gap-3 rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3">
-            <UBadge v-if="statusMeta" :color="statusMeta.color" variant="subtle">{{ statusMeta.label }}</UBadge>
+            <AdminBadge v-if="statusMeta" :tone="tone(statusMeta.color)">{{ statusMeta.label }}</AdminBadge>
             <UIcon name="i-lucide-arrow-right" class="size-4 text-[var(--text-muted)]" />
-            <UBadge :color="ORDER_STATUS[nextStatus]?.color ?? 'neutral'" variant="subtle">
-              {{ ORDER_STATUS[nextStatus]?.label ?? nextStatus }}
-            </UBadge>
+            <AdminBadge :tone="tone(ORDER_STATUS[nextStatus]?.color)">
+              {{ ORDER_STATUS[nextStatus]?.label ?? adminStatusLabel(nextStatus) }}
+            </AdminBadge>
           </div>
           <UFormField label="Nuevo estado" required>
             <USelect v-model="nextStatus" :items="statusOptions" class="w-full" />
           </UFormField>
-          <UFormField label="Motivo del cambio" required hint="Queda en la traza con tu usuario" :error="reasonError">
+          <UFormField
+            label="Motivo del cambio"
+            required
+            hint="Queda guardado en el historial con tu usuario"
+            :error="reasonError"
+          >
             <UTextarea
               v-model="reason"
               class="w-full"
@@ -1131,46 +1132,47 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
         </div>
       </template>
       <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="changing = false">Cancelar</UButton>
-          <UButton
-            :disabled="reason.trim().length < 3 || nextStatus === order?.status"
-            :loading="saving"
-            @click="confirmChange"
-          >
-            Cambiar estado
-          </UButton>
-        </div>
+        <AdminButton @click="changing = false">Cancelar</AdminButton>
+        <AdminButton
+          variant="primary"
+          :disabled="reason.trim().length < 3 || nextStatus === order?.status"
+          :loading="saving"
+          @click="confirmChange"
+        >
+          Cambiar estado
+        </AdminButton>
       </template>
     </UModal>
 
-    <UModal v-model:open="shipping" title="Crear expedición">
+    <UModal v-model:open="shipping" title="Crear envío" :ui="{ footer: 'justify-end gap-2' }">
       <template #body>
-        <div class="space-y-4">
+        <div class="adm space-y-4">
           <p class="text-[var(--text)]">
-            Pedido <span class="tabular font-semibold">{{ order?.id }}</span> · {{ shippingLabel }}
+            Pedido <span class="font-semibold tabular-nums">{{ order ? shortId(order.id) : '' }}</span> ·
+            {{ shippingLabel }}
           </p>
-          <UFormField label="Código de servicio cotizado" required>
-            <UInput v-model="serviceCode" class="w-full font-mono" />
+          <UFormField label="Servicio del transportista" required hint="El código del servicio presupuestado">
+            <UInput v-model="serviceCode" class="w-full" />
           </UFormField>
         </div>
       </template>
       <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="shipping = false">Cancelar</UButton>
-          <UButton :disabled="!serviceCode.trim()" :loading="saving" @click="confirmShipment">Crear expedición</UButton>
-        </div>
+        <AdminButton @click="shipping = false">Cancelar</AdminButton>
+        <AdminButton variant="primary" :disabled="!serviceCode.trim()" :loading="saving" @click="confirmShipment">
+          Crear envío
+        </AdminButton>
       </template>
     </UModal>
 
-    <UModal v-model:open="retrying" title="Reintentar la emisión de la factura">
+    <UModal v-model:open="retrying" title="Volver a emitir la factura" :ui="{ footer: 'justify-end gap-2' }">
       <template #body>
-        <div class="space-y-4">
+        <div class="adm space-y-4">
           <p class="text-[var(--text)]">
-            Se vuelve a encolar la factura del pedido <span class="tabular font-semibold">{{ order?.id }}</span
-            >. Si ya existe una emitida, el sistema la rechaza en vez de duplicarla.
+            Se volverá a pedir la factura del pedido
+            <span class="font-semibold tabular-nums">{{ order ? shortId(order.id) : '' }}</span
+            >. Si ya hay una emitida, no se duplica.
           </p>
-          <UFormField label="Motivo" required hint="Queda en la traza con tu usuario">
+          <UFormField label="Motivo" required hint="Queda guardado en el historial con tu usuario">
             <UTextarea
               v-model="invoiceReason"
               class="w-full"
@@ -1181,13 +1183,16 @@ const notFound = computed(() => (error.value as { statusCode?: number } | null)?
         </div>
       </template>
       <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="retrying = false">Cancelar</UButton>
-          <UButton :disabled="invoiceReason.trim().length < 3" :loading="saving" @click="retryInvoice"
-            >Reintentar</UButton
-          >
-        </div>
+        <AdminButton @click="retrying = false">Cancelar</AdminButton>
+        <AdminButton
+          variant="primary"
+          :disabled="invoiceReason.trim().length < 3"
+          :loading="saving"
+          @click="retryInvoice"
+        >
+          Volver a emitir
+        </AdminButton>
       </template>
     </UModal>
-  </div>
+  </AdminPage>
 </template>

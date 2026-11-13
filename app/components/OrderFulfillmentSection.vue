@@ -155,29 +155,37 @@ onBeforeUnmount(() => {
 
 <template>
   <section aria-label="Contexto operativo confirmado del pedido" class="space-y-4">
-    <p v-if="runtime !== 'cloudflare'" role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-      La preparación gobernada está disponible en el adaptador Cloudflare.
-    </p>
-    <p v-else-if="!authorize()" role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">
-      No se muestra el contexto privado. Confirma la sesión, el correo verificado y MFA antes de consultar o recuperar
-      una operación.
-    </p>
+    <div v-if="runtime !== 'cloudflare'" role="status">
+      <UAlert
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-info"
+        title="La preparación de pedidos no está disponible en este entorno"
+      />
+    </div>
+    <div v-else-if="!authorize()" role="status">
+      <UAlert
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="Confirma tu sesión para ver la preparación"
+        description="Hace falta tener el correo verificado y la verificación en dos pasos."
+      />
+    </div>
     <div v-else class="flex flex-wrap items-center justify-between gap-3">
-      <p v-if="loading" data-testid="fulfillment-loading" role="status" class="text-sm text-slate-600">
-        Confirmando preparación y entrega…
+      <p v-if="loading" data-testid="fulfillment-loading" role="status" class="adm-help">Cargando la preparación…</p>
+      <p v-else-if="failed" data-testid="fulfillment-read-error" role="alert" class="text-[var(--text)]">
+        No se ha podido cargar la preparación. Vuelve a intentarlo.
       </p>
-      <p v-else-if="failed" data-testid="fulfillment-read-error" role="alert" class="text-sm text-amber-800">
-        No se ha podido confirmar la preparación. No se interpreta como pedido pendiente ni historial vacío.
-      </p>
-      <p v-else class="text-xs text-slate-500">Contexto operativo privado · lectura confirmada</p>
+      <span v-else aria-hidden="true" />
       <button
         data-testid="fulfillment-refresh"
         type="button"
         :disabled="loading || packingPending"
-        class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
         @click="refresh"
       >
-        Actualizar preparación
+        <UIcon name="i-lucide-rotate-cw" class="size-4" :class="loading && 'animate-spin'" />Actualizar
       </button>
     </div>
     <fieldset

@@ -19,6 +19,7 @@ import {
   type SalesQuoteReceipt
 } from '~~/shared/sales-quotes'
 import { randomId } from '~/utils/uuid'
+import type { AdminTone } from '~/utils/adminLabels'
 
 const props = withDefaults(defineProps<{ audience: 'admin' | 'customer'; enabled?: boolean; pending?: boolean }>(), {
   enabled: true,
@@ -30,6 +31,8 @@ const runtime = useRuntimeConfig(),
   auth = useUserSession(),
   cart = useCartStore()
 // Customer reads never instantiate the admin navigation's capability fetch.
+// Booleano aparte: usar `audience === 'admin'` en el v-if estrecha el tipo en la rama de cliente.
+const adminView = computed<boolean>(() => props.audience === 'admin')
 const navigation = props.audience === 'admin' ? useAdminNavigation() : null
 const adminSchema = salesQuoteAdminSnapshotSchema,
   shape = adminSchema.shape
@@ -725,11 +728,527 @@ async function prepare() {
     finish(task.epoch, task.owner)
   }
 }
+/* --- Presentación del panel de administración (no cambia el flujo) --- */
+const formId = useId()
+const shortId = (id: string) => '#' + id.slice(0, 8).toUpperCase()
+const QUOTE_STATUS: Record<string, [string, AdminTone]> = {
+  draft: ['Borrador', 'neutral'],
+  reviewed: ['Revisado', 'info'],
+  approved: ['Aprobado', 'success'],
+  revoked: ['Anulado', 'danger'],
+  converted: ['Convertido en pedido', 'success']
+}
+const quoteStatus = (status: string) => {
+  const [label, tone] = QUOTE_STATUS[status] ?? [adminStatusLabel(status), 'neutral' as AdminTone]
+  return { label, tone }
+}
+const quoteValidUntil = (quote: Quote) => ('definition' in quote ? quote.definition.validUntil : quote.validUntil)
+const methodLabels: Record<string, string> = { pickup: 'Recogida', own_delivery: 'Reparto propio', parcel: 'Agencia' }
+const actionLabels: Record<SalesQuoteAction, string> = {
+  create: 'crear este presupuesto',
+  revise: 'guardar los cambios',
+  review: 'recalcular el precio y el margen',
+  approve: 'aprobar este presupuesto',
+  revoke: 'anular este presupuesto'
+}
+function closePanel() {
+  if (locked.value || proposed.value) return
+  editing.value = false
+  detail.value = null
+  message.value = ''
+}
+const panelOpen = computed({
+  get: () => props.audience === 'admin' && (editing.value || detail.value !== null),
+  set: (value: boolean) => {
+    if (!value) closePanel()
+  }
+})
 const money = (value: number) =>
   new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value / 100)
 </script>
 <template>
-  <section aria-label="Presupuestos comerciales" class="space-y-5 p-4 sm:p-6">
+  <section v-if="adminView" aria-label="Presupuestos comerciales" class="adm-stack">
+    <AdminPageActions>
+      <button
+        v-if="authority"
+        type="button"
+        class="adm-btn adm-btn--primary"
+        data-testid="sales-quote-new"
+        :disabled="locked || !!proposed"
+        @click="edit()"
+      >
+        <UIcon name="i-lucide-plus" class="size-4" />Nuevo presupuesto
+      </button>
+    </AdminPageActions>
+
+    <AdminEmptyState
+      v-if="runtime.public.serverRuntime !== 'cloudflare'"
+      icon="i-lucide-file-x"
+      title="Los presupuestos no se pueden consultar ahora mismo"
+    />
+    <AdminEmptyState
+      v-else-if="!authority"
+      icon="i-lucide-lock"
+      title="Confirma tu sesión para ver los presupuestos"
+      description="Necesitas la sesión verificada, la verificación en dos pasos y permiso de administración."
+    />
+    <template v-else>
+      <UAlert
+        v-if="message && !panelOpen"
+        role="status"
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-info"
+        :title="message"
+      />
+      <NuxtLink
+        v-if="confirmed?.orderId && !panelOpen"
+        :to="`/admin/pedidos/${confirmed.orderId}`"
+        class="adm-btn adm-btn--secondary"
+      >
+        Ver el pedido creado
+      </NuxtLink>
+      <div class="adm-card adm-tablecard">
+        <div class="adm-tablecard__bar">
+          <div class="adm-toolbar">
+            <p class="adm-help">Aprobar un presupuesto no cobra ni reserva stock.</p>
+            <p v-if="busy" role="status" class="adm-help">Comprobando…</p>
+            <div class="adm-toolbar__end">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                data-testid="sales-quotes-load"
+                :disabled="locked || !!proposed"
+                @click="load(1)"
+              >
+                <UIcon name="i-lucide-rotate-cw" class="size-4" />
+                {{ items === null ? 'Cargar presupuestos' : 'Actualizar' }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-if="busy && items === null" class="adm-table-skeleton" role="status" aria-busy="true">
+          <span class="sr-only">Comprobando…</span>
+          <div v-for="line in 5" :key="line"><i /><i /><i /><i /></div>
+        </div>
+        <AdminEmptyState
+          v-else-if="items === null"
+          icon="i-lucide-file-text"
+          title="Presupuestos sin cargar"
+          description="Pulsa «Cargar presupuestos» para ver el listado, o crea uno nuevo."
+        />
+        <AdminEmptyState
+          v-else-if="!items.length"
+          icon="i-lucide-file-text"
+          :title="page > 1 ? 'No hay más presupuestos' : 'Todavía no hay presupuestos'"
+          :description="page > 1 ? 'Vuelve a la página anterior.' : 'Crea el primero con «Nuevo presupuesto».'"
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <caption class="sr-only">
+              Presupuestos comerciales
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Presupuesto</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Creado</th>
+                <th scope="col">Válido hasta</th>
+                <th scope="col" data-numeric>Total</th>
+                <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in items" :key="item.id" :data-selected="detail?.id === item.id || undefined">
+                <td>
+                  <span class="font-semibold tabular-nums text-[var(--text-strong)]" :title="item.id">{{
+                    shortId(item.id)
+                  }}</span>
+                  <span v-if="item.version > 1" class="ml-1 text-xs text-[var(--text-muted)]"
+                    >revisión {{ item.version }}</span
+                  >
+                </td>
+                <td>
+                  <AdminBadge :tone="quoteStatus(item.status).tone">{{ quoteStatus(item.status).label }}</AdminBadge>
+                </td>
+                <td class="whitespace-nowrap">{{ adminDate(item.createdAt) }}</td>
+                <td class="whitespace-nowrap">{{ adminDate(quoteValidUntil(item), true) }}</td>
+                <td data-numeric>{{ item.total ? money(item.total.grossCents) : '—' }}</td>
+                <td data-numeric class="adm-table__actions">
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :data-testid="`sales-quote-open-${item.id}`"
+                    :disabled="locked || !!proposed"
+                    @click="open(item.id)"
+                  >
+                    Abrir
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <nav v-if="items !== null" aria-label="Páginas de presupuestos" class="adm-pagination">
+          <p>{{ total }} {{ total === 1 ? 'presupuesto' : 'presupuestos' }} · página {{ page }}</p>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="locked || !!proposed || page <= 1"
+              @click="load(page - 1)"
+            >
+              <UIcon name="i-lucide-chevron-left" class="size-4" />Anterior
+            </button>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="locked || !!proposed || page * 25 >= total"
+              @click="load(page + 1)"
+            >
+              Siguiente<UIcon name="i-lucide-chevron-right" class="size-4" />
+            </button>
+          </div>
+        </nav>
+      </div>
+    </template>
+
+    <AdminDrawer
+      v-model:open="panelOpen"
+      :title="detail ? `Presupuesto ${shortId(detail.id)}` : 'Nuevo presupuesto'"
+      wide
+    >
+      <div class="adm-stack">
+        <article v-if="detail" data-testid="sales-quote-detail" class="adm-stack">
+          <div class="flex flex-wrap items-center gap-2">
+            <AdminBadge :tone="quoteStatus(detail.status).tone">{{ quoteStatus(detail.status).label }}</AdminBadge>
+            <span v-if="detail.version > 1" class="adm-help">Revisión {{ detail.version }}</span>
+          </div>
+          <dl class="grid grid-cols-2 gap-3">
+            <div>
+              <dt class="adm-help">Destino</dt>
+              <dd class="text-[var(--text-strong)]">{{ destination?.postalCode }} {{ destination?.city }}</dd>
+            </div>
+            <div>
+              <dt class="adm-help">Entrega</dt>
+              <dd class="text-[var(--text-strong)]">{{ methodLabels[shippingMethod ?? ''] ?? '—' }}</dd>
+            </div>
+            <div>
+              <dt class="adm-help">Válido hasta</dt>
+              <dd class="text-[var(--text-strong)]">
+                <time :datetime="expiration ?? undefined">{{ adminDate(expiration, true) }}</time>
+              </dd>
+            </div>
+            <div v-if="detail.total">
+              <dt class="adm-help">Total con IVA</dt>
+              <dd class="font-semibold tabular-nums text-[var(--text-strong)]">
+                {{ money(detail.total.grossCents) }}
+                <span class="font-normal text-[var(--text-muted)]"
+                  >· portes {{ money(detail.shipping?.grossCents ?? 0) }}</span
+                >
+              </dd>
+            </div>
+          </dl>
+          <p v-if="detail.status === 'approved' || detail.status === 'converted'" class="adm-help">
+            El precio aprobado se mantiene hasta la fecha de validez. No garantiza que haya stock ni cubre cambios de
+            IVA o de portes.
+          </p>
+          <div class="adm-table-wrap rounded-[var(--radius-surface)] border border-[var(--border)]">
+            <table class="adm-table">
+              <caption class="sr-only">
+                Líneas revisadas del presupuesto
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Artículo</th>
+                  <th scope="col" data-numeric>Cantidad</th>
+                  <th scope="col" data-numeric>Precio unitario</th>
+                  <th scope="col" data-numeric>Total con IVA</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="line in detail.lines" :key="line.variantId">
+                  <td class="break-all">{{ line.variantId }}</td>
+                  <td data-numeric>{{ line.quantity }}</td>
+                  <td data-numeric>{{ money(line.unitGrossCents) }}</td>
+                  <td data-numeric>{{ money(line.amounts.grossCents) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <template v-if="'goodsMarginNetCents' in detail">
+            <p class="adm-help">
+              {{
+                detail.goodsMarginNetCents === null
+                  ? 'Margen no disponible.'
+                  : `Margen de la mercancía (sin IVA): ${money(detail.goodsMarginNetCents)}.`
+              }}
+              No incluye el coste del transporte.
+            </p>
+            <div v-if="!['converted', 'revoked'].includes(detail.status)" class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                data-testid="sales-quote-edit"
+                :disabled="locked || !!proposed"
+                @click="edit(false)"
+              >
+                <UIcon name="i-lucide-pencil" class="size-4" />Editar
+              </button>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                data-testid="sales-quote-review"
+                :disabled="locked || !!proposed"
+                @click="review('review')"
+              >
+                Recalcular precio y margen
+              </button>
+              <button
+                v-if="detail.status === 'reviewed'"
+                type="button"
+                class="adm-btn adm-btn--primary adm-btn--sm"
+                data-testid="sales-quote-approve"
+                :disabled="locked || !!proposed"
+                @click="review('approve')"
+              >
+                Aprobar
+              </button>
+              <button
+                type="button"
+                class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                data-testid="sales-quote-revoke"
+                :disabled="locked || !!proposed"
+                @click="review('revoke')"
+              >
+                Anular
+              </button>
+            </div>
+          </template>
+        </article>
+
+        <form v-if="editing" :id="formId" class="adm-stack" @submit.prevent="review(detail ? 'revise' : 'create')">
+          <label class="adm-field"
+            ><span class="adm-label">Identificador del cliente</span
+            ><input
+              v-model="customerId"
+              data-testid="sales-quote-customer"
+              :disabled="locked || !!proposed || !!detail"
+              class="adm-input w-full"
+              required
+            /><span class="adm-help"
+              >Cópialo de la ficha del cliente. El presupuesto se asigna a un cliente que ya existe.</span
+            ></label
+          >
+          <AdminCard title="Artículos">
+            <div class="flex flex-wrap items-end gap-2">
+              <label class="adm-field min-w-0 flex-1"
+                ><span class="adm-label">Buscar producto</span
+                ><input
+                  v-model="query"
+                  data-testid="sales-quote-search-text"
+                  :disabled="locked || !!proposed"
+                  class="adm-input w-full"
+                  @keydown.enter.prevent="search"
+              /></label>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                data-testid="sales-quote-search"
+                :disabled="locked || !!proposed"
+                @click="search"
+              >
+                Buscar
+              </button>
+            </div>
+            <ul v-if="products.length" class="mt-3 flex flex-wrap gap-2">
+              <li v-for="product in products" :key="product.slug">
+                <button
+                  type="button"
+                  class="adm-chip"
+                  :data-testid="`sales-quote-product-${product.slug}`"
+                  :disabled="locked || !!proposed"
+                  @click="choose(product.slug)"
+                >
+                  {{ product.name }}
+                </button>
+              </li>
+            </ul>
+            <ul v-if="variants.length" class="mt-3 space-y-1.5">
+              <li v-for="variant in variants" :key="variant.uuid">
+                <button
+                  type="button"
+                  class="adm-btn adm-btn--ghost adm-btn--sm"
+                  :data-testid="`sales-quote-add-${variant.uuid}`"
+                  :disabled="
+                    locked ||
+                    !!proposed ||
+                    selected.length >= 100 ||
+                    selected.some((line) => line.variantId === variant.uuid)
+                  "
+                  @click="add(variant)"
+                >
+                  <UIcon name="i-lucide-plus" class="size-4" />{{ productName }} · {{ variant.format }} ·
+                  {{ variant.sku }}
+                </button>
+              </li>
+            </ul>
+            <ul v-if="selected.length" class="mt-3 divide-y divide-[var(--border)] border-t border-[var(--border)]">
+              <li v-for="line in selected" :key="line.variantId" class="flex flex-wrap items-center gap-3 py-2">
+                <label class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2"
+                  ><span class="min-w-0 text-[var(--text-strong)]">{{ line.label }}</span
+                  ><input
+                    v-model="line.quantity"
+                    type="number"
+                    min="1"
+                    max="999"
+                    step="1"
+                    :disabled="locked || !!proposed"
+                    :data-testid="`sales-quote-quantity-${line.variantId}`"
+                    class="adm-input w-24"
+                /></label>
+                <button
+                  type="button"
+                  class="adm-btn adm-btn--ghost adm-btn--sm adm-btn--icon"
+                  :aria-label="`Quitar ${line.label}`"
+                  :title="`Quitar ${line.label}`"
+                  :disabled="locked || !!proposed"
+                  @click="selected = selected.filter((item) => item.variantId !== line.variantId)"
+                >
+                  <UIcon name="i-lucide-trash-2" class="size-4" />
+                </button>
+              </li>
+            </ul>
+            <p v-else class="adm-help mt-3">Busca un producto y añade sus formatos al presupuesto.</p>
+          </AdminCard>
+          <div class="adm-form-grid">
+            <label class="adm-field"
+              ><span class="adm-label">Ciudad</span
+              ><input
+                v-model="city"
+                data-testid="sales-quote-city"
+                :disabled="locked || !!proposed"
+                class="adm-input w-full"
+                required
+            /></label>
+            <label class="adm-field"
+              ><span class="adm-label">Código postal</span
+              ><input
+                v-model="postalCode"
+                data-testid="sales-quote-postal"
+                :disabled="locked || !!proposed"
+                class="adm-input w-full"
+                required
+            /></label>
+            <label class="adm-field"
+              ><span class="adm-label">Entrega</span
+              ><select
+                v-model="method"
+                data-testid="sales-quote-method"
+                :disabled="locked || !!proposed"
+                class="adm-input w-full"
+              >
+                <option value="pickup">Recogida</option>
+                <option value="own_delivery">Reparto propio</option>
+                <option value="parcel">Agencia</option>
+              </select></label
+            >
+            <label class="adm-field"
+              ><span class="adm-label">Válido hasta</span
+              ><input
+                v-model="validUntil"
+                type="datetime-local"
+                data-testid="sales-quote-valid-until"
+                :disabled="locked || !!proposed"
+                class="adm-input w-full"
+                required
+              /><span class="adm-help">Hora universal (UTC).</span></label
+            >
+          </div>
+        </form>
+
+        <label v-if="editing || detail" class="adm-field"
+          ><span class="adm-label">Motivo del cambio</span
+          ><textarea
+            v-model="reason"
+            data-testid="sales-quote-reason"
+            :disabled="locked || !!proposed"
+            minlength="10"
+            maxlength="500"
+            rows="2"
+            class="adm-input w-full"
+          /><span class="adm-help">Entre 10 y 500 caracteres. Queda guardado con el presupuesto.</span>
+        </label>
+
+        <UAlert v-if="message" role="status" color="neutral" variant="subtle" icon="i-lucide-info" :title="message" />
+
+        <div
+          v-if="proposed && !intent"
+          class="space-y-3 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--canvas)] p-4"
+        >
+          <p class="font-semibold text-[var(--text-strong)]">
+            ¿Seguro que quieres {{ actionLabels[proposed.action] }}?
+          </p>
+          <p class="adm-help">No se aplica ningún descuento manual, no se cobra y no se reserva stock.</p>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button type="button" class="adm-btn adm-btn--secondary" :disabled="locked" @click="proposed = null">
+              Volver
+            </button>
+            <button
+              type="button"
+              :class="['adm-btn', proposed.action === 'revoke' ? 'adm-btn--danger' : 'adm-btn--primary']"
+              data-testid="sales-quote-confirm"
+              :disabled="locked"
+              @click="send"
+            >
+              Confirmar
+            </button>
+          </div>
+        </div>
+        <div v-if="intent" class="space-y-2">
+          <UAlert
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-hourglass"
+            title="Todavía no sabemos si se ha guardado"
+            description="No se volverá a enviar por su cuenta. Comprueba el resultado antes de seguir."
+          />
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            data-testid="sales-quote-recover"
+            :disabled="busy || pending"
+            @click="recover"
+          >
+            Comprobar resultado
+          </button>
+        </div>
+        <NuxtLink
+          v-if="confirmed?.orderId"
+          :to="`/admin/pedidos/${confirmed.orderId}`"
+          data-testid="sales-quote-order"
+          class="adm-btn adm-btn--secondary"
+          >Ver el pedido creado</NuxtLink
+        >
+      </div>
+      <template #footer>
+        <button type="button" class="adm-btn adm-btn--secondary" :disabled="locked || !!proposed" @click="closePanel">
+          {{ editing ? 'Cancelar' : 'Cerrar' }}
+        </button>
+        <button
+          v-if="editing"
+          type="submit"
+          :form="formId"
+          class="adm-btn adm-btn--primary"
+          data-testid="sales-quote-save-review"
+          :disabled="locked || !!proposed"
+        >
+          {{ detail ? 'Guardar cambios' : 'Crear presupuesto' }}
+        </button>
+      </template>
+    </AdminDrawer>
+  </section>
+  <section v-else aria-label="Presupuestos comerciales" class="space-y-5 p-4 sm:p-6">
     <h1 class="text-2xl font-semibold">{{ audience === 'admin' ? 'Presupuestos comerciales' : 'Mis presupuestos' }}</h1>
     <p>
       La aprobación comercial no cobra ni reserva stock. La conversión crea un pedido pendiente de pago con
@@ -904,7 +1423,7 @@ const money = (value: number) =>
       <article v-if="detail" data-testid="sales-quote-detail" class="space-y-3 rounded border p-4">
         <h2 class="font-semibold">{{ detail.id }} · {{ detail.status }} · v{{ detail.version }}</h2>
         <p>
-          {{ destination?.city }} · {{ destination?.postalCode }} · {{ shippingMethod }} · Vigencia:
+          {{ destination?.city }} · {{ destination?.postalCode }} · {{ shippingMethod }} · vigencia:
           <time :datetime="expiration ?? undefined">{{ expiration }}</time>
         </p>
         <p v-if="detail.status === 'approved' || detail.status === 'converted'">
@@ -935,7 +1454,7 @@ const money = (value: number) =>
           </table>
         </div>
         <p v-if="detail.total">
-          Total revisado: {{ money(detail.total.grossCents) }} · Portes: {{ money(detail.shipping?.grossCents ?? 0) }}
+          Total revisado: {{ money(detail.total.grossCents) }} · portes: {{ money(detail.shipping?.grossCents ?? 0) }}
         </p>
         <template v-if="audience === 'admin' && 'goodsMarginNetCents' in detail">
           <p>

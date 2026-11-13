@@ -6,7 +6,9 @@ useSeoMeta({ title: 'Preautorizaciones · Admin', robots: 'noindex, nofollow, no
 </script>
 
 <template>
-  <div>
-    <AdminPaymentPreauthorizations />
-  </div>
+  <AdminPage>
+    <div>
+      <AdminPaymentPreauthorizations />
+    </div>
+  </AdminPage>
 </template>

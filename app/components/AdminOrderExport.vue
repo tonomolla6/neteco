@@ -151,36 +151,45 @@ async function download() {
 </script>
 
 <template>
-  <section
-    v-if="visible"
-    :aria-labelledby="`${prefix}-heading`"
-    :aria-busy="busy"
-    class="min-w-0 space-y-3 rounded-lg border border-slate-200 p-4"
-  >
-    <h2 :id="`${prefix}-heading`" class="font-semibold">Exportar pedidos</h2>
-    <p class="break-words text-sm text-slate-600">
-      Descarga CSV de los filtros aplicados, no de los cambios sin aplicar ni sólo de la página visible. Máximo
-      {{ ORDER_EXPORT_MAX_ROWS }} pedidos y {{ ORDER_EXPORT_MAX_BYTES / 1_000_000 }} MB; no se truncan resultados.
+  <section v-if="visible" :aria-labelledby="`${prefix}-heading`" :aria-busy="busy" class="min-w-0 space-y-3">
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div class="min-w-0 flex-1 basis-64">
+        <h2 :id="`${prefix}-heading`" class="adm-label">Exportar pedidos</h2>
+        <p class="adm-help break-words">
+          Descarga en CSV todos los pedidos de los filtros aplicados, no solo los de esta página. Máximo
+          {{ ORDER_EXPORT_MAX_ROWS }} pedidos y {{ ORDER_EXPORT_MAX_BYTES / 1_000_000 }} MB.
+        </p>
+      </div>
+      <button
+        type="button"
+        data-order-export-download
+        :disabled="busy || !query.success"
+        class="adm-btn adm-btn--secondary"
+        @click="download"
+      >
+        <UIcon
+          :name="busy ? 'i-lucide-loader-circle' : 'i-lucide-download'"
+          class="size-4"
+          :class="busy && 'animate-spin'"
+        />
+        Descargar CSV
+      </button>
+    </div>
+    <p v-if="busy" data-order-export-loading role="status" class="adm-help">Preparando la descarga…</p>
+    <div v-else-if="!query.success || outcome === 'error'" data-order-export-error role="alert">
+      <UAlert
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se ha descargado ningún archivo"
+        description="No se ha podido preparar la exportación. Si hay demasiados pedidos, acota los filtros y vuelve a intentarlo."
+      />
+    </div>
+    <p v-else-if="outcome === 'empty'" data-order-export-empty role="status" class="adm-help">
+      Sin pedidos para estos filtros: el archivo descargado solo lleva los títulos de las columnas.
     </p>
-    <button
-      type="button"
-      data-order-export-download
-      :disabled="busy || !query.success"
-      class="max-w-full whitespace-normal rounded border px-3 py-2 disabled:opacity-50"
-      @click="download"
-    >
-      Exportar CSV de filtros aplicados
-    </button>
-    <p v-if="busy" data-order-export-loading role="status">Preparando la descarga privada…</p>
-    <p v-else-if="!query.success || outcome === 'error'" data-order-export-error role="alert">
-      No se ha podido validar la exportación. No se ha descargado ningún archivo. Revisa el acceso y los filtros
-      aplicados; si hay demasiados pedidos, acota la búsqueda antes de volver a exportar.
-    </p>
-    <p v-else-if="outcome === 'empty'" data-order-export-empty role="status">
-      Sin pedidos para estos filtros aplicados. CSV descargado sólo con las columnas.
-    </p>
-    <p v-else-if="outcome === 'success'" data-order-export-success role="status">
-      CSV preparado para descarga: {{ rows }} pedidos.
+    <p v-else-if="outcome === 'success'" data-order-export-success role="status" class="adm-help">
+      Archivo descargado con {{ rows }} pedidos.
     </p>
   </section>
 </template>

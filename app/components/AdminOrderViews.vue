@@ -288,84 +288,136 @@ async function recover() {
 }
 </script>
 <template>
-  <section
-    v-if="usable"
-    aria-label="Vistas privadas de pedidos"
-    :aria-busy="busy"
-    class="min-w-0 space-y-3 rounded border p-4"
-  >
-    <h2 class="font-semibold">Vistas privadas de pedidos</h2>
-    <p class="text-sm">
-      Sólo tú puedes consultar estas vistas. Guardan filtros aplicados y columnas, nunca búsquedas ni datos de pedidos.
-      Aplicar una vista consulta los pedidos actuales, sin ejecutar operaciones ni exportar.
-    </p>
-    <button data-views-refresh type="button" :disabled="busy || Boolean(intent) || pending" @click="read()">
-      Consultar vistas
-    </button>
-    <p v-if="busy" role="status">Confirmando vista privada…</p>
-    <p v-if="items && items.length === 0" data-views-empty role="status">No hay vistas privadas guardadas.</p>
-    <label v-if="items && items.length"
-      >Vista privada<select
-        v-model="selected"
-        data-views-select
-        :disabled="busy || Boolean(intent) || pending"
-        @change="choose"
+  <section v-if="usable" aria-label="Vistas privadas de pedidos" :aria-busy="busy" class="min-w-0 space-y-3">
+    <div class="flex flex-wrap items-end gap-x-3 gap-y-2">
+      <label v-if="items && items.length" class="adm-field w-full sm:w-64"
+        ><span class="adm-label">Vista guardada</span
+        ><select
+          v-model="selected"
+          data-views-select
+          class="adm-input w-full"
+          :disabled="busy || Boolean(intent) || pending"
+          @change="choose"
+        >
+          <option value="">Elige una vista</option>
+          <option v-for="view in items" :key="view.id" :value="view.id">{{ view.name }}</option>
+        </select></label
       >
-        <option value="">Selecciona una vista</option>
-        <option v-for="view in items" :key="view.id" :value="view.id">{{ view.name }}</option>
-      </select></label
-    >
-    <label class="block"
-      >Nombre de la vista<input
-        v-model="name"
-        data-views-name
-        maxlength="60"
+      <button
+        v-if="detail"
+        data-views-apply
+        type="button"
+        class="adm-btn adm-btn--primary"
         :disabled="busy || Boolean(intent) || pending"
-        class="max-w-full rounded border p-2"
-    /></label>
-    <div class="flex flex-wrap gap-3">
-      <button data-views-create type="button" :disabled="busy || Boolean(intent) || pending" @click="write('create')">
-        Guardar configuración aplicada como nueva vista
+        @click="applyView"
+      >
+        Aplicar vista
+      </button>
+      <button
+        data-views-refresh
+        type="button"
+        class="adm-btn adm-btn--secondary"
+        :disabled="busy || Boolean(intent) || pending"
+        @click="read()"
+      >
+        <UIcon name="i-lucide-rotate-cw" class="size-4" :class="busy && 'animate-spin'" />
+        {{ items ? 'Actualizar lista' : 'Cargar mis vistas' }}
+      </button>
+      <p v-if="busy" role="status" class="adm-help self-center">Cargando…</p>
+      <p v-if="items && items.length === 0" data-views-empty role="status" class="adm-help self-center">
+        No hay vistas guardadas todavía.
+      </p>
+    </div>
+    <div class="flex flex-wrap items-end gap-x-3 gap-y-2 border-t border-[var(--border)] pt-3">
+      <label class="adm-field w-full sm:w-64"
+        ><span class="adm-label">Nombre de la vista</span
+        ><input
+          v-model="name"
+          data-views-name
+          maxlength="60"
+          placeholder="Por ejemplo: pendientes de hoy"
+          :disabled="busy || Boolean(intent) || pending"
+          class="adm-input w-full"
+      /></label>
+      <button
+        data-views-create
+        type="button"
+        class="adm-btn adm-btn--secondary"
+        :disabled="busy || Boolean(intent) || pending"
+        @click="write('create')"
+      >
+        Guardar como vista nueva
       </button>
       <template v-if="detail">
-        <button data-views-apply type="button" :disabled="busy || Boolean(intent) || pending" @click="applyView">
-          Aplicar vista a filtros
-        </button>
-        <button data-views-update type="button" :disabled="busy || Boolean(intent) || pending" @click="write('update')">
-          Actualizar vista con configuración aplicada
+        <button
+          data-views-update
+          type="button"
+          class="adm-btn adm-btn--secondary"
+          :disabled="busy || Boolean(intent) || pending"
+          @click="write('update')"
+        >
+          Actualizar esta vista
         </button>
         <button
           data-views-archive
           type="button"
+          class="adm-btn adm-btn--danger-soft"
           :disabled="busy || Boolean(intent) || pending"
           @click="write('archive')"
         >
-          Archivar esta vista
+          Archivar
         </button>
       </template>
     </div>
-    <p v-if="status === 'error'" data-views-error role="alert">
-      No se pudo confirmar la consulta o configuración. No se interpreta como una lista vacía.
+    <p class="adm-help">
+      Una vista guarda los filtros y las columnas que tienes aplicados ahora (no la búsqueda). Solo las ves tú.
     </p>
-    <p v-if="status === 'confirmed' || status === 'confirmed_archived'" data-views-confirmed role="status">
-      <template v-if="status === 'confirmed_archived'"
-        >La operación original está confirmada; la vista fue archivada posteriormente. No se ha vuelto a
-        crear.</template
-      >
-      <template v-else>Operación confirmada con recibo y lectura actual de la vista privada.</template>
-    </p>
-    <p v-if="status === 'conflict'" data-views-conflict role="alert">
-      La versión ha cambiado. Conservamos el nombre del borrador; consulta y revisa la vista antes de una nueva
-      operación explícita.
-    </p>
+    <div v-if="status === 'error'" data-views-error role="alert">
+      <UAlert
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se ha podido completar"
+        description="Revisa el nombre de la vista y vuelve a intentarlo."
+      />
+    </div>
+    <div v-if="status === 'confirmed' || status === 'confirmed_archived'" data-views-confirmed role="status">
+      <UAlert
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="
+          status === 'confirmed_archived'
+            ? 'El cambio se guardó, pero la vista fue archivada posteriormente. No se ha vuelto a crear.'
+            : 'Cambios confirmados en tus vistas.'
+        "
+      />
+    </div>
+    <div v-if="status === 'conflict'" data-views-conflict role="alert">
+      <UAlert
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Esta vista se ha modificado desde otra sesión"
+        description="Hemos conservado el nombre que has escrito. Actualiza la lista y revisa la vista antes de volver a guardar."
+      />
+    </div>
     <div v-if="intent" data-views-uncertain role="alert">
-      El resultado aún no está confirmado. No se reenviará la operación automáticamente.<button
+      <UAlert
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-hourglass"
+        title="Todavía no sabemos si se ha guardado"
+        description="No se volverá a enviar por su cuenta. Comprueba el resultado antes de seguir."
+      />
+      <button
         data-views-recover
         type="button"
+        class="adm-btn adm-btn--secondary mt-2"
         :disabled="busy || pending"
         @click="recover"
       >
-        Comprobar resultado mediante GET
+        Comprobar resultado
       </button>
     </div>
   </section>

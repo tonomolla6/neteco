@@ -11,100 +11,107 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-    <p v-if="error" role="alert" class="px-4 py-8 text-center text-red-700">{{ error }}</p>
-    <p v-else-if="loading" role="status" class="px-4 py-8 text-center text-slate-500">Cargando pedidos…</p>
-    <table v-else class="w-full min-w-[820px] text-sm">
-      <thead>
-        <tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-          <th class="px-4 py-3">Pedido</th>
-          <th class="px-4 py-3">Fecha</th>
-          <th class="px-4 py-3">Cliente</th>
-          <th class="px-4 py-3 text-center">Líneas</th>
-          <th class="px-4 py-3 text-right">Total</th>
-          <th class="px-4 py-3">Estado</th>
-          <th class="px-4 py-3">Expedición</th>
-          <th class="px-4 py-3 text-right">Ver</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="order in items" :key="order.id" class="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-          <td class="px-4 py-2.5 font-mono text-xs text-slate-700">{{ order.id }}</td>
-          <td class="px-4 py-2.5 text-slate-600">{{ formatDate(order.createdAt) }}</td>
-          <td class="px-4 py-2.5">
-            <p class="font-medium text-slate-800">
-              {{ order.name }}<template v-if="order.company"> · {{ order.company }}</template>
-            </p>
-            <p class="text-xs text-slate-500">{{ order.email }} · {{ order.city }}</p>
-          </td>
-          <td class="px-4 py-2.5 text-center text-slate-600">{{ order.lines }}</td>
-          <td class="px-4 py-2.5 text-right font-medium text-slate-800">{{ formatPrice(order.total) }}</td>
-          <td class="px-4 py-2.5">
-            <select
-              :value="order.status"
-              :aria-label="`Estado del pedido ${order.id}`"
-              class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 focus:border-neteco-500 focus:outline-none"
-              @change="emit('status', order, $event)"
-            >
-              <option v-for="(state, key) in ORDER_STATUS" :key="key" :value="key">{{ state.label }}</option>
-            </select>
-          </td>
-          <td class="px-4 py-2.5">
-            <div v-if="order.shipmentId" class="flex items-center gap-1">
-              <UButton
-                :to="`/api/admin/shipments/${order.shipmentId}/label`"
-                target="_blank"
-                size="xs"
-                variant="soft"
-                icon="i-lucide-printer"
-                >{{ order.trackingNumber ?? 'Etiqueta' }}</UButton
+  <div class="adm-card adm-tablecard">
+    <div v-if="error" class="adm-empty adm-empty--compact adm-empty--error">
+      <span class="adm-empty__icon"><UIcon name="i-lucide-triangle-alert" class="size-5" /></span>
+      <p role="alert" class="adm-empty__title">{{ error }}</p>
+    </div>
+    <div v-else-if="loading" role="status" class="adm-table-skeleton" aria-busy="true">
+      <span class="sr-only">Cargando pedidos…</span>
+      <div v-for="line in 6" :key="line"><i /><i /><i /><i /></div>
+    </div>
+    <AdminEmptyState
+      v-else-if="!items.length"
+      icon="i-lucide-package"
+      title="Todavía no hay pedidos."
+      description="Los pedidos aparecerán aquí en cuanto entre el primero."
+    />
+    <div v-else class="adm-table-wrap">
+      <table class="adm-table min-w-[820px]">
+        <thead>
+          <tr>
+            <th scope="col">Pedido</th>
+            <th scope="col">Fecha</th>
+            <th scope="col">Cliente</th>
+            <th scope="col" data-numeric>Líneas</th>
+            <th scope="col" data-numeric>Total</th>
+            <th scope="col">Estado</th>
+            <th scope="col">Envío</th>
+            <th scope="col" data-numeric><span class="sr-only">Ver</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="order in items" :key="order.id">
+            <td class="whitespace-nowrap font-semibold tabular-nums text-[var(--text-strong)]" :title="order.id">
+              #{{ order.id.slice(0, 8).toUpperCase() }}
+            </td>
+            <td class="whitespace-nowrap">{{ formatDate(order.createdAt) }}</td>
+            <td>
+              <p class="font-medium text-[var(--text-strong)]">
+                {{ order.name }}<template v-if="order.company"> · {{ order.company }}</template>
+              </p>
+              <p class="text-xs text-[var(--text-muted)]">{{ order.email }} · {{ order.city }}</p>
+            </td>
+            <td data-numeric>{{ order.lines }}</td>
+            <td data-numeric class="font-semibold text-[var(--text-strong)]">{{ formatPrice(order.total) }}</td>
+            <td>
+              <select
+                :value="order.status"
+                :aria-label="`Estado del pedido ${order.id}`"
+                class="adm-input"
+                @change="emit('status', order, $event)"
               >
-              <UButton
-                v-if="!['cancelled', 'delivered'].includes(order.shipmentStatus ?? '')"
-                size="xs"
+                <option v-for="(state, key) in ORDER_STATUS" :key="key" :value="key">{{ state.label }}</option>
+              </select>
+            </td>
+            <td>
+              <div v-if="order.shipmentId" class="flex items-center gap-1">
+                <AdminButton
+                  :to="`/api/admin/shipments/${order.shipmentId}/label`"
+                  target="_blank"
+                  size="sm"
+                  icon="i-lucide-printer"
+                  >{{ order.trackingNumber ?? 'Etiqueta' }}</AdminButton
+                >
+                <AdminButton
+                  v-if="!['cancelled', 'delivered'].includes(order.shipmentStatus ?? '')"
+                  size="sm"
+                  variant="ghost"
+                  icon="i-lucide-rotate-cw"
+                  label="Actualizar seguimiento"
+                  @click="emit('syncTracking', order)"
+                />
+                <AdminButton
+                  v-if="!['cancelled', 'delivered'].includes(order.shipmentStatus ?? '')"
+                  size="sm"
+                  variant="danger-soft"
+                  icon="i-lucide-x"
+                  :label="`Cancelar el envío del pedido ${order.id}`"
+                  @click="emit('cancelShipment', order)"
+                />
+                <AdminBadge v-if="order.shipmentStatus === 'cancelled'" tone="danger">Cancelado</AdminBadge>
+              </div>
+              <AdminButton
+                v-else-if="['pagado', 'preparando'].includes(order.status) && order.shippingMethod !== 'recogida'"
+                size="sm"
+                icon="i-lucide-truck"
+                @click="emit('createShipment', order)"
+                >Crear envío</AdminButton
+              >
+              <span v-else class="text-[var(--text-muted)]">—</span>
+            </td>
+            <td data-numeric>
+              <AdminButton
+                :to="`/admin/pedidos/${order.id}`"
+                size="sm"
                 variant="ghost"
-                icon="i-lucide-refresh-cw"
-                aria-label="Sincronizar tracking"
-                @click="emit('syncTracking', order)"
+                icon="i-lucide-arrow-right"
+                label="Abrir el pedido"
               />
-              <UButton
-                v-if="!['cancelled', 'delivered'].includes(order.shipmentStatus ?? '')"
-                size="xs"
-                color="error"
-                variant="ghost"
-                icon="i-lucide-x"
-                :aria-label="`Cancelar expedición ${order.id}`"
-                @click="emit('cancelShipment', order)"
-              />
-              <UBadge v-if="order.shipmentStatus === 'cancelled'" size="xs" color="error" variant="soft">
-                Cancelada
-              </UBadge>
-            </div>
-            <UButton
-              v-else-if="['pagado', 'preparando'].includes(order.status) && order.shippingMethod !== 'recogida'"
-              size="xs"
-              variant="outline"
-              icon="i-lucide-truck"
-              @click="emit('createShipment', order)"
-              >Crear</UButton
-            >
-            <span v-else class="text-slate-500">—</span>
-          </td>
-          <td class="px-4 py-2.5 text-right">
-            <UButton
-              :to="`/pedido/${order.id}`"
-              target="_blank"
-              size="xs"
-              variant="soft"
-              icon="i-lucide-external-link"
-              aria-label="Ver pedido"
-            />
-          </td>
-        </tr>
-        <tr v-if="!items.length">
-          <td colspan="8" class="px-4 py-10 text-center text-slate-500">Todavía no hay pedidos.</td>
-        </tr>
-      </tbody>
-    </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </template>

@@ -305,46 +305,49 @@ onBeforeUnmount(() => {
     :aria-busy="!!busy"
     class="min-w-0 max-w-full space-y-3 break-words [overflow-wrap:anywhere]"
   >
-    <h2 :id="prefix + '-title'" class="font-semibold">Notas internas y etiquetas</h2>
-    <p class="text-sm">
-      Información privada de administración. Las notas se añaden al historial; las etiquetas sustituyen el conjunto
-      actual. No introduzcas datos sensibles innecesarios.
-    </p>
-    <p v-if="busy === 'read'" data-annotations-loading role="status">Confirmando notas y etiquetas…</p>
-    <p v-if="status === 'error'" data-annotations-error role="alert">
-      No se ha podido confirmar la lectura. No se interpreta como un historial vacío. Actualiza la primera página antes
-      de guardar.
-    </p>
-    <button
-      data-annotations-refresh
-      type="button"
-      :disabled="!!busy || !!intent"
-      class="max-w-full whitespace-normal rounded border px-3 py-2"
-      @click="load()"
-    >
-      Actualizar notas y etiquetas
-    </button>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h2 :id="prefix + '-title'" class="adm-card__title">Notas internas y etiquetas</h2>
+      <button
+        data-annotations-refresh
+        type="button"
+        :disabled="!!busy || !!intent"
+        class="adm-btn adm-btn--ghost adm-btn--sm"
+        @click="load()"
+      >
+        <UIcon name="i-lucide-rotate-cw" class="size-4" :class="busy === 'read' && 'animate-spin'" />Actualizar
+      </button>
+    </div>
+    <p class="adm-help">Solo las ve el equipo, nunca el cliente.</p>
+    <p v-if="busy === 'read'" data-annotations-loading role="status" class="adm-help">Cargando notas y etiquetas…</p>
+    <div v-if="status === 'error'" data-annotations-error role="alert">
+      <UAlert
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se han podido cargar las notas"
+        description="Pulsa «Actualizar» antes de guardar nada."
+      />
+    </div>
     <template v-if="snapshot">
-      <p class="text-sm">Última versión confirmada: {{ snapshot.version }}. Autor identificado por su ID interno.</p>
-      <ul aria-label="Etiquetas internas" class="flex flex-wrap gap-2">
-        <li
-          v-for="label in snapshot.labels"
-          :key="label"
-          class="max-w-full break-words rounded bg-slate-100 px-2 py-1 text-sm"
-        >
+      <ul v-if="snapshot.labels.length" aria-label="Etiquetas internas" class="flex flex-wrap gap-2">
+        <li v-for="label in snapshot.labels" :key="label" class="adm-chip max-w-full break-words">
           {{ label }}
         </li>
       </ul>
-      <p v-if="!snapshot.notes.length" data-annotations-empty role="status">
-        No hay notas internas en este historial confirmado.
+      <p v-if="!snapshot.notes.length" data-annotations-empty role="status" class="adm-help">
+        Todavía no hay notas en este pedido.
       </p>
-      <ol aria-label="Historial de notas internas" class="space-y-3">
-        <li v-for="item in snapshot.notes" :key="item.id" class="min-w-0 rounded border p-3">
-          <p class="break-all text-xs">
-            Autor {{ item.authorId }} ·
-            <time :datetime="item.createdAt">{{ new Date(item.createdAt).toLocaleString('es-ES') }}</time>
+      <ol aria-label="Historial de notas internas" class="space-y-2">
+        <li
+          v-for="item in snapshot.notes"
+          :key="item.id"
+          class="min-w-0 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3"
+        >
+          <p class="whitespace-pre-wrap break-words text-[var(--text-strong)]">{{ item.text }}</p>
+          <p class="mt-1 text-xs text-[var(--text-muted)]" :title="'Autor ' + item.authorId">
+            <time :datetime="item.createdAt">{{ adminDate(item.createdAt, true) }}</time>
+            <span class="sr-only"> · Autor {{ item.authorId }}</span>
           </p>
-          <p class="whitespace-pre-wrap break-words">{{ item.text }}</p>
         </li>
       </ol>
       <button
@@ -352,85 +355,87 @@ onBeforeUnmount(() => {
         data-annotations-more
         type="button"
         :disabled="!!busy || !!intent || status === 'error'"
-        class="max-w-full whitespace-normal rounded border px-3 py-2"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
         @click="load(true)"
       >
-        {{ busy === 'more' ? 'Cargando notas anteriores…' : 'Cargar más notas' }}
+        {{ busy === 'more' ? 'Cargando notas anteriores…' : 'Ver notas anteriores' }}
       </button>
-      <form class="min-w-0 space-y-3" @submit.prevent="submit">
-        <div>
-          <label :for="prefix + '-note'" class="block font-medium">Nueva nota interna (máximo 2000 caracteres)</label
+      <form class="min-w-0 space-y-3 border-t border-[var(--border)] pt-3" @submit.prevent="submit">
+        <div class="adm-field">
+          <label :for="prefix + '-note'" class="adm-label">Nueva nota</label
           ><textarea
             :id="prefix + '-note'"
             v-model="note"
             data-annotations-note
             :disabled="!!busy || !!intent || status === 'error'"
-            rows="4"
+            rows="3"
             maxlength="2000"
-            class="w-full min-w-0 rounded border p-2"
+            class="adm-input w-full min-w-0"
           />
-          <p class="text-xs">Texto plano; no se modifica ni elimina ninguna nota anterior.</p>
+          <p class="adm-help">Hasta 2000 caracteres. Las notas guardadas no se pueden editar ni borrar.</p>
         </div>
-        <div>
-          <label :for="prefix + '-labels'" class="block font-medium"
-            >Etiquetas (una por línea, hasta 8 de 40 caracteres)</label
+        <div class="adm-field">
+          <label :for="prefix + '-labels'" class="adm-label">Etiquetas</label
           ><textarea
             :id="prefix + '-labels'"
             v-model="labels"
             data-annotations-labels
             :disabled="!!busy || !!intent || status === 'error'"
-            rows="3"
-            class="w-full min-w-0 rounded border p-2"
+            rows="2"
+            class="adm-input w-full min-w-0"
           />
-          <p class="text-xs">
-            Deja este campo vacío para retirar todas las etiquetas. Los cambios sólo se guardan al confirmar este botón.
-          </p>
+          <p class="adm-help">Una por línea, hasta 8. Déjalo vacío para quitar todas las etiquetas.</p>
         </div>
-        <button
-          data-annotations-submit
-          type="submit"
-          :disabled="!canSubmit"
-          class="max-w-full whitespace-normal rounded border px-3 py-2"
-        >
-          Guardar nota y cambios de etiquetas
-        </button>
+        <div class="flex justify-end">
+          <button data-annotations-submit type="submit" :disabled="!canSubmit" class="adm-btn adm-btn--secondary">
+            Guardar
+          </button>
+        </div>
       </form>
     </template>
-    <div v-if="status === 'unknown'" data-annotations-unknown role="alert" class="space-y-2 rounded border p-3">
-      <p>
-        Resultado no confirmado: no se sabe si los cambios se guardaron. La intención original se conserva sólo en esta
-        pestaña. No cierres ni recargues mientras compruebas el resultado.
-      </p>
+    <div v-if="status === 'unknown'" data-annotations-unknown role="alert" class="space-y-2">
+      <UAlert
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-hourglass"
+        title="Todavía no sabemos si se ha guardado"
+        :description="
+          checked
+            ? 'Sigue sin aparecer. Puedes volver a enviar exactamente los mismos cambios.'
+            : 'No cierres ni recargues esta página: comprueba primero el resultado.'
+        "
+      />
       <div class="flex flex-wrap gap-2">
         <button
           data-annotations-check
           type="button"
           :disabled="!!busy"
-          class="max-w-full whitespace-normal rounded border px-3 py-2"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
           @click="check"
         >
-          Comprobar cambios guardados</button
+          Comprobar si se guardó</button
         ><button
           data-annotations-replay
           type="button"
           :disabled="!!busy || !checked"
-          class="max-w-full whitespace-normal rounded border px-3 py-2"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
           @click="replay"
         >
-          Reintentar los mismos cambios
+          Volver a enviar
         </button>
       </div>
-      <p v-if="checked" class="text-sm">
-        La consulta todavía no confirma un efecto. Un reintento explícito reutiliza exactamente la clave y el contenido
-        originales.
-      </p>
     </div>
-    <p v-if="status === 'confirmed' && receipt" data-annotations-confirmed role="status">
-      Cambios guardados confirmados. Versión de la operación: {{ receipt.version }}.
-    </p>
-    <p v-if="status === 'conflict'" data-annotations-conflict role="alert">
-      La versión cambió y las dos comprobaciones no encontraron un recibo de la intención original. Revisa las etiquetas
-      actuales y la nota conservada antes de guardar de nuevo. No se ha reenviado ningún cambio automáticamente.
-    </p>
+    <div v-if="status === 'confirmed' && receipt" data-annotations-confirmed role="status">
+      <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" title="Cambios guardados" />
+    </div>
+    <div v-if="status === 'conflict'" data-annotations-conflict role="alert">
+      <UAlert
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Alguien ha cambiado las notas o etiquetas mientras tanto"
+        description="No se ha guardado nada. Revisa las etiquetas actuales y tu nota antes de guardar de nuevo."
+      />
+    </div>
   </section>
 </template>
