@@ -1,7 +1,7 @@
 import { access, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
-import { Miniflare, convertV4MiniflareOptions, NoOpLog } from 'miniflare'
+import { dirname, join, resolve } from 'node:path'
+import { Miniflare, convertV4MiniflareOptions, NoOpLog, type V4ModuleDefinition } from 'miniflare'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 import { deterministicTestData } from '../fixtures/deterministic'
 
@@ -15,6 +15,16 @@ export async function createCompiledShopFixture(overrides: Record<string, string
   const scriptPath = resolve('.wrangler/shop-bundle/shop.js')
   const assetsDirectory = resolve('.output-cloudflare/public')
   await Promise.all([access(scriptPath), access(assetsDirectory)])
+  // Preserve the emitted module bytes and names. The v5 converter cannot
+  // translate legacy modulesRules; native imports need explicit module types.
+  const modules: V4ModuleDefinition[] = [
+    { type: 'ESModule', path: scriptPath, contents: await readFile(scriptPath, 'utf8') }
+  ]
+  for (const file of (await readdir(dirname(scriptPath))).sort()) {
+    if (!/^[a-f0-9]{40}-[a-z0-9_.-]+\.(?:wasm|bin)$/.test(file)) continue
+    const path = join(dirname(scriptPath), file)
+    modules.push({ type: file.endsWith('.wasm') ? 'CompiledWasm' : 'Data', path, contents: await readFile(path) })
+  }
   const migrations = (await readdir('db/d1/migrations')).filter((name) => /^\d{4}_.*\.sql$/.test(name)).sort()
   if (migrations.length !== 156 || migrations.some((file, index) => Number(file.slice(0, 4)) !== index + 1))
     throw new Error('Compiled-shop fixture requires exactly migrations 0001 through 0156')
@@ -72,8 +82,8 @@ export async function createCompiledShopFixture(overrides: Record<string, string
       convertV4MiniflareOptions({
         name: 'neteco-compiled-shop-test',
         rootPath: process.cwd(),
-        scriptPath,
-        modules: true,
+        modules,
+        modulesRoot: process.cwd(),
         compatibilityDate: '2026-08-15',
         compatibilityFlags: ['nodejs_compat'],
         resourcePersistencePath: directory,

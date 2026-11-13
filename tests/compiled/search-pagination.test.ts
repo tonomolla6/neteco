@@ -5,6 +5,7 @@ import { createCompiledShopFixture } from '../support/compiled-shop-fixture'
 import { provisionPublicationValidityFixture } from '../support/publication-validity-fixture'
 import { renderD1CategorySeed } from '../../scripts/lib/d1-category-seed'
 import { renderD1ProductSeed } from '../../scripts/lib/d1-product-seed'
+import { renderD1InventorySeed } from '../../scripts/lib/d1-inventory-seed'
 import { splitDemoSql } from '../../scripts/lib/d1-demo-sql'
 
 const pageSchema = z
@@ -30,7 +31,7 @@ it('renders only page two across search, catalogue and category SSR with filter-
       }
     })
     const db = fixture.database
-    for (const render of [renderD1CategorySeed, renderD1ProductSeed]) {
+    for (const render of [renderD1CategorySeed, renderD1ProductSeed, renderD1InventorySeed]) {
       const statements = splitDemoSql(render())
       for (let offset = 0; offset < statements.length; offset += 75) {
         const results = await db.batch(statements.slice(offset, offset + 75).map((sql) => db.prepare(sql)))
