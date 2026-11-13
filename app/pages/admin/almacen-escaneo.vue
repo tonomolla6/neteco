@@ -1,10 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Panel de Almacén — Modo Escaneo · Admin' })
+useSeoMeta({ title: 'Escaneo de almacén · Panel NETECO' })
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminWarehouseScanPanel />
-  </div>
+  </AdminPage>
 </template>

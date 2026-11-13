@@ -182,34 +182,56 @@ watch(
 )
 
 const streamLabels = {
-    capture_applied: 'Capturas aplicadas',
-    refund_confirmed: 'Reembolsos confirmados',
-    fiscal_issued: 'Documentos fiscales ordinarios'
+    capture_applied: 'Cobros',
+    refund_confirmed: 'Reembolsos',
+    fiscal_issued: 'Facturas'
   } as const,
   eventLabels = {
     page_view: 'Páginas vistas',
-    catalog_viewed: 'Catálogo consultado',
-    search_completed: 'Búsquedas completadas',
-    product_viewed: 'Productos consultados',
-    cart_item_added: 'Adiciones al carrito',
-    cart_item_removed: 'Retiradas del carrito',
-    checkout_started: 'Checkouts iniciados',
-    web_vital: 'Mediciones de rendimiento',
+    catalog_viewed: 'Visitas al catálogo',
+    search_completed: 'Búsquedas',
+    product_viewed: 'Productos vistos',
+    cart_item_added: 'Añadidos al carrito',
+    cart_item_removed: 'Quitados del carrito',
+    checkout_started: 'Compras iniciadas',
+    web_vital: 'Mediciones de velocidad',
     promotional_impression: 'Impresiones promocionales',
     promotional_click: 'Clics en promociones'
   } as const,
   issueLabels = {
-    missing: 'Proyección pendiente',
-    mismatch: 'Proyección discordante',
-    unconfirmed: 'Fuente no confirmada'
+    missing: 'Pendiente de contabilizar',
+    mismatch: 'No coincide con lo contabilizado',
+    unconfirmed: 'Origen sin confirmar'
   },
+  issueTones = { missing: 'warning', mismatch: 'danger', unconfirmed: 'neutral' } as const,
   hintLabels = {
-    projection_pending: 'Revisar la proyección gobernada en el servidor; esta pantalla no la ejecuta.',
-    projection_mismatch: 'Revisar el hecho proyectado frente al contrato de origen inmutable.',
-    source_proof_unavailable: 'Revisar las pruebas durables del contrato y su recibo; no reenviar operaciones.',
-    capture_provenance_unavailable:
-      'Falta procedencia histórica de la captura; no inferir entorno ni movimiento bancario.'
-  } as const
+    projection_pending: 'Lo debe revisar el equipo técnico; esta pantalla no la ejecuta.',
+    projection_mismatch: 'Comparar el importe contabilizado con el del cobro original.',
+    source_proof_unavailable: 'Revisar el justificante de la operación; no hay que repetirla.',
+    capture_provenance_unavailable: 'Cobro antiguo sin datos de origen; no se puede asociar a un movimiento bancario.'
+  } as const,
+  presetOptions = [
+    { value: '7', label: '7 días' },
+    { value: '14', label: '14 días' },
+    { value: '30', label: '30 días' }
+  ],
+  // El atajo activo se deduce de las fechas: así nunca queda desfasado respecto al rango.
+  preset = computed({
+    get: () => {
+      const days = String(Math.round((Date.parse(toDate.value) - Date.parse(fromDate.value)) / 86_400_000))
+      return toDate.value === defaultAnalyticsDates().to && presetOptions.some((option) => option.value === days)
+        ? days
+        : ''
+    },
+    set: (value: string) => {
+      const days = Number(value),
+        to = defaultAnalyticsDates().to
+      if (!days) return
+      fromDate.value = new Date(Date.parse(to) - days * 86_400_000).toISOString().slice(0, 10)
+      toDate.value = to
+      void refresh()
+    }
+  })
 function definition(key: string) {
   return snapshot.value?.definitions.find((item) => item.key === key)?.definition
 }
@@ -221,205 +243,250 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <section class="space-y-6" aria-labelledby="analytics-heading">
-    <header class="flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 id="analytics-heading" class="text-2xl font-bold">Analítica operativa</h1>
-        <p class="mt-1 text-sm text-muted">Hechos del servidor y medición consentida, separados. Sólo lectura.</p>
-      </div>
-      <UButton
-        v-if="authorize()"
-        type="button"
-        icon="i-lucide-refresh-cw"
-        variant="outline"
-        :disabled="loading"
-        data-testid="analytics-refresh"
-        @click="refresh"
-      >
-        Actualizar lecturas
-      </UButton>
-    </header>
+  <section class="adm-stack" aria-labelledby="analytics-heading">
+    <h2 id="analytics-heading" class="sr-only">Cobros y actividad de la tienda</h2>
 
-    <p v-if="runtime !== 'cloudflare'" data-testid="analytics-runtime-unavailable" role="status">
-      Esta analítica requiere el servicio D1 de Cloudflare. No está disponible en Node ni en un entorno desconocido.
-    </p>
-    <p v-else-if="!authorize()" data-testid="analytics-auth-required" role="status">
-      Requiere identidad actual confirmada, email verificado y MFA. El permiso administrativo se comprueba en el
-      servidor.
-    </p>
+    <AdminCard v-if="runtime !== 'cloudflare'">
+      <AdminEmptyState
+        data-testid="analytics-runtime-unavailable"
+        role="status"
+        icon="i-lucide-chart-no-axes-combined"
+        title="La analítica no está disponible en este entorno"
+        description="Estas cifras solo se pueden consultar en la tienda publicada."
+      />
+    </AdminCard>
+    <AdminCard v-else-if="!authorize()">
+      <AdminEmptyState
+        data-testid="analytics-auth-required"
+        role="status"
+        icon="i-lucide-lock"
+        title="Confirma tu identidad para ver las cifras"
+        description="Necesitas la sesión iniciada, el correo verificado y la verificación en dos pasos. El permiso se comprueba en el servidor."
+      />
+    </AdminCard>
     <template v-else>
-      <form class="flex flex-wrap items-end gap-4 rounded-lg border border-default p-4" @submit.prevent="refresh">
-        <div class="space-y-1">
-          <label for="analytics-from" class="block text-sm font-medium">Desde · UTC, incluido</label>
-          <input
-            id="analytics-from"
-            v-model="fromDate"
-            type="date"
-            class="rounded-md border border-default p-2"
-            required
-          />
+      <form class="adm-toolbar" aria-label="Periodo de las cifras" @submit.prevent="refresh">
+        <AdminFilters v-model="preset" :options="presetOptions" label="Periodo" />
+        <label for="analytics-from" class="adm-help">Desde</label>
+        <input id="analytics-from" v-model="fromDate" type="date" class="adm-input w-auto" required @change="refresh" />
+        <label for="analytics-to" class="adm-help">Hasta (no incluido)</label>
+        <input id="analytics-to" v-model="toDate" type="date" class="adm-input w-auto" required @change="refresh" />
+        <button
+          v-if="!applied"
+          type="submit"
+          class="adm-btn adm-btn--primary"
+          :disabled="loading"
+          data-testid="analytics-apply"
+        >
+          Consultar
+        </button>
+        <div class="adm-toolbar__end">
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading"
+            data-testid="analytics-refresh"
+            @click="refresh"
+          >
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+          </button>
         </div>
-        <div class="space-y-1">
-          <label for="analytics-to" class="block text-sm font-medium">Hasta · UTC, excluido</label>
-          <input id="analytics-to" v-model="toDate" type="date" class="rounded-md border border-default p-2" required />
-        </div>
-        <UButton type="submit" :disabled="loading" data-testid="analytics-apply">Consultar rango</UButton>
-        <p class="w-full text-sm text-muted">
-          Máximo 31 días. El rango inicial contiene los últimos 7 días UTC completos.
-        </p>
       </form>
-      <p v-if="rangeError" role="alert" data-testid="analytics-range-error">
-        Elige fechas UTC válidas, con inicio anterior al final y un máximo de 31 días.
+
+      <UAlert
+        v-if="rangeError"
+        role="alert"
+        data-testid="analytics-range-error"
+        color="error"
+        variant="subtle"
+        title="Revisa las fechas"
+        description="La fecha inicial debe ser anterior a la final y el periodo no puede superar 31 días."
+      />
+      <p v-if="!applied && !rangeError" role="status" class="adm-help">
+        Has cambiado el periodo: pulsa «Consultar» para ver sus cifras.
       </p>
-      <p v-if="!applied && !rangeError" role="status">Rango cambiado: consulta de nuevo para confirmar los datos.</p>
-      <p v-if="denied" role="alert" data-testid="analytics-access-denied">
-        El servidor no confirma el acceso actual. Los datos anteriores se han eliminado; verifica la sesión y actualiza
-        explícitamente.
-      </p>
-      <p v-if="contextError" role="alert" data-testid="analytics-context-error">
-        Las lecturas no corresponden a la misma política y población confirmadas. No se combinan; actualiza ambas
-        lecturas.
-      </p>
-      <p v-if="summary.loading.value" role="status" data-testid="analytics-loading">
-        Confirmando métricas, cobertura e identidad vigente…
-      </p>
-      <p v-if="summary.failed.value" role="alert" data-testid="analytics-read-error">
-        No hay una lectura confirmada de las métricas. Un fallo no equivale a actividad cero. Puedes actualizar
-        explícitamente.
-      </p>
+      <UAlert
+        v-if="denied"
+        role="alert"
+        data-testid="analytics-access-denied"
+        color="error"
+        variant="subtle"
+        title="No tienes acceso a estas cifras"
+        description="Hemos retirado los datos que había en pantalla. Vuelve a iniciar sesión y pulsa «Actualizar»."
+      />
+      <UAlert
+        v-if="contextError"
+        role="alert"
+        data-testid="analytics-context-error"
+        color="warning"
+        variant="subtle"
+        title="Las cifras han cambiado mientras se cargaban"
+        description="Para no mezclar datos de momentos distintos no se muestran. Pulsa «Actualizar» para cargarlas de nuevo."
+      />
+      <div v-if="summary.loading.value" class="adm-grid" role="status" data-testid="analytics-loading">
+        <span class="sr-only">Cargando cifras…</span>
+        <div
+          v-for="row in 4"
+          :key="row"
+          class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+        />
+      </div>
+      <AdminCard v-if="summary.failed.value">
+        <AdminEmptyState
+          role="alert"
+          data-testid="analytics-read-error"
+          variant="error"
+          title="No hemos podido cargar las cifras"
+          description="Un fallo de carga no equivale a actividad cero. Vuelve a intentarlo."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="refresh">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
 
       <template v-if="snapshot">
-        <div class="rounded-lg border border-default p-4 text-sm" data-testid="analytics-provenance">
-          <p class="font-medium">
-            Fuente: Cloudflare D1 · {{ snapshot.population.environment }} · perfil {{ snapshot.schemaVersion }} de sólo
-            lectura
-          </p>
-          <p>Observado: {{ analyticsInstant(snapshot.generatedAt) }}</p>
-          <p>Periodo: [{{ snapshot.period.from }}, {{ snapshot.period.to }}) · inicio incluido, final excluido</p>
-          <p>
-            Política: {{ snapshot.policy.reference }} · versión {{ snapshot.policy.version }} · retención
-            {{ snapshot.policy.retentionDays }} días
-          </p>
-          <p>Propósito: medición propia. Esta lectura no certifica liquidación bancaria ni aceptación externa.</p>
-        </div>
-        <p
+        <UAlert
           v-if="snapshot.population.validationOnly"
-          class="rounded-lg border border-warning p-4"
           role="status"
           data-testid="analytics-validation-only"
-        >
-          Datos de validación local o preview. No representan ventas reales, movimientos bancarios ni documentos
-          fiscales válidos.
-        </p>
-        <p
+          color="warning"
+          variant="subtle"
+          title="Datos de prueba"
+          description="No representan ventas reales, movimientos bancarios ni facturas válidas."
+        />
+        <UAlert
           v-if="
             snapshot.coverage.status !== 'complete' || Object.values(snapshot.metrics).some((value) => value === null)
           "
-          class="rounded-lg border border-warning p-4"
           role="status"
           data-testid="analytics-partial"
-        >
-          {{
+          color="warning"
+          variant="subtle"
+          :title="
             snapshot.coverage.status === 'unavailable'
               ? 'Cobertura no disponible'
               : snapshot.coverage.status === 'partial'
                 ? 'Cobertura parcial'
                 : 'Métricas parcialmente disponibles'
-          }}. Consulta la cobertura y las definiciones antes de interpretar importes ausentes. «No disponible» no
-          significa cero.
-        </p>
+          "
+          description="Faltan datos por confirmar en este periodo. «No disponible» no significa cero."
+        />
         <p
           v-if="
             snapshot.coverage.status === 'complete' &&
             snapshot.coverage.streams.every((stream) => stream.sourceCount === 0)
           "
           role="status"
+          class="adm-help"
           data-testid="analytics-commerce-empty"
         >
-          Sin fuentes financieras confirmadas en este rango y población. La medición del navegador se muestra por
-          separado.
+          No hay cobros, reembolsos ni facturas en este periodo. La actividad de la web se muestra más abajo.
         </p>
-        <div class="grid gap-4 md:grid-cols-3" data-testid="analytics-money">
-          <article class="rounded-lg border border-default p-4">
-            <h2 class="text-sm font-medium">Cobrado bruto</h2>
-            <p class="mt-2 text-2xl font-semibold" data-testid="analytics-gross">
+
+        <div class="adm-grid" data-testid="analytics-money">
+          <div class="adm-card adm-stat" :title="definition('grossCollectedCents')">
+            <p class="adm-stat__label"><UIcon name="i-lucide-banknote" class="size-4" />Cobrado</p>
+            <p class="adm-stat__value" data-testid="analytics-gross">
               {{ analyticsMoney(snapshot.metrics.grossCollectedCents) }}
             </p>
-            <p class="mt-1 text-sm">Capturas aplicadas: {{ analyticsCount(snapshot.metrics.capturedOrders) }}</p>
-            <p class="mt-2 text-sm text-muted">{{ definition('grossCollectedCents') }}</p>
-          </article>
-          <article class="rounded-lg border border-default p-4">
-            <h2 class="text-sm font-medium">Reembolsado confirmado</h2>
-            <p class="mt-2 text-2xl font-semibold" data-testid="analytics-refunded">
+            <p class="adm-stat__foot">{{ analyticsCount(snapshot.metrics.capturedOrders) }} cobros</p>
+          </div>
+          <div class="adm-card adm-stat" :title="definition('refundedCents')">
+            <p class="adm-stat__label"><UIcon name="i-lucide-undo-2" class="size-4" />Reembolsado</p>
+            <p class="adm-stat__value" data-testid="analytics-refunded">
               {{ analyticsMoney(snapshot.metrics.refundedCents) }}
             </p>
-            <p class="mt-1 text-sm">Operaciones confirmadas: {{ analyticsCount(snapshot.metrics.confirmedRefunds) }}</p>
-            <p class="mt-2 text-sm text-muted">{{ definition('refundedCents') }}</p>
-          </article>
-          <article class="rounded-lg border border-default p-4">
-            <h2 class="text-sm font-medium">Cobrado menos reembolsos</h2>
-            <p class="mt-2 text-2xl font-semibold" data-testid="analytics-after-refunds">
+            <p class="adm-stat__foot">{{ analyticsCount(snapshot.metrics.confirmedRefunds) }} reembolsos</p>
+          </div>
+          <div class="adm-card adm-stat" :title="definition('collectedAfterRefundsCents')">
+            <p class="adm-stat__label"><UIcon name="i-lucide-wallet" class="size-4" />Cobrado menos reembolsos</p>
+            <p class="adm-stat__value" data-testid="analytics-after-refunds">
               {{ analyticsMoney(snapshot.metrics.collectedAfterRefundsCents) }}
             </p>
-            <p class="mt-2 text-sm text-muted">{{ definition('collectedAfterRefundsCents') }}</p>
-          </article>
+            <p class="adm-stat__foot">Sin descontar costes ni comisiones</p>
+          </div>
+          <div class="adm-card adm-stat" :title="definition('issuedFiscalCents')" data-testid="analytics-fiscal">
+            <p class="adm-stat__label"><UIcon name="i-lucide-file-text" class="size-4" />Facturas emitidas</p>
+            <p class="adm-stat__value">{{ analyticsMoney(snapshot.metrics.issuedFiscalCents) }}</p>
+            <p class="adm-stat__foot">
+              {{ analyticsCount(snapshot.metrics.issuedFiscalDocuments) }} documentos. No es una venta: es lo facturado.
+            </p>
+          </div>
         </div>
-        <article class="rounded-lg border border-default p-4" data-testid="analytics-fiscal">
-          <h2 class="font-semibold">Documentación fiscal ordinaria · No es una venta</h2>
-          <p class="mt-2">
-            {{ analyticsCount(snapshot.metrics.issuedFiscalDocuments) }} documentos ·
-            {{ analyticsMoney(snapshot.metrics.issuedFiscalCents) }}
-          </p>
-          <p class="mt-2 text-sm text-muted">{{ definition('issuedFiscalCents') }}</p>
-        </article>
 
-        <section class="space-y-3" aria-labelledby="analytics-coverage-heading">
-          <h2 id="analytics-coverage-heading" class="text-lg font-semibold">Cobertura y retraso de proyección</h2>
-          <p class="text-sm text-muted">
-            Fuentes elegibles, no confirmadas y excluidas se distinguen. Los retrasos se observan respecto a la fecha
-            del servidor.
+        <AdminCard
+          title="Actividad en la web"
+          description="Solo se mide a los visitantes que han aceptado las cookies de medición."
+          aria-labelledby="analytics-browser-heading"
+          data-testid="analytics-browser"
+        >
+          <template #title><span id="analytics-browser-heading">Actividad en la web</span></template>
+          <AdminEmptyState
+            v-if="snapshot.browser.eventCounts.every((event) => event.count === 0)"
+            compact
+            icon="i-lucide-mouse-pointer-click"
+            title="Sin visitas medidas en este periodo"
+            description="Esto no demuestra ausencia de compras: solo que nadie aceptó la medición."
+            data-testid="analytics-browser-empty"
+          />
+          <p class="adm-help">
+            {{ analyticsCount(snapshot.browser.uniqueSessions) }} visitas anónimas medidas. Sin autoridad financiera ni
+            conversiones atribuidas: estas cifras no se cruzan con los cobros.
           </p>
-          <div class="overflow-x-auto rounded-lg border border-default">
-            <table class="w-full text-left text-sm" data-testid="analytics-coverage">
+          <dl class="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div v-for="event in snapshot.browser.eventCounts" :key="event.name">
+              <dt class="adm-help">{{ eventLabels[event.name] }}</dt>
+              <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                {{ analyticsCount(event.count) }}
+              </dd>
+            </div>
+          </dl>
+        </AdminCard>
+
+        <AdminCard
+          flush
+          title="Cobertura de los datos"
+          description="Cuántos cobros, reembolsos y facturas del periodo están ya contabilizados en estas cifras."
+          aria-labelledby="analytics-coverage-heading"
+        >
+          <template #title><span id="analytics-coverage-heading">Cobertura de los datos</span></template>
+          <div class="adm-table-wrap">
+            <table class="adm-table" data-testid="analytics-coverage">
               <caption class="sr-only">
-                Cobertura de las tres corrientes financieras del periodo
+                Cobertura de cobros, reembolsos y facturas del periodo
               </caption>
               <thead>
-                <tr class="bg-elevated">
-                  <th scope="col" class="p-3">Corriente</th>
-                  <th scope="col" class="p-3">Fuentes</th>
-                  <th scope="col" class="p-3">Elegibles</th>
-                  <th scope="col" class="p-3">Sin confirmar</th>
-                  <th scope="col" class="p-3">Excluidas</th>
-                  <th scope="col" class="p-3">Proyectadas</th>
-                  <th scope="col" class="p-3">Pendientes</th>
-                  <th scope="col" class="p-3">Retraso más antiguo</th>
+                <tr>
+                  <th scope="col">Origen</th>
+                  <th scope="col" data-numeric>Registros</th>
+                  <th scope="col" data-numeric>Válidos</th>
+                  <th scope="col" data-numeric>Sin confirmar</th>
+                  <th scope="col" data-numeric>Excluidos</th>
+                  <th scope="col" data-numeric>Contabilizados</th>
+                  <th scope="col" data-numeric>Pendientes</th>
+                  <th scope="col">Pendiente más antiguo</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="stream in snapshot.coverage.streams" :key="stream.kind" class="border-t border-default">
-                  <th scope="row" class="p-3 font-medium">
+                <tr v-for="stream in snapshot.coverage.streams" :key="stream.kind">
+                  <th scope="row">
                     {{ streamLabels[stream.kind] }}
-                    <p
-                      v-if="stream.provenance === 'legacy_capture_unavailable'"
-                      class="mt-1 text-xs font-normal text-muted"
-                    >
+                    <p v-if="stream.provenance === 'legacy_capture_unavailable'" class="adm-help font-normal">
                       Procedencia histórica de captura no verificable.
                     </p>
                   </th>
-                  <td class="p-3">{{ analyticsCount(stream.sourceCount) }}</td>
-                  <td class="p-3">{{ analyticsCount(stream.eligibleCount) }}</td>
-                  <td class="p-3">{{ analyticsCount(stream.unconfirmedCount) }}</td>
-                  <td class="p-3">{{ analyticsCount(stream.excludedCount) }}</td>
-                  <td class="p-3">{{ analyticsCount(stream.projectedCount) }}</td>
-                  <td class="p-3">{{ analyticsCount(stream.backlogCount) }}</td>
-                  <td class="p-3">
+                  <td data-numeric>{{ analyticsCount(stream.sourceCount) }}</td>
+                  <td data-numeric>{{ analyticsCount(stream.eligibleCount) }}</td>
+                  <td data-numeric>{{ analyticsCount(stream.unconfirmedCount) }}</td>
+                  <td data-numeric>{{ analyticsCount(stream.excludedCount) }}</td>
+                  <td data-numeric>{{ analyticsCount(stream.projectedCount) }}</td>
+                  <td data-numeric>{{ analyticsCount(stream.backlogCount) }}</td>
+                  <td>
                     {{
                       stream.backlogCount === 0
-                        ? 'Sin pendientes elegibles'
+                        ? 'Sin pendientes'
                         : analyticsLag(stream.oldestUnprojectedAt, snapshot.generatedAt)
                     }}
-                    <p v-if="stream.oldestUnprojectedAt" class="mt-1 text-xs text-muted">
+                    <p v-if="stream.oldestUnprojectedAt" class="adm-help">
                       {{ analyticsInstant(stream.oldestUnprojectedAt) }}
                     </p>
                   </td>
@@ -427,187 +494,215 @@ defineExpose({ refresh })
               </tbody>
             </table>
           </div>
-        </section>
+        </AdminCard>
 
-        <section
-          class="space-y-3 rounded-lg border border-default p-4"
-          aria-labelledby="analytics-browser-heading"
-          data-testid="analytics-browser"
-        >
-          <h2 id="analytics-browser-heading" class="text-lg font-semibold">Medición consentida del navegador</h2>
-          <p class="text-sm text-muted">{{ definition('browserEvents') }}</p>
-          <p>
-            Sesiones anónimas medidas: {{ analyticsCount(snapshot.browser.uniqueSessions) }}. Sin autoridad financiera
-            ni conversiones atribuidas.
-          </p>
-          <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div v-for="event in snapshot.browser.eventCounts" :key="event.name">
-              <dt class="text-sm text-muted">{{ eventLabels[event.name] }}</dt>
-              <dd class="font-semibold">{{ analyticsCount(event.count) }}</dd>
-            </div>
-          </dl>
-          <p
-            v-if="snapshot.browser.eventCounts.every((event) => event.count === 0)"
-            data-testid="analytics-browser-empty"
-          >
-            No hay eventos de navegador confirmados en este periodo. Esto no demuestra ausencia de compras.
-          </p>
-        </section>
-
-        <details class="rounded-lg border border-default p-4" data-testid="analytics-definitions">
-          <summary class="cursor-pointer font-medium">Definiciones, población y fuentes</summary>
-          <dl class="mt-4 space-y-4">
+        <details data-testid="analytics-definitions">
+          <summary>Cómo se calculan estas cifras</summary>
+          <dl class="mt-3 space-y-3">
             <div v-for="item in snapshot.definitions" :key="item.key">
-              <dt class="font-semibold">{{ item.label }}</dt>
-              <dd class="mt-1 text-sm">{{ item.definition }}</dd>
-              <dd class="mt-1 text-sm text-muted">Población: {{ item.population }}</dd>
-              <dd class="mt-1 break-words text-xs text-muted">Fuente: {{ item.source }}</dd>
+              <dt class="font-semibold text-[var(--text-strong)]">{{ item.label }}</dt>
+              <dd>{{ item.definition }}</dd>
+              <dd class="adm-help">Se cuenta: {{ item.population }}</dd>
+              <dd class="adm-help break-words">Origen: {{ item.source }}</dd>
             </div>
           </dl>
+          <div class="adm-help mt-3 space-y-1" data-testid="analytics-provenance">
+            <p>
+              Periodo consultado: [{{ snapshot.period.from }}, {{ snapshot.period.to }}) · inicio incluido, final
+              excluido
+            </p>
+            <p>Datos leídos el {{ analyticsInstant(snapshot.generatedAt) }} · {{ snapshot.population.environment }}</p>
+            <p>
+              Política de medición: {{ snapshot.policy.reference }} · versión {{ snapshot.policy.version }} · formato
+              {{ snapshot.schemaVersion }} · los datos se conservan {{ snapshot.policy.retentionDays }} días
+            </p>
+            <p>Medición propia de la tienda: no sustituye al extracto del banco ni a la contabilidad.</p>
+          </div>
         </details>
       </template>
 
-      <section
+      <AdminSection
         v-if="applied && !denied && !contextError"
-        class="space-y-3"
+        title="Operaciones pendientes de cuadrar"
+        description="Cobros, reembolsos y facturas que todavía no coinciden con lo contabilizado. Solo consulta: aquí no se corrige nada."
         aria-labelledby="analytics-reconciliation-heading"
       >
-        <header class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 id="analytics-reconciliation-heading" class="text-lg font-semibold">Excepciones de conciliación</h2>
-            <p class="text-sm text-muted">
-              Comparación de fuentes y hechos proyectados. No certifica banco ni fiscalidad; no ejecuta correcciones.
-            </p>
-          </div>
-          <UButton
+        <template #actions>
+          <span id="analytics-reconciliation-heading" class="sr-only">Operaciones pendientes de cuadrar</span>
+          <button
             type="button"
-            variant="outline"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
             :disabled="reconciliation.loading.value"
             data-testid="analytics-reconciliation-refresh"
             @click="refreshExceptions"
-            >Actualizar excepciones</UButton
           >
-        </header>
-        <p v-if="reconciliation.loading.value" role="status" data-testid="analytics-reconciliation-loading">
-          Confirmando excepciones del rango y de la página solicitados…
-        </p>
-        <p v-if="reconciliation.failed.value" role="alert" data-testid="analytics-reconciliation-error">
-          No hay una conciliación confirmada. No se interpreta como una lista vacía; actualiza explícitamente.
-        </p>
-        <template v-if="exceptionView">
-          <p class="text-sm text-muted">
-            Fuente: Cloudflare D1 · {{ exceptionView.population.environment }} · observado
-            {{ analyticsInstant(exceptionView.generatedAt) }}
-          </p>
-          <p class="text-sm text-muted">
-            Política: {{ exceptionView.policy.reference }} · versión {{ exceptionView.policy.version }} · retención
-            {{ exceptionView.policy.retentionDays }} días · [{{ exceptionView.period.from }},
-            {{ exceptionView.period.to }})
-          </p>
-          <p v-if="exceptionView.population.validationOnly && !snapshot" role="status">
-            Conciliación de validación local o preview; no confirma operaciones reales.
-          </p>
-          <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" data-testid="analytics-reconciliation-summary">
-            <div>
-              <dt class="text-sm text-muted">Fuentes observadas</dt>
-              <dd>{{ analyticsCount(exceptionView.summary.sourceCount) }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted">Proyecciones pendientes</dt>
-              <dd>{{ analyticsCount(exceptionView.summary.missingCount) }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted">Discordancias</dt>
-              <dd>{{ analyticsCount(exceptionView.summary.mismatchCount) }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted">Sin prueba confirmada</dt>
-              <dd>{{ analyticsCount(exceptionView.summary.unconfirmedCount) }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted">Fuentes excluidas</dt>
-              <dd>{{ analyticsCount(exceptionView.summary.excludedCount) }}</dd>
-            </div>
-            <div>
-              <dt class="text-sm text-muted">Retraso observado</dt>
-              <dd>
-                {{
-                  exceptionView.summary.projectionLagSeconds === null
-                    ? 'No disponible'
-                    : `${analyticsCount(exceptionView.summary.projectionLagSeconds)} s`
-                }}
-              </dd>
-            </div>
-          </dl>
-          <p v-if="exceptionView.pagination.total === 0" role="status" data-testid="analytics-reconciliation-empty">
-            Sin excepciones confirmadas dentro de este rango y población. No certifica actividad, liquidación ni
-            aceptación externa.
-          </p>
-          <div v-else class="overflow-x-auto rounded-lg border border-default">
-            <table class="w-full text-left text-sm" data-testid="analytics-issues">
-              <caption class="sr-only">
-                Excepciones de conciliación de sólo lectura, sin datos de contacto
-              </caption>
-              <thead>
-                <tr class="bg-elevated">
-                  <th scope="col" class="p-3">Incidencia / fuente</th>
-                  <th scope="col" class="p-3">Referencia técnica</th>
-                  <th scope="col" class="p-3">Fecha UTC</th>
-                  <th scope="col" class="p-3">Retraso</th>
-                  <th scope="col" class="p-3">Revisión necesaria</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="issue in exceptionView.issues"
-                  :key="`${issue.code}:${issue.sourceKind}:${issue.sourceId}`"
-                  class="border-t border-default"
-                >
-                  <th scope="row" class="p-3 font-medium">
-                    {{ issueLabels[issue.code] }}
-                    <p class="mt-1 text-xs font-normal text-muted">{{ streamLabels[issue.sourceKind] }}</p>
-                  </th>
-                  <td class="p-3 font-mono text-xs">{{ issue.sourceId }}</td>
-                  <td class="p-3">{{ analyticsInstant(issue.occurredAt) }}</td>
-                  <td class="p-3">
-                    {{ issue.lagSeconds === null ? 'No disponible' : `${analyticsCount(issue.lagSeconds)} s` }}
-                  </td>
-                  <td class="p-3">{{ hintLabels[issue.hint] }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div
-            v-if="exceptionView.pagination.pages > 0"
-            class="flex flex-wrap items-center justify-between gap-3"
-            aria-label="Paginación de excepciones"
-          >
-            <p class="text-sm">
-              Página {{ exceptionView.pagination.page }} de {{ exceptionView.pagination.pages }} ·
-              {{ analyticsCount(exceptionView.pagination.total) }} excepciones
-            </p>
-            <div class="flex gap-2">
-              <UButton
-                type="button"
-                variant="outline"
-                :disabled="reconciliation.loading.value || exceptionView.pagination.page <= 1"
-                data-testid="analytics-previous"
-                @click="changePage(exceptionView.pagination.page - 1)"
-                >Anterior</UButton
-              ><UButton
-                type="button"
-                variant="outline"
-                :disabled="
-                  reconciliation.loading.value || exceptionView.pagination.page >= exceptionView.pagination.pages
-                "
-                data-testid="analytics-next"
-                @click="changePage(exceptionView.pagination.page + 1)"
-                >Siguiente</UButton
-              >
-            </div>
-          </div>
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+          </button>
         </template>
-      </section>
+        <div class="adm-stack">
+          <p
+            v-if="reconciliation.loading.value"
+            role="status"
+            class="adm-help"
+            data-testid="analytics-reconciliation-loading"
+          >
+            Comprobando las operaciones del periodo…
+          </p>
+          <AdminCard v-if="reconciliation.failed.value">
+            <AdminEmptyState
+              compact
+              role="alert"
+              data-testid="analytics-reconciliation-error"
+              variant="error"
+              title="No hemos podido comprobar las operaciones"
+              description="Esto no significa que no haya ninguna pendiente. Vuelve a intentarlo."
+            >
+              <AdminButton icon="i-lucide-rotate-cw" @click="refreshExceptions">Reintentar</AdminButton>
+            </AdminEmptyState>
+          </AdminCard>
+          <template v-if="exceptionView">
+            <UAlert
+              v-if="exceptionView.population.validationOnly && !snapshot"
+              role="status"
+              color="warning"
+              variant="subtle"
+              title="Datos de prueba"
+              description="Esta comprobación no confirma operaciones reales."
+            />
+            <AdminCard>
+              <dl
+                class="grid gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-6"
+                data-testid="analytics-reconciliation-summary"
+              >
+                <div>
+                  <dt class="adm-help">Operaciones revisadas</dt>
+                  <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{ analyticsCount(exceptionView.summary.sourceCount) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="adm-help">Pendientes de contabilizar</dt>
+                  <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{ analyticsCount(exceptionView.summary.missingCount) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="adm-help">No coinciden</dt>
+                  <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{ analyticsCount(exceptionView.summary.mismatchCount) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="adm-help">Sin confirmar</dt>
+                  <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{ analyticsCount(exceptionView.summary.unconfirmedCount) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="adm-help">Excluidas</dt>
+                  <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{ analyticsCount(exceptionView.summary.excludedCount) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="adm-help">Retraso actual</dt>
+                  <dd class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+                    {{
+                      exceptionView.summary.projectionLagSeconds === null
+                        ? 'No disponible'
+                        : `${analyticsCount(exceptionView.summary.projectionLagSeconds)} s`
+                    }}
+                  </dd>
+                </div>
+              </dl>
+              <p class="adm-help mt-4">
+                Comprobado el {{ analyticsInstant(exceptionView.generatedAt) }} · periodo [{{
+                  exceptionView.period.from
+                }}, {{ exceptionView.period.to }}) · {{ exceptionView.population.environment }} · política
+                {{ exceptionView.policy.reference }}, versión {{ exceptionView.policy.version }}, conservación
+                {{ exceptionView.policy.retentionDays }} días
+              </p>
+            </AdminCard>
+            <AdminCard v-if="exceptionView.pagination.total === 0">
+              <AdminEmptyState
+                compact
+                role="status"
+                icon="i-lucide-circle-check"
+                title="Todo cuadra en este periodo"
+                description="Sin excepciones confirmadas. Es una comprobación interna: no sustituye al extracto del banco."
+                data-testid="analytics-reconciliation-empty"
+              />
+            </AdminCard>
+            <AdminCard v-else flush>
+              <div class="adm-table-wrap">
+                <table class="adm-table" data-testid="analytics-issues">
+                  <caption class="sr-only">
+                    Operaciones pendientes de cuadrar, de solo lectura y sin datos de contacto
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Qué ocurre</th>
+                      <th scope="col">Referencia</th>
+                      <th scope="col">Fecha</th>
+                      <th scope="col" data-numeric>Retraso</th>
+                      <th scope="col">Qué hacer</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="issue in exceptionView.issues"
+                      :key="`${issue.code}:${issue.sourceKind}:${issue.sourceId}`"
+                    >
+                      <th scope="row">
+                        <AdminBadge :tone="issueTones[issue.code]">{{ issueLabels[issue.code] }}</AdminBadge>
+                        <p class="adm-help mt-1 font-normal">{{ streamLabels[issue.sourceKind] }}</p>
+                      </th>
+                      <td class="font-mono break-all">{{ issue.sourceId }}</td>
+                      <td>{{ analyticsInstant(issue.occurredAt) }}</td>
+                      <td data-numeric>
+                        {{ issue.lagSeconds === null ? 'No disponible' : `${analyticsCount(issue.lagSeconds)} s` }}
+                      </td>
+                      <td>{{ hintLabels[issue.hint] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div
+                v-if="exceptionView.pagination.pages > 0"
+                class="adm-pagination"
+                aria-label="Paginación de excepciones"
+              >
+                <p>
+                  Página {{ exceptionView.pagination.page }} de {{ exceptionView.pagination.pages }} ·
+                  {{ analyticsCount(exceptionView.pagination.total) }} operaciones
+                </p>
+                <div class="flex items-center gap-2">
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :disabled="reconciliation.loading.value || exceptionView.pagination.page <= 1"
+                    data-testid="analytics-previous"
+                    @click="changePage(exceptionView.pagination.page - 1)"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :disabled="
+                      reconciliation.loading.value || exceptionView.pagination.page >= exceptionView.pagination.pages
+                    "
+                    data-testid="analytics-next"
+                    @click="changePage(exceptionView.pagination.page + 1)"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </AdminCard>
+          </template>
+        </div>
+      </AdminSection>
     </template>
   </section>
 </template>

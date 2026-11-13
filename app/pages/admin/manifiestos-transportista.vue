@@ -6,8 +6,7 @@ useSeoMeta({ title: 'Manifiestos de transportista · Admin', robots: 'noindex, n
 </script>
 
 <template>
-  <div class="space-y-6">
-    <h1 class="text-xl font-bold text-slate-900">Manifiestos y recogidas</h1>
+  <AdminPage>
     <AdminCarrierManifests />
-  </div>
+  </AdminPage>
 </template>

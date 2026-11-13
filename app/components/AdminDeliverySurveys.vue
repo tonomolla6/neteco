@@ -22,6 +22,42 @@ const toDate = ref(now.toISOString().slice(0, 10))
 const selectedSegment = ref<'all' | 'particular' | 'profesional'>('all')
 const selectedReason = ref<ContactReason | 'all'>('all')
 
+// Atajos de periodo de la barra de filtros
+const period = ref('30')
+const PERIODS = [
+  { value: '7', label: '7 días' },
+  { value: '30', label: '30 días' },
+  { value: '90', label: '90 días' }
+]
+function setPreset(value: string) {
+  const end = new Date()
+  const start = new Date(end.getTime() - Number(value) * 86400000)
+  period.value = value
+  fromDate.value = start.toISOString().slice(0, 10)
+  toDate.value = end.toISOString().slice(0, 10)
+  void fetchDashboard()
+}
+function resetFilters() {
+  selectedSegment.value = 'all'
+  selectedReason.value = 'all'
+  void fetchDashboard()
+}
+function onDateChange() {
+  period.value = ''
+  if (fromDate.value && toDate.value) void fetchDashboard()
+}
+
+const SEGMENT_LABEL: Record<string, string> = { particular: 'Particular', profesional: 'Profesional' }
+const responseColumns = [
+  { key: 'orderNumber', label: 'Pedido' },
+  { key: 'submittedAt', label: 'Fecha', sortable: true },
+  { key: 'customerSegment', label: 'Tipo de cliente' },
+  { key: 'score', label: 'Valoración', sortable: true, numeric: true },
+  { key: 'arrivedGood', label: '¿Llegó bien?' },
+  { key: 'contactReason', label: 'Motivo', hideOnMobile: true },
+  { key: 'supportTicketPublicRef', label: 'Consulta de soporte' }
+]
+
 async function fetchDashboard() {
   loading.value = true
   error.value = null
@@ -75,419 +111,265 @@ const reasonOptions = computed(() => [
   }))
 ])
 
+const segments = computed(() =>
+  data.value
+    ? [
+        { key: 'particular', label: 'Particular', ...data.value.bySegment.particular },
+        { key: 'profesional', label: 'Profesional', ...data.value.bySegment.profesional }
+      ]
+    : []
+)
+const scoreBreakdown = computed(() =>
+  data.value
+    ? ([5, 4, 3, 2, 1] as const).map((star) => ({
+        label: star === 1 ? '1 estrella' : `${star} estrellas`,
+        value: data.value!.scoreDistribution[star]
+      }))
+    : []
+)
+
 onMounted(() => {
   void fetchDashboard()
 })
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <header class="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-[var(--text-strong)]">Encuestas de entrega</h1>
-        <p class="text-sm text-[var(--text-muted)]">
-          Evaluación voluntaria de la experiencia postentrega y detección temprana de incidencias.
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
+  <div class="adm-stack">
+    <!-- Filtros: se aplican al cambiar -->
+    <div class="adm-toolbar" role="search" aria-label="Filtros del informe">
+      <AdminFilters :model-value="period" :options="PERIODS" label="Periodo" @update:model-value="setPreset" />
+      <label for="filter-from" class="sr-only">Desde</label>
+      <input id="filter-from" v-model="fromDate" type="date" class="adm-input" @change="onDateChange" />
+      <label for="filter-to" class="sr-only">Hasta</label>
+      <input id="filter-to" v-model="toDate" type="date" class="adm-input" @change="onDateChange" />
+      <label for="filter-segment" class="sr-only">Tipo de cliente</label>
+      <select
+        id="filter-segment"
+        v-model="selectedSegment"
+        data-filter="segment"
+        class="adm-input"
+        @change="fetchDashboard"
+      >
+        <option value="all">Todos los clientes</option>
+        <option value="particular">Particulares</option>
+        <option value="profesional">Profesionales</option>
+      </select>
+      <label for="filter-reason" class="sr-only">Motivo de contacto</label>
+      <select
+        id="filter-reason"
+        v-model="selectedReason"
+        data-filter="contactReason"
+        class="adm-input"
+        @change="fetchDashboard"
+      >
+        <option v-for="opt in reasonOptions" :key="opt.value" :value="opt.value">
+          {{ opt.label }}
+        </option>
+      </select>
+      <div class="adm-toolbar__end">
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-3 py-1.5 text-xs font-medium text-[var(--text-strong)] hover:bg-[var(--surface-hover)] focus:outline-none"
+          data-action="apply-filters"
+          class="adm-btn adm-btn--secondary"
           :disabled="loading"
           @click="fetchDashboard"
         >
-          <UIcon name="i-lucide-refresh-cw" class="size-3.5" :class="{ 'animate-spin': loading }" />
+          <UIcon name="i-lucide-rotate-cw" class="size-4 shrink-0" :class="{ 'animate-spin': loading }" />
           Actualizar
         </button>
       </div>
-    </header>
-
-    <!-- Filter Bar -->
-    <section
-      aria-label="Filtros del informe"
-      class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-4 shadow-sm"
-    >
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div>
-          <label for="filter-from" class="block text-xs font-medium text-[var(--text-muted)]">Desde</label>
-          <input
-            id="filter-from"
-            v-model="fromDate"
-            type="date"
-            class="mt-1 block w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)] px-2.5 py-1.5 text-sm text-[var(--text-strong)] focus:border-neteco-600 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label for="filter-to" class="block text-xs font-medium text-[var(--text-muted)]">Hasta</label>
-          <input
-            id="filter-to"
-            v-model="toDate"
-            type="date"
-            class="mt-1 block w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)] px-2.5 py-1.5 text-sm text-[var(--text-strong)] focus:border-neteco-600 focus:outline-none"
-          />
-        </div>
-
-        <div>
-          <label for="filter-segment" class="block text-xs font-medium text-[var(--text-muted)]">Segmento</label>
-          <select
-            id="filter-segment"
-            v-model="selectedSegment"
-            data-filter="segment"
-            class="mt-1 block w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)] px-2.5 py-1.5 text-sm text-[var(--text-strong)] focus:border-neteco-600 focus:outline-none"
-          >
-            <option value="all">Todos los clientes</option>
-            <option value="particular">Cliente particular</option>
-            <option value="profesional">Cliente profesional (B2B)</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="filter-reason" class="block text-xs font-medium text-[var(--text-muted)]"
-            >Motivo de contacto</label
-          >
-          <select
-            id="filter-reason"
-            v-model="selectedReason"
-            data-filter="contactReason"
-            class="mt-1 block w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)] px-2.5 py-1.5 text-sm text-[var(--text-strong)] focus:border-neteco-600 focus:outline-none"
-          >
-            <option v-for="opt in reasonOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </div>
-
-        <div class="flex items-end">
-          <button
-            type="button"
-            data-action="apply-filters"
-            class="w-full rounded-lg bg-neteco-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-neteco-500 focus:outline-none"
-            :disabled="loading"
-            @click="fetchDashboard"
-          >
-            Aplicar filtros
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <!-- Error message -->
-    <div v-if="error" role="alert" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-      {{ error }}
     </div>
 
-    <!-- Threshold Alert -->
-    <aside
+    <!-- Error -->
+    <AdminCard v-if="error && !data">
+      <AdminEmptyState
+        compact
+        variant="error"
+        title="No hemos podido cargar las encuestas"
+        description="Vuelve a intentarlo. Si sigue fallando, comprueba que tu usuario tiene acceso a este apartado."
+      >
+        <AdminButton icon="i-lucide-rotate-cw" @click="fetchDashboard">Reintentar</AdminButton>
+      </AdminEmptyState>
+    </AdminCard>
+    <UAlert
+      v-else-if="error"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="No hemos podido actualizar las encuestas"
+      description="Se muestran los últimos datos cargados."
+      role="alert"
+    />
+
+    <!-- Aviso de muestra pequeña -->
+    <UAlert
       v-if="data && !data.summary.hasSufficientSample"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="`Muestra insuficiente (< ${data.minSampleThreshold} respuestas)`"
+      :description="`Solo hay ${data.summary.completedSurveys} encuestas en este periodo. No se muestran porcentajes ni medias porque con tan pocas respuestas no serían fiables.`"
       role="status"
-      class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"
-    >
-      <UIcon name="i-lucide-alert-triangle" class="mt-0.5 size-5 shrink-0 text-amber-600" />
-      <div>
-        <p class="font-semibold">Muestra insuficiente (&lt; {{ data.minSampleThreshold }} respuestas)</p>
-        <p class="text-xs text-amber-800">
-          Se han registrado {{ data.summary.completedSurveys }} encuestas en este periodo. Los porcentajes y medias
-          agregadas están suprimidos para proteger la representatividad estadística.
-        </p>
-      </div>
-    </aside>
+    />
 
-    <!-- Loading State -->
-    <div v-if="loading && !data" class="flex justify-center py-12">
-      <UIcon name="i-lucide-loader-2" class="size-8 animate-spin text-neteco-600" />
+    <!-- Carga inicial -->
+    <div v-if="loading && !data" class="adm-grid" aria-busy="true">
+      <span class="sr-only">Cargando…</span>
+      <div
+        v-for="row in 4"
+        :key="row"
+        class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+      />
     </div>
 
-    <!-- Main Content -->
     <template v-if="data">
-      <!-- KPI Cards Grid -->
-      <section aria-label="Indicadores clave de entrega" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm">
-          <p class="text-xs font-medium text-[var(--text-muted)]">Encuestas completadas</p>
-          <div class="mt-2 flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-[var(--text-strong)]">{{ data.summary.completedSurveys }}</span>
-            <span class="text-xs text-[var(--text-muted)]">de {{ data.summary.totalInvitations }} enviadas</span>
-          </div>
-          <p class="mt-1 text-xs text-[var(--text-muted)]">
-            Tasa de respuesta: <span class="font-semibold">{{ formatPercent(data.summary.responseRate) }}</span>
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm">
-          <p class="text-xs font-medium text-[var(--text-muted)]">Valoración media (1-5)</p>
-          <div class="mt-2 flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-[var(--text-strong)]">{{
-              formatScore(data.summary.averageScore)
-            }}</span>
-            <span v-if="data.summary.averageScore" class="text-xs text-amber-600">/ 5 ★</span>
-          </div>
-          <p class="mt-1 text-xs text-[var(--text-muted)]">
-            <span v-if="data.summary.hasSufficientSample" class="text-emerald-700 font-medium"
-              >Muestra representativa</span
-            >
-            <span v-else class="text-amber-700">Muestra insuficiente</span>
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm">
-          <p class="text-xs font-medium text-[var(--text-muted)]">¿Llegó todo bien?</p>
-          <div class="mt-2 flex items-baseline gap-2">
-            <span class="text-2xl font-bold text-[var(--text-strong)]">{{
-              formatPercent(data.summary.arrivedGoodRate)
-            }}</span>
-          </div>
-          <p class="mt-1 text-xs text-[var(--text-muted)]">Entregas conformes sin incidencias reportadas</p>
-        </div>
-
-        <div class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm">
-          <p class="text-xs font-medium text-[var(--text-muted)]">Incidencias y soporte</p>
-          <div class="mt-2 flex items-baseline gap-2">
-            <span
-              class="text-2xl font-bold"
-              :class="
-                data.summary.problemRate && data.summary.problemRate > 0.05
-                  ? 'text-red-700'
-                  : 'text-[var(--text-strong)]'
-              "
-            >
-              {{ formatPercent(data.summary.problemRate) }}
-            </span>
-          </div>
-          <p class="mt-1 text-xs text-[var(--text-muted)]">
-            {{ data.summary.totalTicketsCreated }} tickets vinculados sin duplicados
-          </p>
-        </div>
+      <!-- Cifras clave -->
+      <section aria-label="Indicadores clave de entrega" class="adm-grid">
+        <AdminStat
+          label="Encuestas completadas"
+          icon="i-lucide-clipboard-check"
+          :value="data.summary.completedSurveys"
+          :hint="`de ${data.summary.totalInvitations} enviadas · ${formatPercent(data.summary.responseRate)} de respuesta`"
+        />
+        <AdminStat
+          label="Valoración media"
+          icon="i-lucide-star"
+          :value="data.summary.averageScore ? `${formatScore(data.summary.averageScore)} / 5` : '—'"
+          :hint="data.summary.hasSufficientSample ? 'Muestra representativa' : 'Muestra insuficiente'"
+        />
+        <AdminStat
+          label="Llegó todo bien"
+          icon="i-lucide-package-check"
+          :value="formatPercent(data.summary.arrivedGoodRate)"
+          hint="Entregas sin ningún problema"
+        />
+        <AdminStat
+          label="Entregas con incidencia"
+          icon="i-lucide-triangle-alert"
+          :value="formatPercent(data.summary.problemRate)"
+          :hint="`${data.summary.totalTicketsCreated} consultas de soporte abiertas`"
+        />
       </section>
 
-      <!-- Segment Comparison & Score Histogram -->
-      <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <!-- Segment Comparison -->
-        <section
-          aria-label="Segmentación de clientes"
-          class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm"
-        >
-          <h2 class="text-base font-semibold text-[var(--text-strong)]">Comparativa por segmento</h2>
-          <p class="text-xs text-[var(--text-muted)]">
-            Diferenciación entre consumidores particulares y clientes profesionales B2B.
-          </p>
-
-          <div class="mt-4 grid grid-cols-2 gap-4">
-            <div class="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)] p-4">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Particular</span>
-                <span class="rounded bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-800">B2C</span>
-              </div>
-              <p class="mt-2 text-xl font-bold text-[var(--text-strong)]">
-                {{ data.bySegment.particular.count }}
-                <span class="text-xs font-normal text-[var(--text-muted)]">respuestas</span>
-              </p>
-              <div class="mt-3 space-y-1 text-xs text-[var(--text-muted)]">
-                <div class="flex justify-between">
-                  <span>Media:</span>
-                  <span class="font-semibold text-[var(--text-strong)]">{{
-                    formatScore(data.bySegment.particular.averageScore)
-                  }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Llegó bien:</span>
-                  <span class="font-semibold text-[var(--text-strong)]">{{
-                    formatPercent(data.bySegment.particular.arrivedGoodRate)
-                  }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Incidencias:</span>
-                  <span class="font-semibold text-[var(--text-strong)]">{{
-                    formatPercent(data.bySegment.particular.problemRate)
-                  }}</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-base)] p-4">
-              <div class="flex items-center justify-between">
-                <span class="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">Profesional</span>
-                <span class="rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">B2B</span>
-              </div>
-              <p class="mt-2 text-xl font-bold text-[var(--text-strong)]">
-                {{ data.bySegment.profesional.count }}
-                <span class="text-xs font-normal text-[var(--text-muted)]">respuestas</span>
-              </p>
-              <div class="mt-3 space-y-1 text-xs text-[var(--text-muted)]">
-                <div class="flex justify-between">
-                  <span>Media:</span>
-                  <span class="font-semibold text-[var(--text-strong)]">{{
-                    formatScore(data.bySegment.profesional.averageScore)
-                  }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Llegó bien:</span>
-                  <span class="font-semibold text-[var(--text-strong)]">{{
-                    formatPercent(data.bySegment.profesional.arrivedGoodRate)
-                  }}</span>
-                </div>
-                <div class="flex justify-between">
-                  <span>Incidencias:</span>
-                  <span class="font-semibold text-[var(--text-strong)]">{{
-                    formatPercent(data.bySegment.profesional.problemRate)
-                  }}</span>
-                </div>
-              </div>
-            </div>
+      <div class="grid gap-5 lg:grid-cols-2">
+        <!-- Particulares frente a profesionales -->
+        <AdminCard title="Por tipo de cliente" aria-label="Segmentación de clientes" flush>
+          <div class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Tipo de cliente</th>
+                  <th scope="col" data-numeric>Respuestas</th>
+                  <th scope="col" data-numeric>Valoración</th>
+                  <th scope="col" data-numeric>Llegó bien</th>
+                  <th scope="col" data-numeric>Incidencias</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="segment in segments" :key="segment.key">
+                  <td class="font-medium text-[var(--text-strong)]">{{ segment.label }}</td>
+                  <td data-numeric>{{ segment.count }} respuestas</td>
+                  <td data-numeric>{{ formatScore(segment.averageScore) }}</td>
+                  <td data-numeric>{{ formatPercent(segment.arrivedGoodRate) }}</td>
+                  <td data-numeric>{{ formatPercent(segment.problemRate) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </section>
+        </AdminCard>
 
-        <!-- Score Distribution Histogram -->
-        <section
-          aria-label="Distribución de puntuaciones"
-          class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm"
-        >
-          <h2 class="text-base font-semibold text-[var(--text-strong)]">Distribución de valoraciones</h2>
-          <p class="text-xs text-[var(--text-muted)]">Desglose de notas de 1 a 5 estrellas.</p>
-
-          <div class="mt-4 space-y-2">
-            <div v-for="star in [5, 4, 3, 2, 1] as const" :key="star" class="flex items-center gap-3 text-xs">
-              <span class="w-12 font-medium text-[var(--text-strong)]">{{ star }} estrellas</span>
-              <div class="h-3 flex-1 overflow-hidden rounded-full bg-[var(--surface-sunken)]">
-                <div
-                  class="h-full rounded-full transition-all duration-300"
-                  :class="star >= 4 ? 'bg-emerald-500' : star === 3 ? 'bg-amber-500' : 'bg-red-500'"
-                  :style="{
-                    width:
-                      data.summary.completedSurveys > 0
-                        ? `${(data.scoreDistribution[star] / data.summary.completedSurveys) * 100}%`
-                        : '0%'
-                  }"
-                />
-              </div>
-              <span class="w-10 text-right font-medium text-[var(--text-muted)]">
-                {{ data.scoreDistribution[star] }}
-              </span>
-            </div>
-          </div>
-        </section>
+        <!-- Reparto de valoraciones -->
+        <AdminCard title="Reparto de valoraciones" aria-label="Distribución de puntuaciones">
+          <AdminBreakdown v-if="data.summary.completedSurveys > 0" :items="scoreBreakdown" />
+          <AdminEmptyState v-else compact icon="i-lucide-star" title="Aún no hay valoraciones en este periodo" />
+        </AdminCard>
       </div>
 
-      <!-- Contact Reason Breakdown -->
-      <section
+      <!-- Motivos -->
+      <AdminCard
+        title="Motivos indicados por los clientes"
+        description="Lo que el cliente marca en la encuesta al valorar su entrega."
         aria-label="Desglose por motivo de contacto"
-        class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm"
+        flush
       >
-        <h2 class="text-base font-semibold text-[var(--text-strong)]">Motivos de contacto y logística</h2>
-        <p class="text-xs text-[var(--text-muted)]">
-          Catálogo estable de motivos seleccionados por los clientes en la encuesta.
-        </p>
-
-        <div class="mt-4 overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="border-b border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
+        <AdminEmptyState v-if="!data.byReason.length" compact title="Ningún cliente ha indicado un motivo" />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
               <tr>
-                <th scope="col" class="pb-2 font-medium">Motivo</th>
-                <th scope="col" class="pb-2 font-medium">Casos</th>
-                <th scope="col" class="pb-2 font-medium">Porcentaje</th>
-                <th scope="col" class="pb-2 font-medium">Puntuación media</th>
+                <th scope="col">Motivo</th>
+                <th scope="col" data-numeric>Casos</th>
+                <th scope="col" data-numeric>Porcentaje</th>
+                <th scope="col" data-numeric>Valoración media</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-[var(--border-subtle)]">
-              <tr v-for="item in data.byReason" :key="item.reason" class="hover:bg-[var(--surface-hover)]">
-                <td class="py-2.5 font-medium text-[var(--text-strong)]">{{ item.label }}</td>
-                <td class="py-2.5">{{ item.count }}</td>
-                <td class="py-2.5">{{ formatPercent(item.percentage) }}</td>
-                <td class="py-2.5">
-                  <span
-                    v-if="item.averageScore"
-                    class="font-medium"
-                    :class="item.averageScore >= 4 ? 'text-emerald-700' : 'text-amber-700'"
-                  >
+            <tbody>
+              <tr v-for="item in data.byReason" :key="item.reason">
+                <td class="font-medium text-[var(--text-strong)]">{{ item.label }}</td>
+                <td data-numeric>{{ item.count }}</td>
+                <td data-numeric>{{ formatPercent(item.percentage) }}</td>
+                <td data-numeric>
+                  <AdminBadge v-if="item.averageScore" :tone="item.averageScore >= 4 ? 'success' : 'warning'" plain>
                     {{ item.averageScore }} ★
-                  </span>
-                  <span v-else class="text-[var(--text-muted)]">—</span>
+                  </AdminBadge>
+                  <template v-else>—</template>
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
-      </section>
+      </AdminCard>
 
-      <!-- Recent Responses Table -->
-      <section
-        aria-label="Histórico de encuestas"
-        class="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-5 shadow-sm"
-      >
-        <h2 class="text-base font-semibold text-[var(--text-strong)]">Respuestas recientes</h2>
-        <p class="text-xs text-[var(--text-muted)]">
-          Últimas valoraciones registradas con enlace directo a pedidos y soporte.
-        </p>
-
-        <div v-if="data.items.length === 0" class="py-8 text-center text-sm text-[var(--text-muted)]">
-          No hay respuestas para el periodo y filtros seleccionados.
-        </div>
-
-        <div v-else class="mt-4 overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="border-b border-[var(--border-subtle)] text-xs text-[var(--text-muted)]">
-              <tr>
-                <th scope="col" class="pb-2 font-medium">Pedido</th>
-                <th scope="col" class="pb-2 font-medium">Fecha</th>
-                <th scope="col" class="pb-2 font-medium">Segmento</th>
-                <th scope="col" class="pb-2 font-medium">Puntuación</th>
-                <th scope="col" class="pb-2 font-medium">¿Llegó bien?</th>
-                <th scope="col" class="pb-2 font-medium">Motivo</th>
-                <th scope="col" class="pb-2 font-medium">Ticket de soporte</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-[var(--border-subtle)]">
-              <tr v-for="row in data.items" :key="row.id" class="hover:bg-[var(--surface-hover)]">
-                <td class="py-2.5 font-mono text-xs font-semibold text-[var(--text-strong)]">
-                  <NuxtLink :to="`/admin/pedidos`" class="text-neteco-700 hover:underline">
-                    {{ row.orderNumber }}
-                  </NuxtLink>
-                </td>
-                <td class="py-2.5 text-xs text-[var(--text-muted)]">
-                  {{ new Date(row.submittedAt).toLocaleDateString('es-ES') }}
-                </td>
-                <td class="py-2.5 text-xs capitalize">
-                  <span
-                    class="rounded px-2 py-0.5 font-medium"
-                    :class="
-                      row.customerSegment === 'profesional'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-neutral-100 text-neutral-800'
-                    "
-                  >
-                    {{ row.customerSegment }}
-                  </span>
-                </td>
-                <td class="py-2.5">
-                  <span
-                    class="font-bold"
-                    :class="row.score >= 4 ? 'text-emerald-700' : row.score <= 2 ? 'text-red-700' : 'text-amber-700'"
-                  >
-                    {{ row.score }} ★
-                  </span>
-                </td>
-                <td class="py-2.5 text-xs">
-                  <span v-if="row.arrivedGood" class="font-medium text-emerald-700">Sí</span>
-                  <span v-else class="font-medium text-red-700">No</span>
-                </td>
-                <td class="py-2.5 text-xs text-[var(--text-muted)]">
-                  {{ row.contactReason ? (CONTACT_REASON_LABELS[row.contactReason] ?? row.contactReason) : '—' }}
-                </td>
-                <td class="py-2.5 text-xs">
-                  <NuxtLink
-                    v-if="row.supportTicketPublicRef"
-                    :to="`/admin/soporte`"
-                    class="font-mono font-medium text-neteco-700 hover:underline"
-                  >
-                    {{ row.supportTicketPublicRef }}
-                  </NuxtLink>
-                  <span v-else class="text-[var(--text-muted)]">—</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <!-- Respuestas recientes -->
+      <AdminSection title="Respuestas recientes" aria-label="Histórico de encuestas">
+        <AdminTable
+          :rows="data.items"
+          :columns="responseColumns"
+          :row-key="(row) => row.id"
+          :status="loading ? 'pending' : 'idle'"
+          :filtered="selectedSegment !== 'all' || selectedReason !== 'all'"
+          empty-title="No hay respuestas en este periodo"
+          empty-description="Prueba con un periodo más amplio."
+          empty-icon="i-lucide-clipboard-check"
+          caption="Últimas encuestas de entrega respondidas"
+          @clear-filters="resetFilters"
+        >
+          <template #cell-orderNumber="{ row }">
+            <NuxtLink to="/admin/pedidos" class="font-semibold text-[var(--link)] hover:underline">
+              #{{ row.orderNumber }}
+            </NuxtLink>
+          </template>
+          <template #cell-submittedAt="{ row }">{{ adminDate(row.submittedAt) }}</template>
+          <template #cell-customerSegment="{ row }">
+            <AdminBadge :tone="row.customerSegment === 'profesional' ? 'info' : 'neutral'" plain>
+              {{ SEGMENT_LABEL[row.customerSegment] ?? adminHumanize(row.customerSegment) }}
+            </AdminBadge>
+          </template>
+          <template #cell-score="{ row }">
+            <AdminBadge :tone="row.score >= 4 ? 'success' : row.score <= 2 ? 'danger' : 'warning'" plain>
+              {{ row.score }} ★
+            </AdminBadge>
+          </template>
+          <template #cell-arrivedGood="{ row }">
+            <AdminBadge :tone="row.arrivedGood ? 'success' : 'danger'">{{ row.arrivedGood ? 'Sí' : 'No' }}</AdminBadge>
+          </template>
+          <template #cell-contactReason="{ row }">
+            {{
+              row.contactReason ? (CONTACT_REASON_LABELS[row.contactReason] ?? adminHumanize(row.contactReason)) : '—'
+            }}
+          </template>
+          <template #cell-supportTicketPublicRef="{ row }">
+            <NuxtLink
+              v-if="row.supportTicketPublicRef"
+              to="/admin/soporte"
+              class="font-medium text-[var(--link)] hover:underline"
+            >
+              {{ row.supportTicketPublicRef }}
+            </NuxtLink>
+            <template v-else>—</template>
+          </template>
+        </AdminTable>
+      </AdminSection>
     </template>
   </div>
 </template>

@@ -2,11 +2,11 @@
 import AdminWarehouseAdrPanel from '~/components/AdminWarehouseAdrPanel.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Gestión de Almacén y Assets Operativos ADR · Admin' })
+useSeoMeta({ title: 'Mercancías peligrosas · Panel NETECO' })
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminWarehouseAdrPanel />
-  </div>
+  </AdminPage>
 </template>

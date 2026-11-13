@@ -18,13 +18,41 @@ const notice = ref('')
 const rules = ref<Rule[]>([])
 const form = ref({ slot: '', segment: 'b2b', variantKey: '' })
 const evidence = ref<Record<string, Record<string, number>>>({})
-const segmentLabel: Record<string, string> = { b2c_new: 'B2C nuevo', b2c_returning: 'B2C recurrente', b2b: 'B2B' }
+const segmentLabel: Record<string, string> = {
+  b2c_new: 'Particular nuevo',
+  b2c_returning: 'Particular que repite',
+  b2b: 'Profesional'
+}
+const statusLabel: Record<Rule['status'], string> = { draft: 'Borrador', enabled: 'Activa', disabled: 'Desactivada' }
+const statusTone = { draft: 'neutral', enabled: 'success', disabled: 'neutral' } as const
+const errorLabel: Record<string, string> = {
+  forbidden: 'No tienes permiso para gestionar estas reglas.',
+  version_conflict: 'Otra persona ha cambiado esta regla. Actualiza y vuelve a intentarlo.',
+  validation_error: 'Revisa los datos: hay algún campo incompleto o no válido.',
+  invalid_evidence: 'Los datos de la prueba no son coherentes. Revísalos.'
+}
+const reasonLabel: Record<string, string> = {
+  insufficient_sample: 'la prueba aún tiene pocos visitantes',
+  not_significant: 'la diferencia de ventas no es concluyente',
+  lift_below_minimum: 'la mejora de ventas es demasiado pequeña',
+  lcp_regression: 'la página carga más lenta con esta variante',
+  cache_hit_rate_drop: 'se sirven menos páginas al instante'
+}
+// Estado de interfaz: panel lateral del alta.
+const formOpen = ref(false)
 
 function errorText(error: unknown, fallback: string): string {
   const data = (error as { data?: { error?: { code?: string; message?: string } } })?.data?.error
-  return data?.code
-    ? `${fallback} (${data.code}${data.message && data.message !== data.code ? `: ${data.message}` : ''})`
-    : fallback
+  if (data?.code === 'evidence_insufficient') {
+    const reasons = (data.message ?? '')
+      .split(',')
+      .map((reason) => reasonLabel[reason.trim()])
+      .filter(Boolean)
+    return reasons.length
+      ? `No se puede activar todavía: ${reasons.join(', ')}.`
+      : 'No se puede activar todavía: los resultados de la prueba no son suficientes.'
+  }
+  return (data?.code && errorLabel[data.code]) || fallback
 }
 
 async function load() {
@@ -34,7 +62,7 @@ async function load() {
     rules.value =
       ((await requestFetch('/api/admin/performance/edge-personalization/rules')) as { rules: Rule[] })?.rules ?? []
   } catch (error) {
-    errorMessage.value = errorText(error, 'No se pudieron cargar las reglas')
+    errorMessage.value = errorText(error, 'No hemos podido cargar las reglas. Vuelve a intentarlo.')
   } finally {
     loading.value = false
   }
@@ -50,9 +78,10 @@ async function post(path: string, body: Record<string, unknown>, success: string
       body: { commandId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), ...body }
     })
     notice.value = success
+    formOpen.value = false
     await load()
   } catch (error) {
-    errorMessage.value = errorText(error, 'La operación no se pudo completar')
+    errorMessage.value = errorText(error, 'No hemos podido completar la operación. Vuelve a intentarlo.')
   } finally {
     busy.value = false
   }
@@ -66,7 +95,11 @@ const createRule = () =>
   )
 const enable = (r: Rule) => post('rules/enable', { ruleId: r.id, expectedVersion: r.version }, 'Regla activada.')
 const disable = (r: Rule) =>
-  post('rules/disable', { ruleId: r.id, expectedVersion: r.version }, 'Regla desactivada: vuelve al valor por defecto.')
+  post(
+    'rules/disable',
+    { ruleId: r.id, expectedVersion: r.version },
+    'Regla desactivada: se vuelve a mostrar el contenido habitual.'
+  )
 function saveEvidence(r: Rule) {
   const e = evidence.value[r.id] ?? {}
   return post(
@@ -81,88 +114,75 @@ function saveEvidence(r: Rule) {
       cacheHitRateBps: Number(e.cacheHitRateBps ?? 0),
       baselineCacheHitRateBps: Number(e.baselineCacheHitRateBps ?? 0)
     },
-    'Evidencia registrada.'
+    'Resultados de la prueba guardados.'
   )
 }
 const fields: Array<[string, string]> = [
-  ['controlVisitors', 'Visitantes control'],
-  ['controlConversions', 'Conversiones control'],
-  ['treatmentVisitors', 'Visitantes variante'],
-  ['treatmentConversions', 'Conversiones variante'],
-  ['lcpDeltaMs', 'Delta LCP (ms)'],
-  ['cacheHitRateBps', 'Hit rate caché con regla (bps)'],
-  ['baselineCacheHitRateBps', 'Hit rate caché base (bps)']
+  ['controlVisitors', 'Visitantes sin la variante'],
+  ['controlConversions', 'Pedidos sin la variante'],
+  ['treatmentVisitors', 'Visitantes con la variante'],
+  ['treatmentConversions', 'Pedidos con la variante'],
+  ['lcpDeltaMs', 'Cambio en el tiempo de carga (ms)'],
+  ['cacheHitRateBps', 'Páginas al instante con la regla (‱)'],
+  ['baselineCacheHitRateBps', 'Páginas al instante sin la regla (‱)']
 ]
 
 onMounted(load)
 </script>
 
 <template>
-  <section class="space-y-4" aria-labelledby="edge-title" data-edge-panel>
-    <div>
-      <h2 id="edge-title" class="text-lg font-semibold text-neutral-900">Personalización en el borde (limitada)</h2>
-      <p class="text-xs text-neutral-600">
-        Solo tres segmentos gruesos, con consentimiento y sin datos personales. Una regla solo se activa con evidencia
-        suficiente, sin degradar LCP ni caché; si falla, se sirve el valor por defecto.
-      </p>
-    </div>
-    <div v-if="errorMessage" role="alert" class="rounded bg-red-100 p-3 text-sm text-red-700" data-error>
-      {{ errorMessage }} <button type="button" class="ml-2 underline" data-retry @click="load">Reintentar</button>
-    </div>
-    <div v-if="notice" role="status" class="rounded bg-emerald-100 p-3 text-sm text-emerald-700">{{ notice }}</div>
+  <section class="adm-stack" aria-label="Contenido según el tipo de cliente" data-edge-panel>
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="formOpen = true">Nueva regla</AdminButton>
+    </AdminPageActions>
 
-    <form class="grid gap-3 rounded border border-neutral-200 bg-white p-4 sm:grid-cols-4" @submit.prevent="createRule">
-      <label class="text-xs font-medium">
-        Hueco (slot)
-        <input
-          v-model="form.slot"
-          required
-          pattern="[a-z][a-z0-9_]{1,39}"
-          placeholder="home_hero"
-          class="mt-1 w-full rounded border px-2 py-1 text-sm"
-        />
-      </label>
-      <label class="text-xs font-medium">
-        Segmento
-        <select v-model="form.segment" class="mt-1 w-full rounded border px-2 py-1 text-sm">
-          <option v-for="(label, key) in segmentLabel" :key="key" :value="key">{{ label }}</option>
-        </select>
-      </label>
-      <label class="text-xs font-medium">
-        Variante
-        <input
-          v-model="form.variantKey"
-          required
-          pattern="[a-z][a-z0-9_]{1,39}"
-          placeholder="bulk_offer"
-          class="mt-1 w-full rounded border px-2 py-1 text-sm"
-        />
-      </label>
-      <div class="flex items-end">
-        <button
-          type="submit"
-          class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-          :disabled="busy"
-        >
-          Crear borrador
-        </button>
-      </div>
-    </form>
+    <div v-if="errorMessage" role="alert" data-error>
+      <UAlert color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="errorMessage">
+        <template #actions>
+          <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm" data-retry @click="load">
+            Reintentar
+          </button>
+        </template>
+      </UAlert>
+    </div>
+    <div v-if="notice" role="status">
+      <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
+    </div>
 
-    <p v-if="loading" class="py-4 text-center text-sm text-neutral-500" data-loading>Cargando reglas...</p>
-    <p v-else-if="!rules.length && !errorMessage" class="py-4 text-center text-sm text-neutral-500" data-empty>
-      No hay reglas de personalización.
+    <p class="adm-help">
+      Muestra un contenido distinto a particulares nuevos, particulares que repiten o profesionales, sin usar datos
+      personales y solo con su consentimiento. Una regla se activa únicamente si una prueba demuestra que vende más sin
+      hacer la tienda más lenta; si algo falla, se muestra el contenido habitual.
     </p>
-    <ul v-else class="space-y-3">
-      <li v-for="r in rules" :key="r.id" class="rounded border border-neutral-200 bg-white p-3 text-sm" data-rule>
-        <div class="flex flex-wrap items-center gap-2">
-          <strong>{{ r.slot }}</strong>
-          <span class="text-xs text-neutral-600">{{ segmentLabel[r.segment] }} → {{ r.variantKey }}</span>
-          <span class="rounded bg-neutral-100 px-2 text-xs" data-status>{{ r.status }}</span>
+
+    <AdminCard flush>
+      <div v-if="loading" class="adm-table-skeleton" aria-busy="true" data-loading>
+        <span class="sr-only">Cargando reglas…</span>
+        <div v-for="row in 3" :key="row"><i /><i /><i /><i /></div>
+      </div>
+      <div v-else-if="!rules.length && !errorMessage" data-empty>
+        <AdminEmptyState
+          compact
+          icon="i-lucide-users"
+          title="No hay reglas todavía"
+          description="Crea una regla para mostrar un contenido distinto a un tipo de cliente."
+        >
+          <AdminButton icon="i-lucide-plus" @click="formOpen = true">Nueva regla</AdminButton>
+        </AdminEmptyState>
+      </div>
+      <ul v-else class="adm-list">
+        <li v-for="r in rules" :key="r.id" data-rule>
+          <div class="min-w-0 flex-1">
+            <p class="adm-list__title">
+              {{ adminHumanize(r.slot) }}
+              <AdminBadge :tone="statusTone[r.status]" data-status>{{ statusLabel[r.status] }}</AdminBadge>
+            </p>
+            <p class="adm-help">{{ segmentLabel[r.segment] }} → variante «{{ adminHumanize(r.variantKey) }}»</p>
+          </div>
           <button
             v-if="r.status === 'enabled'"
             type="button"
-            class="rounded border px-2 py-1 text-xs disabled:opacity-50"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
             :disabled="busy"
             data-disable
             @click="disable(r)"
@@ -172,37 +192,83 @@ onMounted(load)
           <button
             v-else
             type="button"
-            class="rounded bg-emerald-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
             :disabled="busy"
+            title="Solo se activa si los resultados de la prueba lo respaldan"
             data-enable
             @click="enable(r)"
           >
-            Activar (exige evidencia)
+            Activar
           </button>
-        </div>
-        <details v-if="r.status !== 'enabled'" class="mt-2">
-          <summary class="cursor-pointer text-xs text-indigo-700">Registrar evidencia del experimento</summary>
-          <div class="mt-2 grid gap-2 sm:grid-cols-4">
-            <label v-for="[key, label] in fields" :key="key" class="text-xs">
-              {{ label }}
-              <input
-                v-model.number="(evidence[r.id] ??= {})[key]"
-                type="number"
-                class="mt-1 w-full rounded border px-2 py-1 text-sm"
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            class="mt-2 rounded border px-2 py-1 text-xs disabled:opacity-50"
-            :disabled="busy"
-            data-save-evidence
-            @click="saveEvidence(r)"
-          >
-            Guardar evidencia
-          </button>
-        </details>
-      </li>
-    </ul>
+          <details v-if="r.status !== 'enabled'" class="w-full">
+            <summary>Anotar los resultados de la prueba</summary>
+            <div class="adm-form-grid mt-3">
+              <label v-for="[key, label] in fields" :key="key" class="adm-label">
+                {{ label }}
+                <input v-model.number="(evidence[r.id] ??= {})[key]" type="number" class="adm-input mt-1" />
+              </label>
+            </div>
+            <p class="adm-help mt-2">‱ = diezmilésimas: 9000 equivale al 90 %.</p>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm mt-3"
+              :disabled="busy"
+              data-save-evidence
+              @click="saveEvidence(r)"
+            >
+              Guardar resultados
+            </button>
+          </details>
+        </li>
+      </ul>
+    </AdminCard>
+
+    <AdminDrawer
+      v-model:open="formOpen"
+      title="Nueva regla"
+      description="Se crea como borrador: no se muestra a nadie hasta que la actives."
+    >
+      <form id="edge-rule-form" class="adm-stack" @submit.prevent="createRule">
+        <AdminFormField
+          v-slot="{ id }"
+          label="Zona de la tienda"
+          help="Identificador de la zona, en minúsculas y sin espacios. Ejemplo: home_hero"
+          required
+        >
+          <input
+            :id="id"
+            v-model="form.slot"
+            required
+            pattern="[a-z][a-z0-9_]{1,39}"
+            placeholder="home_hero"
+            class="adm-input"
+          />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Tipo de cliente">
+          <select :id="id" v-model="form.segment" class="adm-input">
+            <option v-for="(label, key) in segmentLabel" :key="key" :value="key">{{ label }}</option>
+          </select>
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Variante"
+          help="Identificador del contenido alternativo. Ejemplo: bulk_offer"
+          required
+        >
+          <input
+            :id="id"
+            v-model="form.variantKey"
+            required
+            pattern="[a-z][a-z0-9_]{1,39}"
+            placeholder="bulk_offer"
+            class="adm-input"
+          />
+        </AdminFormField>
+      </form>
+      <template #footer>
+        <AdminButton @click="formOpen = false">Cancelar</AdminButton>
+        <AdminButton variant="primary" type="submit" form="edge-rule-form" :loading="busy">Crear borrador</AdminButton>
+      </template>
+    </AdminDrawer>
   </section>
 </template>

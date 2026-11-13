@@ -2,9 +2,11 @@
 import AdminDeliverySurveys from '~/components/AdminDeliverySurveys.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Encuestas de entrega · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Encuestas de entrega · Panel NETECO', robots: 'noindex, nofollow' })
 </script>
 
 <template>
-  <AdminDeliverySurveys />
+  <AdminPage>
+    <AdminDeliverySurveys />
+  </AdminPage>
 </template>

@@ -6,7 +6,7 @@ useSeoMeta({ title: 'Búsquedas sin resultado · Admin', robots: 'noindex, nofol
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminSearchGapProgramme />
-  </div>
+  </AdminPage>
 </template>

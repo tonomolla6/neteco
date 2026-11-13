@@ -47,13 +47,14 @@ async function generateLabel() {
     const errorObj = err as { data?: { error?: { code?: string } } }
     const code = errorObj?.data?.error?.code
     if (code === 'qa_quarantine_blocked') {
-      labelError.value = 'BLOQUEADO: El lote se encuentra en CUARENTENA y no puede ser etiquetado para expedición.'
+      labelError.value =
+        'Este lote está en cuarentena: no se puede etiquetar para enviarlo hasta que calidad lo libere.'
     } else if (code === 'qa_rejected_blocked') {
-      labelError.value = 'BLOQUEADO: El lote ha sido RECHAZADO por el control de calidad.'
+      labelError.value = 'Este lote fue rechazado en el control de calidad y no se puede etiquetar.'
     } else if (code === 'not_found') {
-      labelError.value = 'No se encontró la variante o el registro del lote especificado.'
+      labelError.value = 'No encontramos ese producto o ese lote. Revisa los dos códigos.'
     } else {
-      labelError.value = 'Error al generar la etiqueta de seguridad química.'
+      labelError.value = 'No se ha podido generar la etiqueta. Vuelve a intentarlo.'
     }
   } finally {
     labelLoading.value = false
@@ -75,7 +76,8 @@ async function generateTransportDoc() {
     })
     transportResult.value = res
   } catch {
-    transportError.value = 'Error al generar el documento de transporte ADR. Verifique permisos o referencias de lote.'
+    transportError.value =
+      'No se ha podido generar el documento de transporte. Revisa los números de lote y vuelve a intentarlo.'
   } finally {
     transportLoading.value = false
   }
@@ -106,7 +108,7 @@ async function loadHandlingInstructions() {
     )
     handlingResult.value = res.instructions
   } catch {
-    handlingError.value = 'No se encontraron instrucciones operativas para la variante seleccionada.'
+    handlingError.value = 'No hay ficha de manipulación para ese producto. Revisa el código.'
   } finally {
     handlingLoading.value = false
   }
@@ -114,342 +116,298 @@ async function loadHandlingInstructions() {
 </script>
 
 <template>
-  <div class="space-y-8" data-testid="admin-warehouse-adr-panel">
-    <!-- Header -->
-    <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <span
-            class="inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wider text-amber-800"
-          >
-            Logística y Seguridad Química (ADR / CLP)
-          </span>
-          <h1 class="mt-2 text-2xl font-black text-slate-900 sm:text-3xl">
-            Assets Operativos de Almacén y Gestión ADR
-          </h1>
-          <p class="mt-1 text-sm text-slate-600">
-            Generación controlada de etiquetas químicas CLP, cartas de porte con cálculo de exención 1.1.3.6 e
-            instrucciones de manipulación seguras por variante y lote.
-          </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Tabs/Grid container -->
-    <div class="grid grid-cols-1 gap-8 lg:grid-cols-2">
-      <!-- 1. CLP Label Generator -->
-      <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" data-testid="clp-label-section">
-        <div class="border-b border-slate-200 pb-4">
-          <h2 class="text-lg font-bold text-slate-900">1. Generador de Etiquetas CLP por Lote</h2>
-          <p class="mt-1 text-xs text-slate-500">
-            Etiqueta reglamentaria según Reglamento (CE) 1272/2008. Bloqueada si el lote no está aprobado por QA.
-          </p>
-        </div>
-
-        <form class="mt-4 space-y-4" @submit.prevent="generateLabel">
-          <div>
-            <label for="clp-variant" class="block text-xs font-bold text-slate-700">ID de Variante</label>
-            <input
-              id="clp-variant"
-              v-model="labelVariantId"
-              type="text"
-              class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              placeholder="var-cloro-5l"
-            />
+  <div class="adm-stack" data-testid="admin-warehouse-adr-panel">
+    <div class="grid gap-5 lg:grid-cols-2">
+      <!-- Etiqueta de peligro por lote -->
+      <AdminCard
+        title="Etiqueta de peligro por lote"
+        description="Etiqueta reglamentaria (CLP). Solo se genera si calidad ha aprobado el lote."
+        data-testid="clp-label-section"
+      >
+        <form class="adm-stack" @submit.prevent="generateLabel">
+          <div class="adm-form-grid">
+            <AdminFormField label="Código del producto" for="clp-variant">
+              <input
+                id="clp-variant"
+                v-model="labelVariantId"
+                type="text"
+                class="adm-input w-full font-mono"
+                placeholder="var-cloro-5l"
+              />
+            </AdminFormField>
+            <AdminFormField label="Número de lote" for="clp-lot">
+              <input
+                id="clp-lot"
+                v-model="labelLotNumber"
+                type="text"
+                class="adm-input w-full font-mono"
+                placeholder="LOT-202610-042"
+              />
+            </AdminFormField>
           </div>
-
           <div>
-            <label for="clp-lot" class="block text-xs font-bold text-slate-700">Número de Lote (Trazabilidad)</label>
-            <input
-              id="clp-lot"
-              v-model="labelLotNumber"
-              type="text"
-              class="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-slate-900 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
-              placeholder="LOT-202610-042"
-            />
+            <button
+              type="submit"
+              :disabled="labelLoading || !labelVariantId || !labelLotNumber"
+              class="adm-btn adm-btn--secondary"
+              data-testid="btn-generate-label"
+            >
+              <UIcon
+                :name="labelLoading ? 'i-lucide-loader-circle' : 'i-lucide-tag'"
+                class="size-4 shrink-0"
+                :class="labelLoading && 'animate-spin'"
+              />
+              {{ labelLoading ? 'Generando etiqueta…' : 'Generar etiqueta' }}
+            </button>
           </div>
-
-          <button
-            type="submit"
-            :disabled="labelLoading || !labelVariantId || !labelLotNumber"
-            class="w-full rounded-xl bg-slate-900 py-2.5 text-sm font-bold text-white shadow hover:bg-slate-800 disabled:opacity-50"
-            data-testid="btn-generate-label"
-          >
-            {{ labelLoading ? 'Generando etiqueta...' : 'Generar Etiqueta CLP Oficial' }}
-          </button>
         </form>
 
-        <div
+        <UAlert
           v-if="labelError"
-          class="mt-4 rounded-xl border border-red-300 bg-red-50 p-4 text-xs font-bold text-red-800"
+          class="mt-4"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="labelError"
           role="alert"
           data-testid="label-error"
-        >
-          {{ labelError }}
-        </div>
+        />
 
-        <!-- Rendered CLP Label Preview -->
+        <!-- Vista previa de la etiqueta -->
         <div
           v-if="labelResult"
-          class="mt-6 rounded-2xl border-2 border-slate-900 bg-white p-6 shadow-md"
+          class="mt-5 rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
           data-testid="clp-label-preview"
         >
-          <div class="border-b-2 border-slate-900 pb-3">
-            <div class="flex items-start justify-between">
-              <div>
-                <span class="text-xs font-extrabold uppercase text-slate-500">NETECO PROFESSIONAL</span>
-                <h3 class="text-xl font-black text-slate-950">{{ labelResult.productName }}</h3>
-                <p class="text-sm font-bold text-slate-700">
-                  {{ labelResult.variantLabel }} ({{ labelResult.netQuantity }})
-                </p>
-              </div>
-              <div class="text-right text-xs font-mono font-bold text-slate-800">
-                <p>Lote: {{ labelResult.lotNumber }}</p>
-                <p>Fab: {{ labelResult.manufacturingDate }}</p>
-                <p>Cad: {{ labelResult.expiryDate }}</p>
-              </div>
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="adm-help">NETECO Professional</p>
+              <h3 class="text-base font-semibold text-[var(--text-strong)]">{{ labelResult.productName }}</h3>
+              <p>{{ labelResult.variantLabel }} ({{ labelResult.netQuantity }})</p>
+            </div>
+            <div class="adm-help text-right">
+              <p>Lote: {{ labelResult.lotNumber }}</p>
+              <p>Fabricación: {{ adminDate(labelResult.manufacturingDate) }}</p>
+              <p>Caducidad: {{ adminDate(labelResult.expiryDate) }}</p>
             </div>
           </div>
 
-          <!-- Signal word & pictograms -->
-          <div class="my-4 flex items-center justify-between border-b border-slate-200 pb-4">
-            <span
-              class="rounded-lg px-4 py-1.5 text-sm font-black tracking-wider text-white uppercase"
-              :class="labelResult.signalWord === 'PELIGRO' ? 'bg-red-600' : 'bg-amber-600'"
-            >
+          <div class="my-4 flex flex-wrap items-center justify-between gap-3 border-y border-[var(--border)] py-3">
+            <AdminBadge :tone="labelResult.signalWord === 'PELIGRO' ? 'danger' : 'warning'">
               {{ labelResult.signalWord }}
-            </span>
-
-            <div class="flex gap-2">
-              <span
-                v-for="pic in labelResult.pictograms"
-                :key="pic"
-                class="flex h-10 w-10 items-center justify-center rounded-lg border-2 border-red-600 font-bold text-xs text-red-700 shadow-sm"
-              >
-                {{ pic }}
-              </span>
-            </div>
+            </AdminBadge>
+            <ul class="flex flex-wrap gap-2" aria-label="Pictogramas de peligro">
+              <li v-for="pic in labelResult.pictograms" :key="pic" class="adm-chip">{{ pic }}</li>
+            </ul>
           </div>
 
-          <!-- Statements -->
-          <div class="space-y-2 text-xs text-slate-800">
+          <div class="adm-stack">
             <div>
-              <p class="font-bold text-slate-900">Indicaciones de peligro (H):</p>
-              <ul class="list-disc pl-4 text-slate-700">
+              <p class="font-semibold text-[var(--text-strong)]">Indicaciones de peligro</p>
+              <ul class="mt-1 list-disc pl-5">
                 <li v-for="(h, i) in labelResult.hazardStatements" :key="i">{{ h }}</li>
               </ul>
             </div>
             <div>
-              <p class="font-bold text-slate-900">Consejos de prudencia (P):</p>
-              <ul class="list-disc pl-4 text-slate-700">
+              <p class="font-semibold text-[var(--text-strong)]">Consejos de prudencia</p>
+              <ul class="mt-1 list-disc pl-5">
                 <li v-for="(p, i) in labelResult.precautionaryStatements" :key="i">{{ p }}</li>
               </ul>
             </div>
           </div>
 
-          <!-- Footer details -->
-          <div class="mt-4 border-t border-slate-200 pt-3 text-[10px] text-slate-500">
-            <p v-if="labelResult.ufiCode">
-              <strong>{{ labelResult.ufiCode }}</strong>
-            </p>
-            <p><strong>Teléfono de Emergencias Toxicológicas (INTCF):</strong> {{ labelResult.emergencyPhone }}</p>
-            <p>
-              <strong>Proveedor:</strong> {{ labelResult.supplierInfo.name }} | {{ labelResult.supplierInfo.address }}
-            </p>
-            <p class="mt-1 font-mono text-slate-700">
-              <strong>Código de barras GS1:</strong> {{ labelResult.barcodeData }}
-            </p>
+          <div class="adm-help mt-4 border-t border-[var(--border)] pt-3">
+            <p v-if="labelResult.ufiCode">{{ labelResult.ufiCode }}</p>
+            <p>Teléfono de emergencias toxicológicas: {{ labelResult.emergencyPhone }}</p>
+            <p>Proveedor: {{ labelResult.supplierInfo.name }} · {{ labelResult.supplierInfo.address }}</p>
+            <p class="break-all">Código de barras: {{ labelResult.barcodeData }}</p>
           </div>
         </div>
-      </section>
+      </AdminCard>
 
-      <!-- 2. Warehouse Handling & Spill Instructions -->
-      <section
-        class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+      <!-- Ficha de manipulación y derrames -->
+      <AdminCard
+        title="Manipulación y derrames"
+        description="Instrucciones de la ficha de seguridad para quien mueve el producto en el almacén."
         data-testid="handling-instructions-section"
       >
-        <div class="border-b border-slate-200 pb-4">
-          <h2 class="text-lg font-bold text-slate-900">2. Ficha de Manipulación y Derrames</h2>
-          <p class="mt-1 text-xs text-slate-500">
-            Instrucciones operativas directas de la ficha de seguridad SDS para los operarios del almacén.
-          </p>
-        </div>
-
-        <form class="mt-4 flex gap-3" @submit.prevent="loadHandlingInstructions">
-          <input
-            v-model="handlingVariantId"
-            type="text"
-            placeholder="ID de variante..."
-            class="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono text-slate-900 focus:border-amber-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            :disabled="handlingLoading || !handlingVariantId"
-            class="rounded-lg bg-slate-900 px-4 py-2 text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            Consultar Ficha
+        <form class="flex flex-wrap items-end gap-3" @submit.prevent="loadHandlingInstructions">
+          <div class="adm-field min-w-0 flex-1">
+            <label for="handling-variant" class="adm-label">Código del producto</label>
+            <input
+              id="handling-variant"
+              v-model="handlingVariantId"
+              type="text"
+              placeholder="var-cloro-5l"
+              class="adm-input w-full font-mono"
+            />
+          </div>
+          <button type="submit" :disabled="handlingLoading || !handlingVariantId" class="adm-btn adm-btn--secondary">
+            <UIcon
+              :name="handlingLoading ? 'i-lucide-loader-circle' : 'i-lucide-search'"
+              class="size-4 shrink-0"
+              :class="handlingLoading && 'animate-spin'"
+            />
+            Consultar ficha
           </button>
         </form>
 
-        <div v-if="handlingError" class="mt-4 rounded-lg bg-red-50 p-4 text-xs font-semibold text-red-700">
-          {{ handlingError }}
-        </div>
+        <UAlert
+          v-if="handlingError"
+          class="mt-4"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="handlingError"
+          role="alert"
+        />
 
-        <div v-if="handlingResult" class="mt-6 space-y-4 text-xs" data-testid="handling-instructions-content">
-          <div class="rounded-xl bg-amber-50 border border-amber-200 p-4">
-            <h4 class="font-bold text-amber-900 uppercase">Equipos de Protección Individual (EPI Obligatorio)</h4>
-            <ul class="mt-2 list-disc pl-4 text-amber-800 space-y-1">
+        <div v-if="handlingResult" class="adm-stack mt-5" data-testid="handling-instructions-content">
+          <div>
+            <h3 class="font-semibold text-[var(--text-strong)]">Equipo de protección obligatorio</h3>
+            <ul class="mt-1 list-disc space-y-1 pl-5">
               <li v-for="(ppe, i) in handlingResult.requiredPpe" :key="i">{{ ppe }}</li>
             </ul>
           </div>
-
-          <div class="rounded-xl bg-red-50 border border-red-200 p-4">
-            <h4 class="font-bold text-red-900 uppercase">Incompatibilidades Químicas Críticas</h4>
-            <ul class="mt-2 list-disc pl-4 text-red-800 space-y-1">
+          <div class="border-t border-[var(--border)] pt-4">
+            <h3 class="font-semibold text-[var(--text-strong)]">No almacenar ni mezclar con</h3>
+            <ul class="mt-1 list-disc space-y-1 pl-5">
               <li v-for="(inc, i) in handlingResult.incompatibleMaterials" :key="i">{{ inc }}</li>
             </ul>
           </div>
-
-          <div class="rounded-xl bg-slate-50 border border-slate-200 p-4">
-            <h4 class="font-bold text-slate-900 uppercase">Protocolo de Actuación ante Derrames</h4>
-            <ol class="mt-2 list-decimal pl-4 text-slate-700 space-y-1">
+          <div class="border-t border-[var(--border)] pt-4">
+            <h3 class="font-semibold text-[var(--text-strong)]">Qué hacer si hay un derrame</h3>
+            <ol class="mt-1 list-decimal space-y-1 pl-5">
               <li v-for="(step, i) in handlingResult.spillResponseSteps" :key="i">{{ step }}</li>
             </ol>
           </div>
         </div>
-      </section>
+        <AdminEmptyState
+          v-else-if="!handlingError"
+          compact
+          icon="i-lucide-shield-alert"
+          title="Consulta un producto"
+          description="Verás la protección necesaria, las incompatibilidades y los pasos ante un derrame."
+        />
+      </AdminCard>
     </div>
 
-    <!-- 3. ADR Transport Document & 1.1.3.6 Exemption Calculation -->
-    <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" data-testid="adr-transport-section">
-      <div class="border-b border-slate-200 pb-4">
-        <h2 class="text-lg font-bold text-slate-900">3. Documento de Transporte ADR y Cálculo de Exención 1.1.3.6</h2>
-        <p class="mt-1 text-xs text-slate-500">
-          Cálculo ponderado de puntos ADR según categoría de transporte. Generación de declaración obligatoria para la
-          carta de porte.
-        </p>
-      </div>
+    <!-- Documento de transporte -->
+    <AdminCard
+      title="Documento de transporte de mercancías peligrosas"
+      description="Indica qué lotes salen en el envío. Se calculan los puntos y si el envío queda exento (límite de 1.000 puntos)."
+      data-testid="adr-transport-section"
+    >
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-plus" @click="addTransportLine">Añadir línea</AdminButton>
+      </template>
 
-      <div class="mt-6 space-y-4">
+      <div class="adm-stack">
         <div
           v-for="(item, idx) in transportItems"
           :key="idx"
-          class="flex flex-col sm:flex-row items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4"
+          class="grid grid-cols-2 items-end gap-3 sm:grid-cols-[minmax(0,2fr)_6rem_minmax(0,1.5fr)_7rem_auto]"
         >
-          <div class="flex-1 w-full sm:w-auto">
-            <label class="block text-xs font-semibold text-slate-700">Lote</label>
+          <AdminFormField v-slot="{ id }" label="Lote" class="col-span-2 sm:col-span-1">
             <input
+              :id="id"
               v-model="item.lotNumber"
               type="text"
-              class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-mono text-slate-900"
+              class="adm-input w-full font-mono"
               placeholder="LOT-202610-042"
             />
-          </div>
-
-          <div class="w-full sm:w-28">
-            <label class="block text-xs font-semibold text-slate-700">Bultos</label>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Bultos">
+            <input :id="id" v-model.number="item.packagesCount" type="number" min="1" class="adm-input w-full" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Tipo de envase">
             <input
-              v-model.number="item.packagesCount"
-              type="number"
-              min="1"
-              class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900"
-            />
-          </div>
-
-          <div class="w-full sm:w-36">
-            <label class="block text-xs font-semibold text-slate-700">Tipo Envase</label>
-            <input
+              :id="id"
               v-model="item.packageType"
               type="text"
-              class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900"
-              placeholder="Garrafas 5L"
+              class="adm-input w-full"
+              placeholder="Garrafas 5 L"
             />
-          </div>
-
-          <div class="w-full sm:w-28">
-            <label class="block text-xs font-semibold text-slate-700">Kg/L por Bulto</label>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Kg o L por bulto">
             <input
+              :id="id"
               v-model.number="item.litersOrKgPerPackage"
               type="number"
               min="0.1"
               step="0.1"
-              class="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900"
+              class="adm-input w-full"
             />
-          </div>
-
-          <button
-            type="button"
-            class="text-xs text-red-600 font-bold hover:underline py-1.5"
+          </AdminFormField>
+          <AdminButton
+            variant="ghost"
+            icon="i-lucide-trash-2"
+            :label="`Quitar la línea ${idx + 1}`"
             @click="removeTransportLine(idx)"
-          >
-            Eliminar
-          </button>
+          />
         </div>
+        <AdminEmptyState
+          v-if="!transportItems.length"
+          compact
+          icon="i-lucide-package"
+          title="Añade al menos una línea"
+          description="Cada línea es un lote que sale en el envío."
+        />
 
-        <div class="flex items-center justify-between pt-2">
-          <button type="button" class="text-xs font-bold text-blue-600 hover:underline" @click="addTransportLine">
-            + Añadir otra línea de expedición
-          </button>
+        <UAlert
+          v-if="transportError"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="transportError"
+          role="alert"
+        />
 
-          <button
-            type="button"
-            :disabled="transportLoading"
-            class="rounded-xl bg-blue-600 px-6 py-2.5 text-xs font-bold text-white shadow hover:bg-blue-700 disabled:opacity-50"
-            @click="generateTransportDoc"
-          >
-            {{ transportLoading ? 'Calculando...' : 'Calcular ADR y Emitir Documento' }}
-          </button>
-        </div>
-      </div>
-
-      <div v-if="transportError" class="mt-4 rounded-lg bg-red-50 p-4 text-xs font-semibold text-red-700">
-        {{ transportError }}
-      </div>
-
-      <!-- Result document -->
-      <div
-        v-if="transportResult"
-        class="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6"
-        data-testid="transport-result"
-      >
-        <div class="flex items-center justify-between border-b border-slate-200 pb-4">
-          <div>
-            <span
-              class="rounded-full px-3 py-1 text-xs font-black uppercase"
-              :class="transportResult.isExemptUnder1136 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'"
-            >
+        <!-- Resultado -->
+        <div
+          v-if="transportResult"
+          class="adm-stack rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
+          data-testid="transport-result"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <AdminBadge :tone="transportResult.isExemptUnder1136 ? 'success' : 'danger'">
               {{
                 transportResult.isExemptUnder1136
-                  ? 'TRANSPORTE BAJO EXENCIÓN 1.1.3.6'
-                  : 'TRANSPORTE COMPLETO ADR REQUERIDO'
+                  ? 'Envío exento por cantidad limitada'
+                  : 'Requiere transporte completo de mercancías peligrosas'
               }}
-            </span>
+            </AdminBadge>
+            <p>
+              <strong class="text-base text-[var(--text-strong)]">{{ transportResult.totalCalculatedPoints }}</strong>
+              de 1.000 puntos
+            </p>
           </div>
-          <div class="text-right">
-            <span
-              class="text-2xl font-black"
-              :class="transportResult.totalCalculatedPoints <= 1000 ? 'text-emerald-700' : 'text-red-700'"
-            >
-              {{ transportResult.totalCalculatedPoints }}
-            </span>
-            <span class="text-xs text-slate-500 font-medium"> / 1000 Puntos Máximos</span>
+          <div>
+            <p class="font-semibold text-[var(--text-strong)]">Texto obligatorio para la carta de porte</p>
+            <p class="mt-1 rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3">
+              {{ transportResult.mandatoryDeclaration }}
+            </p>
           </div>
-        </div>
-
-        <div class="mt-4">
-          <p class="text-xs font-bold text-slate-900">Declaración Legal Obligatoria para la Carta de Porte:</p>
-          <p class="mt-1 rounded-lg bg-white p-3 text-xs font-mono font-bold text-slate-800 border border-slate-200">
-            {{ transportResult.mandatoryDeclaration }}
-          </p>
-        </div>
-
-        <div class="mt-4">
-          <p class="text-xs font-bold text-slate-900">Instrucciones al Conductor / Transportista:</p>
-          <ul class="mt-1 list-disc pl-4 text-xs text-slate-700 space-y-1">
-            <li v-for="(inst, i) in transportResult.carrierInstructions" :key="i">{{ inst }}</li>
-          </ul>
+          <div>
+            <p class="font-semibold text-[var(--text-strong)]">Instrucciones para el transportista</p>
+            <ul class="mt-1 list-disc space-y-1 pl-5">
+              <li v-for="(inst, i) in transportResult.carrierInstructions" :key="i">{{ inst }}</li>
+            </ul>
+          </div>
         </div>
       </div>
-    </section>
+
+      <template #footer>
+        <AdminButton
+          variant="primary"
+          icon="i-lucide-file-text"
+          :loading="transportLoading"
+          :disabled="!transportItems.length"
+          @click="generateTransportDoc"
+        >
+          {{ transportLoading ? 'Calculando…' : 'Calcular y generar documento' }}
+        </AdminButton>
+      </template>
+    </AdminCard>
   </div>
 </template>

@@ -24,13 +24,28 @@ const form = ref({ vendor: '', name: '', kind: 'pixel', monthlyCostEur: 0, loadM
 
 const verdictLabel: Record<string, string> = {
   keep: 'Mantener',
-  remove: 'Eliminar: sin retorno',
-  inconclusive: 'Sin concluir'
+  remove: 'Eliminar: no compensa',
+  inconclusive: 'Sin conclusión todavía'
 }
+const kindLabel: Record<string, string> = {
+  pixel: 'Píxel de seguimiento',
+  widget: 'Complemento visual',
+  analytics: 'Analítica',
+  chat: 'Chat',
+  ab_testing: 'Pruebas comparativas',
+  other: 'Otro'
+}
+const errorLabel: Record<string, string> = {
+  forbidden: 'No tienes permiso para gestionar los servicios externos.',
+  version_conflict: 'Otra persona ha cambiado este servicio. Actualiza y vuelve a intentarlo.',
+  validation_error: 'Revisa los datos: hay algún campo incompleto o no válido.'
+}
+// Estado de interfaz: panel lateral del alta.
+const formOpen = ref(false)
 
 function errorText(error: unknown, fallback: string): string {
   const code = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return code ? `${fallback} (${code})` : fallback
+  return (code && errorLabel[code]) || fallback
 }
 
 async function load() {
@@ -40,7 +55,7 @@ async function load() {
     scripts.value =
       ((await requestFetch('/api/admin/performance/third-parties')) as { scripts: Script[] })?.scripts ?? []
   } catch (error) {
-    errorMessage.value = errorText(error, 'No se pudo cargar el registro de terceros')
+    errorMessage.value = errorText(error, 'No hemos podido cargar los servicios externos. Vuelve a intentarlo.')
   } finally {
     loading.value = false
   }
@@ -56,9 +71,10 @@ async function post(path: string, body: Record<string, unknown>, success: string
       body: { commandId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), ...body }
     })
     notice.value = success
+    formOpen.value = false
     await load()
   } catch (error) {
-    errorMessage.value = errorText(error, 'La operación no se pudo completar')
+    errorMessage.value = errorText(error, 'No hemos podido completar la operación. Vuelve a intentarlo.')
   } finally {
     busy.value = false
   }
@@ -74,125 +90,124 @@ const register = () =>
       monthlyCostCents: Math.round(Number(form.value.monthlyCostEur) * 100),
       loadMsP75: Math.round(Number(form.value.loadMsP75))
     },
-    'Script registrado.'
+    'Servicio añadido.'
   )
 const remove = (script: Script) =>
   post(
     'remove',
     { scriptId: script.id, expectedVersion: script.version, reason: (reasons.value[script.id] ?? '').trim() },
-    'Script eliminado del manifiesto.'
+    'Servicio retirado de la tienda.'
   )
 
 onMounted(load)
 </script>
 
 <template>
-  <section class="space-y-4" aria-labelledby="third-party-title" data-third-party-panel>
-    <div>
-      <h2 id="third-party-title" class="text-lg font-semibold text-neutral-900">Terceros: valor frente a coste</h2>
-      <p class="text-xs text-neutral-600">
-        Cada píxel o widget se mide con un A/B (cargado frente a no cargado). Si no devuelve valor, se elimina.
-      </p>
-    </div>
-    <div v-if="errorMessage" role="alert" class="rounded bg-red-100 p-3 text-sm text-red-700" data-error>
-      {{ errorMessage }} <button type="button" class="ml-2 underline" data-retry @click="load">Reintentar</button>
-    </div>
-    <div v-if="notice" role="status" class="rounded bg-emerald-100 p-3 text-sm text-emerald-700">{{ notice }}</div>
+  <section class="adm-stack" aria-label="Servicios externos: valor frente a coste" data-third-party-panel>
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="formOpen = true">Añadir servicio</AdminButton>
+    </AdminPageActions>
 
-    <form class="grid gap-3 rounded border border-neutral-200 bg-white p-4 sm:grid-cols-5" @submit.prevent="register">
-      <label class="text-xs font-medium">
-        Proveedor
-        <input
-          v-model="form.vendor"
-          required
-          minlength="2"
-          maxlength="80"
-          class="mt-1 w-full rounded border px-2 py-1 text-sm"
-        />
-      </label>
-      <label class="text-xs font-medium">
-        Nombre
-        <input
-          v-model="form.name"
-          required
-          minlength="2"
-          maxlength="80"
-          class="mt-1 w-full rounded border px-2 py-1 text-sm"
-        />
-      </label>
-      <label class="text-xs font-medium">
-        Tipo
-        <select v-model="form.kind" class="mt-1 w-full rounded border px-2 py-1 text-sm">
-          <option value="pixel">Píxel</option>
-          <option value="widget">Widget</option>
-          <option value="analytics">Analítica</option>
-          <option value="chat">Chat</option>
-          <option value="ab_testing">A/B</option>
-          <option value="other">Otro</option>
-        </select>
-      </label>
-      <label class="text-xs font-medium">
-        Coste mensual (EUR)
-        <input
-          v-model.number="form.monthlyCostEur"
-          type="number"
-          min="0"
-          step="0.01"
-          class="mt-1 w-full rounded border px-2 py-1 text-sm"
-        />
-      </label>
-      <div class="flex items-end">
-        <button
-          type="submit"
-          class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
-          :disabled="busy"
-        >
-          Registrar
-        </button>
-      </div>
-    </form>
-
-    <p v-if="loading" class="py-4 text-center text-sm text-neutral-500" data-loading>Cargando terceros...</p>
-    <p v-else-if="!scripts.length && !errorMessage" class="py-4 text-center text-sm text-neutral-500" data-empty>
-      No hay scripts de terceros registrados.
-    </p>
-    <ul v-else class="space-y-2">
-      <li v-for="s in scripts" :key="s.id" class="rounded border border-neutral-200 bg-white p-3 text-sm" data-script>
-        <div class="flex flex-wrap items-center gap-2">
-          <strong>{{ s.vendor }} · {{ s.name }}</strong>
-          <span class="text-xs text-neutral-500"
-            >{{ s.kind }} · {{ (s.monthlyCostCents / 100).toFixed(2) }} EUR/mes · {{ s.loadMsP75 }} ms p75</span
-          >
-          <span v-if="s.status === 'removed'" class="rounded bg-neutral-200 px-2 text-xs" data-removed>Eliminado</span>
-          <span
-            v-else-if="s.latestVerdict"
-            class="rounded px-2 text-xs"
-            :class="s.latestVerdict === 'remove' ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'"
-            data-verdict
-          >
-            {{ verdictLabel[s.latestVerdict] }}
-          </span>
-          <span v-else class="text-xs text-neutral-500">Sin A/B registrado</span>
-        </div>
-        <div v-if="s.status === 'active'" class="mt-2 flex flex-wrap items-center gap-2">
-          <input
-            v-model="reasons[s.id]"
-            :aria-label="`Motivo para eliminar ${s.name}`"
-            placeholder="Motivo (mín. 10 caracteres)"
-            maxlength="500"
-            class="min-w-0 flex-1 rounded border px-2 py-1 text-xs"
-          />
-          <button
-            type="button"
-            class="rounded border border-red-300 px-2 py-1 text-xs text-red-800 disabled:opacity-50"
-            :disabled="busy || (reasons[s.id] ?? '').trim().length < 10"
-            data-remove
-            @click="remove(s)"
-          >
-            Eliminar
+    <div v-if="errorMessage" role="alert" data-error>
+      <UAlert color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="errorMessage">
+        <template #actions>
+          <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm" data-retry @click="load">
+            Reintentar
           </button>
-        </div>
-      </li>
-    </ul>
+        </template>
+      </UAlert>
+    </div>
+    <div v-if="notice" role="status">
+      <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
+    </div>
+
+    <p class="adm-help">
+      Cada servicio de otra empresa que se carga en la tienda (píxeles, chat, analítica…) la hace más lenta. Se compara
+      la tienda con y sin él: si no aporta ventas, se retira.
+    </p>
+
+    <AdminCard flush>
+      <div v-if="loading" class="adm-table-skeleton" aria-busy="true" data-loading>
+        <span class="sr-only">Cargando servicios externos…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+      </div>
+      <div v-else-if="!scripts.length && !errorMessage" data-empty>
+        <AdminEmptyState
+          compact
+          icon="i-lucide-plug"
+          title="No hay servicios externos registrados"
+          description="Añade los píxeles, chats o herramientas de analítica que carga la tienda para medir si compensan."
+        >
+          <AdminButton icon="i-lucide-plus" @click="formOpen = true">Añadir servicio</AdminButton>
+        </AdminEmptyState>
+      </div>
+      <ul v-else class="adm-list">
+        <li v-for="s in scripts" :key="s.id" data-script>
+          <div class="min-w-0 flex-1">
+            <p class="adm-list__title">
+              {{ s.vendor }} · {{ s.name }}
+              <AdminBadge v-if="s.status === 'removed'" tone="neutral" data-removed>Retirado</AdminBadge>
+              <AdminBadge
+                v-else-if="s.latestVerdict"
+                :tone="s.latestVerdict === 'remove' ? 'danger' : s.latestVerdict === 'keep' ? 'success' : 'neutral'"
+                data-verdict
+              >
+                {{ verdictLabel[s.latestVerdict] }}
+              </AdminBadge>
+              <AdminBadge v-else tone="neutral">Sin medir todavía</AdminBadge>
+            </p>
+            <p class="adm-help">
+              {{ kindLabel[s.kind] ?? adminHumanize(s.kind) }} · {{ adminMoney(s.monthlyCostCents) }} al mes · tarda
+              {{ s.loadMsP75 }} ms en cargar
+            </p>
+          </div>
+          <div v-if="s.status === 'active'" class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <input
+              v-model="reasons[s.id]"
+              :aria-label="`Motivo para eliminar ${s.name}`"
+              placeholder="Motivo (mín. 10 caracteres)"
+              maxlength="500"
+              class="adm-input min-w-0 flex-1 sm:w-64"
+            />
+            <button
+              type="button"
+              class="adm-btn adm-btn--danger-soft"
+              :disabled="busy || (reasons[s.id] ?? '').trim().length < 10"
+              data-remove
+              @click="remove(s)"
+            >
+              Eliminar
+            </button>
+          </div>
+        </li>
+      </ul>
+    </AdminCard>
+
+    <AdminDrawer
+      v-model:open="formOpen"
+      title="Añadir servicio externo"
+      description="Registra un servicio de otra empresa que se carga en la tienda."
+    >
+      <form id="third-party-form" class="adm-stack" @submit.prevent="register">
+        <AdminFormField v-slot="{ id }" label="Proveedor" required>
+          <input :id="id" v-model="form.vendor" required minlength="2" maxlength="80" class="adm-input" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Nombre" required>
+          <input :id="id" v-model="form.name" required minlength="2" maxlength="80" class="adm-input" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Tipo">
+          <select :id="id" v-model="form.kind" class="adm-input">
+            <option v-for="(label, key) in kindLabel" :key="key" :value="key">{{ label }}</option>
+          </select>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Coste mensual (€)">
+          <input :id="id" v-model.number="form.monthlyCostEur" type="number" min="0" step="0.01" class="adm-input" />
+        </AdminFormField>
+      </form>
+      <template #footer>
+        <AdminButton @click="formOpen = false">Cancelar</AdminButton>
+        <AdminButton variant="primary" type="submit" form="third-party-form" :loading="busy">Guardar</AdminButton>
+      </template>
+    </AdminDrawer>
   </section>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 interface BacklogItem {
   term: string
@@ -145,239 +145,243 @@ async function measure(caseItem: SearchGapCase) {
   }
 }
 
+// Etiquetas legibles y estado de interfaz (el panel lateral se abre al elegir un caso).
+const STATUS_OPTIONS = [
+  { value: 'open', label: 'Abiertos' },
+  { value: 'actioned', label: 'Con solución aplicada' },
+  { value: 'dismissed', label: 'Descartados' }
+]
+const STATUS_LABEL: Record<SearchGapCase['status'], string> = {
+  open: 'Abierto',
+  actioned: 'Solución aplicada',
+  dismissed: 'Descartado'
+}
+const STATUS_TONE = { open: 'warning', actioned: 'success', dismissed: 'neutral' } as const
+const ACTION_LABEL: Record<string, string> = {
+  synonym: 'Sinónimo',
+  redirect: 'Redirección a una página',
+  content: 'Contenido nuevo',
+  assortment: 'Producto añadido al catálogo'
+}
+const VERDICT_LABEL: Record<string, string> = {
+  improved: 'Ha mejorado',
+  no_change: 'Sin cambios apreciables',
+  worse: 'Ha empeorado',
+  insufficient_data: 'Todavía no hay datos suficientes',
+  not_actioned: 'Aún no se ha aplicado ninguna solución'
+}
+const ERROR_LABEL: Record<string, string> = {
+  forbidden: 'No tienes permiso para gestionar las búsquedas sin resultado.',
+  unauthorized: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
+  version_conflict: 'Otra persona ha modificado este caso. Actualiza y vuelve a intentarlo.',
+  conflict: 'Otra persona ha modificado este caso. Actualiza y vuelve a intentarlo.'
+}
+const errorText = computed(() =>
+  error.value ? (ERROR_LABEL[error.value] ?? 'No hemos podido completar la operación. Vuelve a intentarlo.') : ''
+)
+const percent = (rate: number) => `${(rate * 100).toFixed(1)}%`
+function setStatus(value: string) {
+  statusFilter.value = value as typeof statusFilter.value
+  void loadData()
+}
+const drawerOpen = computed({
+  get: () => activeCase.value !== null,
+  set: (open: boolean) => {
+    if (!open) activeCase.value = null
+  }
+})
+const measuredCase = computed(() => cases.value.find((entry) => entry.id === measuredCaseId.value) ?? null)
+
 onMounted(() => {
   loadData()
 })
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-bold text-slate-900">Programa de búsquedas sin resultado (SEO-025)</h1>
-      <p class="text-sm text-slate-600">
-        Bucle cerrado para términos con alta tasa de cero resultados: apertura de caso, acción (sinónimo, contenido,
-        surtido, redirect) y medición de impacto.
-      </p>
-    </header>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Actualizar</AdminButton>
+    </AdminPageActions>
 
-    <div
-      v-if="notice"
-      data-test="notice"
-      role="status"
-      aria-live="polite"
-      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
-    >
-      {{ notice }}
+    <div v-if="notice" data-test="notice" role="status" aria-live="polite">
+      <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
     </div>
 
-    <div v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      Error: {{ error }}
+    <div v-if="error" role="alert">
+      <UAlert color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="errorText">
+        <template #actions>
+          <AdminButton size="sm" icon="i-lucide-rotate-cw" @click="loadData">Reintentar</AdminButton>
+        </template>
+      </UAlert>
     </div>
 
-    <!-- Backlog Section -->
-    <section
+    <AdminSection
+      title="Términos pendientes de revisar"
+      description="Búsquedas recientes que casi nunca devuelven productos. Abre un caso para darles solución."
       aria-labelledby="backlog-heading"
-      class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4"
     >
-      <div class="flex items-center justify-between">
-        <h2 id="backlog-heading" class="text-base font-semibold text-slate-900">
-          Backlog de términos sin resultados ({{ backlog.length }})
-        </h2>
-        <button
-          type="button"
-          class="rounded bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
-          @click="loadData"
-        >
-          Actualizar
-        </button>
-      </div>
+      <AdminCard flush>
+        <span id="backlog-heading" class="sr-only">Términos pendientes de revisar ({{ backlog.length }})</span>
+        <div v-if="loading && !backlog.length" class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+        </div>
+        <AdminEmptyState
+          v-else-if="backlog.length === 0"
+          compact
+          icon="i-lucide-circle-check"
+          title="Nada pendiente"
+          description="En los últimos días no hay términos que se queden sin resultado con frecuencia."
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Búsqueda</th>
+                <th scope="col" data-numeric>Veces buscada</th>
+                <th scope="col" data-numeric>Sin resultado</th>
+                <th scope="col" data-numeric>% sin resultado</th>
+                <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in backlog" :key="item.term">
+                <td class="font-medium text-[var(--text-strong)]">{{ item.term }}</td>
+                <td data-numeric>{{ item.searches }}</td>
+                <td data-numeric>{{ item.zeroResults }}</td>
+                <td data-numeric>{{ percent(item.zeroRate) }}</td>
+                <td data-numeric class="adm-table__actions">
+                  <button
+                    type="button"
+                    data-test="open-case-btn"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    @click="openCase(item.term)"
+                  >
+                    Abrir caso
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </AdminCard>
+    </AdminSection>
 
-      <div v-if="backlog.length === 0 && !loading" class="text-xs text-slate-500 py-4 text-center">
-        No hay términos con alta tasa de cero resultados en los últimos días.
-      </div>
+    <AdminSection title="Casos" aria-labelledby="cases-heading">
+      <template #actions>
+        <AdminFilters
+          :model-value="statusFilter"
+          :options="STATUS_OPTIONS"
+          label="Filtrar casos por estado"
+          @update:model-value="setStatus"
+        />
+      </template>
+      <AdminCard flush>
+        <span id="cases-heading" class="sr-only">Casos de búsquedas sin resultado</span>
+        <AdminEmptyState
+          v-if="cases.length === 0 && !loading"
+          compact
+          variant="filtered"
+          title="No hay casos en este estado"
+          description="Cambia el filtro o abre un caso desde la lista de términos pendientes."
+        />
+        <div v-else-if="cases.length" class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Búsqueda</th>
+                <th scope="col">Estado</th>
+                <th scope="col" data-numeric>% sin resultado al abrirlo</th>
+                <th scope="col">Solución aplicada</th>
+                <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="c in cases" :key="c.id">
+                <td class="font-medium text-[var(--text-strong)]">{{ c.termDisplay }}</td>
+                <td>
+                  <AdminBadge :tone="STATUS_TONE[c.status]">{{ STATUS_LABEL[c.status] }}</AdminBadge>
+                </td>
+                <td data-numeric>{{ percent(c.baselineZeroRate) }}</td>
+                <td>{{ c.actionType ? (ACTION_LABEL[c.actionType] ?? adminHumanize(c.actionType)) : 'Pendiente' }}</td>
+                <td data-numeric class="adm-table__actions">
+                  <AdminButton v-if="c.status === 'open'" size="sm" @click="activeCase = c">
+                    Registrar solución
+                  </AdminButton>
+                  <AdminButton v-if="c.status === 'actioned'" size="sm" icon="i-lucide-chart-line" @click="measure(c)">
+                    Ver resultado
+                  </AdminButton>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="row in 3" :key="row"><i /><i /><i /><i /></div>
+        </div>
+      </AdminCard>
+    </AdminSection>
 
-      <div v-else class="overflow-x-auto rounded-lg border border-slate-100">
-        <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-          <thead class="bg-slate-50 font-medium text-slate-600">
-            <tr>
-              <th scope="col" class="px-3 py-2">Término</th>
-              <th scope="col" class="px-3 py-2">Búsquedas</th>
-              <th scope="col" class="px-3 py-2">Sin resultado</th>
-              <th scope="col" class="px-3 py-2">Tasa</th>
-              <th scope="col" class="px-3 py-2 text-right">Acción</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="item in backlog" :key="item.term" class="hover:bg-slate-50">
-              <td class="px-3 py-2 font-medium text-slate-900">{{ item.term }}</td>
-              <td class="px-3 py-2 text-slate-600">{{ item.searches }}</td>
-              <td class="px-3 py-2 text-slate-600">{{ item.zeroResults }}</td>
-              <td class="px-3 py-2 font-semibold text-amber-700">{{ (item.zeroRate * 100).toFixed(1) }}%</td>
-              <td class="px-3 py-2 text-right">
-                <button
-                  type="button"
-                  data-test="open-case-btn"
-                  class="rounded bg-indigo-600 px-2.5 py-1 text-white hover:bg-indigo-500"
-                  @click="openCase(item.term)"
-                >
-                  Abrir caso
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Cases Management -->
-    <section
-      aria-labelledby="cases-heading"
-      class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4"
+    <AdminCard
+      v-if="measurement"
+      :title="measuredCase ? `Resultado de «${measuredCase.termDisplay}»` : 'Resultado de la solución'"
+      :description="VERDICT_LABEL[measurement.verdict] ?? adminHumanize(measurement.verdict)"
     >
-      <div class="flex items-center justify-between">
-        <h2 id="cases-heading" class="text-base font-semibold text-slate-900">Casos del programa</h2>
-        <div class="flex gap-2 text-xs">
-          <select v-model="statusFilter" class="rounded border p-1" @change="loadData">
-            <option value="open">Abiertos</option>
-            <option value="actioned">Accionados</option>
-            <option value="dismissed">Descartados</option>
+      <template #actions>
+        <AdminButton variant="ghost" size="sm" icon="i-lucide-x" label="Cerrar resultado" @click="measurement = null" />
+      </template>
+      <div class="adm-grid">
+        <AdminStat
+          label="Antes"
+          :value="percent(measurement.before.zeroRate)"
+          :hint="`${measurement.before.zeroResults} de ${measurement.before.searches} búsquedas sin resultado`"
+        />
+        <AdminStat
+          label="Después"
+          :value="percent(measurement.after.zeroRate)"
+          :hint="`${measurement.after.zeroResults} de ${measurement.after.searches} búsquedas sin resultado`"
+        />
+        <AdminStat
+          label="Variación"
+          :value="`${measurement.deltaPercent > 0 ? '+' : ''}${measurement.deltaPercent.toFixed(1)}%`"
+          hint="Cambio en las búsquedas sin resultado"
+        />
+      </div>
+    </AdminCard>
+
+    <AdminDrawer
+      v-model:open="drawerOpen"
+      :title="activeCase ? `Solución para «${activeCase.termDisplay}»` : 'Registrar solución'"
+      description="Anota qué has hecho para que esta búsqueda encuentre productos."
+    >
+      <div class="adm-stack">
+        <AdminFormField v-slot="{ id }" label="Qué has hecho">
+          <select :id="id" v-model="actionType" class="adm-input">
+            <option value="synonym">Añadir un sinónimo</option>
+            <option value="redirect">Redirigir a una página</option>
+            <option value="content">Publicar contenido</option>
+            <option value="assortment">Añadir el producto al catálogo</option>
           </select>
-        </div>
-      </div>
-
-      <div v-if="cases.length === 0 && !loading" class="text-xs text-slate-500 py-4 text-center">
-        No hay casos con estado "{{ statusFilter }}".
-      </div>
-
-      <div v-else class="overflow-x-auto rounded-lg border border-slate-100">
-        <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-          <thead class="bg-slate-50 font-medium text-slate-600">
-            <tr>
-              <th scope="col" class="px-3 py-2">Término</th>
-              <th scope="col" class="px-3 py-2">Estado</th>
-              <th scope="col" class="px-3 py-2">Tasa basal</th>
-              <th scope="col" class="px-3 py-2">Acción aplicada</th>
-              <th scope="col" class="px-3 py-2 text-right">Operaciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-100">
-            <tr v-for="c in cases" :key="c.id" class="hover:bg-slate-50">
-              <td class="px-3 py-2 font-medium text-slate-900">{{ c.termDisplay }}</td>
-              <td class="px-3 py-2">
-                <span
-                  class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  :class="{
-                    'bg-amber-50 text-amber-700': c.status === 'open',
-                    'bg-emerald-50 text-emerald-700': c.status === 'actioned',
-                    'bg-slate-100 text-slate-600': c.status === 'dismissed'
-                  }"
-                >
-                  {{ c.status }}
-                </span>
-              </td>
-              <td class="px-3 py-2 text-slate-600">{{ (c.baselineZeroRate * 100).toFixed(1) }}%</td>
-              <td class="px-3 py-2 text-slate-600">{{ c.actionType ?? 'Pendiente' }}</td>
-              <td class="px-3 py-2 text-right space-x-2">
-                <button
-                  v-if="c.status === 'open'"
-                  type="button"
-                  class="rounded bg-slate-800 px-2 py-1 text-white hover:bg-slate-700"
-                  @click="activeCase = c"
-                >
-                  Registrar acción
-                </button>
-                <button
-                  v-if="c.status === 'actioned'"
-                  type="button"
-                  class="rounded bg-indigo-50 px-2 py-1 text-indigo-700 border border-indigo-200 hover:bg-indigo-100"
-                  @click="measure(c)"
-                >
-                  Medir impacto
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- Action Modal / Section -->
-    <div v-if="activeCase" class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 text-xs space-y-3">
-      <h3 class="font-bold text-slate-900">Registrar acción para "{{ activeCase.termDisplay }}"</h3>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label class="block text-slate-700 font-medium">Tipo de acción</label>
-          <select v-model="actionType" class="mt-1 w-full rounded border p-1 bg-white">
-            <option value="synonym">Sinónimo gobernado</option>
-            <option value="redirect">Redirección merchandising</option>
-            <option value="content">Publicación de contenido</option>
-            <option value="assortment">Alta de surtido</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-slate-700 font-medium">Referencia de destino (URL o ID)</label>
-          <input
-            v-model="targetReference"
-            placeholder="/catalogo/..."
-            class="mt-1 w-full rounded border p-1 bg-white"
-          />
-        </div>
-        <div>
-          <label class="block text-slate-700 font-medium">Nota técnica</label>
-          <input
-            v-model="actionNote"
-            placeholder="Añadido sinónimo en catálogo..."
-            class="mt-1 w-full rounded border p-1 bg-white"
-          />
-        </div>
-      </div>
-      <div class="flex gap-2">
-        <button
-          type="button"
-          :disabled="actioning || !targetReference"
-          class="rounded bg-indigo-600 px-3 py-1.5 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-          @click="recordAction"
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Dónde lleva ahora la búsqueda"
+          help="Dirección de la página o referencia del producto."
+          required
         >
-          {{ actioning ? 'Guardando...' : 'Confirmar acción' }}
-        </button>
-        <button
-          type="button"
-          class="rounded border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700"
-          @click="activeCase = null"
-        >
-          Cancelar
-        </button>
+          <input :id="id" v-model="targetReference" class="adm-input" placeholder="/catalogo/…" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Nota" help="Opcional.">
+          <input :id="id" v-model="actionNote" class="adm-input" placeholder="Por ejemplo: sinónimo añadido" />
+        </AdminFormField>
       </div>
-    </div>
-
-    <!-- Measurement Result -->
-    <div v-if="measurement" class="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-xs space-y-2">
-      <h3 class="font-bold text-emerald-900">Medición de impacto de la acción</h3>
-      <p>
-        <span class="font-medium">Veredicto:</span> {{ measurement.verdict }} (<span
-          :class="measurement.deltaPercent < 0 ? 'text-emerald-700 font-bold' : 'text-slate-700'"
-        >
-          {{ measurement.deltaPercent.toFixed(1) }}% de cambio en cero resultados </span
-        >)
-      </p>
-      <div class="grid grid-cols-2 gap-4 text-slate-700">
-        <div>
-          <p class="font-medium">Antes de la acción:</p>
-          <p>
-            {{ measurement.before.searches }} búsquedas, {{ measurement.before.zeroResults }} sin resultado ({{
-              (measurement.before.zeroRate * 100).toFixed(1)
-            }}%)
-          </p>
-        </div>
-        <div>
-          <p class="font-medium">Después de la acción:</p>
-          <p>
-            {{ measurement.after.searches }} búsquedas, {{ measurement.after.zeroResults }} sin resultado ({{
-              (measurement.after.zeroRate * 100).toFixed(1)
-            }}%)
-          </p>
-        </div>
-      </div>
-    </div>
+      <template #footer>
+        <AdminButton @click="activeCase = null">Cancelar</AdminButton>
+        <AdminButton variant="primary" :loading="actioning" :disabled="!targetReference" @click="recordAction">
+          Guardar
+        </AdminButton>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

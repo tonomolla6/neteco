@@ -1,333 +1,289 @@
 <template>
-  <div class="space-y-6" data-testid="admin-warehouse-scan-panel">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900">Panel de Almacén — Modo Escaneo</h1>
-        <p class="text-sm text-slate-600">
-          Terminal optimizado para pistola escáner de código de barras. Recepción, picking, packing y modo excepción.
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 shadow-sm transition"
-          data-testid="btn-report-exception"
-          @click="showExceptionModal = true"
-        >
-          Reportar Excepción
-        </button>
-      </div>
-    </div>
+  <div class="adm-stack" data-testid="admin-warehouse-scan-panel">
+    <AdminPageActions>
+      <AdminButton icon="i-lucide-rotate-cw" :loading="loading" @click="fetchAll">Actualizar</AdminButton>
+      <button
+        type="button"
+        class="adm-btn adm-btn--primary"
+        data-testid="btn-report-exception"
+        @click="showExceptionModal = true"
+      >
+        <UIcon name="i-lucide-triangle-alert" class="size-4 shrink-0" />
+        Comunicar incidencia
+      </button>
+    </AdminPageActions>
 
-    <!-- Live Scanner Bar -->
-    <div class="rounded-2xl border-2 border-blue-500 bg-blue-50/50 p-4 shadow-sm">
-      <form class="flex flex-col sm:flex-row items-center gap-3" @submit.prevent="onScanSubmit">
-        <div class="relative flex-1 w-full">
+    <!-- Lector de códigos -->
+    <AdminCard>
+      <form class="flex flex-col gap-3 sm:flex-row sm:items-end" @submit.prevent="onScanSubmit">
+        <div class="adm-field min-w-0 flex-1">
+          <label for="warehouse-scan-code" class="adm-label">Código leído</label>
           <input
+            id="warehouse-scan-code"
             ref="scanInputRef"
             v-model="scannedCode"
             type="text"
             autofocus
             autocomplete="off"
-            class="w-full rounded-xl border border-blue-300 bg-white px-4 py-3 text-lg font-mono font-bold tracking-wider text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Escanear código de barras (EAN-13, SKU, Ubicación)..."
+            class="adm-input w-full font-mono"
+            placeholder="Código de barras, referencia o ubicación"
+            aria-describedby="warehouse-scan-help"
             data-testid="input-barcode-scanner"
           />
-          <span class="absolute right-3 top-3.5 text-xs text-slate-400 font-sans"> Presiona Enter tras escanear </span>
         </div>
-        <button
-          type="submit"
-          class="w-full sm:w-auto rounded-xl bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-700 transition"
-        >
-          Validar Escaneo
-        </button>
+        <button type="submit" class="adm-btn adm-btn--secondary">Validar lectura</button>
       </form>
-      <div
+      <p id="warehouse-scan-help" class="adm-help mt-2">
+        Lee el código con el lector y pulsa Intro. Se anota en la primera recepción pendiente.
+      </p>
+      <UAlert
         v-if="lastScanFeedback"
-        class="mt-2 text-xs font-medium"
-        :class="lastScanSuccess ? 'text-emerald-700' : 'text-red-700'"
-      >
-        {{ lastScanFeedback }}
-      </div>
-    </div>
+        class="mt-3"
+        :color="lastScanSuccess ? 'success' : 'error'"
+        variant="subtle"
+        :icon="lastScanSuccess ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+        :title="lastScanFeedback"
+        role="status"
+      />
+    </AdminCard>
 
-    <!-- Operational Metrics Cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" data-testid="warehouse-metrics-cards">
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="text-xs font-medium text-slate-500 uppercase">Escaneos Hoy</div>
-        <div class="mt-1 text-2xl font-bold text-blue-600" data-testid="metric-scanned-today">
-          {{ metrics?.dailyStats?.itemsScannedToday ?? 0 }}
+    <AdminCard v-if="loadError && !queues">
+      <AdminEmptyState
+        compact
+        variant="error"
+        title="No hemos podido cargar el almacén"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <AdminButton icon="i-lucide-rotate-cw" @click="fetchAll">Reintentar</AdminButton>
+      </AdminEmptyState>
+    </AdminCard>
+
+    <template v-else>
+      <!-- Cifras del día -->
+      <div class="adm-grid" data-testid="warehouse-metrics-cards">
+        <AdminStat
+          label="Lecturas de hoy"
+          icon="i-lucide-scan-barcode"
+          :value="metrics?.dailyStats?.itemsScannedToday ?? 0"
+          data-testid="metric-scanned-today"
+        />
+        <AdminStat
+          label="Tiempo medio de preparación"
+          icon="i-lucide-timer"
+          :value="`${metrics?.dailyStats?.avgPickMinutes ?? 0} min`"
+          data-testid="metric-avg-pick"
+        />
+        <AdminStat
+          label="Tiempo medio de embalaje"
+          icon="i-lucide-package"
+          :value="`${metrics?.dailyStats?.avgPackMinutes ?? 0} min`"
+        />
+        <AdminStat
+          label="Incidencias abiertas"
+          icon="i-lucide-triangle-alert"
+          :value="metrics?.queueCounts?.exceptions ?? 0"
+        />
+      </div>
+
+      <!-- Impresoras -->
+      <AdminCard title="Impresoras de etiquetas">
+        <template v-if="printers[0]" #actions>
+          <AdminButton size="sm" icon="i-lucide-printer" @click="printers[0] && testPrintLabel(printers[0].id)">
+            Imprimir etiqueta de prueba
+          </AdminButton>
+        </template>
+        <ul v-if="printers.length" class="flex flex-wrap gap-x-6 gap-y-2">
+          <li v-for="printer in printers" :key="printer.id" class="flex items-center gap-2">
+            <span class="font-medium text-[var(--text-strong)]">{{ printer.name }}</span>
+            <AdminBadge :tone="printer.status === 'online' ? 'success' : 'danger'">
+              {{ PRINTER_STATUS[printer.status] ?? adminStatusLabel(printer.status) }}
+            </AdminBadge>
+          </li>
+        </ul>
+        <AdminEmptyState v-else compact icon="i-lucide-printer" title="No hay impresoras conectadas" />
+      </AdminCard>
+
+      <!-- Colas de trabajo -->
+      <div class="adm-tabs" role="tablist" aria-label="Colas de trabajo del almacén">
+        <button
+          v-for="entry in QUEUE_TABS"
+          :key="entry.value"
+          type="button"
+          role="tab"
+          class="adm-tab"
+          :aria-selected="activeTab === entry.value"
+          :data-testid="`queue-tab-${entry.value}`"
+          @click="activeTab = entry.value"
+        >
+          {{ entry.label }}
+          <span class="adm-segment__count">{{ queues?.[entry.value]?.length ?? 0 }}</span>
+        </button>
+      </div>
+
+      <div v-if="loading && !queues" class="adm-card adm-tablecard">
+        <div class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
         </div>
       </div>
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="text-xs font-medium text-slate-500 uppercase">Tiempo Medio Picking</div>
-        <div class="mt-1 text-2xl font-bold text-slate-900" data-testid="metric-avg-pick">
-          {{ metrics?.dailyStats?.avgPickMinutes ?? 0 }}m
-        </div>
-      </div>
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="text-xs font-medium text-slate-500 uppercase">Tiempo Medio Packing</div>
-        <div class="mt-1 text-2xl font-bold text-slate-900">{{ metrics?.dailyStats?.avgPackMinutes ?? 0 }}m</div>
-      </div>
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="text-xs font-medium text-slate-500 uppercase">Excepciones Activas</div>
-        <div class="mt-1 text-2xl font-bold text-red-600">
-          {{ metrics?.queueCounts?.exceptions ?? 0 }}
-        </div>
-      </div>
-    </div>
 
-    <!-- Printer Status Bar -->
-    <div
-      class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs shadow-sm"
-    >
-      <div class="flex items-center gap-3">
-        <span class="font-bold text-slate-700">Impresoras de Almacén:</span>
-        <div v-for="printer in printers" :key="printer.id" class="flex items-center gap-1.5">
-          <span
-            class="h-2.5 w-2.5 rounded-full"
-            :class="printer.status === 'online' ? 'bg-emerald-500' : 'bg-red-500'"
-          ></span>
-          <span class="font-medium text-slate-800">{{ printer.name }}</span>
-          <span class="text-slate-400">({{ printer.status }})</span>
-        </div>
-      </div>
-      <button
-        v-if="printers[0]"
-        type="button"
-        class="rounded border border-slate-300 px-3 py-1 font-semibold text-slate-700 hover:bg-slate-50"
-        @click="testPrintLabel(printers[0].id)"
-      >
-        Imprimir Etiqueta Prueba
-      </button>
-    </div>
-
-    <!-- Queue Tabs Navigation -->
-    <div class="flex border-b border-slate-200 text-sm font-semibold">
-      <button
-        type="button"
-        class="border-b-2 px-5 py-3 transition"
-        :class="
-          activeTab === 'reception'
-            ? 'border-blue-600 text-blue-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-        "
-        data-testid="queue-tab-reception"
-        @click="activeTab = 'reception'"
-      >
-        Recepción Proveedores ({{ queues?.reception?.length ?? 0 }})
-      </button>
-      <button
-        type="button"
-        class="border-b-2 px-5 py-3 transition"
-        :class="
-          activeTab === 'picking'
-            ? 'border-blue-600 text-blue-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-        "
-        data-testid="queue-tab-picking"
-        @click="activeTab = 'picking'"
-      >
-        Picking Pedidos ({{ queues?.picking?.length ?? 0 }})
-      </button>
-      <button
-        type="button"
-        class="border-b-2 px-5 py-3 transition"
-        :class="
-          activeTab === 'packing'
-            ? 'border-blue-600 text-blue-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-        "
-        data-testid="queue-tab-packing"
-        @click="activeTab = 'packing'"
-      >
-        Packing &amp; Expedición ({{ queues?.packing?.length ?? 0 }})
-      </button>
-      <button
-        type="button"
-        class="border-b-2 px-5 py-3 transition"
-        :class="
-          activeTab === 'exceptions'
-            ? 'border-red-600 text-red-600'
-            : 'border-transparent text-slate-500 hover:text-slate-700'
-        "
-        data-testid="queue-tab-exceptions"
-        @click="activeTab = 'exceptions'"
-      >
-        Modo Excepción ({{ queues?.exceptions?.length ?? 0 }})
-      </button>
-    </div>
-
-    <!-- Active Tab Content -->
-    <div v-if="loading" class="p-8 text-center text-slate-500">Actualizando colas de almacén...</div>
-
-    <!-- Reception Tab -->
-    <div v-else-if="activeTab === 'reception'" class="space-y-4">
-      <div v-if="!queues?.reception?.length" class="p-8 text-center text-slate-500 text-sm">
-        No hay albaranes pendientes en la cola de recepción.
-      </div>
-      <div
-        v-for="item in queues?.reception ?? []"
-        :key="item.id"
-        class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-      >
-        <div class="flex items-center justify-between border-b pb-2">
-          <div>
-            <span class="font-bold text-slate-900 text-sm">{{ item.referenceCode }}</span>
-            <span class="ml-2 text-xs text-slate-500">ID: {{ item.id }}</span>
-          </div>
-          <span class="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-800 uppercase">
-            {{ item.status }}
-          </span>
-        </div>
-        <div class="mt-3 divide-y divide-slate-100 text-xs">
-          <div v-for="sub in item.items" :key="sub.sku" class="flex items-center justify-between py-2">
-            <div>
-              <div class="font-semibold text-slate-800">{{ sub.name }} ({{ sub.sku }})</div>
-              <div class="text-slate-400 font-mono">
-                EAN: {{ sub.barcode }} | Ubicación: {{ sub.location || 'Pendiente' }}
-              </div>
-            </div>
-            <div class="font-mono text-sm">
-              <span
-                class="font-bold"
-                :class="sub.scannedQty >= sub.expectedQty ? 'text-emerald-600' : 'text-slate-900'"
-              >
-                {{ sub.scannedQty }}
-              </span>
-              / {{ sub.expectedQty }} uds
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Exceptions Tab -->
-    <div v-else-if="activeTab === 'exceptions'" class="space-y-4">
-      <div v-if="!queues?.exceptions?.length" class="p-8 text-center text-slate-500 text-sm">
-        No hay incidencias o excepciones abiertas en almacén.
-      </div>
-      <div
-        v-for="exc in queues?.exceptions ?? []"
-        :key="exc.id"
-        class="rounded-xl border border-red-200 bg-red-50/50 p-4 shadow-sm"
-      >
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white uppercase">
-                {{ exc.severity }}
-              </span>
-              <span class="font-bold text-slate-900 text-sm">{{ exc.exceptionType }}</span>
-              <span class="text-xs text-slate-500">Referencia: {{ exc.targetId }}</span>
-            </div>
-            <p class="mt-2 text-xs text-slate-700">{{ exc.reason }}</p>
-          </div>
-          <button
-            type="button"
-            class="rounded-lg bg-white border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
-            :data-testid="`btn-resolve-exception-${exc.id}`"
-            @click="resolveException(exc)"
-          >
-            Resolver
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Picking/Packing empty states -->
-    <div v-else class="p-8 text-center text-slate-500 text-sm">No hay pedidos en cola activa de {{ activeTab }}.</div>
-
-    <!-- Modal Reportar Excepción -->
-    <div
-      v-if="showExceptionModal"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      data-testid="modal-report-exception"
-    >
-      <div class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl space-y-4 text-xs">
-        <div class="flex items-center justify-between border-b pb-3">
-          <h3 class="text-base font-bold text-slate-900">Declarar Excepción de Almacén</h3>
-          <button type="button" class="text-slate-400 hover:text-slate-600" @click="showExceptionModal = false">
-            ✕
-          </button>
-        </div>
-
-        <form class="space-y-3" @submit.prevent="submitException">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block font-medium text-slate-700">Tipo de Objetivo *</label>
-              <select v-model="newException.targetType" class="mt-1 w-full rounded border p-2">
-                <option value="order">Pedido</option>
-                <option value="reception">Recepción</option>
-                <option value="item">Lote / Producto</option>
-              </select>
-            </div>
-            <div>
-              <label class="block font-medium text-slate-700">ID / Referencia *</label>
-              <input
-                v-model="newException.targetId"
-                required
-                class="mt-1 w-full rounded border p-2"
-                placeholder="Ej: ORD-2026-99"
-              />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block font-medium text-slate-700">Tipo de Incidencia *</label>
-              <select v-model="newException.exceptionType" class="mt-1 w-full rounded border p-2">
-                <option value="damaged_item">Envase / Producto Dañado</option>
-                <option value="barcode_mismatch">Código de Barras No Coincide</option>
-                <option value="shortage">Falta de Cantidad</option>
-                <option value="spill_hazard">Fuga / Riesgo Químico</option>
-                <option value="expired_lot">Lote Caducado</option>
-                <option value="damaged_box">Caja Rota</option>
-              </select>
-            </div>
-            <div>
-              <label class="block font-medium text-slate-700">Severidad *</label>
-              <select v-model="newException.severity" class="mt-1 w-full rounded border p-2">
-                <option value="low">Baja</option>
-                <option value="medium">Media</option>
-                <option value="high">Alta</option>
-                <option value="critical">Crítica</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label class="block font-medium text-slate-700">Descripción detallada del incidente *</label>
-            <textarea
-              v-model="newException.reason"
-              required
-              rows="3"
-              class="mt-1 w-full rounded border p-2"
-              placeholder="Explica qué ha ocurrido y medidas inmediatas tomadas (ej. cubeto de contención, aislamiento)"
-            ></textarea>
-          </div>
-
-          <div class="flex justify-end gap-2 border-t pt-3">
-            <button
-              type="button"
-              class="rounded-lg border px-4 py-2 font-medium text-slate-700 hover:bg-slate-50"
-              @click="showExceptionModal = false"
+      <!-- Incidencias -->
+      <template v-else-if="activeTab === 'exceptions'">
+        <AdminCard v-if="!queues?.exceptions?.length">
+          <AdminEmptyState
+            compact
+            icon="i-lucide-circle-check"
+            title="No hay incidencias abiertas"
+            description="Cuando alguien comunique un problema con la mercancía aparecerá aquí."
+          />
+        </AdminCard>
+        <AdminCard v-else flush>
+          <ul class="divide-y divide-[var(--border)]">
+            <li
+              v-for="exc in queues?.exceptions ?? []"
+              :key="exc.id"
+              class="flex flex-wrap items-start justify-between gap-3 px-5 py-4"
             >
-              Cancelar
-            </button>
-            <button type="submit" class="rounded-lg bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700">
-              Confirmar Excepción
-            </button>
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-[var(--text-strong)]">
+                    {{ EXCEPTION_TYPE[exc.exceptionType] ?? adminHumanize(exc.exceptionType) }}
+                  </span>
+                  <AdminBadge :tone="SEVERITY_TONE[exc.severity] ?? 'neutral'">
+                    {{ SEVERITY_LABEL[exc.severity] ?? adminStatusLabel(exc.severity) }}
+                  </AdminBadge>
+                </div>
+                <p class="adm-help mt-1">
+                  {{ TARGET_TYPE[exc.targetType] ?? 'Referencia' }} {{ exc.targetId }} ·
+                  {{ adminDate(exc.createdAt, true) }}
+                </p>
+                <p class="mt-2">{{ exc.reason }}</p>
+              </div>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :data-testid="`btn-resolve-exception-${exc.id}`"
+                @click="resolveException(exc)"
+              >
+                Marcar como resuelta
+              </button>
+            </li>
+          </ul>
+        </AdminCard>
+      </template>
+
+      <!-- Recepción, preparación y embalaje -->
+      <template v-else>
+        <AdminCard v-if="!currentItems.length">
+          <AdminEmptyState compact :title="QUEUE_EMPTY[activeTab]" />
+        </AdminCard>
+        <AdminCard v-for="item in currentItems" :key="item.id" :title="item.referenceCode" flush>
+          <template #actions>
+            <AdminBadge :status="item.status" />
+          </template>
+          <div class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Producto</th>
+                  <th scope="col">Código de barras</th>
+                  <th scope="col">Ubicación</th>
+                  <th scope="col" data-numeric>Leídas / esperadas</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="sub in item.items" :key="sub.sku">
+                  <td>
+                    <span class="font-medium text-[var(--text-strong)]">{{ sub.name }}</span>
+                    <span class="adm-help block">Ref. {{ sub.sku }}</span>
+                  </td>
+                  <td class="font-mono">{{ sub.barcode }}</td>
+                  <td>{{ sub.location || 'Pendiente' }}</td>
+                  <td data-numeric>
+                    <AdminBadge :tone="sub.scannedQty >= sub.expectedQty ? 'success' : 'neutral'" plain>
+                      {{ sub.scannedQty }} / {{ sub.expectedQty }} uds.
+                    </AdminBadge>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </form>
-      </div>
-    </div>
+        </AdminCard>
+      </template>
+    </template>
+
+    <!-- Comunicar una incidencia -->
+    <AdminDrawer
+      v-model:open="showExceptionModal"
+      title="Comunicar incidencia de almacén"
+      description="Queda registrada en la cola de incidencias hasta que alguien la resuelva."
+    >
+      <form
+        id="warehouse-exception-form"
+        class="adm-stack"
+        data-testid="modal-report-exception"
+        @submit.prevent="submitException"
+      >
+        <div class="adm-form-grid">
+          <AdminFormField v-slot="{ id }" label="Afecta a" required>
+            <select :id="id" v-model="newException.targetType" class="adm-input w-full">
+              <option value="order">Pedido</option>
+              <option value="reception">Recepción</option>
+              <option value="item">Lote o producto</option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Número o referencia" required>
+            <input
+              :id="id"
+              v-model="newException.targetId"
+              required
+              class="adm-input w-full"
+              placeholder="Número de pedido, albarán o lote"
+            />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Qué ha pasado" required>
+            <select :id="id" v-model="newException.exceptionType" class="adm-input w-full">
+              <option v-for="(label, value) in EXCEPTION_TYPE" :key="value" :value="value">{{ label }}</option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Gravedad" required>
+            <select :id="id" v-model="newException.severity" class="adm-input w-full">
+              <option value="low">Baja</option>
+              <option value="medium">Media</option>
+              <option value="high">Alta</option>
+              <option value="critical">Crítica</option>
+            </select>
+          </AdminFormField>
+        </div>
+        <AdminFormField
+          v-slot="{ id, describedBy }"
+          label="Descripción"
+          help="Explica qué ha ocurrido y qué se ha hecho ya (cubeto de contención, aislamiento…)."
+          required
+        >
+          <textarea
+            :id="id"
+            v-model="newException.reason"
+            required
+            rows="4"
+            class="adm-input w-full"
+            :aria-describedby="describedBy"
+          ></textarea>
+        </AdminFormField>
+      </form>
+      <template #footer>
+        <AdminButton @click="showExceptionModal = false">Cancelar</AdminButton>
+        <button type="submit" form="warehouse-exception-form" class="adm-btn adm-btn--primary">
+          Registrar incidencia
+        </button>
+      </template>
+    </AdminDrawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import type { AdminTone } from '~/utils/adminLabels'
 import type { WarehouseMetricsSummary, WarehousePrinter, WarehouseQueueItem } from '~~/shared/warehouse-scan-operations'
 
 interface WarehouseQueuesData {
@@ -346,17 +302,58 @@ interface WarehouseQueuesData {
   }>
 }
 
+type QueueTab = 'reception' | 'picking' | 'packing' | 'exceptions'
+const QUEUE_TABS: Array<{ value: QueueTab; label: string }> = [
+  { value: 'reception', label: 'Recepción de proveedores' },
+  { value: 'picking', label: 'Preparación de pedidos' },
+  { value: 'packing', label: 'Embalaje y expedición' },
+  { value: 'exceptions', label: 'Incidencias' }
+]
+const QUEUE_EMPTY: Record<QueueTab, string> = {
+  reception: 'No hay albaranes pendientes de recibir',
+  picking: 'No hay pedidos pendientes de preparar',
+  packing: 'No hay pedidos pendientes de embalar',
+  exceptions: 'No hay incidencias abiertas'
+}
+const EXCEPTION_TYPE: Record<string, string> = {
+  damaged_item: 'Envase o producto dañado',
+  barcode_mismatch: 'El código de barras no coincide',
+  shortage: 'Falta cantidad',
+  spill_hazard: 'Fuga o riesgo químico',
+  expired_lot: 'Lote caducado',
+  damaged_box: 'Caja rota'
+}
+const TARGET_TYPE: Record<string, string> = { order: 'Pedido', reception: 'Recepción', item: 'Lote o producto' }
+const SEVERITY_LABEL: Record<string, string> = { low: 'Baja', medium: 'Media', high: 'Alta', critical: 'Crítica' }
+const SEVERITY_TONE: Record<string, AdminTone> = {
+  low: 'neutral',
+  medium: 'warning',
+  high: 'danger',
+  critical: 'danger'
+}
+const PRINTER_STATUS: Record<string, string> = {
+  online: 'Conectada',
+  offline: 'Desconectada',
+  error: 'Con avería',
+  paused: 'En pausa'
+}
+
 const requestFetch = useRequestFetch()
-const activeTab = ref<'reception' | 'picking' | 'packing' | 'exceptions'>('reception')
+const toast = useToast()
+const activeTab = ref<QueueTab>('reception')
 const scannedCode = ref('')
 const lastScanFeedback = ref('')
 const lastScanSuccess = ref(true)
 const scanInputRef = ref<HTMLInputElement | null>(null)
 const loading = ref(false)
+const loadError = ref(false)
 const queues = ref<WarehouseQueuesData | null>(null)
 const metrics = ref<WarehouseMetricsSummary | null>(null)
 const printers = ref<WarehousePrinter[]>([])
 const showExceptionModal = ref(false)
+const currentItems = computed<WarehouseQueueItem[]>(() =>
+  activeTab.value === 'exceptions' ? [] : (queues.value?.[activeTab.value] ?? [])
+)
 
 const newException = ref({
   targetType: 'reception' as const,
@@ -368,6 +365,7 @@ const newException = ref({
 
 async function fetchAll() {
   loading.value = true
+  loadError.value = false
   try {
     const [qData, mData, pData] = await Promise.all([
       requestFetch<WarehouseQueuesData>('/api/admin/warehouse/queues'),
@@ -379,6 +377,7 @@ async function fetchAll() {
     printers.value = Array.isArray(pData) ? pData : []
   } catch (err: unknown) {
     console.error('Error cargando almacén:', err)
+    loadError.value = true
   } finally {
     loading.value = false
   }
@@ -392,7 +391,7 @@ async function onScanSubmit() {
   try {
     const targetItem = queues.value?.reception?.[0]
     if (!targetItem) {
-      lastScanFeedback.value = `Código ${code} leído, pero no hay cola activa seleccionada.`
+      lastScanFeedback.value = `Código ${code} leído, pero no hay ninguna recepción pendiente donde anotarlo.`
       lastScanSuccess.value = false
       return
     }
@@ -406,12 +405,11 @@ async function onScanSubmit() {
         quantity: 1
       }
     })
-    lastScanFeedback.value = `✓ Código ${code} escaneado correctamente.`
+    lastScanFeedback.value = `Código ${code} anotado correctamente.`
     lastScanSuccess.value = true
     await fetchAll()
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error desconocido'
-    lastScanFeedback.value = `✕ Error en escaneo de ${code}: ${msg}`
+  } catch {
+    lastScanFeedback.value = `No se ha podido anotar el código ${code}. Comprueba que pertenece a esta recepción y vuelve a leerlo.`
     lastScanSuccess.value = false
   } finally {
     scanInputRef.value?.focus()
@@ -428,10 +426,13 @@ async function testPrintLabel(printerId: string) {
         copies: 1
       }
     })
-    alert('Etiqueta enviada a la impresora con éxito')
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error desconocido'
-    alert(`Error de impresión: ${msg}`)
+    toast.add({ title: 'Etiqueta de prueba enviada a la impresora', color: 'success' })
+  } catch {
+    toast.add({
+      title: 'No se ha podido imprimir',
+      description: 'Comprueba que la impresora está encendida y con papel.',
+      color: 'error'
+    })
   }
 }
 
@@ -444,9 +445,12 @@ async function submitException() {
     showExceptionModal.value = false
     activeTab.value = 'exceptions'
     await fetchAll()
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error desconocido'
-    alert(`Error reportando excepción: ${msg}`)
+  } catch {
+    toast.add({
+      title: 'No se ha podido registrar la incidencia',
+      description: 'Revisa los datos y vuelve a intentarlo.',
+      color: 'error'
+    })
   }
 }
 
@@ -460,9 +464,8 @@ async function resolveException(exc: { id: string }) {
       }
     })
     await fetchAll()
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Error desconocido'
-    alert(`Error resolviendo excepción: ${msg}`)
+  } catch {
+    toast.add({ title: 'No se ha podido resolver la incidencia', description: 'Vuelve a intentarlo.', color: 'error' })
   }
 }
 

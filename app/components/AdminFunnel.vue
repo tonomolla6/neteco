@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { FunnelAnalyticsDashboardResponse } from '../../workers/analytics/funnel'
 
 const props = defineProps<{ runtime: unknown }>()
@@ -60,6 +60,51 @@ async function fetchFunnel() {
   }
 }
 
+const preset = ref('')
+const presetOptions = [
+  { value: '7', label: '7 días' },
+  { value: '30', label: '30 días' },
+  { value: '90', label: '90 días' }
+]
+watch(preset, (value) => {
+  if (!value) return
+  const end = new Date()
+  fromDate.value = new Date(end.getTime() - Number(value) * 86_400_000).toISOString().slice(0, 10)
+  toDate.value = end.toISOString().slice(0, 10)
+  void fetchFunnel()
+})
+function onDateChange() {
+  preset.value = ''
+  void fetchFunnel()
+}
+const keyLabels: Record<string, string> = {
+  desktop: 'Ordenador',
+  mobile: 'Móvil',
+  tablet: 'Tableta',
+  direct: 'Acceso directo',
+  organic: 'Buscadores',
+  cpc: 'Anuncios de pago',
+  social: 'Redes sociales',
+  email: 'Correo',
+  referral: 'Otras webs',
+  other: 'Otros',
+  anonymous: 'Sin identificar',
+  customer: 'Particular',
+  professional: 'Profesional',
+  unknown: 'Sin clasificar'
+}
+const keyLabel = (key: string) => keyLabels[key] ?? adminHumanize(key)
+const breakdowns = computed(() =>
+  data.value
+    ? [
+        { id: 'device', title: 'Por dispositivo', column: 'Dispositivo', rows: data.value.breakdown.byDevice },
+        { id: 'source', title: 'Por origen de la visita', column: 'Origen', rows: data.value.breakdown.bySource },
+        { id: 'segment', title: 'Por tipo de cliente', column: 'Cliente', rows: data.value.breakdown.bySegment }
+      ]
+    : []
+)
+const maxSessions = computed(() => Math.max(1, ...(data.value?.steps ?? []).map((step) => step.sessions)))
+
 onMounted(() => {
   if (isAuthorized.value) {
     void fetchFunnel()
@@ -68,258 +113,171 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-          Embudo de conversión
-          <span class="rounded bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-800">DAT-015</span>
-        </h2>
-        <p class="text-sm text-slate-500">
-          Trayectoria visita → ficha → carrito → checkout → pago con intervalos de confianza Wilson y sin PII.
-        </p>
-      </div>
-
-      <button
-        type="button"
-        class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
-        :disabled="loading || !isAuthorized"
-        data-testid="funnel-refresh"
-        @click="fetchFunnel"
-      >
-        <span v-if="loading">Cargando...</span>
-        <span v-else>Actualizar</span>
-      </button>
-    </div>
-
-    <!-- Filtros -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <form class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6" @submit.prevent="fetchFunnel">
-        <div>
-          <label for="funnel-from" class="block text-xs font-medium text-slate-700">Desde</label>
-          <input
-            id="funnel-from"
-            v-model="fromDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
-
-        <div>
-          <label for="funnel-to" class="block text-xs font-medium text-slate-700">Hasta</label>
-          <input
-            id="funnel-to"
-            v-model="toDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          />
-        </div>
-
-        <div>
-          <label for="funnel-device" class="block text-xs font-medium text-slate-700">Dispositivo</label>
-          <select
-            id="funnel-device"
-            v-model="selectedDevice"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="all">Todos</option>
-            <option value="desktop">Desktop</option>
-            <option value="mobile">Mobile</option>
-            <option value="tablet">Tablet</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="funnel-source" class="block text-xs font-medium text-slate-700">Fuente</label>
-          <select
-            id="funnel-source"
-            v-model="selectedSource"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="all">Todas</option>
-            <option value="direct">Directo</option>
-            <option value="organic">Orgánico</option>
-            <option value="cpc">CPC (Pago)</option>
-            <option value="social">Social</option>
-            <option value="email">Email</option>
-            <option value="referral">Referido</option>
-          </select>
-        </div>
-
-        <div>
-          <label for="funnel-segment" class="block text-xs font-medium text-slate-700">Segmento</label>
-          <select
-            id="funnel-segment"
-            v-model="selectedSegment"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="all">Todos</option>
-            <option value="anonymous">Anónimo</option>
-            <option value="customer">Particular</option>
-            <option value="professional">Profesional (B2B)</option>
-          </select>
-        </div>
-
-        <div class="flex items-end">
+  <div class="adm-stack">
+    <AdminCard v-if="!isAuthorized">
+      <AdminEmptyState
+        icon="i-lucide-lock"
+        title="El embudo no está disponible ahora"
+        description="Necesitas la sesión iniciada, el correo verificado y la verificación en dos pasos, y solo se puede consultar en la tienda publicada."
+      />
+    </AdminCard>
+    <template v-else>
+      <form class="adm-toolbar" aria-label="Filtros del embudo" @submit.prevent="fetchFunnel">
+        <AdminFilters v-model="preset" :options="presetOptions" label="Periodo" />
+        <label for="funnel-from" class="adm-help">Desde</label>
+        <input id="funnel-from" v-model="fromDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="funnel-to" class="adm-help">Hasta</label>
+        <input id="funnel-to" v-model="toDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="funnel-device" class="sr-only">Dispositivo</label>
+        <select id="funnel-device" v-model="selectedDevice" class="adm-input w-auto" @change="fetchFunnel">
+          <option value="all">Todos los dispositivos</option>
+          <option value="desktop">Ordenador</option>
+          <option value="mobile">Móvil</option>
+          <option value="tablet">Tableta</option>
+        </select>
+        <label for="funnel-source" class="sr-only">Origen de la visita</label>
+        <select id="funnel-source" v-model="selectedSource" class="adm-input w-auto" @change="fetchFunnel">
+          <option value="all">Todos los orígenes</option>
+          <option value="direct">Acceso directo</option>
+          <option value="organic">Buscadores</option>
+          <option value="cpc">Anuncios de pago</option>
+          <option value="social">Redes sociales</option>
+          <option value="email">Correo</option>
+          <option value="referral">Otras webs</option>
+        </select>
+        <label for="funnel-segment" class="sr-only">Tipo de cliente</label>
+        <select id="funnel-segment" v-model="selectedSegment" class="adm-input w-auto" @change="fetchFunnel">
+          <option value="all">Todos los clientes</option>
+          <option value="anonymous">Sin identificar</option>
+          <option value="customer">Particular</option>
+          <option value="professional">Profesional</option>
+        </select>
+        <button
+          type="submit"
+          class="sr-only"
+          tabindex="-1"
+          :disabled="loading"
+          data-testid="funnel-apply"
+          @click.prevent="fetchFunnel"
+        >
+          Aplicar filtros
+        </button>
+        <div class="adm-toolbar__end">
           <button
-            type="submit"
-            class="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800 disabled:opacity-50"
-            :disabled="loading || !isAuthorized"
-            data-testid="funnel-apply"
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading"
+            data-testid="funnel-refresh"
+            @click="fetchFunnel"
           >
-            Consultar embudo
+            <UIcon name="i-lucide-rotate-cw" class="size-4" :class="loading && 'animate-spin'" />Actualizar
           </button>
         </div>
       </form>
-    </div>
 
-    <!-- Error state -->
-    <div
-      v-if="error"
-      class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-      role="alert"
-      data-testid="funnel-error"
-    >
-      {{ error }}
-    </div>
-
-    <!-- Visualización del Embudo de 5 Pasos -->
-    <div v-if="data" class="space-y-4">
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-5">
-        <div
-          v-for="(s, idx) in data.steps"
-          :key="s.step"
-          class="relative flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-          :data-testid="`funnel-step-${s.step}`"
+      <AdminCard v-if="error">
+        <AdminEmptyState
+          role="alert"
+          data-testid="funnel-error"
+          variant="error"
+          title="No hemos podido cargar el embudo"
+          description="Vuelve a intentarlo en unos segundos."
         >
-          <div>
-            <div class="flex items-center justify-between">
-              <span
-                class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-700"
-              >
-                {{ idx + 1 }}
-              </span>
-              <span
-                v-if="s.isSmallSampleWarning"
-                class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                data-testid="funnel-sample-warning"
-              >
-                Muestra pequeña
-              </span>
-            </div>
-            <h3 class="mt-2 text-sm font-bold text-slate-900">{{ s.name }}</h3>
-            <p class="mt-1 text-2xl font-extrabold text-slate-900">{{ s.sessions }}</p>
-            <p class="text-xs text-slate-400">sesiones únicas</p>
-          </div>
+          <AdminButton icon="i-lucide-rotate-cw" @click="fetchFunnel">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
 
-          <div class="mt-4 border-t border-slate-100 pt-3 text-xs space-y-1">
-            <div v-if="s.conversionFromPrevious.rate !== null" class="flex justify-between items-center">
-              <span class="text-slate-500">Paso anterior:</span>
-              <span class="font-bold text-indigo-600">{{ formatPercent(s.conversionFromPrevious.rate) }}</span>
-            </div>
-            <div v-if="s.conversionFromPrevious.rate !== null" class="text-[11px] text-slate-400 text-right">
-              IC 95%: {{ formatWilsonInterval(s.conversionFromPrevious.lower, s.conversionFromPrevious.upper) }}
-            </div>
-
-            <div v-if="idx > 0" class="flex justify-between items-center pt-1 border-t border-dashed border-slate-100">
-              <span class="text-slate-500">Desde visita:</span>
-              <span class="font-semibold text-slate-700">{{ formatPercent(s.conversionFromStart.rate) }}</span>
-            </div>
-          </div>
-        </div>
+      <div v-else-if="loading && !data" class="adm-grid" aria-busy="true">
+        <span class="sr-only">Cargando el embudo…</span>
+        <div
+          v-for="row in 4"
+          :key="row"
+          class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+        />
       </div>
 
-      <!-- Resumen global de conversión -->
-      <div
-        class="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 shadow-sm flex flex-col sm:flex-row justify-between items-center gap-4"
-      >
-        <div>
-          <h4 class="text-sm font-bold text-indigo-950">Conversión Global del Embudo (Visita → Pago)</h4>
-          <p class="text-xs text-indigo-700">
-            Estimación no sesgada con intervalo de confianza binomial de Wilson (nivel de confianza 95%).
-          </p>
-        </div>
-        <div class="text-right">
-          <p class="text-2xl font-black text-indigo-600">
-            {{ formatPercent(data.overallConversion.rate) }}
-          </p>
-          <p class="text-xs text-indigo-700">
-            IC 95%: {{ formatWilsonInterval(data.overallConversion.lower, data.overallConversion.upper) }}
-          </p>
-        </div>
-      </div>
+      <template v-if="data">
+        <div class="grid gap-5 xl:grid-cols-3">
+          <AdminCard
+            class="xl:col-span-2"
+            title="Embudo de conversión"
+            description="Cuántas visitas llegan a cada paso, de la primera página al pago."
+          >
+            <ol class="adm-breakdown">
+              <li v-for="(s, idx) in data.steps" :key="s.step" :data-testid="`funnel-step-${s.step}`">
+                <div class="adm-breakdown__row">
+                  <span class="adm-breakdown__label">
+                    {{ idx + 1 }}. {{ s.name }}
+                    <AdminBadge
+                      v-if="s.isSmallSampleWarning"
+                      tone="warning"
+                      plain
+                      class="ml-1"
+                      data-testid="funnel-sample-warning"
+                    >
+                      Muestra pequeña
+                    </AdminBadge>
+                  </span>
+                  <span class="adm-breakdown__value">
+                    {{ s.sessions }}
+                    <small>visitas</small>
+                  </span>
+                  <span class="adm-breakdown__track">
+                    <i :style="{ width: `${(s.sessions / maxSessions) * 100}%` }" />
+                  </span>
+                </div>
+                <p v-if="idx > 0" class="adm-help mt-1">
+                  <template v-if="s.conversionFromPrevious.rate !== null">
+                    {{ formatPercent(s.conversionFromPrevious.rate) }} del paso anterior
+                    <span
+                      :title="`Intervalo de confianza del 95 %: el valor real está casi con seguridad entre estos dos porcentajes`"
+                    >
+                      (IC 95%:
+                      {{ formatWilsonInterval(s.conversionFromPrevious.lower, s.conversionFromPrevious.upper) }})
+                    </span>
+                    ·
+                  </template>
+                  {{ formatPercent(s.conversionFromStart.rate) }} de las visitas
+                </p>
+              </li>
+            </ol>
+          </AdminCard>
 
-      <!-- Desgloses dimensionales -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Por Dispositivo -->
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="text-sm font-bold text-slate-900 mb-3">Por Dispositivo</h4>
-          <table class="w-full text-xs text-left">
-            <thead class="text-slate-500 border-b">
-              <tr>
-                <th class="pb-2">Dispositivo</th>
-                <th class="pb-2 text-right">Visitas</th>
-                <th class="pb-2 text-right">Pagos</th>
-                <th class="pb-2 text-right">Conv.</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="item in data.breakdown.byDevice" :key="item.key">
-                <td class="py-2 font-medium capitalize">{{ item.key }}</td>
-                <td class="py-2 text-right text-slate-600">{{ item.sessions }}</td>
-                <td class="py-2 text-right text-slate-600">{{ item.purchaseSessions }}</td>
-                <td class="py-2 text-right font-bold text-indigo-600">{{ formatPercent(item.conversionRate) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Por Fuente -->
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="text-sm font-bold text-slate-900 mb-3">Por Fuente de Adquisición</h4>
-          <table class="w-full text-xs text-left">
-            <thead class="text-slate-500 border-b">
-              <tr>
-                <th class="pb-2">Fuente</th>
-                <th class="pb-2 text-right">Visitas</th>
-                <th class="pb-2 text-right">Pagos</th>
-                <th class="pb-2 text-right">Conv.</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="item in data.breakdown.bySource" :key="item.key">
-                <td class="py-2 font-medium capitalize">{{ item.key }}</td>
-                <td class="py-2 text-right text-slate-600">{{ item.sessions }}</td>
-                <td class="py-2 text-right text-slate-600">{{ item.purchaseSessions }}</td>
-                <td class="py-2 text-right font-bold text-indigo-600">{{ formatPercent(item.conversionRate) }}</td>
-              </tr>
-            </tbody>
-          </table>
+          <AdminStat
+            class="self-start"
+            label="Visitas que acaban pagando"
+            icon="i-lucide-badge-check"
+            :value="formatPercent(data.overallConversion.rate)"
+            :hint="`Margen de error (IC 95%): ${formatWilsonInterval(data.overallConversion.lower, data.overallConversion.upper)}`"
+          />
         </div>
 
-        <!-- Por Segmento -->
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h4 class="text-sm font-bold text-slate-900 mb-3">Por Segmento de Usuario</h4>
-          <table class="w-full text-xs text-left">
-            <thead class="text-slate-500 border-b">
-              <tr>
-                <th class="pb-2">Segmento</th>
-                <th class="pb-2 text-right">Visitas</th>
-                <th class="pb-2 text-right">Pagos</th>
-                <th class="pb-2 text-right">Conv.</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="item in data.breakdown.bySegment" :key="item.key">
-                <td class="py-2 font-medium capitalize">{{ item.key }}</td>
-                <td class="py-2 text-right text-slate-600">{{ item.sessions }}</td>
-                <td class="py-2 text-right text-slate-600">{{ item.purchaseSessions }}</td>
-                <td class="py-2 text-right font-bold text-indigo-600">{{ formatPercent(item.conversionRate) }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="grid gap-5 lg:grid-cols-3">
+          <AdminCard v-for="group in breakdowns" :key="group.id" flush :title="group.title">
+            <AdminEmptyState v-if="!group.rows.length" compact title="Sin visitas en este periodo" />
+            <div v-else class="adm-table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th scope="col">{{ group.column }}</th>
+                    <th scope="col" data-numeric>Visitas</th>
+                    <th scope="col" data-numeric>Pagos</th>
+                    <th scope="col" data-numeric>Conversión</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in group.rows" :key="item.key">
+                    <td>{{ keyLabel(item.key) }}</td>
+                    <td data-numeric>{{ item.sessions }}</td>
+                    <td data-numeric>{{ item.purchaseSessions }}</td>
+                    <td data-numeric class="font-semibold">{{ formatPercent(item.conversionRate) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </AdminCard>
         </div>
-      </div>
-    </div>
+      </template>
+    </template>
   </div>
 </template>

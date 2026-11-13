@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { SeoContentDashboardResponse, SeoDevice } from '~~/shared/seo-content-dashboard'
 
 const props = defineProps<{ runtime: unknown }>()
@@ -66,6 +66,46 @@ async function fetchDashboard() {
   }
 }
 
+const preset = ref('')
+const presetOptions = [
+  { value: '7', label: '7 días' },
+  { value: '30', label: '30 días' },
+  { value: '90', label: '90 días' }
+]
+watch(preset, (value) => {
+  if (!value) return
+  const end = new Date()
+  fromDate.value = new Date(end.getTime() - Number(value) * 86_400_000).toISOString().slice(0, 10)
+  toDate.value = end.toISOString().slice(0, 10)
+  void fetchDashboard()
+})
+function onDateChange() {
+  preset.value = ''
+  void fetchDashboard()
+}
+const formatReturn = (value: number) => (value > 0 ? `${value.toFixed(2)}x` : '—')
+type LandingRow = SeoContentDashboardResponse['landingPages'][number]
+type QueryRow = SeoContentDashboardResponse['queries'][number]
+const landingColumns = [
+  { key: 'landingPath', label: 'Página' },
+  { key: 'impressions', label: 'Apariciones', numeric: true, sortable: true },
+  { key: 'clicks', label: 'Clics', numeric: true, sortable: true },
+  { key: 'ctr', label: '% de clics', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'avgPosition', label: 'Posición media', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'assistedRevenueNetCents', label: 'Ventas atribuidas', numeric: true, sortable: true },
+  { key: 'contentCostCents', label: 'Coste', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'seoRoi', label: 'Retorno', numeric: true, sortable: true, hideOnMobile: true }
+]
+const queryColumns = [
+  { key: 'query', label: 'Búsqueda' },
+  { key: 'impressions', label: 'Apariciones', numeric: true, sortable: true },
+  { key: 'clicks', label: 'Clics', numeric: true, sortable: true },
+  { key: 'ctr', label: '% de clics', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'avgPosition', label: 'Posición media', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'assistedOrdersCount', label: 'Pedidos', numeric: true, sortable: true },
+  { key: 'assistedRevenueNetCents', label: 'Ventas atribuidas', numeric: true, sortable: true }
+]
+
 onMounted(() => {
   if (isAuthorized.value) {
     void fetchDashboard()
@@ -74,257 +114,195 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-          SEO & Contenido: rendimiento, revenue asistido y costes
-          <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">DAT-019</span>
-        </h2>
-        <p class="text-sm text-slate-500">
-          Impresiones, clicks, consultas, páginas de destino, revenue asistido, actualización y coste editorial (no solo
-          sesiones).
-        </p>
-      </div>
-
-      <button
-        type="button"
-        class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-        :disabled="loading || !isAuthorized"
-        data-testid="seo-refresh"
-        @click="fetchDashboard"
-      >
-        <span v-if="loading">Cargando...</span>
-        <span v-else>Actualizar</span>
-      </button>
-    </div>
-
-    <!-- Filtros -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div>
-          <label for="seo-from-date" class="block text-xs font-medium text-slate-700">Desde</label>
-          <input
-            id="seo-from-date"
-            v-model="fromDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-        <div>
-          <label for="seo-to-date" class="block text-xs font-medium text-slate-700">Hasta</label>
-          <input
-            id="seo-to-date"
-            v-model="toDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-        <div>
-          <label for="seo-device-filter" class="block text-xs font-medium text-slate-700">Dispositivo</label>
-          <select
-            id="seo-device-filter"
-            v-model="selectedDevice"
-            data-testid="seo-filter-device"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          >
-            <option value="all">Todos los dispositivos</option>
-            <option value="desktop">Desktop</option>
-            <option value="mobile">Móvil</option>
-            <option value="tablet">Tablet</option>
-          </select>
-        </div>
-        <div>
-          <label for="seo-query-filter" class="block text-xs font-medium text-slate-700">Consulta</label>
+  <div class="adm-stack">
+    <AdminCard v-if="!isAuthorized">
+      <AdminEmptyState
+        icon="i-lucide-lock"
+        title="Los datos de buscadores no están disponibles ahora"
+        description="Necesitas la sesión iniciada, el correo verificado y la verificación en dos pasos, y solo se pueden consultar en la tienda publicada."
+      />
+    </AdminCard>
+    <template v-else>
+      <form class="adm-toolbar" role="search" aria-label="Filtros de buscadores" @submit.prevent="fetchDashboard">
+        <label class="adm-toolbar__search">
+          <span class="sr-only">Buscar una búsqueda concreta</span>
+          <UIcon name="i-lucide-search" class="size-4" />
           <input
             id="seo-query-filter"
             v-model="queryFilter"
-            type="text"
-            placeholder="Buscar query..."
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            type="search"
+            placeholder="Filtrar por búsqueda…"
+            data-slot="adm-search"
           />
-        </div>
-        <div class="flex items-end">
+        </label>
+        <AdminFilters v-model="preset" :options="presetOptions" label="Periodo" />
+        <label for="seo-from-date" class="adm-help">Desde</label>
+        <input id="seo-from-date" v-model="fromDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="seo-to-date" class="adm-help">Hasta</label>
+        <input id="seo-to-date" v-model="toDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="seo-device-filter" class="sr-only">Dispositivo</label>
+        <select
+          id="seo-device-filter"
+          v-model="selectedDevice"
+          data-testid="seo-filter-device"
+          class="adm-input w-auto"
+          @change="fetchDashboard"
+        >
+          <option value="all">Todos los dispositivos</option>
+          <option value="desktop">Ordenador</option>
+          <option value="mobile">Móvil</option>
+          <option value="tablet">Tableta</option>
+        </select>
+        <button
+          type="submit"
+          class="sr-only"
+          tabindex="-1"
+          data-testid="seo-filter-submit"
+          @click.prevent="fetchDashboard"
+        >
+          Aplicar filtros
+        </button>
+        <div class="adm-toolbar__end">
           <button
             type="button"
-            data-testid="seo-filter-submit"
-            class="w-full rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading"
+            data-testid="seo-refresh"
             @click="fetchDashboard"
           >
-            Filtrar
+            <UIcon name="i-lucide-rotate-cw" class="size-4" :class="loading && 'animate-spin'" />Actualizar
           </button>
         </div>
+      </form>
+
+      <AdminCard v-if="error">
+        <AdminEmptyState
+          variant="error"
+          title="No hemos podido cargar los datos de buscadores"
+          description="Vuelve a intentarlo en unos segundos."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="fetchDashboard">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
+
+      <div v-else-if="loading && !data" class="adm-grid" aria-busy="true">
+        <span class="sr-only">Cargando los datos de buscadores…</span>
+        <div
+          v-for="row in 6"
+          :key="row"
+          class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+        />
       </div>
-    </div>
 
-    <!-- Error State -->
-    <div v-if="error" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      {{ error }}
-    </div>
+      <template v-if="data">
+        <p class="adm-help flex flex-wrap items-center gap-x-2 gap-y-1">
+          <AdminBadge :tone="data.syncStatus.status === 'synced' ? 'success' : 'warning'">
+            {{ data.syncStatus.status === 'synced' ? 'Datos al día' : 'Actualización pendiente' }}
+          </AdminBadge>
+          <span v-if="data.syncStatus.dataThroughDate">
+            Datos hasta el {{ adminDate(data.syncStatus.dataThroughDate) }}
+          </span>
+          <span v-if="data.syncStatus.lastSyncAt">
+            · Última actualización: {{ adminDate(data.syncStatus.lastSyncAt, true) }}
+          </span>
+        </p>
 
-    <!-- Data Display -->
-    <div v-if="data" class="space-y-6">
-      <!-- Sync Status Badge -->
-      <div
-        class="flex items-center justify-between rounded-lg bg-slate-50 p-3 text-xs text-slate-600 border border-slate-200"
-      >
-        <div>
-          Estado de sincronización:
-          <span
-            :class="[
-              'font-semibold px-2 py-0.5 rounded',
-              data.syncStatus.status === 'synced' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-            ]"
+        <div class="adm-grid">
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-eye" class="size-4" />Apariciones en buscadores</p>
+            <p class="adm-stat__value" data-testid="seo-kpi-impressions">
+              {{ formatInteger(data.summary.totalImpressions) }}
+            </p>
+            <p class="adm-stat__foot">Veces que la tienda salió en los resultados</p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-mouse-pointer-click" class="size-4" />Clics</p>
+            <p class="adm-stat__value" data-testid="seo-kpi-clicks">{{ formatInteger(data.summary.totalClicks) }}</p>
+            <p class="adm-stat__foot">{{ formatPercent(data.summary.overallCtr) }} de las apariciones</p>
+          </div>
+          <AdminStat
+            label="Posición media"
+            icon="i-lucide-list-ordered"
+            :value="data.summary.avgPosition > 0 ? data.summary.avgPosition.toFixed(1) : '—'"
+            hint="Puesto en la página de resultados"
+          />
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-banknote" class="size-4" />Ventas atribuidas</p>
+            <p class="adm-stat__value" data-testid="seo-kpi-assisted-revenue">
+              {{ formatEuros(data.summary.assistedRevenueNetCents) }}
+            </p>
+            <p class="adm-stat__foot">{{ data.summary.assistedOrdersCount }} pedidos llegados desde buscadores</p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-pen-line" class="size-4" />Coste del contenido</p>
+            <p class="adm-stat__value" data-testid="seo-kpi-content-cost">
+              {{ formatEuros(data.summary.totalContentCostCents) }}
+            </p>
+            <p class="adm-stat__foot">Redacción y actualización</p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-trending-up" class="size-4" />Retorno</p>
+            <p class="adm-stat__value" data-testid="seo-kpi-roi">{{ formatReturn(data.summary.seoRoi) }}</p>
+            <p class="adm-stat__foot">Ventas atribuidas por cada euro de contenido</p>
+          </div>
+        </div>
+
+        <AdminSection title="Páginas por las que entran los clientes">
+          <AdminTable
+            data-testid="seo-landings-table"
+            :rows="data.landingPages"
+            :columns="landingColumns"
+            :row-key="(row: LandingRow) => row.landingPath"
+            :per-page="15"
+            empty-title="Sin páginas en este periodo"
+            empty-description="Todavía no hay visitas desde buscadores con estos filtros."
+            empty-icon="i-lucide-file-search"
+            caption="Páginas de entrada desde buscadores"
           >
-            {{ data.syncStatus.status === 'synced' ? 'Sincronizado' : 'Pendiente' }}
-          </span>
-          <span v-if="data.syncStatus.dataThroughDate" class="ml-2">
-            (Datos hasta: {{ data.syncStatus.dataThroughDate }})
-          </span>
-        </div>
-        <div v-if="data.syncStatus.lastSyncAt">
-          Última actualización: {{ new Date(data.syncStatus.lastSyncAt).toLocaleString('es-ES') }}
-        </div>
-      </div>
+            <template #cell-landingPath="{ row }">
+              <span class="block max-w-xs truncate font-semibold text-[var(--text-strong)]" :title="row.landingPath">
+                {{ row.landingPath }}
+              </span>
+            </template>
+            <template #cell-impressions="{ row }">{{ formatInteger(row.impressions) }}</template>
+            <template #cell-clicks="{ row }">{{ formatInteger(row.clicks) }}</template>
+            <template #cell-ctr="{ row }">{{ formatPercent(row.ctr) }}</template>
+            <template #cell-avgPosition="{ row }">{{ row.avgPosition.toFixed(1) }}</template>
+            <template #cell-assistedRevenueNetCents="{ row }">
+              {{ formatEuros(row.assistedRevenueNetCents) }}
+            </template>
+            <template #cell-contentCostCents="{ row }">{{ formatEuros(row.contentCostCents) }}</template>
+            <template #cell-seoRoi="{ row }">{{ formatReturn(row.seoRoi) }}</template>
+          </AdminTable>
+        </AdminSection>
 
-      <!-- KPI Summary Cards -->
-      <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Impresiones</span>
-          <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="seo-kpi-impressions">
-            {{ formatInteger(data.summary.totalImpressions) }}
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Clicks (CTR)</span>
-          <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="seo-kpi-clicks">
-            {{ formatInteger(data.summary.totalClicks) }}
-          </p>
-          <span class="text-xs text-slate-500">CTR: {{ formatPercent(data.summary.overallCtr) }}</span>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Posición Media</span>
-          <p class="mt-1 text-2xl font-bold text-slate-900">
-            {{ data.summary.avgPosition > 0 ? data.summary.avgPosition.toFixed(1) : '-' }}
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Revenue Asistido</span>
-          <p class="mt-1 text-2xl font-bold text-emerald-600" data-testid="seo-kpi-assisted-revenue">
-            {{ formatEuros(data.summary.assistedRevenueNetCents) }}
-          </p>
-          <span class="text-xs text-slate-500">{{ data.summary.assistedOrdersCount }} pedidos</span>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Coste Contenido</span>
-          <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="seo-kpi-content-cost">
-            {{ formatEuros(data.summary.totalContentCostCents) }}
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">SEO ROI</span>
-          <p class="mt-1 text-2xl font-bold text-indigo-600" data-testid="seo-kpi-roi">
-            {{ data.summary.seoRoi > 0 ? `${data.summary.seoRoi.toFixed(2)}x` : '-' }}
-          </p>
-          <span class="text-xs text-slate-500">Retorno / coste</span>
-        </div>
-      </div>
-
-      <!-- Landings Table -->
-      <div
-        class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-        data-testid="seo-landings-table"
-      >
-        <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <h3 class="text-sm font-semibold text-slate-900">Páginas de Destino (Landings) y Atribución</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-sm">
-            <thead class="bg-slate-50 text-xs font-medium text-slate-500 uppercase tracking-wider text-left">
-              <tr>
-                <th class="px-4 py-3">Página de destino</th>
-                <th class="px-4 py-3 text-right">Impresiones</th>
-                <th class="px-4 py-3 text-right">Clicks</th>
-                <th class="px-4 py-3 text-right">CTR</th>
-                <th class="px-4 py-3 text-right">Pos. Media</th>
-                <th class="px-4 py-3 text-right">Revenue Asistido</th>
-                <th class="px-4 py-3 text-right">Coste</th>
-                <th class="px-4 py-3 text-right">ROI</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 bg-white">
-              <tr v-for="landing in data.landingPages" :key="landing.landingPath" class="hover:bg-slate-50">
-                <td class="px-4 py-3 font-mono text-xs text-slate-900 truncate max-w-xs">{{ landing.landingPath }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ formatInteger(landing.impressions) }}</td>
-                <td class="px-4 py-3 text-right font-medium text-slate-900">{{ formatInteger(landing.clicks) }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ formatPercent(landing.ctr) }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ landing.avgPosition.toFixed(1) }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-emerald-600">
-                  {{ formatEuros(landing.assistedRevenueNetCents) }}
-                </td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ formatEuros(landing.contentCostCents) }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-indigo-600">
-                  {{ landing.seoRoi > 0 ? `${landing.seoRoi.toFixed(2)}x` : '-' }}
-                </td>
-              </tr>
-              <tr v-if="data.landingPages.length === 0">
-                <td colspan="8" class="px-4 py-8 text-center text-slate-500">
-                  No hay páginas de destino registradas en este período.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- Queries Table -->
-      <div
-        class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-        data-testid="seo-queries-table"
-      >
-        <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <h3 class="text-sm font-semibold text-slate-900">Consultas de Búsqueda Orgánicas (Keywords)</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-sm">
-            <thead class="bg-slate-50 text-xs font-medium text-slate-500 uppercase tracking-wider text-left">
-              <tr>
-                <th class="px-4 py-3">Consulta</th>
-                <th class="px-4 py-3 text-right">Impresiones</th>
-                <th class="px-4 py-3 text-right">Clicks</th>
-                <th class="px-4 py-3 text-right">CTR</th>
-                <th class="px-4 py-3 text-right">Pos. Media</th>
-                <th class="px-4 py-3 text-right">Pedidos Asistidos</th>
-                <th class="px-4 py-3 text-right">Revenue Asistido (Neto)</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 bg-white">
-              <tr v-for="q in data.queries" :key="q.query" class="hover:bg-slate-50">
-                <td class="px-4 py-3 font-medium text-slate-900">{{ q.query }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ formatInteger(q.impressions) }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-slate-900">{{ formatInteger(q.clicks) }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ formatPercent(q.ctr) }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ q.avgPosition.toFixed(1) }}</td>
-                <td class="px-4 py-3 text-right text-slate-600">{{ q.assistedOrdersCount }}</td>
-                <td class="px-4 py-3 text-right font-semibold text-emerald-600">
-                  {{ formatEuros(q.assistedRevenueNetCents) }}
-                </td>
-              </tr>
-              <tr v-if="data.queries.length === 0">
-                <td colspan="7" class="px-4 py-8 text-center text-slate-500">
-                  No hay consultas de búsqueda en este período.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+        <AdminSection title="Qué buscan antes de llegar a la tienda">
+          <AdminTable
+            data-testid="seo-queries-table"
+            :rows="data.queries"
+            :columns="queryColumns"
+            :row-key="(row: QueryRow) => row.query"
+            :per-page="15"
+            :filtered="Boolean(queryFilter)"
+            empty-title="Sin búsquedas en este periodo"
+            empty-description="Todavía no hay búsquedas registradas con estos filtros."
+            empty-icon="i-lucide-search"
+            caption="Búsquedas en buscadores que llevan a la tienda"
+            @clear-filters="((queryFilter = ''), fetchDashboard())"
+          >
+            <template #cell-query="{ row }">
+              <span class="font-semibold text-[var(--text-strong)]">{{ row.query }}</span>
+            </template>
+            <template #cell-impressions="{ row }">{{ formatInteger(row.impressions) }}</template>
+            <template #cell-clicks="{ row }">{{ formatInteger(row.clicks) }}</template>
+            <template #cell-ctr="{ row }">{{ formatPercent(row.ctr) }}</template>
+            <template #cell-avgPosition="{ row }">{{ row.avgPosition.toFixed(1) }}</template>
+            <template #cell-assistedRevenueNetCents="{ row }">
+              {{ formatEuros(row.assistedRevenueNetCents) }}
+            </template>
+          </AdminTable>
+        </AdminSection>
+      </template>
+    </template>
   </div>
 </template>

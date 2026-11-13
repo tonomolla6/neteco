@@ -6,8 +6,7 @@ useSeoMeta({ title: 'Optimización de embalaje · Admin', robots: 'noindex, nofo
 </script>
 
 <template>
-  <div class="space-y-6">
-    <h1 class="text-xl font-bold text-slate-900">Embalaje</h1>
+  <AdminPage>
     <AdminPackingOptimizer />
-  </div>
+  </AdminPage>
 </template>

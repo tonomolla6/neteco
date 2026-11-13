@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { CostToServeDashboardResponse } from '~~/shared/cost-to-serve'
 
 const props = defineProps<{ runtime: unknown }>()
@@ -34,35 +34,69 @@ function formatPercent(rate: number | null | undefined): string {
   return `${(rate * 100).toFixed(1)}%`
 }
 
-function tierBadgeClass(tier: string): string {
-  switch (tier) {
-    case 'high_margin':
-      return 'bg-emerald-100 text-emerald-800'
-    case 'healthy_margin':
-      return 'bg-blue-100 text-blue-800'
-    case 'low_margin':
-      return 'bg-amber-100 text-amber-800'
-    case 'loss_making':
-      return 'bg-red-100 text-red-800 font-semibold'
-    default:
-      return 'bg-slate-100 text-slate-800'
-  }
+const tierTones: Record<string, 'success' | 'info' | 'warning' | 'danger'> = {
+  high_margin: 'success',
+  healthy_margin: 'info',
+  low_margin: 'warning',
+  loss_making: 'danger'
+}
+const tierLabels: Record<string, string> = {
+  high_margin: 'Margen alto',
+  healthy_margin: 'Margen correcto',
+  low_margin: 'Margen bajo',
+  loss_making: 'En pérdidas'
+}
+function tierLabel(tier: string): string {
+  return tierLabels[tier] ?? adminHumanize(tier)
 }
 
-function tierLabel(tier: string): string {
-  switch (tier) {
-    case 'high_margin':
-      return 'Margen Alto (>30%)'
-    case 'healthy_margin':
-      return 'Margen Saludable (10-30%)'
-    case 'low_margin':
-      return 'Margen Bajo (0-10%)'
-    case 'loss_making':
-      return 'En Pérdidas (<0%)'
-    default:
-      return tier
-  }
+const preset = ref('')
+const presetOptions = [
+  { value: '7', label: '7 días' },
+  { value: '30', label: '30 días' },
+  { value: '90', label: '90 días' }
+]
+watch(preset, (value) => {
+  if (!value) return
+  const end = new Date()
+  fromDate.value = new Date(end.getTime() - Number(value) * 86_400_000).toISOString().slice(0, 10)
+  toDate.value = end.toISOString().slice(0, 10)
+  void fetchCostToServe()
+})
+function onDateChange() {
+  preset.value = ''
+  void fetchCostToServe()
 }
+type OrderRow = CostToServeDashboardResponse['orders'][number]
+const columns = [
+  { key: 'orderId', label: 'Pedido' },
+  { key: 'netRevenueCents', label: 'Venta neta', numeric: true, sortable: true },
+  { key: 'cogsCents', label: 'Producto', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'paymentFeeCents', label: 'Cobro', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'pickingCostCents', label: 'Preparación', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'shippingRealCostCents', label: 'Transporte', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'returnsCostCents', label: 'Devoluciones', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'supportCostCents', label: 'Atención', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'totalCostToServeCents', label: 'Coste total', numeric: true, sortable: true },
+  { key: 'contributionMarginCents', label: 'Margen', numeric: true, sortable: true },
+  { key: 'profitabilityTier', label: 'Rentabilidad' }
+]
+const factors = computed(() => {
+  const summary = data.value?.summary
+  if (!summary) return []
+  const list = [
+    { id: 'cogs', label: 'Coste del producto', value: summary.totalCogsCents },
+    { id: 'discounts', label: 'Descuentos', value: summary.totalDiscountCents },
+    { id: 'payment', label: 'Comisiones de cobro', value: summary.totalPaymentFeeCents },
+    { id: 'picking', label: 'Preparación y embalaje', value: summary.totalPickingCostCents },
+    { id: 'carrier', label: 'Transporte', value: summary.totalShippingRealCostCents },
+    { id: 'returns', label: 'Devoluciones', value: summary.totalReturnsCostCents },
+    { id: 'support', label: 'Atención al cliente', value: summary.totalSupportCostCents }
+  ]
+  const max = Math.max(1, ...list.map((item) => item.value ?? 0))
+  return list.map((item) => ({ ...item, share: Math.max(0, (item.value ?? 0) / max) * 100 }))
+})
+const orderRef = (id: string) => (id.length > 12 ? `#${id.slice(0, 8).toUpperCase()}` : id)
 
 async function fetchCostToServe() {
   if (!isAuthorized.value) return
@@ -95,259 +129,155 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-          Cost-to-Serve y Margen de Contribución
-          <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">DAT-021</span>
-        </h2>
-        <p class="text-sm text-slate-500">
-          COGS, descuentos, comisiones de pago, picking, porte real de transporte, devoluciones y soporte vinculados a
-          cada pedido.
-        </p>
-      </div>
-
-      <button
-        type="button"
-        class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-        :disabled="loading || !isAuthorized"
-        data-testid="cts-refresh"
-        @click="fetchCostToServe"
-      >
-        <span v-if="loading">Cargando...</span>
-        <span v-else>Actualizar</span>
-      </button>
-    </div>
-
-    <!-- Filtros -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-4">
-        <div>
-          <label for="cts-from-date" class="block text-xs font-medium text-slate-700">Desde</label>
-          <input
-            id="cts-from-date"
-            v-model="fromDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-        <div>
-          <label for="cts-to-date" class="block text-xs font-medium text-slate-700">Hasta</label>
-          <input
-            id="cts-to-date"
-            v-model="toDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-        <div>
-          <label for="cts-tier-filter" class="block text-xs font-medium text-slate-700">Rentabilidad</label>
-          <select
-            id="cts-tier-filter"
-            v-model="selectedTier"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          >
-            <option value="all">Todos los tramos</option>
-            <option value="high_margin">Margen Alto (&gt;30%)</option>
-            <option value="healthy_margin">Margen Saludable (10-30%)</option>
-            <option value="low_margin">Margen Bajo (0-10%)</option>
-            <option value="loss_making">En Pérdidas (&lt;0%)</option>
-          </select>
-        </div>
-        <div class="flex items-end">
+  <div class="adm-stack">
+    <AdminCard v-if="!isAuthorized">
+      <AdminEmptyState
+        icon="i-lucide-lock"
+        title="La rentabilidad no está disponible ahora"
+        description="Necesitas la sesión iniciada, el correo verificado y la verificación en dos pasos, y solo se puede consultar en la tienda publicada."
+      />
+    </AdminCard>
+    <template v-else>
+      <div class="adm-toolbar" role="search" aria-label="Filtros de rentabilidad">
+        <AdminFilters v-model="preset" :options="presetOptions" label="Periodo" />
+        <label for="cts-from-date" class="adm-help">Desde</label>
+        <input id="cts-from-date" v-model="fromDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="cts-to-date" class="adm-help">Hasta</label>
+        <input id="cts-to-date" v-model="toDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="cts-tier-filter" class="sr-only">Rentabilidad</label>
+        <select id="cts-tier-filter" v-model="selectedTier" class="adm-input w-auto" @change="fetchCostToServe">
+          <option value="all">Cualquier rentabilidad</option>
+          <option value="high_margin">Margen alto (más del 30 %)</option>
+          <option value="healthy_margin">Margen correcto (10-30 %)</option>
+          <option value="low_margin">Margen bajo (0-10 %)</option>
+          <option value="loss_making">En pérdidas</option>
+        </select>
+        <div class="adm-toolbar__end">
           <button
             type="button"
-            class="w-full rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading"
+            data-testid="cts-refresh"
             @click="fetchCostToServe"
           >
-            Filtrar
+            <UIcon name="i-lucide-rotate-cw" class="size-4" :class="loading && 'animate-spin'" />Actualizar
           </button>
         </div>
       </div>
-    </div>
 
-    <!-- Error State -->
-    <div v-if="error" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      {{ error }}
-    </div>
+      <AdminCard v-if="error">
+        <AdminEmptyState
+          variant="error"
+          title="No hemos podido calcular la rentabilidad"
+          description="Vuelve a intentarlo en unos segundos."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="fetchCostToServe">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
 
-    <!-- Data Display -->
-    <div v-if="data" class="space-y-6">
-      <!-- Summary Cards -->
-      <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Facturación Neta</span>
-          <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="cts-kpi-net-revenue">
-            {{ formatEuros(data.summary.totalNetRevenueCents) }}
-          </p>
-          <span class="text-xs text-slate-500">{{ data.summary.totalOrdersAnalyzed }} pedidos analizados</span>
+      <div v-else-if="loading && !data" class="adm-grid" aria-busy="true">
+        <span class="sr-only">Calculando la rentabilidad…</span>
+        <div
+          v-for="row in 5"
+          :key="row"
+          class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+        />
+      </div>
+
+      <template v-if="data">
+        <div class="adm-grid">
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-receipt-text" class="size-4" />Ventas netas</p>
+            <p class="adm-stat__value" data-testid="cts-kpi-net-revenue">
+              {{ formatEuros(data.summary.totalNetRevenueCents) }}
+            </p>
+            <p class="adm-stat__foot">{{ data.summary.totalOrdersAnalyzed }} pedidos analizados</p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-coins" class="size-4" />Coste de servir los pedidos</p>
+            <p class="adm-stat__value" data-testid="cts-kpi-cost-to-serve">
+              {{ formatEuros(data.summary.totalCostToServeCents) }}
+            </p>
+            <p class="adm-stat__foot">Producto, cobro, preparación, transporte…</p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-piggy-bank" class="size-4" />Margen</p>
+            <p class="adm-stat__value" data-testid="cts-kpi-contribution-margin">
+              {{ formatEuros(data.summary.totalContributionMarginCents) }}
+            </p>
+            <p class="adm-stat__foot">
+              {{ data.summary.totalContributionMarginCents >= 0 ? 'Lo que queda tras los costes' : 'Se pierde dinero' }}
+            </p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-percent" class="size-4" />Margen sobre ventas</p>
+            <p class="adm-stat__value" data-testid="cts-kpi-margin-ratio">
+              {{ formatPercent(data.summary.overallMarginRatio) }}
+            </p>
+            <p class="adm-stat__foot">Margen dividido entre ventas netas</p>
+          </div>
+          <div class="adm-card adm-stat">
+            <p class="adm-stat__label"><UIcon name="i-lucide-trending-down" class="size-4" />Pedidos en pérdidas</p>
+            <p class="adm-stat__value" data-testid="cts-kpi-loss-making-rate">
+              {{ formatPercent(data.summary.lossMakingRate) }}
+            </p>
+            <p class="adm-stat__foot">
+              {{ data.summary.lossMakingOrdersCount }} de {{ data.summary.totalOrdersAnalyzed }} pedidos
+            </p>
+          </div>
         </div>
 
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Cost-to-Serve Total</span>
-          <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="cts-kpi-cost-to-serve">
-            {{ formatEuros(data.summary.totalCostToServeCents) }}
-          </p>
-          <span class="text-xs text-slate-500">Costes directos totales</span>
-        </div>
+        <AdminCard title="En qué se va el dinero" description="Costes de todos los pedidos del periodo.">
+          <ul class="adm-breakdown">
+            <li v-for="factor in factors" :key="factor.id">
+              <div class="adm-breakdown__row">
+                <span class="adm-breakdown__label">{{ factor.label }}</span>
+                <span class="adm-breakdown__value" :data-testid="`factor-${factor.id}`">
+                  {{ formatEuros(factor.value) }}
+                </span>
+                <span class="adm-breakdown__track"><i :style="{ width: `${factor.share}%` }" /></span>
+              </div>
+            </li>
+          </ul>
+        </AdminCard>
 
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Margen de Contribución</span>
-          <p
-            :class="[
-              'mt-1 text-2xl font-bold',
-              data.summary.totalContributionMarginCents >= 0 ? 'text-emerald-600' : 'text-red-600'
-            ]"
-            data-testid="cts-kpi-contribution-margin"
+        <AdminSection title="Rentabilidad por pedido">
+          <AdminTable
+            data-testid="cts-orders-table"
+            :rows="data.orders"
+            :columns="columns"
+            :row-key="(row: OrderRow) => row.id"
+            :status="loading ? 'pending' : 'idle'"
+            empty-title="Sin pedidos en este periodo"
+            empty-description="No hay pedidos calculados con estos filtros."
+            empty-icon="i-lucide-receipt-text"
+            caption="Costes y margen de cada pedido"
           >
-            {{ formatEuros(data.summary.totalContributionMarginCents) }}
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Ratio de Margen Global</span>
-          <p class="mt-1 text-2xl font-bold text-indigo-600" data-testid="cts-kpi-margin-ratio">
-            {{ formatPercent(data.summary.overallMarginRatio) }}
-          </p>
-          <span class="text-xs text-slate-500">Margen / Facturación Neta</span>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <span class="text-xs font-medium text-slate-500">Pedidos en Pérdidas</span>
-          <p class="mt-1 text-2xl font-bold text-red-600" data-testid="cts-kpi-loss-making-rate">
-            {{ formatPercent(data.summary.lossMakingRate) }}
-          </p>
-          <span class="text-xs text-slate-500"
-            >{{ data.summary.lossMakingOrdersCount }} de {{ data.summary.totalOrdersAnalyzed }} pedidos</span
-          >
-        </div>
-      </div>
-
-      <!-- 7 Factores de Coste Breakdown -->
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-        <h3 class="text-sm font-semibold text-slate-900 uppercase tracking-wide">
-          Desglose de los 7 Factores de Cost-to-Serve Vinculados al Pedido
-        </h3>
-
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">1. COGS (Producto)</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-cogs">
-              {{ formatEuros(data.summary.totalCogsCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">2. Descuentos</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-discounts">
-              {{ formatEuros(data.summary.totalDiscountCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">3. Comisiones Pago</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-payment">
-              {{ formatEuros(data.summary.totalPaymentFeeCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">4. Picking / Envase</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-picking">
-              {{ formatEuros(data.summary.totalPickingCostCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">5. Porte Real Transporte</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-carrier">
-              {{ formatEuros(data.summary.totalShippingRealCostCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">6. Devoluciones</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-returns">
-              {{ formatEuros(data.summary.totalReturnsCostCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-lg bg-slate-50 p-3 border border-slate-200">
-            <span class="text-xs font-medium text-slate-500">7. Soporte al Cliente</span>
-            <p class="mt-1 text-lg font-bold text-slate-800" data-testid="factor-support">
-              {{ formatEuros(data.summary.totalSupportCostCents) }}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Orders Breakdown Table -->
-      <div class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" data-testid="cts-orders-table">
-        <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <h3 class="text-sm font-semibold text-slate-900">Detalle de Margen de Contribución por Pedido</h3>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-xs">
-            <thead class="bg-slate-50 font-medium text-slate-500 uppercase text-left">
-              <tr>
-                <th class="px-3 py-2.5">ID Pedido</th>
-                <th class="px-3 py-2.5 text-right">Fact. Neta</th>
-                <th class="px-3 py-2.5 text-right">COGS</th>
-                <th class="px-3 py-2.5 text-right">Pago</th>
-                <th class="px-3 py-2.5 text-right">Picking</th>
-                <th class="px-3 py-2.5 text-right">Porte Real</th>
-                <th class="px-3 py-2.5 text-right">Devoluciones</th>
-                <th class="px-3 py-2.5 text-right">Soporte</th>
-                <th class="px-3 py-2.5 text-right">Cost-to-Serve</th>
-                <th class="px-3 py-2.5 text-right font-bold">Margen Contribución</th>
-                <th class="px-3 py-2.5 text-center">Tramo</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-200 bg-white">
-              <tr v-for="order in data.orders" :key="order.id" class="hover:bg-slate-50 font-mono">
-                <td class="px-3 py-2.5 text-slate-900 font-semibold">{{ order.orderId }}</td>
-                <td class="px-3 py-2.5 text-right text-slate-900 font-medium">
-                  {{ formatEuros(order.netRevenueCents) }}
-                </td>
-                <td class="px-3 py-2.5 text-right text-slate-600">{{ formatEuros(order.cogsCents) }}</td>
-                <td class="px-3 py-2.5 text-right text-slate-600">{{ formatEuros(order.paymentFeeCents) }}</td>
-                <td class="px-3 py-2.5 text-right text-slate-600">{{ formatEuros(order.pickingCostCents) }}</td>
-                <td class="px-3 py-2.5 text-right text-slate-600">{{ formatEuros(order.shippingRealCostCents) }}</td>
-                <td class="px-3 py-2.5 text-right text-slate-600">{{ formatEuros(order.returnsCostCents) }}</td>
-                <td class="px-3 py-2.5 text-right text-slate-600">{{ formatEuros(order.supportCostCents) }}</td>
-                <td class="px-3 py-2.5 text-right font-semibold text-slate-800">
-                  {{ formatEuros(order.totalCostToServeCents) }}
-                </td>
-                <td
-                  :class="[
-                    'px-3 py-2.5 text-right font-bold',
-                    order.contributionMarginCents >= 0 ? 'text-emerald-600' : 'text-red-600'
-                  ]"
-                >
-                  {{ formatEuros(order.contributionMarginCents) }} ({{ formatPercent(order.marginRatio) }})
-                </td>
-                <td class="px-3 py-2.5 text-center">
-                  <span
-                    :class="[
-                      'px-2 py-0.5 rounded text-[10px] font-sans font-semibold',
-                      tierBadgeClass(order.profitabilityTier)
-                    ]"
-                  >
-                    {{ tierLabel(order.profitabilityTier) }}
-                  </span>
-                </td>
-              </tr>
-              <tr v-if="data.orders.length === 0">
-                <td colspan="11" class="px-4 py-8 text-center text-slate-500 font-sans">
-                  No hay pedidos calculados en este período.
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+            <template #cell-orderId="{ row }">
+              <span class="font-semibold text-[var(--text-strong)]">{{ orderRef(row.orderId) }}</span>
+            </template>
+            <template #cell-netRevenueCents="{ row }">{{ formatEuros(row.netRevenueCents) }}</template>
+            <template #cell-cogsCents="{ row }">{{ formatEuros(row.cogsCents) }}</template>
+            <template #cell-paymentFeeCents="{ row }">{{ formatEuros(row.paymentFeeCents) }}</template>
+            <template #cell-pickingCostCents="{ row }">{{ formatEuros(row.pickingCostCents) }}</template>
+            <template #cell-shippingRealCostCents="{ row }">{{ formatEuros(row.shippingRealCostCents) }}</template>
+            <template #cell-returnsCostCents="{ row }">{{ formatEuros(row.returnsCostCents) }}</template>
+            <template #cell-supportCostCents="{ row }">{{ formatEuros(row.supportCostCents) }}</template>
+            <template #cell-totalCostToServeCents="{ row }">{{ formatEuros(row.totalCostToServeCents) }}</template>
+            <template #cell-contributionMarginCents="{ row }">
+              <span class="font-semibold" :class="row.contributionMarginCents < 0 && 'text-red-700'">
+                {{ formatEuros(row.contributionMarginCents) }}
+              </span>
+              <span class="adm-help ml-1">({{ formatPercent(row.marginRatio) }})</span>
+            </template>
+            <template #cell-profitabilityTier="{ row }">
+              <AdminBadge :tone="tierTones[row.profitabilityTier] ?? 'neutral'">
+                {{ tierLabel(row.profitabilityTier) }}
+              </AdminBadge>
+            </template>
+          </AdminTable>
+        </AdminSection>
+      </template>
+    </template>
   </div>
 </template>

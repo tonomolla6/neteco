@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import type { B2bSalesMetricsResponse } from '~~/shared/b2b-sales-metrics'
 
 const props = defineProps<{ runtime: unknown }>()
@@ -54,6 +54,25 @@ async function fetchMetrics() {
   }
 }
 
+const preset = ref('')
+const presetOptions = [
+  { value: '30', label: '30 días' },
+  { value: '90', label: '90 días' },
+  { value: '365', label: '12 meses' }
+]
+watch(preset, (value) => {
+  if (!value) return
+  const end = new Date()
+  fromDate.value = new Date(end.getTime() - Number(value) * 86_400_000).toISOString().slice(0, 10)
+  toDate.value = end.toISOString().slice(0, 10)
+  void fetchMetrics()
+})
+function onDateChange() {
+  preset.value = ''
+  void fetchMetrics()
+}
+const priceListRef = (id: string) => (id.length > 12 ? `Tarifa #${id.slice(0, 8).toUpperCase()}` : adminHumanize(id))
+
 onMounted(() => {
   if (isAuthorized.value) {
     void fetchMetrics()
@@ -62,281 +81,228 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-xl font-bold text-slate-900 flex items-center gap-2">
-          Venta a Empresas (B2B): activación, conversión, recurrencia y condiciones comerciales
-          <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">DAT-020</span>
-        </h2>
-        <p class="text-sm text-slate-500">
-          Métricas de clientes corporativos, condiciones de pago, exposición crediticia y tarifas comerciales reales.
-        </p>
-      </div>
-
-      <button
-        type="button"
-        class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
-        :disabled="loading || !isAuthorized"
-        data-testid="b2b-refresh"
-        @click="fetchMetrics"
-      >
-        <span v-if="loading">Cargando...</span>
-        <span v-else>Actualizar</span>
-      </button>
-    </div>
-
-    <!-- Filtros -->
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div>
-          <label for="b2b-from-date" class="block text-xs font-medium text-slate-700">Desde</label>
-          <input
-            id="b2b-from-date"
-            v-model="fromDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-        <div>
-          <label for="b2b-to-date" class="block text-xs font-medium text-slate-700">Hasta</label>
-          <input
-            id="b2b-to-date"
-            v-model="toDate"
-            type="date"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          />
-        </div>
-        <div class="flex items-end">
+  <div class="adm-stack">
+    <AdminCard v-if="!isAuthorized">
+      <AdminEmptyState
+        icon="i-lucide-lock"
+        title="Las ventas a empresas no están disponibles ahora"
+        description="Necesitas la sesión iniciada, el correo verificado y la verificación en dos pasos, y solo se pueden consultar en la tienda publicada."
+      />
+    </AdminCard>
+    <template v-else>
+      <div class="adm-toolbar" role="search" aria-label="Periodo de las ventas a empresas">
+        <AdminFilters v-model="preset" :options="presetOptions" label="Periodo" />
+        <label for="b2b-from-date" class="adm-help">Desde</label>
+        <input id="b2b-from-date" v-model="fromDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <label for="b2b-to-date" class="adm-help">Hasta</label>
+        <input id="b2b-to-date" v-model="toDate" type="date" class="adm-input w-auto" @change="onDateChange" />
+        <div class="adm-toolbar__end">
           <button
             type="button"
-            class="w-full rounded-md bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading"
+            data-testid="b2b-refresh"
             @click="fetchMetrics"
           >
-            Filtrar
+            <UIcon name="i-lucide-rotate-cw" class="size-4" :class="loading && 'animate-spin'" />Actualizar
           </button>
         </div>
       </div>
-    </div>
 
-    <!-- Error State -->
-    <div v-if="error" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      {{ error }}
-    </div>
+      <AdminCard v-if="error">
+        <AdminEmptyState
+          variant="error"
+          title="No hemos podido cargar las ventas a empresas"
+          description="Vuelve a intentarlo en unos segundos."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="fetchMetrics">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
 
-    <!-- Data Display -->
-    <div v-if="data" class="space-y-6">
-      <!-- 1. ACTIVACIÓN -->
-      <div>
-        <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-3">
-          1. Activación de Clientes Corporativos
-        </h3>
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Tasa de Activación</span>
-            <p class="mt-1 text-2xl font-bold text-emerald-600" data-testid="b2b-kpi-activation-rate">
-              {{ formatPercent(data.activation.activationRate) }}
-            </p>
-            <span class="text-xs text-slate-500"
-              >{{ data.activation.activatedCompanies }} de {{ data.activation.approvedCompanies }} aprobadas</span
-            >
-          </div>
+      <div v-else-if="loading && !data" class="adm-grid" aria-busy="true">
+        <span class="sr-only">Cargando las ventas a empresas…</span>
+        <div
+          v-for="row in 4"
+          :key="row"
+          class="h-28 animate-pulse rounded-[var(--radius-surface)] bg-[var(--surface-sunken)]"
+        />
+      </div>
 
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Empresas Activadas</span>
-            <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="b2b-kpi-activated-count">
-              {{ data.activation.activatedCompanies }}
-            </p>
-            <span class="text-xs text-slate-500">Con al menos 1 pedido</span>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Días a Primer Pedido</span>
-            <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="b2b-kpi-avg-days-first-order">
-              {{ data.activation.avgDaysToFirstOrder.toFixed(1) }}
-            </p>
-            <span class="text-xs text-slate-500">Promedio desde aprobación</span>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Pendientes de Activación</span>
-            <div class="mt-1 text-xs text-slate-600 space-y-1">
-              <div>
-                &lt; 30 días:
-                <span class="font-semibold text-slate-900">{{
-                  data.activation.pendingActivationAging.under30Days
-                }}</span>
-              </div>
-              <div>
-                30 - 90 días:
-                <span class="font-semibold text-amber-600">{{
-                  data.activation.pendingActivationAging.days30to90
-                }}</span>
-              </div>
-              <div>
-                &gt; 90 días:
-                <span class="font-semibold text-red-600">{{ data.activation.pendingActivationAging.over90Days }}</span>
-              </div>
+      <template v-if="data">
+        <AdminSection title="Ventas a empresas">
+          <div class="adm-grid">
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-banknote" class="size-4" />Ventas netas</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-revenue">
+                {{ formatEuros(data.conversion.revenueNetCents) }}
+              </p>
+              <p class="adm-stat__foot">Sin impuestos</p>
+            </div>
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-receipt-text" class="size-4" />Pedidos de empresas</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-orders-count">{{ data.conversion.ordersCount }}</p>
+              <p class="adm-stat__foot">{{ data.conversion.checkoutsCompleted }} compras finalizadas</p>
+            </div>
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-shopping-basket" class="size-4" />Pedido medio</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-aov">
+                {{ formatEuros(data.conversion.averageOrderValueCents) }}
+              </p>
+              <p class="adm-stat__foot">Importe medio por pedido</p>
             </div>
           </div>
-        </div>
-      </div>
+        </AdminSection>
 
-      <!-- 2. CONVERSIÓN -->
-      <div>
-        <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-3">
-          2. Conversión y Facturación B2B
-        </h3>
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Pedidos Corporativos</span>
-            <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="b2b-kpi-orders-count">
-              {{ data.conversion.ordersCount }}
-            </p>
-            <span class="text-xs text-slate-500">{{ data.conversion.checkoutsCompleted }} checkouts finalizados</span>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Facturación Neta B2B</span>
-            <p class="mt-1 text-2xl font-bold text-emerald-600" data-testid="b2b-kpi-revenue">
-              {{ formatEuros(data.conversion.revenueNetCents) }}
-            </p>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Ticket Medio (AOV)</span>
-            <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="b2b-kpi-aov">
-              {{ formatEuros(data.conversion.averageOrderValueCents) }}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. RECURRENCIA -->
-      <div>
-        <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-3">3. Recurrencia y Fidelización</h3>
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Tasa de Recompra B2B</span>
-            <p class="mt-1 text-2xl font-bold text-indigo-600" data-testid="b2b-kpi-repeat-rate">
-              {{ formatPercent(data.recurrence.repeatPurchaseRate) }}
-            </p>
-            <span class="text-xs text-slate-500">Compradores con 2+ pedidos</span>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Compradores Recurrentes</span>
-            <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="b2b-kpi-repeat-buyers">
-              {{ data.recurrence.repeatBuyers }}
-            </p>
-            <span class="text-xs text-slate-500">{{ data.recurrence.oneTimeBuyers }} comprador(es) únicos</span>
-          </div>
-
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <span class="text-xs font-medium text-slate-500">Cadencia entre Pedidos</span>
-            <p class="mt-1 text-2xl font-bold text-slate-900" data-testid="b2b-kpi-cadence">
-              {{ data.recurrence.avgDaysBetweenOrders }} días
-            </p>
-            <span class="text-xs text-slate-500">Promedio entre recompras</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. CONDICIONES COMERCIALES REALES -->
-      <div>
-        <h3 class="text-sm font-semibold text-slate-800 uppercase tracking-wide mb-3">
-          4. Condiciones Comerciales Reales (Riesgo y Plazos de Pago)
-        </h3>
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <!-- Plazos de Pago -->
-          <div
-            class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-            data-testid="b2b-payment-terms-table"
-          >
-            <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h4 class="text-xs font-semibold text-slate-900 uppercase">Distribución de Plazos de Pago</h4>
+        <AdminSection title="Empresas nuevas" description="Empresas aprobadas que ya han hecho su primer pedido.">
+          <div class="adm-grid">
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-building-2" class="size-4" />Ya han comprado</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-activation-rate">
+                {{ formatPercent(data.activation.activationRate) }}
+              </p>
+              <p class="adm-stat__foot">
+                {{ data.activation.activatedCompanies }} de {{ data.activation.approvedCompanies }} aprobadas
+              </p>
             </div>
-            <table class="min-w-full divide-y divide-slate-200 text-sm">
-              <thead class="bg-slate-50 text-xs font-medium text-slate-500 uppercase">
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-circle-check" class="size-4" />Empresas con pedidos</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-activated-count">
+                {{ data.activation.activatedCompanies }}
+              </p>
+              <p class="adm-stat__foot">Con al menos un pedido</p>
+            </div>
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label">
+                <UIcon name="i-lucide-calendar-clock" class="size-4" />Días hasta el primer pedido
+              </p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-avg-days-first-order">
+                {{ data.activation.avgDaysToFirstOrder.toFixed(1) }}
+              </p>
+              <p class="adm-stat__foot">De media desde la aprobación</p>
+            </div>
+            <AdminCard title="Aún sin primer pedido">
+              <AdminBreakdown
+                :items="[
+                  { label: 'Menos de 30 días', value: data.activation.pendingActivationAging.under30Days },
+                  { label: 'Entre 30 y 90 días', value: data.activation.pendingActivationAging.days30to90 },
+                  { label: 'Más de 90 días', value: data.activation.pendingActivationAging.over90Days }
+                ]"
+              />
+            </AdminCard>
+          </div>
+        </AdminSection>
+
+        <AdminSection title="Empresas que repiten">
+          <div class="adm-grid">
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-repeat" class="size-4" />Vuelven a comprar</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-repeat-rate">
+                {{ formatPercent(data.recurrence.repeatPurchaseRate) }}
+              </p>
+              <p class="adm-stat__foot">Empresas con dos o más pedidos</p>
+            </div>
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-users" class="size-4" />Empresas habituales</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-repeat-buyers">{{ data.recurrence.repeatBuyers }}</p>
+              <p class="adm-stat__foot">{{ data.recurrence.oneTimeBuyers }} con un solo pedido</p>
+            </div>
+            <div class="adm-card adm-stat">
+              <p class="adm-stat__label"><UIcon name="i-lucide-timer" class="size-4" />Tiempo entre pedidos</p>
+              <p class="adm-stat__value" data-testid="b2b-kpi-cadence">
+                {{ data.recurrence.avgDaysBetweenOrders }} días
+              </p>
+              <p class="adm-stat__foot">De media entre un pedido y el siguiente</p>
+            </div>
+          </div>
+        </AdminSection>
+
+        <AdminSection title="Condiciones de pago y crédito">
+          <div class="grid gap-5 lg:grid-cols-2">
+            <AdminCard flush title="Plazos de pago" data-testid="b2b-payment-terms-table">
+              <AdminEmptyState
+                v-if="!data.commercialTerms.paymentTermsDistribution.length"
+                compact
+                title="Sin plazos de pago asignados"
+              />
+              <div v-else class="adm-table-wrap">
+                <table class="adm-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Plazo</th>
+                      <th scope="col" data-numeric>Empresas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="t in data.commercialTerms.paymentTermsDistribution" :key="t.paymentDays">
+                      <td>{{ t.paymentDays === 0 ? 'Al contado' : `A ${t.paymentDays} días` }}</td>
+                      <td data-numeric>{{ t.companiesCount }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </AdminCard>
+
+            <AdminCard title="Crédito concedido">
+              <dl class="grid grid-cols-2 gap-4">
+                <div>
+                  <dt class="adm-help">Límite de crédito total</dt>
+                  <dd
+                    class="text-lg font-semibold tabular-nums text-[var(--text-strong)]"
+                    data-testid="b2b-kpi-credit-limit"
+                  >
+                    {{ formatEuros(data.commercialTerms.creditExposure.totalCreditLimitCents) }}
+                  </dd>
+                </div>
+                <div>
+                  <dt class="adm-help">Empresas bloqueadas por impago</dt>
+                  <dd
+                    class="text-lg font-semibold tabular-nums text-[var(--text-strong)]"
+                    data-testid="b2b-kpi-blocked-companies"
+                  >
+                    {{ data.commercialTerms.creditExposure.blockedCompaniesCount }}
+                  </dd>
+                </div>
+              </dl>
+              <template v-if="data.commercialTerms.pricingTiersDistribution.length">
+                <p class="adm-label mt-5">Tarifas asignadas</p>
+                <ul class="mt-2 space-y-1.5">
+                  <li
+                    v-for="tier in data.commercialTerms.pricingTiersDistribution"
+                    :key="tier.priceListId"
+                    class="flex justify-between gap-3"
+                  >
+                    <span class="text-[var(--text-strong)]" :title="tier.priceListId">
+                      {{ priceListRef(tier.priceListId) }}
+                    </span>
+                    <span class="adm-help">{{ tier.companiesCount }} empresas</span>
+                  </li>
+                </ul>
+              </template>
+            </AdminCard>
+          </div>
+        </AdminSection>
+
+        <AdminCard v-if="data.topCompanies.length > 0" flush title="Empresas que más compran">
+          <div class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
                 <tr>
-                  <th class="px-4 py-2 text-left">Condición de Pago</th>
-                  <th class="px-4 py-2 text-right">Empresas</th>
+                  <th scope="col">Empresa</th>
+                  <th scope="col" data-numeric>Pedidos</th>
+                  <th scope="col" data-numeric>Ventas netas</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-200 bg-white">
-                <tr v-for="t in data.commercialTerms.paymentTermsDistribution" :key="t.paymentDays">
-                  <td class="px-4 py-2 font-medium text-slate-800">
-                    {{ t.paymentDays === 0 ? 'Contado / Prepago' : `${t.paymentDays} días` }}
-                  </td>
-                  <td class="px-4 py-2 text-right text-slate-600">{{ t.companiesCount }}</td>
+              <tbody>
+                <tr v-for="comp in data.topCompanies" :key="comp.companyId">
+                  <td class="font-semibold text-[var(--text-strong)]">{{ comp.legalName }}</td>
+                  <td data-numeric>{{ comp.ordersCount }}</td>
+                  <td data-numeric class="font-semibold">{{ formatEuros(comp.revenueNetCents) }}</td>
                 </tr>
               </tbody>
             </table>
           </div>
-
-          <!-- Líneas de Crédito & Tarifas -->
-          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-            <h4 class="text-xs font-semibold text-slate-900 uppercase">Exposición Crediticia</h4>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <span class="text-xs font-medium text-slate-500">Límite de Crédito Concedido</span>
-                <p class="mt-1 text-xl font-bold text-slate-900" data-testid="b2b-kpi-credit-limit">
-                  {{ formatEuros(data.commercialTerms.creditExposure.totalCreditLimitCents) }}
-                </p>
-              </div>
-              <div>
-                <span class="text-xs font-medium text-slate-500">Cuentas Bloqueadas por Riesgo</span>
-                <p class="mt-1 text-xl font-bold text-red-600" data-testid="b2b-kpi-blocked-companies">
-                  {{ data.commercialTerms.creditExposure.blockedCompaniesCount }}
-                </p>
-              </div>
-            </div>
-
-            <div class="border-t border-slate-200 pt-3">
-              <h5 class="text-xs font-semibold text-slate-700 uppercase mb-2">Tarifas Contractuales Asignadas</h5>
-              <div class="space-y-1 text-xs">
-                <div
-                  v-for="tier in data.commercialTerms.pricingTiersDistribution"
-                  :key="tier.priceListId"
-                  class="flex justify-between text-slate-600"
-                >
-                  <span class="font-mono text-slate-900">{{ tier.priceListId }}</span>
-                  <span>{{ tier.companiesCount }} empresas asignadas</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Top Empresas -->
-      <div
-        v-if="data.topCompanies.length > 0"
-        class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden"
-      >
-        <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <h3 class="text-sm font-semibold text-slate-900">Ranking de Clientes Corporativos por Facturación</h3>
-        </div>
-        <table class="min-w-full divide-y divide-slate-200 text-sm">
-          <thead class="bg-slate-50 text-xs font-medium text-slate-500 uppercase text-left">
-            <tr>
-              <th class="px-4 py-3">Empresa</th>
-              <th class="px-4 py-3 text-right">Pedidos</th>
-              <th class="px-4 py-3 text-right">Facturación Neta</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-200 bg-white">
-            <tr v-for="comp in data.topCompanies" :key="comp.companyId" class="hover:bg-slate-50">
-              <td class="px-4 py-3 font-semibold text-slate-900">{{ comp.legalName }}</td>
-              <td class="px-4 py-3 text-right text-slate-600">{{ comp.ordersCount }}</td>
-              <td class="px-4 py-3 text-right font-semibold text-emerald-600">
-                {{ formatEuros(comp.revenueNetCents) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+        </AdminCard>
+      </template>
+    </template>
   </div>
 </template>

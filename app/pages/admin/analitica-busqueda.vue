@@ -7,5 +7,7 @@ const runtime = useRuntimeConfig().public.serverRuntime
 </script>
 
 <template>
-  <AdminSearchAnalytics :runtime="runtime" />
+  <AdminPage>
+    <AdminSearchAnalytics :runtime="runtime" />
+  </AdminPage>
 </template>

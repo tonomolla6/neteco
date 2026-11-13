@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { PackingConfigView, PackingSuggestionView } from '~~/shared/packing-optimizer-api'
 import { newCommandId } from '../composables/useDeliveryDriverApp'
 import { opsErrorMessage } from '../utils/shipping-ops-errors'
+import type { AdminTone } from '~/utils/adminLabels'
 
 const requestFetch = useRequestFetch()
 const BASE = '/api/admin/packing-optimizer'
@@ -46,6 +47,46 @@ const newIncomp = ref({
 })
 
 const statusLabel = { suggested: 'Pendiente de validar', validated: 'Validada', rejected: 'Rechazada' } as const
+const statusTone: Record<keyof typeof statusLabel, AdminTone> = {
+  suggested: 'warning',
+  validated: 'success',
+  rejected: 'danger'
+}
+const hazardLabel: Record<string, string> = {
+  none: 'Sin peligro',
+  corrosive: 'Corrosivo',
+  flammable: 'Inflamable',
+  toxic: 'Tóxico',
+  oxidizer: 'Comburente',
+  irritant: 'Irritante'
+}
+const dangerousLabel = Object.fromEntries(Object.entries(hazardLabel).filter(([value]) => value !== 'none'))
+
+// Estado de interfaz: pestaña visible y confirmación de borrado.
+const activeTab = ref('calculate')
+const tabs = computed(() => [
+  { value: 'calculate', label: 'Calcular embalaje' },
+  { value: 'boxes', label: 'Cajas', count: config.value?.boxes.length ?? null },
+  { value: 'profiles', label: 'Productos', count: config.value?.profiles.length ?? null },
+  { value: 'rules', label: 'Incompatibilidades', count: config.value?.incompatibilities.length ?? null }
+])
+const pendingRule = ref<{ classA: string; classB: string } | null>(null)
+const confirmRuleOpen = computed({
+  get: () => pendingRule.value !== null,
+  set: (open: boolean) => {
+    if (!open) pendingRule.value = null
+  }
+})
+function confirmDeleteRule() {
+  const rule = pendingRule.value
+  pendingRule.value = null
+  if (rule) void deleteIncomp(rule.classA, rule.classB)
+}
+function retryConfig() {
+  error.value = null
+  loading.value = true
+  void loadConfig()
+}
 
 async function loadConfig() {
   try {
@@ -226,299 +267,412 @@ onMounted(() => void loadConfig())
 </script>
 
 <template>
-  <div class="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-    <h2 class="text-lg font-semibold text-slate-900">Optimización de embalaje</h2>
-    <p class="text-sm text-slate-600">
-      Heurística determinista (respeta incompatibilidades, peso y dimensiones). Toda propuesta debe validarse en almacén
-      con el peso real.
-    </p>
-
-    <div v-if="loading" role="status" aria-live="polite" class="text-sm text-slate-500">
-      Cargando configuración de embalaje...
-    </div>
-    <p v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-      {{ error }}
-    </p>
+  <div class="adm-stack">
+    <div v-if="loading" role="status" aria-live="polite" class="adm-help">Cargando configuración de embalaje…</div>
+    <AdminCard v-if="error && !config && !loading">
+      <div role="alert">
+        <AdminEmptyState
+          compact
+          variant="error"
+          title="No se ha podido cargar la configuración de embalaje"
+          :description="error"
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="retryConfig()">Reintentar</AdminButton>
+        </AdminEmptyState>
+      </div>
+    </AdminCard>
+    <UAlert v-else-if="error" role="alert" color="error" variant="subtle" :title="error" />
 
     <template v-if="config">
-      <div class="grid gap-4 md:grid-cols-3">
-        <section aria-labelledby="boxes-title" class="space-y-3">
-          <h3 id="boxes-title" class="font-medium">Cajas</h3>
-          <ul class="text-sm">
-            <li v-for="b in config.boxes" :key="b.code">
-              {{ b.code }} · {{ b.name }} · {{ b.widthMm }}×{{ b.heightMm }}×{{ b.depthMm }} mm · máx.
-              {{ b.maxWeightGrams }} g{{ b.active ? '' : ' · inactiva'
-              }}{{ b.hazmatAllowed ? '' : ' · sin mercancía peligrosa' }}
-            </li>
-          </ul>
+      <AdminTabs v-model="activeTab" :tabs="tabs" label="Apartados de embalaje" />
 
-          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
-            <h4 class="font-medium text-slate-800">Añadir / editar caja</h4>
-            <div class="grid grid-cols-2 gap-2">
+      <!-- Cálculo de una propuesta -->
+      <div v-show="activeTab === 'calculate'" class="adm-stack">
+        <AdminCard
+          title="Calcular el embalaje de un pedido"
+          description="La propuesta respeta peso, medidas e incompatibilidades. Siempre se valida en almacén con el peso real."
+        >
+          <form class="space-y-3" @submit.prevent="suggest">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Productos del pedido"
+              help="Una línea por producto con el formato «referencia x cantidad». Por ejemplo: LEJIA-5L x 2"
+            >
+              <textarea :id="id" v-model="linesText" data-test="lines" rows="4" class="adm-input w-full" />
+            </AdminFormField>
+            <p v-if="linesError" data-test="lines-error" role="alert" class="adm-field__error">{{ linesError }}</p>
+            <button
+              type="button"
+              data-test="suggest"
+              :disabled="busy"
+              class="adm-btn"
+              :class="suggestion?.status === 'suggested' ? 'adm-btn--secondary' : 'adm-btn--primary'"
+              @click="suggest"
+            >
+              Calcular embalaje
+            </button>
+          </form>
+        </AdminCard>
+
+        <AdminCard v-if="suggestion" flush data-test="plan" aria-label="Propuesta de embalaje">
+          <template #title>
+            <span class="flex flex-wrap items-center gap-2">
+              {{ suggestion.plan.totals.parcelCount }}
+              {{ suggestion.plan.totals.parcelCount === 1 ? 'bulto' : 'bultos' }} ·
+              {{ suggestion.plan.totals.grossWeightGrams.toLocaleString('es-ES') }} g en total
+              <AdminBadge :tone="statusTone[suggestion.status]">{{ statusLabel[suggestion.status] }}</AdminBadge>
+            </span>
+          </template>
+          <ol class="adm-list">
+            <li v-for="(parcel, index) in suggestion.plan.parcels" :key="index">
+              <span class="adm-list__index">{{ index + 1 }}</span>
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  Caja {{ parcel.boxCode }} · {{ parcel.grossWeightGrams.toLocaleString('es-ES') }} g previstos ·
+                  ocupación {{ Math.round(parcel.fillRatioBp / 100) }} %
+                </p>
+                <p class="adm-help">{{ parcel.contents.map((c) => `${c.quantity} × ${c.sku}`).join(', ') }}</p>
+                <p v-if="parcel.hazardClasses.some((h) => h !== 'none')" class="mt-1">
+                  <AdminBadge tone="warning">
+                    Mercancía peligrosa:
+                    {{
+                      parcel.hazardClasses
+                        .filter((h) => h !== 'none')
+                        .map((h) => hazardLabel[h] ?? h)
+                        .join(', ')
+                    }}
+                  </AdminBadge>
+                </p>
+              </div>
+              <label v-if="suggestion.status === 'suggested'" class="adm-check">
+                Peso real (g)
+                <input
+                  v-model.number="actual[index]"
+                  :data-test="`actual-${index}`"
+                  type="number"
+                  min="1"
+                  class="adm-input w-28"
+                />
+              </label>
+            </li>
+          </ol>
+          <div v-if="suggestion.status === 'suggested'" class="space-y-3 border-t border-[var(--border)] px-5 py-4">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Motivo del rechazo"
+              help="Solo si rechazas la propuesta (mínimo 10 caracteres)."
+            >
+              <input :id="id" v-model="rejectNote" data-test="reject-note" maxlength="500" class="adm-input w-full" />
+            </AdminFormField>
+            <p v-if="rejectError" data-test="reject-error" role="alert" class="adm-field__error">{{ rejectError }}</p>
+            <div class="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                data-test="reject"
+                :disabled="busy"
+                class="adm-btn adm-btn--danger-soft"
+                @click="decide('reject')"
+              >
+                Rechazar propuesta
+              </button>
+              <button
+                type="button"
+                data-test="accept"
+                :disabled="busy"
+                class="adm-btn adm-btn--primary"
+                @click="decide('accept')"
+              >
+                Validar en almacén
+              </button>
+            </div>
+          </div>
+        </AdminCard>
+      </div>
+
+      <!-- Cajas -->
+      <section v-show="activeTab === 'boxes'" aria-labelledby="boxes-title" class="adm-stack">
+        <AdminCard flush>
+          <template #title><span id="boxes-title">Cajas disponibles</span></template>
+          <AdminEmptyState
+            v-if="!config.boxes.length"
+            compact
+            icon="i-lucide-package"
+            title="Todavía no hay cajas"
+            description="Añade la primera con el formulario de abajo."
+          />
+          <div v-else class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Código</th>
+                  <th scope="col">Nombre</th>
+                  <th scope="col">Medidas (mm)</th>
+                  <th scope="col" data-numeric>Peso máximo</th>
+                  <th scope="col">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="b in config.boxes" :key="b.code">
+                  <td class="font-semibold text-[var(--text-strong)]">{{ b.code }}</td>
+                  <td>{{ b.name }}</td>
+                  <td>{{ b.widthMm }} × {{ b.heightMm }} × {{ b.depthMm }}</td>
+                  <td data-numeric>{{ b.maxWeightGrams.toLocaleString('es-ES') }} g</td>
+                  <td>
+                    <span class="flex flex-wrap gap-1.5">
+                      <AdminBadge :tone="b.active ? 'success' : 'neutral'">
+                        {{ b.active ? 'Activa' : 'Inactiva' }}
+                      </AdminBadge>
+                      <AdminBadge v-if="!b.hazmatAllowed" tone="warning">Sin mercancía peligrosa</AdminBadge>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AdminCard>
+
+        <AdminCard title="Añadir o modificar una caja" description="Si el código ya existe, se actualizan sus datos.">
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Código" required>
+              <input :id="id" v-model="newBox.code" data-test="new-box-code" placeholder="Ej.: S" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Nombre" required>
+              <input :id="id" v-model="newBox.name" data-test="new-box-name" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Ancho (mm)">
               <input
-                v-model="newBox.code"
-                data-test="new-box-code"
-                placeholder="Código (ej. S)"
-                class="rounded border p-1"
-              />
-              <input v-model="newBox.name" data-test="new-box-name" placeholder="Nombre" class="rounded border p-1" />
-              <input
+                :id="id"
                 v-model.number="newBox.widthMm"
                 data-test="new-box-width"
                 type="number"
-                placeholder="Ancho mm"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Alto (mm)">
               <input
+                :id="id"
                 v-model.number="newBox.heightMm"
                 data-test="new-box-height"
                 type="number"
-                placeholder="Alto mm"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Fondo (mm)">
               <input
+                :id="id"
                 v-model.number="newBox.depthMm"
                 data-test="new-box-depth"
                 type="number"
-                placeholder="Fondo mm"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Peso de la caja vacía (g)">
               <input
+                :id="id"
                 v-model.number="newBox.tareGrams"
                 data-test="new-box-tare"
                 type="number"
-                placeholder="Tara g"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Peso máximo (g)">
               <input
+                :id="id"
                 v-model.number="newBox.maxWeightGrams"
                 data-test="new-box-max-weight"
                 type="number"
-                placeholder="Máx g"
-                class="rounded border p-1"
+                class="adm-input"
               />
-              <label class="flex items-center gap-1">
-                <input v-model="newBox.hazmatAllowed" type="checkbox" /> ADR
-              </label>
-            </div>
+            </AdminFormField>
+          </div>
+          <label class="adm-check mt-4">
+            <input v-model="newBox.hazmatAllowed" type="checkbox" /> Admite mercancía peligrosa
+          </label>
+          <template #footer>
             <button
               type="button"
               data-test="save-box-btn"
               :disabled="busy || !newBox.code || !newBox.name"
-              class="w-full rounded bg-slate-800 py-1 text-white hover:bg-slate-700 disabled:opacity-50"
+              class="adm-btn adm-btn--primary"
               @click="saveBox"
             >
               Guardar caja
             </button>
+          </template>
+        </AdminCard>
+      </section>
+
+      <!-- Peso y medidas de los productos -->
+      <section v-show="activeTab === 'profiles'" aria-labelledby="profiles-title" class="adm-stack">
+        <AdminCard flush>
+          <template #title><span id="profiles-title">Peso y medidas de los productos</span></template>
+          <AdminEmptyState
+            v-if="!config.profiles.length"
+            compact
+            icon="i-lucide-ruler"
+            title="Todavía no hay productos con medidas"
+            description="Añade el peso y las medidas de cada referencia para poder calcular su embalaje."
+          />
+          <div v-else class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Referencia</th>
+                  <th scope="col" data-numeric>Peso</th>
+                  <th scope="col">Medidas (mm)</th>
+                  <th scope="col">Peligrosidad</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="p in config.profiles" :key="p.sku">
+                  <td class="font-semibold text-[var(--text-strong)]">{{ p.sku }}</td>
+                  <td data-numeric>{{ p.weightGrams.toLocaleString('es-ES') }} g</td>
+                  <td>{{ p.widthMm }} × {{ p.heightMm }} × {{ p.depthMm }}</td>
+                  <td>
+                    <AdminBadge :tone="p.hazardClass === 'none' ? 'neutral' : 'warning'">
+                      {{ hazardLabel[p.hazardClass] ?? p.hazardClass }}
+                    </AdminBadge>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </section>
+        </AdminCard>
 
-        <section aria-labelledby="profiles-title" class="space-y-3">
-          <h3 id="profiles-title" class="font-medium">Perfiles de producto</h3>
-          <ul class="text-sm">
-            <li v-for="p in config.profiles" :key="p.sku">{{ p.sku }} · {{ p.weightGrams }} g · {{ p.hazardClass }}</li>
-          </ul>
-          <p v-if="!config.profiles.length" class="text-sm text-slate-500">
-            Sin perfiles: añade peso y dimensiones por SKU.
-          </p>
-
-          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
-            <h4 class="font-medium text-slate-800">Añadir / editar perfil</h4>
-            <div class="grid grid-cols-2 gap-2">
+        <AdminCard
+          title="Añadir o modificar un producto"
+          description="Si la referencia ya existe, se actualizan sus datos."
+        >
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Referencia" required>
+              <input :id="id" v-model="newProfile.sku" data-test="new-profile-sku" class="adm-input" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Peso (g)">
               <input
-                v-model="newProfile.sku"
-                data-test="new-profile-sku"
-                placeholder="SKU"
-                class="rounded border p-1"
-              />
-              <input
+                :id="id"
                 v-model.number="newProfile.weightGrams"
                 data-test="new-profile-weight"
                 type="number"
-                placeholder="Peso g"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Ancho (mm)">
               <input
+                :id="id"
                 v-model.number="newProfile.widthMm"
                 data-test="new-profile-width"
                 type="number"
-                placeholder="Ancho mm"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Alto (mm)">
               <input
+                :id="id"
                 v-model.number="newProfile.heightMm"
                 data-test="new-profile-height"
                 type="number"
-                placeholder="Alto mm"
-                class="rounded border p-1"
+                class="adm-input"
               />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Fondo (mm)">
               <input
+                :id="id"
                 v-model.number="newProfile.depthMm"
                 data-test="new-profile-depth"
                 type="number"
-                placeholder="Fondo mm"
-                class="rounded border p-1"
+                class="adm-input"
               />
-              <select v-model="newProfile.hazardClass" data-test="new-profile-hazard" class="rounded border p-1">
-                <option value="none">Sin peligro</option>
-                <option value="corrosive">Corrosivo</option>
-                <option value="flammable">Inflamable</option>
-                <option value="toxic">Tóxico</option>
-                <option value="oxidizer">Comburente</option>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Peligrosidad">
+              <select :id="id" v-model="newProfile.hazardClass" data-test="new-profile-hazard" class="adm-input">
+                <option v-for="(label, value) in hazardLabel" :key="value" :value="value">{{ label }}</option>
               </select>
-            </div>
+            </AdminFormField>
+          </div>
+          <template #footer>
             <button
               type="button"
               data-test="save-profile-btn"
               :disabled="busy || !newProfile.sku"
-              class="w-full rounded bg-slate-800 py-1 text-white hover:bg-slate-700 disabled:opacity-50"
+              class="adm-btn adm-btn--primary"
               @click="saveProfile"
             >
-              Guardar perfil
+              Guardar producto
             </button>
-          </div>
-        </section>
+          </template>
+        </AdminCard>
+      </section>
 
-        <section aria-labelledby="rules-title" class="space-y-3">
-          <h3 id="rules-title" class="font-medium">Incompatibilidades</h3>
-          <ul class="text-sm">
-            <li
-              v-for="r in config.incompatibilities"
-              :key="`${r.classA}-${r.classB}`"
-              class="flex justify-between items-center py-0.5"
-            >
-              <span>{{ r.classA }} + {{ r.classB }}: {{ r.reason }}</span>
-              <button
-                type="button"
-                class="text-red-600 hover:text-red-800 ml-2"
-                @click="deleteIncomp(r.classA, r.classB)"
-              >
-                ✕
-              </button>
+      <!-- Incompatibilidades -->
+      <section v-show="activeTab === 'rules'" aria-labelledby="rules-title" class="adm-stack">
+        <AdminCard flush>
+          <template #title><span id="rules-title">Productos que no pueden viajar juntos</span></template>
+          <AdminEmptyState
+            v-if="!config.incompatibilities.length"
+            compact
+            icon="i-lucide-shield-alert"
+            title="No hay incompatibilidades definidas"
+          />
+          <ul v-else class="adm-list">
+            <li v-for="r in config.incompatibilities" :key="`${r.classA}-${r.classB}`">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  {{ hazardLabel[r.classA] ?? r.classA }} + {{ hazardLabel[r.classB] ?? r.classB }}
+                </p>
+                <p class="adm-help">{{ r.reason }}</p>
+              </div>
+              <AdminButton
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-trash-2"
+                label="Quitar incompatibilidad"
+                :disabled="busy"
+                @click="pendingRule = { classA: r.classA, classB: r.classB }"
+              />
             </li>
           </ul>
+        </AdminCard>
 
-          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs space-y-2">
-            <h4 class="font-medium text-slate-800">Añadir incompatibilidad</h4>
-            <div class="space-y-2">
-              <div class="grid grid-cols-2 gap-2">
-                <input
-                  v-model="newIncomp.classA"
-                  data-test="new-incomp-a"
-                  placeholder="Clase A"
-                  class="rounded border p-1"
-                />
-                <input
-                  v-model="newIncomp.classB"
-                  data-test="new-incomp-b"
-                  placeholder="Clase B"
-                  class="rounded border p-1"
-                />
-              </div>
-              <input
-                v-model="newIncomp.reason"
-                data-test="new-incomp-reason"
-                placeholder="Motivo técnico"
-                class="w-full rounded border p-1"
-              />
-            </div>
+        <AdminCard title="Añadir una incompatibilidad">
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Primera clase" required>
+              <select :id="id" v-model="newIncomp.classA" data-test="new-incomp-a" class="adm-input">
+                <option value="" disabled>Elige una clase</option>
+                <option v-for="(label, value) in dangerousLabel" :key="value" :value="value">{{ label }}</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Segunda clase" required>
+              <select :id="id" v-model="newIncomp.classB" data-test="new-incomp-b" class="adm-input">
+                <option value="" disabled>Elige una clase</option>
+                <option v-for="(label, value) in dangerousLabel" :key="value" :value="value">{{ label }}</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Motivo" required>
+              <input :id="id" v-model="newIncomp.reason" data-test="new-incomp-reason" class="adm-input" />
+            </AdminFormField>
+          </div>
+          <template #footer>
             <button
               type="button"
               data-test="save-incomp-btn"
               :disabled="busy || !newIncomp.classA || !newIncomp.classB || !newIncomp.reason"
-              class="w-full rounded bg-slate-800 py-1 text-white hover:bg-slate-700 disabled:opacity-50"
+              class="adm-btn adm-btn--primary"
               @click="saveIncompatibility"
             >
-              Guardar regla
+              Guardar incompatibilidad
             </button>
-          </div>
-        </section>
-      </div>
-
-      <form class="space-y-2" @submit.prevent="suggest">
-        <label class="block text-sm font-medium text-slate-700">
-          Productos del pedido (uno por línea: SKU x cantidad)
-          <textarea
-            v-model="linesText"
-            data-test="lines"
-            rows="4"
-            class="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5 font-mono text-sm"
-          />
-        </label>
-        <p v-if="linesError" data-test="lines-error" role="alert" class="text-sm text-red-700">{{ linesError }}</p>
-        <button
-          type="button"
-          data-test="suggest"
-          :disabled="busy"
-          class="rounded-lg bg-neteco-600 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-50"
-          @click="suggest"
-        >
-          Calcular embalaje
-        </button>
-      </form>
-
-      <section v-if="suggestion" data-test="plan" class="space-y-3 border-t pt-4" aria-label="Propuesta de embalaje">
-        <h3 class="font-semibold">
-          {{ suggestion.plan.totals.parcelCount }} {{ suggestion.plan.totals.parcelCount === 1 ? 'bulto' : 'bultos' }} ·
-          {{ suggestion.plan.totals.grossWeightGrams }} g brutos · {{ statusLabel[suggestion.status] }}
-        </h3>
-        <ol class="space-y-2 text-sm">
-          <li
-            v-for="(parcel, index) in suggestion.plan.parcels"
-            :key="index"
-            class="rounded-lg border border-slate-200 p-3"
-          >
-            <p class="font-medium">
-              Bulto {{ index + 1 }} · Caja {{ parcel.boxCode }} · {{ parcel.grossWeightGrams }} g previstos · relleno
-              {{ Math.round(parcel.fillRatioBp / 100) }} %
-            </p>
-            <p>{{ parcel.contents.map((c) => `${c.quantity} × ${c.sku}`).join(', ') }}</p>
-            <p v-if="parcel.hazardClasses.some((h) => h !== 'none')" class="text-xs text-amber-800">
-              Clases de peligro: {{ parcel.hazardClasses.filter((h) => h !== 'none').join(', ') }}
-            </p>
-            <label v-if="suggestion.status === 'suggested'" class="mt-1 block text-xs font-medium text-slate-700">
-              Peso real en almacén (g)
-              <input
-                v-model.number="actual[index]"
-                :data-test="`actual-${index}`"
-                type="number"
-                min="1"
-                class="ml-2 w-28 rounded-md border border-slate-300 px-2 py-1"
-              />
-            </label>
-          </li>
-        </ol>
-        <div v-if="suggestion.status === 'suggested'" class="space-y-2">
-          <button
-            type="button"
-            data-test="accept"
-            :disabled="busy"
-            class="rounded-lg bg-emerald-700 px-3.5 py-2 text-sm font-medium text-white disabled:opacity-50"
-            @click="decide('accept')"
-          >
-            Validar en almacén
-          </button>
-          <label class="block text-sm font-medium text-slate-700">
-            Motivo si se rechaza
-            <input
-              v-model="rejectNote"
-              data-test="reject-note"
-              maxlength="500"
-              class="mt-1 block w-full rounded-md border border-slate-300 px-2 py-1.5"
-            />
-          </label>
-          <p v-if="rejectError" data-test="reject-error" role="alert" class="text-sm text-red-700">{{ rejectError }}</p>
-          <button
-            type="button"
-            data-test="reject"
-            :disabled="busy"
-            class="rounded-lg border border-red-300 px-3.5 py-2 text-sm font-medium text-red-800 disabled:opacity-50"
-            @click="decide('reject')"
-          >
-            Rechazar propuesta
-          </button>
-        </div>
+          </template>
+        </AdminCard>
       </section>
     </template>
+
+    <AdminConfirm
+      v-model:open="confirmRuleOpen"
+      title="¿Quitar esta incompatibilidad?"
+      description="A partir de ahora estos productos podrán proponerse en el mismo bulto."
+      confirm-label="Quitar"
+      danger
+      @confirm="confirmDeleteRule"
+    />
   </div>
 </template>
