@@ -384,109 +384,145 @@ async function discard() {
 </script>
 
 <template>
-  <div class="space-y-5" :aria-busy="saving || loading || status === 'pending'">
-    <p class="text-sm text-[var(--text-muted)]">
-      Las vigencias modifican sólo precios. No aprueban la publicación ni alteran existencias, IVA o pedidos ya
-      emitidos.
+  <div class="adm-stack" :aria-busy="saving || loading || status === 'pending'">
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-check" :title="notice" />
+    <UAlert
+      v-if="message"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="message"
+    />
+    <p v-if="loading || status === 'idle' || status === 'pending'" role="status" class="adm-help">
+      Consultando el precio actual…
     </p>
-    <p class="text-xs text-[var(--text-muted)]">
-      La referencia de 30 días usa las ventanas aprobadas disponibles. Los huecos de importación no acreditan un
-      historial completo ni una aprobación legal del descuento.
-    </p>
-    <p v-if="notice" role="status">{{ notice }}</p>
-    <p v-if="message" role="alert">{{ message }}</p>
-    <p v-if="loading || status === 'idle' || status === 'pending'" role="status">Consultando la tarifa actual…</p>
-    <p v-else-if="!current" role="alert">No hay una lectura confirmada para gestionar esta referencia.</p>
-    <UButton
-      type="button"
-      color="neutral"
-      variant="outline"
-      :disabled="saving || loading || runtime !== 'cloudflare' || !actor()"
-      @click="reload"
-      >Consultar estado actual</UButton
-    >
+    <UAlert
+      v-else-if="!current"
+      role="alert"
+      color="warning"
+      variant="subtle"
+      title="No hemos podido confirmar el precio actual de esta referencia"
+      description="Pulsa «Actualizar datos» para volver a consultarlo."
+    />
+
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div v-if="current" class="min-w-0">
+        <p class="font-semibold text-[var(--text-strong)]">
+          {{ current.product }} · <span class="font-mono">{{ current.sku }}</span>
+        </p>
+        <p class="adm-help">
+          {{
+            current.latestApproved
+              ? `Último cambio aprobado: ${adminDate(current.latestApproved.validFrom, true)}.`
+              : 'Sin cambios de precio aprobados todavía.'
+          }}
+          Pedido mínimo {{ current.quantityRules.minimumQuantity }}, en múltiplos de
+          {{ current.quantityRules.quantityIncrement }}.
+        </p>
+      </div>
+      <UButton
+        type="button"
+        color="neutral"
+        variant="outline"
+        size="sm"
+        icon="i-lucide-rotate-cw"
+        class="ml-auto"
+        :disabled="saving || loading || runtime !== 'cloudflare' || !actor()"
+        @click="reload"
+        >Actualizar datos</UButton
+      >
+    </div>
+
     <template v-if="current">
-      <p class="font-semibold">{{ current.product }} · {{ current.sku }}</p>
-      <p class="text-sm">
-        Cabeza aprobada: {{ current.latestApproved ? current.latestApproved.validFrom : 'Sin aprobación gobernada' }}.
-        Mínimo {{ current.quantityRules.minimumQuantity }}, incremento {{ current.quantityRules.quantityIncrement }}.
+      <p v-if="!capabilities()?.priceSchedule && !capabilities()?.priceCancel" role="status" class="adm-help">
+        Solo consulta: tu usuario no tiene permiso para cambiar precios.
       </p>
-      <p v-if="!capabilities()?.priceSchedule && !capabilities()?.priceCancel" role="status">
-        Sólo consulta: se requiere permiso administrativo vigente y segundo factor para modificar precios.
-      </p>
-      <form aria-labelledby="governed-price-title" class="space-y-4" @submit.prevent="schedule">
-        <fieldset :disabled="!canSchedule" class="space-y-4">
-          <legend id="governed-price-title" class="font-semibold">Programar un precio</legend>
+      <form aria-labelledby="governed-price-title" class="adm-card" @submit.prevent="schedule">
+        <fieldset :disabled="!canSchedule" class="adm-card__body space-y-4">
+          <legend id="governed-price-title" class="adm-card__title">Programar un precio</legend>
           <div class="grid gap-4 sm:grid-cols-2">
             <UFormField label="Precio con IVA (€)" required
               ><UInput v-model="form.gross" inputmode="decimal" required class="w-full"
             /></UFormField>
-            <UFormField label="Precio anterior (€)" hint="Opcional; no acredita por sí solo un descuento legal."
+            <UFormField label="Precio anterior (€)" hint="Opcional. Se muestra tachado junto al nuevo."
               ><UInput v-model="form.compareAt" inputmode="decimal" class="w-full"
             /></UFormField>
-            <UFormField label="Vigente desde (hora local)" required
+            <UFormField label="En vigor desde (hora local)" required
               ><UInput v-model="form.validFrom" type="datetime-local" step="1" required class="w-full"
             /></UFormField>
-            <UFormField label="Motivo de la programación" required
+            <UFormField label="Motivo del cambio" required
               ><UInput v-model="form.reason" required maxlength="500" class="w-full"
             /></UFormField>
           </div>
-          <UButton
-            type="button"
-            variant="outline"
-            :disabled="form.tiers.length >= 20"
-            @click="form.tiers.push({ minimumQuantity: '', unitGross: '' })"
-            >Añadir tramo</UButton
+          <div class="space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="adm-label">Precios por cantidad</p>
+              <UButton
+                type="button"
+                color="neutral"
+                variant="outline"
+                size="sm"
+                icon="i-lucide-plus"
+                :disabled="form.tiers.length >= 20"
+                @click="form.tiers.push({ minimumQuantity: '', unitGross: '' })"
+                >Añadir tramo</UButton
+              >
+            </div>
+            <p v-if="!form.tiers.length" class="adm-help">Sin tramos: el mismo precio para cualquier cantidad.</p>
+            <div v-for="(tier, index) in form.tiers" :key="index" class="flex flex-wrap items-end gap-2">
+              <UFormField :label="`Desde unidades · tramo ${index + 1}`" class="min-w-0 flex-1"
+                ><UInput v-model="tier.minimumQuantity" inputmode="numeric" required class="w-full"
+              /></UFormField>
+              <UFormField :label="`Precio unitario (€) · tramo ${index + 1}`" class="min-w-0 flex-1"
+                ><UInput v-model="tier.unitGross" inputmode="decimal" required class="w-full"
+              /></UFormField>
+              <UButton
+                type="button"
+                color="error"
+                variant="ghost"
+                :aria-label="`Quitar tramo ${index + 1}`"
+                @click="form.tiers.splice(index, 1)"
+                >Quitar</UButton
+              >
+            </div>
+          </div>
+          <label class="adm-check"
+            ><input v-model="confirmed" type="checkbox" />He revisado el importe, la fecha y los tramos.</label
           >
-          <div v-for="(tier, index) in form.tiers" :key="index" class="flex items-end gap-2">
-            <UFormField :label="`Desde unidades · tramo ${index + 1}`"
-              ><UInput v-model="tier.minimumQuantity" inputmode="numeric" required
-            /></UFormField>
-            <UFormField :label="`Precio unitario (€) · tramo ${index + 1}`"
-              ><UInput v-model="tier.unitGross" inputmode="decimal" required
-            /></UFormField>
-            <UButton
-              type="button"
-              color="error"
-              variant="ghost"
-              :aria-label="`Quitar tramo ${index + 1}`"
-              @click="form.tiers.splice(index, 1)"
-              >Quitar</UButton
+          <div class="flex justify-end">
+            <UButton type="submit" :disabled="!canSchedule || !confirmed" :loading="saving"
+              >Registrar programación</UButton
             >
           </div>
-          <label class="flex items-start gap-2 text-sm"
-            ><input v-model="confirmed" type="checkbox" />Confirmo el importe, la fecha y los tramos. El servidor
-            validará la vigencia.</label
-          >
-          <UButton type="submit" :disabled="!canSchedule || !confirmed" :loading="saving"
-            >Registrar programación</UButton
-          >
         </fieldset>
       </form>
       <form
         v-if="current.latestApproved"
         aria-labelledby="governed-cancel-title"
-        class="space-y-3"
+        class="adm-card"
         @submit.prevent="cancel"
       >
-        <fieldset :disabled="!canCancel" class="space-y-3">
-          <legend id="governed-cancel-title" class="font-semibold">
+        <fieldset :disabled="!canCancel" class="adm-card__body space-y-3">
+          <legend id="governed-cancel-title" class="adm-card__title">
             Cancelar última programación · {{ current.sku }}
           </legend>
-          <p class="text-sm">
-            Sólo la última aprobación aún futura puede cancelarse. Se conserva la auditoría y se restaura la ventana
-            anterior acreditada.
+          <p class="adm-help">
+            Solo se puede cancelar el último cambio aprobado que aún no ha entrado en vigor. Vuelve a aplicarse el
+            precio anterior y la cancelación queda anotada en el historial.
           </p>
           <UFormField label="Motivo de la cancelación" required
             ><UInput v-model="cancelReason" required maxlength="500" class="w-full"
           /></UFormField>
-          <label class="flex items-start gap-2 text-sm"
+          <label class="adm-check"
             ><input v-model="cancelConfirmed" type="checkbox" />Confirmo que este precio futuro no debe
             aplicarse.</label
           >
-          <UButton type="submit" color="error" :disabled="!canCancel || !cancelConfirmed" :loading="saving"
-            >Cancelar programación</UButton
-          >
+          <div class="flex justify-end">
+            <UButton type="submit" color="error" :disabled="!canCancel || !cancelConfirmed" :loading="saving"
+              >Cancelar programación</UButton
+            >
+          </div>
         </fieldset>
       </form>
     </template>
@@ -503,5 +539,10 @@ async function discard() {
         >Descartar intento y consultar antes de otro</UButton
       >
     </div>
+    <p class="adm-help">
+      Estos cambios solo afectan al precio. No aprueban la publicación ni alteran existencias, IVA o pedidos ya hechos.
+      El precio mínimo de 30 días se calcula con los precios aprobados que constan: si faltan periodos, no acreditan un
+      historial completo ni la validez legal de un descuento.
+    </p>
   </div>
 </template>

@@ -137,8 +137,8 @@ async function fetchQueue(page = 1): Promise<void> {
     if (!response.ok) {
       errorMessage.value =
         response.status === 401 || response.status === 403
-          ? 'No tienes permisos suficientes para consultar la cola de calidad de catálogo.'
-          : 'No se ha podido cargar la cola de calidad del catálogo. Inténtalo de nuevo.'
+          ? 'No tienes permiso para consultar la calidad del catálogo.'
+          : 'No se ha podido cargar la calidad del catálogo. Inténtalo de nuevo.'
       return
     }
     const data = (await response.json()) as {
@@ -160,7 +160,7 @@ async function fetchQueue(page = 1): Promise<void> {
       }
     }
   } catch {
-    errorMessage.value = 'Error de red al consultar la cola de calidad del catálogo.'
+    errorMessage.value = 'No hay conexión con el servidor. Comprueba tu red e inténtalo de nuevo.'
   } finally {
     loading.value = false
   }
@@ -282,12 +282,11 @@ async function verifyUncertainCommand(item: CatalogQualityQueueItemView, idempot
       return false
     }
     uncertainKeys[item.productId] = keyToVerify
-    reviewErrors[item.productId] =
-      'Respuesta incierta del servidor. Verifica el estado antes de reintentar para evitar duplicados.'
+    reviewErrors[item.productId] = 'No sabemos si la revisión se guardó. Compruébalo antes de volver a intentarlo.'
     return false
   } catch {
     uncertainKeys[item.productId] = keyToVerify
-    reviewErrors[item.productId] = 'No se pudo verificar el estado de la revisión. Usa "Verificar estado sin reenviar".'
+    reviewErrors[item.productId] = 'No se ha podido comprobar si la revisión se guardó. Pulsa «Comprobar si se guardó».'
     return false
   } finally {
     reviewBusy[item.productId] = false
@@ -355,11 +354,12 @@ async function confirmReview(item: CatalogQualityQueueItemView): Promise<void> {
     }
 
     if (response.status === 409) {
-      reviewErrors[item.productId] = 'El producto ha cambiado de versión. Recarga la cola antes de revisar.'
+      reviewErrors[item.productId] =
+        'El producto ha cambiado mientras lo revisabas. Vuelve a cargar la lista antes de revisarlo.'
       return
     }
 
-    reviewErrors[item.productId] = 'No se ha podido registrar la revisión de calidad.'
+    reviewErrors[item.productId] = 'No se ha podido guardar la revisión.'
   } catch {
     await verifyUncertainCommand(item, idempotencyKey)
   } finally {
@@ -367,19 +367,20 @@ async function confirmReview(item: CatalogQualityQueueItemView): Promise<void> {
   }
 }
 
-function scoreBadgeClass(score: number): string {
-  if (score >= 85) return 'bg-emerald-100 text-emerald-800 border-emerald-300'
-  if (score >= 60) return 'bg-amber-100 text-amber-800 border-amber-300'
-  return 'bg-red-100 text-red-800 border-red-300'
+function scoreTone(score: number): 'success' | 'warning' | 'danger' {
+  if (score >= 85) return 'success'
+  if (score >= 60) return 'warning'
+  return 'danger'
 }
 
-function formatReviewDate(iso: string): string {
-  try {
-    return new Date(iso).toISOString().slice(0, 10)
-  } catch {
-    return iso
-  }
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Borrador',
+  review: 'En revisión',
+  published: 'Publicado',
+  hidden: 'Oculto',
+  discontinued: 'Descatalogado'
 }
+const hasFilters = computed(() => Boolean(filters.q.trim() || filters.reason || filters.status || filters.category))
 
 onMounted(() => {
   void fetchQueue(1)
@@ -387,322 +388,294 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Cola de calidad de catálogo">
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 class="text-lg font-semibold text-slate-900">Calidad de catálogo y cola de revisión</h2>
-        <p class="text-sm text-slate-600">
-          Priorización por campos, documentos e imágenes faltantes y antigüedad de última revisión.
-        </p>
-      </div>
+  <section class="adm-stack" aria-label="Calidad de las fichas del catálogo">
+    <div v-if="summary" data-testid="quality-summary" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <AdminStat label="Productos revisables" :value="summary.totalEvaluated" icon="i-lucide-package" />
+      <AdminStat label="Nota media" :value="`${summary.averageScore} / 100`" icon="i-lucide-gauge" />
+      <AdminStat label="Nunca revisados" :value="summary.unreviewedCount" icon="i-lucide-eye-off" />
+      <AdminStat label="Con tareas pendientes" :value="summary.needsAttentionCount" icon="i-lucide-list-todo" />
     </div>
 
-    <div v-if="summary" data-testid="quality-summary" class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs font-medium text-slate-500">Productos evaluados</div>
-        <div class="mt-1 text-xl font-bold text-slate-900">{{ summary.totalEvaluated }}</div>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs font-medium text-slate-500">Score medio</div>
-        <div class="mt-1 text-xl font-bold text-slate-900">{{ summary.averageScore }} / 100</div>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs font-medium text-slate-500">Nunca revisados</div>
-        <div class="mt-1 text-xl font-bold text-amber-700">{{ summary.unreviewedCount }}</div>
-      </div>
-      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-        <div class="text-xs font-medium text-slate-500">Con tareas pendientes</div>
-        <div class="mt-1 text-xl font-bold text-red-700">{{ summary.needsAttentionCount }}</div>
-      </div>
-    </div>
+    <div class="adm-card adm-tablecard">
+      <div class="adm-tablecard__bar">
+        <form data-testid="quality-filters" class="adm-toolbar" role="search" @submit.prevent="applyFilters">
+          <label class="adm-toolbar__search">
+            <span class="sr-only">Buscar por nombre o referencia</span>
+            <UIcon name="i-lucide-search" class="size-4" />
+            <input
+              v-model="filters.q"
+              data-testid="quality-filter-q"
+              type="search"
+              placeholder="Buscar por nombre o referencia…"
+              aria-label="Buscar por nombre o referencia"
+            />
+          </label>
 
-    <form
-      data-testid="quality-filters"
-      class="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-5"
-      @submit.prevent="applyFilters"
-    >
-      <input
-        v-model="filters.q"
-        data-testid="quality-filter-q"
-        type="search"
-        placeholder="Buscar por nombre o SKU…"
-        aria-label="Buscar por nombre o SKU"
-        class="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      />
-
-      <select
-        v-model="filters.reason"
-        data-testid="quality-filter-reason"
-        aria-label="Filtrar por motivo de calidad"
-        class="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      >
-        <option value="">Todos los motivos</option>
-        <option value="mandatory_fields">Campos obligatorios</option>
-        <option value="recommended_fields">Campos recomendados</option>
-        <option value="typed_attributes">Atributos tipados</option>
-        <option value="images">Imágenes y derechos</option>
-        <option value="documents">Documentos (Ficha / FDS)</option>
-        <option value="review">Revisión pendiente o caducada</option>
-        <option value="unreviewed">Nunca revisados</option>
-      </select>
-
-      <select
-        v-model="filters.status"
-        data-testid="quality-filter-status"
-        aria-label="Filtrar por estado editorial"
-        class="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      >
-        <option value="">Todos los estados</option>
-        <option value="draft">Borrador</option>
-        <option value="review">En revisión</option>
-        <option value="published">Publicado</option>
-        <option value="hidden">Oculto</option>
-        <option value="discontinued">Descatalogado</option>
-      </select>
-
-      <select
-        v-model="filters.category"
-        data-testid="quality-filter-category"
-        aria-label="Filtrar por categoría"
-        class="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-      >
-        <option value="">Todas las categorías</option>
-        <option v-for="cat in categories" :key="cat.id" :value="cat.slug">
-          {{ cat.name }}
-        </option>
-      </select>
-
-      <div class="flex items-center gap-2">
-        <button
-          data-testid="quality-filter-submit"
-          type="submit"
-          class="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          @click.prevent="applyFilters"
-        >
-          Filtrar
-        </button>
-        <button
-          data-testid="quality-filter-reset"
-          type="button"
-          class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-          @click="resetFilters"
-        >
-          Limpiar
-        </button>
-      </div>
-    </form>
-
-    <div
-      v-if="loading"
-      data-testid="quality-loading"
-      role="status"
-      class="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600"
-    >
-      Cargando cola de calidad de catálogo…
-    </div>
-
-    <div
-      v-else-if="errorMessage"
-      data-testid="quality-error"
-      role="alert"
-      class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800"
-    >
-      <p class="font-medium">{{ errorMessage }}</p>
-      <button
-        data-testid="quality-retry"
-        type="button"
-        class="mt-2 rounded-md bg-red-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-800"
-        @click="fetchQueue(pagination.page)"
-      >
-        Reintentar carga
-      </button>
-    </div>
-
-    <div
-      v-else-if="!hasItems"
-      data-testid="quality-empty"
-      class="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-600"
-    >
-      No hay productos que coincidan con los filtros de calidad seleccionados.
-    </div>
-
-    <div v-else class="overflow-x-auto">
-      <table data-testid="quality-table" class="min-w-full divide-y divide-slate-200 text-sm">
-        <thead class="bg-slate-50 text-left text-xs font-semibold uppercase text-slate-600">
-          <tr>
-            <th class="px-3 py-2">Score</th>
-            <th class="px-3 py-2">Producto</th>
-            <th class="px-3 py-2">Incidencias / Faltantes</th>
-            <th class="px-3 py-2">Última revisión</th>
-            <th class="px-3 py-2 text-right">Acciones</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-200">
-          <tr
-            v-for="item in items"
-            :key="item.productId"
-            :data-testid="`quality-row-${item.productId}`"
-            class="align-top"
+          <select
+            v-model="filters.reason"
+            data-testid="quality-filter-reason"
+            aria-label="Filtrar por lo que falta"
+            class="adm-input"
           >
-            <td class="px-3 py-3 whitespace-nowrap">
-              <span
-                class="inline-flex items-center rounded-md border px-2.5 py-1 text-xs font-bold"
-                :class="scoreBadgeClass(item.score)"
-              >
-                {{ item.score }} / 100
-              </span>
-              <div class="mt-1 text-xs text-slate-500">
-                {{ item.publishable ? 'Apto publicación' : 'Bloqueado' }}
-              </div>
-            </td>
+            <option value="">Todo lo que falta</option>
+            <option value="mandatory_fields">Datos obligatorios</option>
+            <option value="recommended_fields">Datos recomendados</option>
+            <option value="typed_attributes">Características</option>
+            <option value="images">Imágenes</option>
+            <option value="documents">Documentos (ficha técnica o de seguridad)</option>
+            <option value="review">Revisión pendiente o caducada</option>
+            <option value="unreviewed">Nunca revisados</option>
+          </select>
 
-            <td class="px-3 py-3">
-              <div class="font-medium text-slate-900">{{ item.name }}</div>
-              <div class="text-xs text-slate-500">
-                SKU: {{ item.sku ?? 'Sin SKU' }} · {{ item.categoryName }} · Estado: {{ item.status }} · v{{
-                  item.catalogVersion
-                }}
-              </div>
-            </td>
+          <select
+            v-model="filters.status"
+            data-testid="quality-filter-status"
+            aria-label="Filtrar por estado del producto"
+            class="adm-input"
+          >
+            <option value="">Todos los estados</option>
+            <option value="draft">Borrador</option>
+            <option value="review">En revisión</option>
+            <option value="published">Publicado</option>
+            <option value="hidden">Oculto</option>
+            <option value="discontinued">Descatalogado</option>
+          </select>
 
-            <td class="px-3 py-3" :data-testid="`quality-penalties-${item.productId}`">
-              <div v-if="item.penalties.length === 0" class="text-xs text-emerald-700">Sin brechas detectadas</div>
-              <ul v-else class="space-y-1 text-xs">
-                <li v-for="penalty in item.penalties" :key="penalty.code" class="flex items-start gap-1.5">
-                  <span
-                    class="rounded px-1.5 py-0.5 font-mono text-[11px]"
-                    :class="penalty.blocking ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'"
-                  >
-                    -{{ penalty.weight }} · {{ penalty.code }}
-                  </span>
-                  <span class="text-slate-700">{{ penalty.message }}</span>
-                </li>
-              </ul>
-            </td>
+          <select
+            v-model="filters.category"
+            data-testid="quality-filter-category"
+            aria-label="Filtrar por familia"
+            class="adm-input"
+          >
+            <option value="">Todas las familias</option>
+            <option v-for="cat in categories" :key="cat.id" :value="cat.slug">
+              {{ cat.name }}
+            </option>
+          </select>
 
-            <td class="px-3 py-3 text-xs text-slate-700">
-              <template v-if="item.review">
-                <div class="font-medium">Revisado: {{ formatReviewDate(item.review.reviewedAt) }}</div>
-                <div class="text-slate-500">
-                  Versión revisada: v{{ item.review.reviewedCatalogVersion }} (rev #{{ item.review.reviewVersion }})
-                </div>
-                <div v-if="item.review.note" class="mt-1 italic text-slate-600">"{{ item.review.note }}"</div>
-              </template>
-              <span v-else class="font-medium text-amber-700">Nunca revisado</span>
-            </td>
+          <div class="adm-toolbar__end">
+            <button
+              data-testid="quality-filter-reset"
+              type="button"
+              class="adm-btn adm-btn--ghost adm-btn--sm"
+              @click="resetFilters"
+            >
+              Quitar filtros
+            </button>
+            <button
+              data-testid="quality-filter-submit"
+              type="submit"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click.prevent="applyFilters"
+            >
+              Filtrar
+            </button>
+          </div>
+        </form>
+      </div>
 
-            <td class="px-3 py-3 text-right">
-              <div class="flex flex-wrap justify-end gap-2">
-                <button
-                  :data-testid="`quality-open-${item.productId}`"
-                  type="button"
-                  class="rounded border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  @click="emit('selectProduct', item.productId)"
-                >
-                  Abrir ficha
-                </button>
-                <button
-                  v-if="canWrite && activeReviewProductId !== item.productId"
-                  :data-testid="`quality-review-start-${item.productId}`"
-                  type="button"
-                  class="rounded bg-emerald-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-800"
-                  @click="startReview(item)"
-                >
-                  Marcar revisado
-                </button>
-              </div>
+      <div v-if="loading" data-testid="quality-loading" role="status" class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando las fichas…</span>
+        <div v-for="row in 6" :key="row"><i /><i /><i /><i /></div>
+      </div>
 
-              <div
-                v-if="activeReviewProductId === item.productId"
-                :data-testid="`quality-review-form-${item.productId}`"
-                class="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-left"
-              >
-                <label class="block text-xs font-medium text-slate-700">
-                  Nota de revisión (opcional)
-                  <input
-                    v-model="reviewNotes[item.productId]"
-                    :data-testid="`quality-review-note-${item.productId}`"
-                    type="text"
-                    maxlength="500"
-                    placeholder="Ej.: Documentación verificada…"
-                    class="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 text-xs"
-                  />
-                </label>
-
-                <div
-                  v-if="uncertainKeys[item.productId]"
-                  :data-testid="`quality-review-uncertain-${item.productId}`"
-                  role="alert"
-                  class="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900"
-                >
-                  <p>{{ reviewErrors[item.productId] }}</p>
-                  <button
-                    :data-testid="`quality-review-verify-${item.productId}`"
-                    type="button"
-                    :disabled="reviewBusy[item.productId]"
-                    class="mt-1.5 rounded bg-amber-800 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-900 disabled:opacity-50"
-                    @click="verifyUncertainCommand(item)"
-                  >
-                    Verificar estado sin reenviar
-                  </button>
-                </div>
-
-                <p v-else-if="reviewErrors[item.productId]" class="mt-1.5 text-xs text-red-700" role="alert">
-                  {{ reviewErrors[item.productId] }}
-                </p>
-
-                <div class="mt-2 flex justify-end gap-2">
-                  <button
-                    :data-testid="`quality-review-cancel-${item.productId}`"
-                    type="button"
-                    class="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
-                    @click="cancelReview(item.productId)"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    v-if="!uncertainKeys[item.productId]"
-                    :data-testid="`quality-review-confirm-${item.productId}`"
-                    type="button"
-                    :disabled="reviewBusy[item.productId]"
-                    class="rounded bg-emerald-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
-                    @click="confirmReview(item)"
-                  >
-                    {{ reviewBusy[item.productId] ? 'Guardando…' : 'Confirmar revisión' }}
-                  </button>
-                </div>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <div
-        data-testid="quality-pagination"
-        class="mt-4 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-600"
-      >
-        <div>Página {{ pagination.page }} de {{ pagination.pages }} ({{ pagination.total }} productos)</div>
-        <div class="flex items-center gap-2">
+      <div v-else-if="errorMessage" data-testid="quality-error" role="alert">
+        <AdminEmptyState variant="error" title="No se han podido cargar los datos" :description="errorMessage">
           <button
-            data-testid="quality-prev-page"
+            data-testid="quality-retry"
             type="button"
-            :disabled="pagination.page <= 1 || loading"
-            class="rounded border border-slate-300 px-2.5 py-1 disabled:opacity-50"
-            @click="goToPage(pagination.page - 1)"
+            class="adm-btn adm-btn--secondary"
+            @click="fetchQueue(pagination.page)"
           >
-            Anterior
+            <UIcon name="i-lucide-rotate-cw" class="size-4" />Reintentar
           </button>
-          <button
-            data-testid="quality-next-page"
-            type="button"
-            :disabled="pagination.page >= pagination.pages || loading"
-            class="rounded border border-slate-300 px-2.5 py-1 disabled:opacity-50"
-            @click="goToPage(pagination.page + 1)"
-          >
-            Siguiente
-          </button>
+        </AdminEmptyState>
+      </div>
+
+      <div v-else-if="!hasItems" data-testid="quality-empty">
+        <AdminEmptyState
+          :variant="hasFilters ? 'filtered' : 'empty'"
+          icon="i-lucide-badge-check"
+          :title="hasFilters ? 'No hay productos que coincidan con los filtros' : 'No hay fichas pendientes de mejorar'"
+          :description="
+            hasFilters
+              ? 'Prueba con otra búsqueda o quita algún filtro.'
+              : 'Cuando a un producto le falten datos, imágenes o documentos aparecerá aquí.'
+          "
+        />
+      </div>
+
+      <template v-else>
+        <div class="adm-table-wrap" :aria-busy="loading">
+          <table data-testid="quality-table" class="adm-table">
+            <thead>
+              <tr>
+                <th scope="col" style="width: 7rem">Nota</th>
+                <th scope="col">Producto</th>
+                <th scope="col">Qué le falta</th>
+                <th scope="col">Última revisión</th>
+                <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in items" :key="item.productId" :data-testid="`quality-row-${item.productId}`">
+                <td class="whitespace-nowrap align-top">
+                  <AdminBadge :tone="scoreTone(item.score)">{{ item.score }} / 100</AdminBadge>
+                  <p class="adm-help mt-1">{{ item.publishable ? 'Se puede publicar' : 'No se puede publicar' }}</p>
+                </td>
+
+                <td class="align-top">
+                  <p class="font-medium text-[var(--text-strong)]">{{ item.name }}</p>
+                  <p class="adm-help">
+                    {{ item.sku ?? 'Sin referencia' }} · {{ item.categoryName }} ·
+                    {{ STATUS_LABELS[item.status] ?? adminStatusLabel(item.status) }}
+                  </p>
+                </td>
+
+                <td class="align-top" :data-testid="`quality-penalties-${item.productId}`">
+                  <p v-if="item.penalties.length === 0" class="adm-help">Ficha completa</p>
+                  <ul v-else class="space-y-1 text-[0.8125rem]">
+                    <li v-for="penalty in item.penalties" :key="penalty.code" class="flex items-start gap-2">
+                      <UIcon
+                        :name="penalty.blocking ? 'i-lucide-circle-x' : 'i-lucide-circle-alert'"
+                        class="mt-0.5 size-4 shrink-0"
+                        :class="penalty.blocking ? 'text-red-700' : 'text-[var(--text-muted)]'"
+                        :aria-label="penalty.blocking ? 'Impide publicar' : 'Recomendado'"
+                      />
+                      <span>{{ penalty.message }}</span>
+                    </li>
+                  </ul>
+                </td>
+
+                <td class="align-top text-[0.8125rem]">
+                  <template v-if="item.review">
+                    <p class="text-[var(--text-strong)]">{{ adminDate(item.review.reviewedAt) }}</p>
+                    <p v-if="item.review.reviewedCatalogVersion !== item.catalogVersion" class="adm-help">
+                      La ficha ha cambiado desde entonces
+                    </p>
+                    <p v-if="item.review.note" class="adm-help mt-1 italic">«{{ item.review.note }}»</p>
+                  </template>
+                  <AdminBadge v-else tone="warning">Nunca revisado</AdminBadge>
+                </td>
+
+                <td data-numeric class="adm-table__actions align-top">
+                  <div class="flex flex-wrap justify-end gap-2">
+                    <button
+                      :data-testid="`quality-open-${item.productId}`"
+                      type="button"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      @click="emit('selectProduct', item.productId)"
+                    >
+                      Abrir ficha
+                    </button>
+                    <button
+                      v-if="canWrite && activeReviewProductId !== item.productId"
+                      :data-testid="`quality-review-start-${item.productId}`"
+                      type="button"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      @click="startReview(item)"
+                    >
+                      <UIcon name="i-lucide-check" class="size-4" />Marcar como revisado
+                    </button>
+                  </div>
+
+                  <div
+                    v-if="activeReviewProductId === item.productId"
+                    :data-testid="`quality-review-form-${item.productId}`"
+                    class="mt-3 ml-auto w-full min-w-64 max-w-sm space-y-3 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--canvas)] p-3 text-left whitespace-normal"
+                  >
+                    <label class="adm-label block">
+                      Nota de la revisión (opcional)
+                      <input
+                        v-model="reviewNotes[item.productId]"
+                        :data-testid="`quality-review-note-${item.productId}`"
+                        type="text"
+                        maxlength="500"
+                        placeholder="Por ejemplo: documentación comprobada"
+                        class="adm-input mt-1 w-full font-normal"
+                      />
+                    </label>
+
+                    <div
+                      v-if="uncertainKeys[item.productId]"
+                      :data-testid="`quality-review-uncertain-${item.productId}`"
+                      role="alert"
+                    >
+                      <UAlert
+                        color="warning"
+                        variant="subtle"
+                        icon="i-lucide-triangle-alert"
+                        :description="reviewErrors[item.productId] ?? undefined"
+                      />
+                      <button
+                        :data-testid="`quality-review-verify-${item.productId}`"
+                        type="button"
+                        :disabled="reviewBusy[item.productId]"
+                        class="adm-btn adm-btn--secondary adm-btn--sm mt-2"
+                        @click="verifyUncertainCommand(item)"
+                      >
+                        Comprobar si se guardó
+                      </button>
+                    </div>
+
+                    <p v-else-if="reviewErrors[item.productId]" class="adm-field__error" role="alert">
+                      {{ reviewErrors[item.productId] }}
+                    </p>
+
+                    <div class="flex justify-end gap-2">
+                      <button
+                        :data-testid="`quality-review-cancel-${item.productId}`"
+                        type="button"
+                        class="adm-btn adm-btn--secondary adm-btn--sm"
+                        @click="cancelReview(item.productId)"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        v-if="!uncertainKeys[item.productId]"
+                        :data-testid="`quality-review-confirm-${item.productId}`"
+                        type="button"
+                        :disabled="reviewBusy[item.productId]"
+                        class="adm-btn adm-btn--primary adm-btn--sm"
+                        @click="confirmReview(item)"
+                      >
+                        {{ reviewBusy[item.productId] ? 'Guardando…' : 'Confirmar revisión' }}
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+
+        <div data-testid="quality-pagination" class="adm-pagination">
+          <p>
+            Página {{ pagination.page }} de {{ pagination.pages }} · {{ pagination.total }}
+            {{ pagination.total === 1 ? 'producto' : 'productos' }}
+          </p>
+          <div class="flex items-center gap-2">
+            <button
+              data-testid="quality-prev-page"
+              type="button"
+              :disabled="pagination.page <= 1 || loading"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="goToPage(pagination.page - 1)"
+            >
+              <UIcon name="i-lucide-chevron-left" class="size-4" />Anterior
+            </button>
+            <button
+              data-testid="quality-next-page"
+              type="button"
+              :disabled="pagination.page >= pagination.pages || loading"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              @click="goToPage(pagination.page + 1)"
+            >
+              Siguiente<UIcon name="i-lucide-chevron-right" class="size-4" />
+            </button>
+          </div>
+        </div>
+      </template>
     </div>
   </section>
 </template>

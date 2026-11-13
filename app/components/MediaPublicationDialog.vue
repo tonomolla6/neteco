@@ -166,25 +166,36 @@ onBeforeUnmount(() => {
   <UModal
     :open="true"
     title="Asociar archivo a producto"
-    description="La asociación es independiente de los permisos de entrega pública."
+    description="Elige el producto en el que se usará este archivo."
     @update:open="(open) => !open && !saving && emit('close')"
   >
     <template #body>
-      <form id="media-publication-form" class="space-y-4" @submit.prevent="publish">
-        <p class="break-words text-sm font-medium">{{ asset.originalName }}</p>
+      <form id="media-publication-form" class="adm-stack" @submit.prevent="publish">
+        <p class="break-words text-sm font-semibold text-[var(--text-strong)]">{{ asset.originalName }}</p>
         <UAlert
           v-if="!canPublish"
           color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
           title="Este archivo no se puede publicar"
-          description="Comprueba los permisos, los derechos y el análisis de seguridad vigente."
+          description="Comprueba que tiene los derechos aprobados y el análisis de seguridad superado."
         />
-        <UAlert v-if="error" role="alert" color="error" :title="error" />
+        <UAlert
+          v-if="error"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="error"
+        />
         <fieldset :disabled="!canPublish || saving" class="space-y-4">
           <div class="flex items-end gap-2">
             <UFormField label="Buscar producto" class="flex-1">
               <UInput v-model="search" maxlength="160" class="w-full" @keydown.enter.prevent="loadProducts" />
             </UFormField>
-            <UButton variant="outline" :loading="loading" :disabled="saving" @click="loadProducts">Buscar</UButton>
+            <UButton color="neutral" variant="outline" :loading="loading" :disabled="saving" @click="loadProducts"
+              >Buscar</UButton
+            >
           </div>
           <UFormField
             label="Producto"
@@ -192,7 +203,7 @@ onBeforeUnmount(() => {
             :hint="
               loading
                 ? 'Cargando catálogo…'
-                : 'Se muestran hasta 50 coincidencias. Usa la búsqueda para localizar el producto.'
+                : 'Se muestran hasta 50 resultados. Usa la búsqueda para encontrar el producto.'
             "
           >
             <USelect
@@ -205,7 +216,7 @@ onBeforeUnmount(() => {
           </UFormField>
           <UFormField
             label="Variante / SKU"
-            :hint="loadingDetail ? 'Cargando variantes…' : 'Una imagen de SKU solo se asocia a esa variante.'"
+            :hint="loadingDetail ? 'Cargando variantes…' : 'Si eliges una variante, el archivo solo se usa en ella.'"
           >
             <USelect
               v-model="selectedVariant"
@@ -223,7 +234,7 @@ onBeforeUnmount(() => {
           <UFormField
             label="Texto alternativo / descripción"
             required
-            hint="Al menos 5 caracteres; describe el contenido sin repetir solo el nombre del archivo."
+            hint="Al menos 5 caracteres. Describe lo que se ve, no repitas el nombre del archivo."
           >
             <UTextarea v-model="form.altText" minlength="5" maxlength="500" required class="w-full" />
           </UFormField>
@@ -234,17 +245,17 @@ onBeforeUnmount(() => {
             <UFormField label="Versión" required
               ><UInput v-model="form.version" maxlength="100" required class="w-full"
             /></UFormField>
-            <UFormField label="Inicio de vigencia" required hint="Hora local, convertida a UTC al guardar."
+            <UFormField label="Inicio de vigencia" required hint="Hora local."
               ><UInput v-model="form.validFromLocal" type="datetime-local" :step="1" required class="w-full"
             /></UFormField>
-            <UFormField label="Fin de vigencia" hint="Opcional; debe ser posterior al inicio."
+            <UFormField label="Fin de vigencia" hint="Opcional. Debe ser posterior al inicio."
               ><UInput v-model="form.validUntilLocal" type="datetime-local" :step="1" class="w-full"
             /></UFormField>
           </div>
         </fieldset>
         <p class="text-xs text-[var(--text-muted)]">
-          Crear la asociación no garantiza una URL pública: la entrega seguirá comprobando derechos, análisis, vigencia
-          y publicación del producto. Nunca se sirve la ruta de cuarentena.
+          Asociarlo no lo publica por sí solo: el archivo se verá en la tienda cuando tenga los derechos aprobados, el
+          análisis de seguridad superado y el producto esté publicado.
         </p>
       </form>
     </template>

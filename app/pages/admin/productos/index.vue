@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { AdminProductSummary } from '~~/shared/types/admin'
 import type { CategoryResponse } from '~~/shared/types/catalog'
-import type { Column } from '~/components/ui/DataTable.vue'
 import { catalogActionAvailable, type CatalogCapabilitiesMetadata } from '~/utils/catalogCapabilities'
 import CatalogEditorialImport from '~/components/CatalogEditorialImport.vue'
 import CatalogSnapshotExport from '~/components/CatalogSnapshotExport.vue'
@@ -53,12 +52,12 @@ const STATUS_LABELS: Record<AdminProductSummary['status'], string> = {
   hidden: 'Oculto',
   discontinued: 'Descatalogado'
 }
-const STATUS_COLOR: Record<AdminProductSummary['status'], 'success' | 'warning' | 'neutral' | 'error'> = {
+const STATUS_TONE: Record<AdminProductSummary['status'], 'success' | 'warning' | 'neutral' | 'danger'> = {
   draft: 'neutral',
   review: 'warning',
   published: 'success',
   hidden: 'neutral',
-  discontinued: 'error'
+  discontinued: 'danger'
 }
 const STATUS_TRANSITIONS: Record<AdminProductSummary['status'], AdminProductSummary['status'][]> = {
   draft: ['review', 'hidden', 'discontinued'],
@@ -197,7 +196,12 @@ const snapshotFilters = computed(() => ({
 }))
 
 const items = computed(() => data.value?.items ?? [])
-const paged = computed(() => items.value.slice((page.value - 1) * perPage, page.value * perPage))
+const filtered = computed(() => Boolean(q.value.trim()) || category.value !== TODOS || estado.value !== TODOS)
+function clearFilters() {
+  q.value = ''
+  category.value = TODOS
+  estado.value = TODOS
+}
 watch([q, category, estado], () => {
   page.value = 1
   selected.value = []
@@ -206,13 +210,31 @@ watch([q, category, estado], () => {
 const toast = useToast()
 const saving = ref(false)
 
-const columns: Column<AdminProductSummary>[] = [
-  { key: 'name', label: 'Producto' },
-  { key: 'categoryName', label: 'Familia', hideOnMobile: true },
-  { key: 'formats', label: 'Variantes', numeric: true, hideOnMobile: true },
-  { key: 'minPrice', label: 'Desde', numeric: true },
+const columns = [
+  { key: 'name', label: 'Producto', sortable: true },
+  { key: 'categoryName', label: 'Familia', sortable: true, hideOnMobile: true },
+  { key: 'formats', label: 'Variantes', numeric: true, sortable: true, hideOnMobile: true },
+  { key: 'minPrice', label: 'Precio desde', numeric: true, sortable: true },
   { key: 'status', label: 'Estado' }
 ]
+
+/* --- Apartados de la pantalla: el listado es lo principal; importar y exportar, aparte --- */
+const view = ref('productos')
+const viewTabs = [
+  { value: 'productos', label: 'Productos' },
+  { value: 'importar', label: 'Importar' },
+  { value: 'exportar', label: 'Exportar' }
+]
+const importMode = ref('textos')
+const importModes = computed(() => [
+  { value: 'textos', label: 'Actualizar textos' },
+  ...(canEditorialImport.value ? [{ value: 'comprobar', label: 'Comprobar un archivo' }] : []),
+  ...(canNativeImport.value ? [{ value: 'alta', label: 'Dar de alta productos' }] : []),
+  ...(canImportJobPreparation.value ? [{ value: 'grande', label: 'Catálogo grande por partes' }] : [])
+])
+watch(importModes, (modes) => {
+  if (!modes.some((mode) => mode.value === importMode.value)) importMode.value = 'textos'
+})
 
 /* --- Cambio de estado --- */
 const changing = ref<{ products: AdminProductSummary[]; to: AdminProductSummary['status'] } | null>(null)
@@ -296,158 +318,189 @@ const bulkTargets = computed(() => {
 </script>
 
 <template>
-  <div>
-    <UiPageHeader
-      title="Productos"
-      :count="items.length"
-      :count-label="items.length === 1 ? 'producto' : 'productos'"
-      description="Catálogo, estado editorial y precio de entrada de cada producto."
-    >
-      <template #actions>
-        <UButton v-if="canCreate" to="/admin/productos/nuevo" icon="i-lucide-plus">Nuevo producto</UButton>
-      </template>
-    </UiPageHeader>
-    <p v-if="cloudflare && !canChangeStatus" role="status" class="mb-4 text-sm text-[var(--text-muted)]">
-      Las ediciones de contenido afectan sólo a borradores. Precios, stock y publicación tienen controles separados.
-    </p>
+  <AdminPage :count="items.length" :count-label="items.length === 1 ? 'producto' : 'productos'">
+    <template #actions>
+      <AdminButton v-if="canCreate" variant="primary" to="/admin/productos/nuevo" icon="i-lucide-plus">
+        Nuevo producto
+      </AdminButton>
+    </template>
+    <div class="adm-stack">
+      <AdminTabs v-model="view" :tabs="viewTabs" label="Apartados de productos" />
 
-    <CatalogEditorialImport :runtime="serverRuntime" :available="canEditorialImport" />
-    <CatalogFilePreflight :runtime="serverRuntime" :available="canEditorialImport" />
-    <CatalogNativeImport :runtime="serverRuntime" :available="canNativeImport" />
-    <CatalogImportJob
-      :runtime="serverRuntime"
-      :available="canImportJobPreparation"
-      :commands-available="canImportJobCommands"
-    />
-    <CatalogSnapshotExport :runtime="serverRuntime" :available="canSnapshotExport" :filters="snapshotFilters" />
-
-    <UiDataTable
-      v-model:selected="selected"
-      :rows="paged"
-      :columns="columns"
-      :row-key="(row) => String(row.id)"
-      :status="fetchStatus === 'pending' ? 'pending' : fetchStatus === 'error' ? 'error' : 'idle'"
-      :total="items.length"
-      :page="page"
-      :per-page="perPage"
-      :selectable="canChangeStatus"
-      search-placeholder="Buscar por nombre, marca o referencia"
-      empty-title="Todavía no hay productos"
-      empty-description="Crea el primero o impórtalos con el contrato tabular del catálogo."
-      error-message="No hemos podido cargar el catálogo."
-      @search="(value) => (q = value)"
-      @update:page="(value) => (page = value)"
-      @retry="refresh()"
-    >
-      <template #filters>
-        <USelect v-model="category" :items="catOptions" class="w-56" aria-label="Filtrar por familia" />
-        <USelect v-model="estado" :items="statusOptions" class="w-44" aria-label="Filtrar por estado" />
-      </template>
-
-      <template #bulk-actions>
-        <UButton
-          v-for="target in bulkTargets"
-          :key="target"
-          size="xs"
+      <div v-show="view === 'productos'" class="adm-stack">
+        <UAlert
+          v-if="cloudflare && !canChangeStatus"
+          role="status"
           color="neutral"
-          variant="outline"
-          @click="startChange(selectedProducts, target)"
+          variant="subtle"
+          icon="i-lucide-info"
+          description="Las ediciones de contenido afectan sólo a borradores. Precios, stock y publicación tienen controles separados."
+        />
+
+        <AdminTable
+          v-model:selected="selected"
+          v-model:page="page"
+          :rows="items"
+          :columns="columns"
+          :row-key="(row) => String(row.id)"
+          :row-to="(row) => `/admin/productos/${row.id}`"
+          :status="fetchStatus"
+          :per-page="perPage"
+          :selectable="canChangeStatus"
+          :filtered="filtered"
+          empty-icon="i-lucide-package"
+          empty-title="Todavía no hay productos"
+          empty-description="Crea el primero o tráelos desde un archivo en el apartado «Importar»."
+          error-message="No hemos podido cargar los productos. Vuelve a intentarlo."
+          caption="Productos del catálogo"
+          @retry="refresh()"
+          @clear-filters="clearFilters"
         >
-          {{ STATUS_LABELS[target] }}
-        </UButton>
-        <span v-if="!bulkTargets.length" class="text-xs text-[var(--text-muted)]">
-          Los productos seleccionados están en estados distintos: no hay una transición común.
-        </span>
-      </template>
-
-      <template #empty-action>
-        <UButton v-if="canCreate" to="/admin/productos/nuevo" icon="i-lucide-plus">Nuevo producto</UButton>
-      </template>
-
-      <template #cell-name="{ row }">
-        <div class="flex items-center gap-3">
-          <div class="w-9 shrink-0"><ProductVisual :visual="row.visual" /></div>
-          <div class="min-w-0">
-            <NuxtLink
-              :to="`/admin/productos/${row.id}`"
-              class="block truncate font-medium text-[var(--text-strong)] hover:text-neteco-700 hover:underline"
+          <template #toolbar>
+            <AdminToolbar
+              v-model:search="q"
+              placeholder="Buscar por nombre, marca o referencia"
+              search-label="Buscar productos"
             >
-              {{ row.name }}
-            </NuxtLink>
-            <p class="truncate text-xs text-[var(--text-muted)]">
-              {{ row.brand }}<template v-if="row.series"> · gama {{ row.series }}</template>
-              <template v-if="row.featured"> · destacado</template>
-            </p>
-          </div>
+              <USelect v-model="category" :items="catOptions" class="w-48" aria-label="Filtrar por familia" />
+              <USelect v-model="estado" :items="statusOptions" class="w-44" aria-label="Filtrar por estado" />
+            </AdminToolbar>
+          </template>
+
+          <template #bulk>
+            <span class="text-[var(--text-muted)]">Cambiar a:</span>
+            <AdminButton
+              v-for="target in bulkTargets"
+              :key="target"
+              size="sm"
+              @click="startChange(selectedProducts, target)"
+            >
+              {{ STATUS_LABELS[target] }}
+            </AdminButton>
+            <span v-if="!bulkTargets.length" class="adm-help">
+              Los productos elegidos están en estados distintos y no admiten un mismo cambio.
+            </span>
+          </template>
+
+          <template #empty-action>
+            <AdminButton v-if="canCreate" variant="primary" to="/admin/productos/nuevo" icon="i-lucide-plus">
+              Nuevo producto
+            </AdminButton>
+          </template>
+
+          <template #cell-name="{ row }">
+            <div class="flex min-w-0 items-center gap-3">
+              <div class="w-9 shrink-0"><ProductVisual :visual="row.visual" /></div>
+              <div class="min-w-0">
+                <NuxtLink
+                  :to="`/admin/productos/${row.id}`"
+                  class="block truncate font-medium text-[var(--text-strong)] hover:text-neteco-700 hover:underline"
+                >
+                  {{ row.name }}
+                </NuxtLink>
+                <p class="truncate text-xs text-[var(--text-muted)]">
+                  {{ row.brand }}<template v-if="row.series"> · gama {{ row.series }}</template>
+                  <template v-if="row.featured"> · destacado</template>
+                </p>
+              </div>
+            </div>
+          </template>
+
+          <template #cell-categoryName="{ row }">
+            <span class="text-[var(--text-muted)]">{{ row.categoryName }}</span>
+          </template>
+
+          <template #cell-minPrice="{ row }">
+            <span v-if="row.minPrice == null" class="text-[var(--text-muted)]">Sin variantes</span>
+            <span v-else class="font-semibold tabular-nums">{{ formatPrice(row.minPrice) }}</span>
+          </template>
+
+          <template #cell-status="{ row }">
+            <AdminBadge :tone="STATUS_TONE[row.status]">{{ STATUS_LABELS[row.status] }}</AdminBadge>
+          </template>
+
+          <template #actions="{ row }">
+            <div class="flex items-center justify-end gap-1">
+              <UDropdownMenu
+                v-if="canChangeStatus"
+                :items="[
+                  STATUS_TRANSITIONS[row.status].map((target) => ({
+                    label: STATUS_LABELS[target],
+                    onSelect: () => startChange([row], target)
+                  }))
+                ]"
+              >
+                <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm">
+                  Estado
+                  <UIcon name="i-lucide-chevron-down" class="size-4" />
+                </button>
+              </UDropdownMenu>
+              <AdminButton
+                v-if="row.active"
+                :to="`/producto/${row.slug}`"
+                target="_blank"
+                external
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-external-link"
+                :label="`Ver ${row.name} en la tienda`"
+              />
+              <AdminButton
+                :to="`/admin/productos/${row.id}`"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-pencil"
+                :label="`${cloudflare ? 'Consultar' : 'Editar'} ${row.name}`"
+              />
+              <AdminButton
+                v-if="canDelete"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-trash-2"
+                :label="`Eliminar ${row.name}`"
+                @click="removing = row"
+              />
+            </div>
+          </template>
+        </AdminTable>
+      </div>
+
+      <!-- v-show y no v-if: una importación a medias no debe perderse al cambiar de apartado. -->
+      <div v-show="view === 'importar'" class="adm-stack">
+        <AdminToolbar v-if="importModes.length > 1" :searchable="false">
+          <AdminFilters v-model="importMode" :options="importModes" label="Qué quieres importar" />
+        </AdminToolbar>
+        <div v-show="importMode === 'textos'">
+          <CatalogEditorialImport :runtime="serverRuntime" :available="canEditorialImport" />
         </div>
-      </template>
-
-      <template #cell-categoryName="{ row }">
-        <span class="text-[var(--text-muted)]">{{ row.categoryName }}</span>
-      </template>
-
-      <template #cell-minPrice="{ row }">
-        <span class="font-semibold">{{ row.minPrice == null ? 'Sin variantes' : formatPrice(row.minPrice) }}</span>
-      </template>
-
-      <template #cell-status="{ row }">
-        <UBadge :color="STATUS_COLOR[row.status]" variant="subtle">{{ STATUS_LABELS[row.status] }}</UBadge>
-      </template>
-
-      <template #row-actions="{ row }">
-        <div class="flex justify-end gap-0.5">
-          <UDropdownMenu
-            v-if="canChangeStatus"
-            :items="[
-              STATUS_TRANSITIONS[row.status].map((target) => ({
-                label: STATUS_LABELS[target],
-                onSelect: () => startChange([row], target)
-              }))
-            ]"
-          >
-            <UButton size="xs" color="neutral" variant="outline" trailing-icon="i-lucide-chevron-down">
-              Estado
-            </UButton>
-          </UDropdownMenu>
-          <UButton
-            v-if="row.active"
-            :to="`/producto/${row.slug}`"
-            target="_blank"
-            external
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-external-link"
-            :aria-label="`Ver ${row.name} en la tienda`"
-          />
-          <UButton
-            :to="`/admin/productos/${row.id}`"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-pencil"
-            :aria-label="`${cloudflare ? 'Consultar' : 'Editar'} ${row.name}`"
-          />
-          <UButton
-            v-if="canDelete"
-            size="xs"
-            color="error"
-            variant="ghost"
-            icon="i-lucide-trash-2"
-            :aria-label="`Eliminar ${row.name}`"
-            @click="removing = row"
+        <div v-show="importMode === 'comprobar'">
+          <CatalogFilePreflight :runtime="serverRuntime" :available="canEditorialImport" />
+        </div>
+        <div v-show="importMode === 'alta'">
+          <CatalogNativeImport :runtime="serverRuntime" :available="canNativeImport" />
+        </div>
+        <div v-show="importMode === 'grande'">
+          <CatalogImportJob
+            :runtime="serverRuntime"
+            :available="canImportJobPreparation"
+            :commands-available="canImportJobCommands"
           />
         </div>
-      </template>
-    </UiDataTable>
+      </div>
 
-    <UModal
-      :open="Boolean(changing)"
-      title="Cambiar el estado editorial"
-      @update:open="(value) => !value && (changing = null)"
-    >
-      <template #body>
-        <div v-if="changing" class="space-y-4">
+      <div v-show="view === 'exportar'" class="adm-stack">
+        <CatalogSnapshotExport :runtime="serverRuntime" :available="canSnapshotExport" :filters="snapshotFilters" />
+      </div>
+
+      <AdminConfirm
+        :open="Boolean(changing)"
+        title="Cambiar el estado"
+        confirm-label="Cambiar estado"
+        :loading="saving"
+        @update:open="(value) => !value && (changing = null)"
+        @confirm="confirmChange"
+      >
+        <div v-if="changing" class="adm-stack">
           <p class="text-[var(--text)]">
             <template v-if="changing.products.length === 1">
               <strong>{{ changing.products[0]!.name }}</strong> pasará a
@@ -455,17 +508,16 @@ const bulkTargets = computed(() => {
             <template v-else>
               <strong>{{ changing.products.length }} productos</strong> pasarán a
             </template>
-            <UBadge class="ml-1" :color="STATUS_COLOR[changing.to]" variant="subtle">
-              {{ STATUS_LABELS[changing.to] }}
-            </UBadge>
+            <AdminBadge class="ml-1" :tone="STATUS_TONE[changing.to]">{{ STATUS_LABELS[changing.to] }}</AdminBadge>
           </p>
 
-          <p v-if="changing.to === 'published'" class="text-sm text-[var(--text-muted)]">
-            Quedarán visibles en la tienda y en los buscadores.
-          </p>
-          <p v-else-if="changing.to === 'hidden' || changing.to === 'discontinued'" class="text-sm text-amber-800">
-            Dejarán de verse en la tienda. Los pedidos ya hechos no se ven afectados.
-          </p>
+          <p v-if="changing.to === 'published'" class="adm-help">Quedarán visibles en la tienda y en los buscadores.</p>
+          <UAlert
+            v-else-if="changing.to === 'hidden' || changing.to === 'discontinued'"
+            color="warning"
+            variant="subtle"
+            description="Dejarán de verse en la tienda. Los pedidos ya hechos no se ven afectados."
+          />
 
           <ul
             v-if="changing.products.length > 1"
@@ -474,37 +526,31 @@ const bulkTargets = computed(() => {
             <li v-for="product in changing.products" :key="product.id" class="truncate">{{ product.name }}</li>
           </ul>
 
-          <UFormField label="Motivo" hint="Si lo dejas vacío se registra la transición sin más detalle">
+          <UFormField label="Motivo" hint="Opcional: queda anotado en el historial del producto">
             <UInput v-model="reason" class="w-full" placeholder="Campaña, fin de gama, error de ficha…" />
           </UFormField>
         </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="changing = null">Cancelar</UButton>
-          <UButton :loading="saving" @click="confirmChange">Cambiar estado</UButton>
-        </div>
-      </template>
-    </UModal>
+      </AdminConfirm>
 
-    <UModal :open="Boolean(removing)" title="Eliminar producto" @update:open="(value) => !value && (removing = null)">
-      <template #body>
+      <AdminConfirm
+        :open="Boolean(removing)"
+        title="Eliminar producto"
+        confirm-label="Eliminar definitivamente"
+        danger
+        :loading="saving"
+        @update:open="(value) => !value && (removing = null)"
+        @confirm="confirmRemove"
+      >
         <p class="text-[var(--text)]">
           Se eliminará <strong>{{ removing?.name }}</strong> y sus {{ removing?.formats }}
           {{ removing?.formats === 1 ? 'variante' : 'variantes' }}.
           <strong>Esta acción no se puede deshacer.</strong>
         </p>
-        <p class="mt-3 text-sm text-[var(--text-muted)]">
+        <p class="adm-help mt-3">
           Si solo quieres quitarlo de la tienda, cámbialo a «Descatalogado» en lugar de eliminarlo: así conserva su
-          histórico y sus referencias.
+          historial y sus referencias.
         </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="removing = null">Cancelar</UButton>
-          <UButton color="error" :loading="saving" @click="confirmRemove">Eliminar definitivamente</UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+      </AdminConfirm>
+    </div>
+  </AdminPage>
 </template>

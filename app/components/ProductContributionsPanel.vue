@@ -72,9 +72,9 @@ const reviewedFields = computed(() => {
     ['title', 'Título'],
     ['body', 'Contenido'],
     ['score', 'Valoración'],
-    ['reason', 'Motivo auditado'],
-    ['reviewReference', 'Referencia de revisión'],
-    ['slaDueAt', 'Seguimiento UTC']
+    ['reason', 'Motivo'],
+    ['reviewReference', 'Referencia de la revisión'],
+    ['slaDueAt', 'Fecha de seguimiento (UTC)']
   ].flatMap(([key, label]) =>
     typeof value[key!] === 'string' || typeof value[key!] === 'number'
       ? [{ label: label!, value: String(value[key!]) }]
@@ -85,6 +85,8 @@ let epoch = 0,
   alive = true,
   controller: AbortController | null = null
 const active = computed(() => props.enabled && !revoked.value)
+// Booleano aparte: `audience === 'admin'` en el v-if estrecha el tipo en la rama de cliente.
+const adminView = computed<boolean>(() => props.audience === 'admin')
 const privateEnabled = computed(() => active.value && (props.audience === 'admin' || props.customerEnabled === true))
 const busy = computed(() => loading.value || preparing.value || pendingLocal.value || props.pending === true)
 const base = computed(() => `/api/${props.audience === 'admin' ? 'admin' : 'account'}/product-contributions`)
@@ -421,9 +423,336 @@ function originLabel(origin: string) {
 function stateLabel(state: string) {
   return state === 'published' ? 'Publicado' : state === 'withdrawn' ? 'Retirado' : 'Pendiente de moderación'
 }
+// Vista del panel de administración: filtros locales sobre la página cargada y nombres legibles.
+const adminSearch = ref(''),
+  adminState = ref('all'),
+  adminLoaded = ref(false)
+watch(items, (list) => {
+  if (list.length) adminLoaded.value = true
+})
+watch(active, (value) => {
+  if (!value) adminLoaded.value = false
+})
+const adminStateOptions = computed(() => [
+  { value: 'all', label: 'Todas', count: items.value.length },
+  {
+    value: 'pending',
+    label: 'Pendientes',
+    count: items.value.filter((i) => adminStateKey(i.state) === 'pending').length
+  },
+  { value: 'published', label: 'Publicadas' },
+  { value: 'withdrawn', label: 'Retiradas' }
+])
+function adminStateKey(state: string) {
+  return state === 'published' || state === 'withdrawn' ? state : 'pending'
+}
+const adminItems = computed(() => {
+  const term = adminSearch.value.toLowerCase()
+  return items.value.filter(
+    (item) =>
+      (adminState.value === 'all' || adminStateKey(item.state) === adminState.value) &&
+      (!term || `${item.title} ${item.body}`.toLowerCase().includes(term))
+  )
+})
+function adminClearFilters() {
+  adminSearch.value = ''
+  adminState.value = 'all'
+}
+const ADMIN_ACTIONS: Record<string, string> = {
+  publish: 'Publicar',
+  answer: 'Responder y publicar',
+  close: 'Cerrar la pregunta',
+  withdraw: 'Retirar de la tienda',
+  submit: 'Enviar aportación',
+  reply: 'Enviar réplica'
+}
+const adminMessageTone = computed(() =>
+  message.value.startsWith('Aportación confirmada') ? 'success' : revoked.value ? 'error' : 'warning'
+)
 </script>
 <template>
+  <section v-if="adminView" aria-label="Moderación de aportaciones de productos" class="adm-stack min-w-0">
+    <UAlert
+      v-if="message"
+      role="status"
+      aria-live="polite"
+      :color="adminMessageTone"
+      variant="subtle"
+      :icon="adminMessageTone === 'success' ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+      :title="message"
+    />
+    <AdminEmptyState
+      v-if="!active"
+      role="status"
+      icon="i-lucide-lock"
+      title="No puedes ver las reseñas y preguntas ahora mismo"
+      description="La consulta no está disponible con la autorización actual. Comprueba que tu cuenta tiene permiso de atención al cliente y la verificación en dos pasos activa."
+    />
+    <div
+      v-else-if="privateEnabled"
+      class="grid items-start gap-5"
+      :class="(selected || intent) && 'xl:grid-cols-[minmax(0,1fr)_26rem]'"
+    >
+      <AdminCard
+        title="Reseñas y preguntas recibidas"
+        description="Nada se publica en la tienda hasta que alguien del equipo lo revisa."
+        flush
+      >
+        <template #actions>
+          <button type="button" class="adm-btn adm-btn--primary" :disabled="busy" @click="loadPrivate(1)">
+            Consultar cola de moderación
+          </button>
+        </template>
+        <div v-if="items.length" class="adm-tablecard__bar">
+          <AdminToolbar v-model:search="adminSearch" placeholder="Buscar en esta página…">
+            <AdminFilters v-model="adminState" :options="adminStateOptions" label="Filtrar por estado" />
+          </AdminToolbar>
+        </div>
+        <div v-if="loading && !items.length" class="adm-table-skeleton" aria-busy="true">
+          <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+        </div>
+        <AdminEmptyState
+          v-else-if="!items.length"
+          icon="i-lucide-message-square-text"
+          :title="adminLoaded ? 'No hay aportaciones en esta página' : 'Consulta la cola para ver las aportaciones'"
+          :description="
+            adminLoaded
+              ? 'Vuelve a consultar la cola para ver si han llegado nuevas.'
+              : 'Por privacidad, las reseñas y preguntas de clientes solo se cargan cuando lo pides.'
+          "
+        />
+        <AdminEmptyState
+          v-else-if="!adminItems.length"
+          variant="filtered"
+          title="Ningún resultado con estos filtros"
+          description="Prueba con otra búsqueda o quita algún filtro."
+        >
+          <button type="button" class="adm-btn adm-btn--secondary" @click="adminClearFilters">Quitar filtros</button>
+        </AdminEmptyState>
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <caption class="sr-only">
+              Reseñas y preguntas de clientes
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Aportación</th>
+                <th scope="col">Tipo</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Recibida</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in adminItems" :key="item.id" :data-selected="selected?.id === item.id || undefined">
+                <td class="min-w-0 max-w-md break-words">
+                  <p class="font-semibold text-[var(--text-strong)]">{{ item.title }}</p>
+                  <p class="adm-help line-clamp-2 whitespace-pre-wrap">{{ item.body }}</p>
+                </td>
+                <td class="whitespace-nowrap">
+                  {{ item.kind === 'question' ? 'Pregunta' : 'Reseña' }}
+                  <span v-if="item.score !== null" class="adm-help"> · {{ item.score }} de 5</span>
+                  <p class="adm-help">{{ originLabel(item.origin) }}</p>
+                </td>
+                <td>
+                  <AdminBadge
+                    :tone="item.state === 'published' ? 'success' : item.state === 'withdrawn' ? 'neutral' : 'warning'"
+                  >
+                    {{ stateLabel(item.state) }}
+                  </AdminBadge>
+                </td>
+                <td class="whitespace-nowrap">{{ adminDate(item.createdAt) }}</td>
+                <td class="adm-table__actions">
+                  <button
+                    v-if="item.capabilities.canModerate || item.capabilities.canReply"
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :disabled="busy"
+                    @click="select(item)"
+                  >
+                    Revisar aportación
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <template v-if="pages > 1" #footer>
+          <nav
+            aria-label="Páginas de aportaciones privadas"
+            class="flex w-full flex-wrap items-center justify-end gap-2"
+          >
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="busy || page <= 1"
+              @click="loadPrivate(page - 1)"
+            >
+              Anteriores
+            </button>
+            <span class="adm-help tabular-nums">Página {{ page }} de {{ pages }}</span>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              :disabled="busy || page >= pages"
+              @click="loadPrivate(page + 1)"
+            >
+              Siguientes
+            </button>
+          </nav>
+        </template>
+      </AdminCard>
+
+      <AdminCard v-if="selected && !intent" :title="`Revisar: ${selected.title}`">
+        <div class="adm-stack">
+          <div class="break-words">
+            <p class="adm-help">
+              {{ selected.kind === 'question' ? 'Pregunta' : 'Reseña' }} · {{ originLabel(selected.origin) }} ·
+              {{ adminDate(selected.createdAt, true) }}
+            </p>
+            <p class="mt-2 whitespace-pre-wrap">{{ selected.body }}</p>
+            <p v-if="selected.answer" class="mt-2 whitespace-pre-wrap">
+              <strong>Respuesta del equipo:</strong> {{ selected.answer }}
+            </p>
+            <p v-if="selected.reply" class="mt-2 whitespace-pre-wrap">
+              <strong>Réplica del cliente:</strong> {{ selected.reply }}
+            </p>
+            <p v-if="selected.kind === 'question'" class="adm-help mt-2">
+              {{
+                selected.slaDueAt
+                  ? `Seguimiento acordado: ${adminDate(selected.slaDueAt, true)}`
+                  : 'Sin fecha de seguimiento acordada.'
+              }}
+            </p>
+          </div>
+          <form data-contribution-review @submit.prevent="prepareReview">
+            <fieldset :disabled="busy" class="adm-stack">
+              <legend class="sr-only">Revisión de {{ selected.title }}</legend>
+              <AdminFormField v-slot="{ id }" label="Qué quieres hacer">
+                <select :id="id" v-model="action" data-contribution-action class="w-full">
+                  <option value="publish">Publicar tal como está</option>
+                  <option v-if="selected.kind === 'question'" value="answer">Responder y publicar</option>
+                  <option v-if="selected.kind === 'question'" value="close">Cerrar la pregunta</option>
+                  <option value="withdraw">Retirar de la tienda</option>
+                </select>
+              </AdminFormField>
+              <AdminFormField v-if="action === 'answer'" v-slot="{ id }" label="Respuesta del equipo" required>
+                <textarea
+                  :id="id"
+                  v-model="answer"
+                  data-contribution-answer
+                  required
+                  minlength="10"
+                  maxlength="3000"
+                  rows="4"
+                  class="w-full"
+                />
+              </AdminFormField>
+              <AdminFormField
+                v-slot="{ id }"
+                label="Motivo"
+                help="Queda guardado en el registro de actividad. Mínimo 10 caracteres."
+                required
+              >
+                <textarea
+                  :id="id"
+                  v-model="reason"
+                  data-contribution-reason
+                  required
+                  minlength="10"
+                  maxlength="500"
+                  class="w-full"
+                />
+              </AdminFormField>
+              <AdminFormField
+                v-if="action === 'publish' || action === 'answer'"
+                v-slot="{ id }"
+                label="Referencia de la revisión"
+                help="Documento o procedimiento en el que te has basado."
+                required
+              >
+                <input
+                  :id="id"
+                  v-model="reference"
+                  data-contribution-reference
+                  required
+                  minlength="3"
+                  maxlength="200"
+                  class="w-full"
+                />
+              </AdminFormField>
+              <AdminFormField
+                v-if="action === 'publish' && selected.kind === 'question'"
+                v-slot="{ id }"
+                label="Fecha de seguimiento (opcional)"
+                help="En hora universal (UTC)."
+              >
+                <input :id="id" v-model="dueAt" type="datetime-local" class="w-full" />
+              </AdminFormField>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button type="button" class="adm-btn adm-btn--secondary" @click="selected = null">Cancelar</button>
+                <button type="submit" class="adm-btn adm-btn--primary">Revisar cambios</button>
+              </div>
+            </fieldset>
+          </form>
+        </div>
+      </AdminCard>
+
+      <AdminCard v-if="intent" title="Confirma el cambio" aria-live="polite">
+        <div class="adm-stack">
+          <p>
+            <strong>{{ ADMIN_ACTIONS[intent.action] ?? adminHumanize(intent.action) }}.</strong>
+            {{
+              intent.action === 'submit' || intent.action === 'reply'
+                ? 'El contenido quedará pendiente de moderación.'
+                : 'Lo que se ve en la tienda cambiará según esta revisión.'
+            }}
+          </p>
+          <dl class="grid gap-3 break-words">
+            <div v-for="field in reviewedFields" :key="field.label">
+              <dt class="adm-help">{{ field.label }}</dt>
+              <dd class="whitespace-pre-wrap text-[var(--text-strong)]">{{ field.value }}</dd>
+            </div>
+          </dl>
+          <p v-if="!sent" class="adm-help">
+            Comprueba el contenido antes de confirmar. No afecta a pagos ni a existencias, y no envía correos.
+          </p>
+        </div>
+        <template #footer>
+          <button
+            v-if="!sent"
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="loading"
+            @click="cancelReview"
+          >
+            Volver a editar
+          </button>
+          <button
+            v-if="!sent"
+            type="button"
+            class="adm-btn adm-btn--primary"
+            :disabled="loading || pending"
+            @click="send"
+          >
+            Confirmar aportación
+          </button>
+          <button
+            v-if="sent"
+            type="button"
+            class="adm-btn adm-btn--primary"
+            :disabled="loading || pending"
+            @click="recover"
+          >
+            Comprobar aportación
+          </button>
+        </template>
+      </AdminCard>
+    </div>
+    <p v-if="loading || preparing" role="status" class="adm-help">Comprobando…</p>
+  </section>
   <section
+    v-else
     :aria-label="audience === 'admin' ? 'Moderación de aportaciones de productos' : 'Reseñas y preguntas de productos'"
     class="min-w-0 space-y-5 rounded-lg border p-4"
   >

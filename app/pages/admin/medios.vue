@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import type { Column } from '~/components/ui/DataTable.vue'
-
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Medios · Admin' })
 
@@ -60,7 +58,7 @@ const canWithdraw = computed(() => cloudflare && data.value?.capabilities?.canPu
 
 const QUARANTINE: Record<string, { label: string; color: 'success' | 'warning' | 'error' | 'neutral' }> = {
   clean: { label: 'Analizado', color: 'success' },
-  pending: { label: 'En cuarentena', color: 'warning' },
+  pending: { label: 'Pendiente de análisis', color: 'warning' },
   scanning: { label: 'Analizando', color: 'warning' },
   infected: { label: 'Infectado', color: 'error' },
   failed: { label: 'Análisis fallido', color: 'error' }
@@ -70,6 +68,16 @@ const RIGHTS: Record<string, { label: string; color: 'success' | 'warning' | 'er
   approved: { label: 'Derechos aprobados', color: 'success' },
   blocked: { label: 'Bloqueado', color: 'error' },
   rejected: { label: 'Bloqueado', color: 'error' }
+}
+
+const TONES = { success: 'success', warning: 'warning', error: 'danger', neutral: 'neutral' } as const
+const USES: Record<string, string> = {
+  main: 'Imagen principal',
+  image: 'Imagen adicional',
+  datasheet: 'Ficha técnica',
+  sds: 'Ficha de seguridad',
+  certificate: 'Certificado',
+  label: 'Etiqueta'
 }
 
 const query = ref('')
@@ -83,15 +91,33 @@ const rows = computed(() => {
       (item.altText ?? '').toLowerCase().includes(term)
   )
 })
+const rightsFilter = ref('all')
+const rightsOptions = [
+  { value: 'all', label: 'Todos' },
+  { value: 'pending', label: 'Por revisar' },
+  { value: 'approved', label: 'Aprobados' },
+  { value: 'blocked', label: 'Bloqueados' }
+]
+const visibleRows = computed(() =>
+  rows.value.filter(
+    (item) =>
+      rightsFilter.value === 'all' ||
+      (rightsFilter.value === 'blocked'
+        ? item.rightsStatus === 'blocked' || item.rightsStatus === 'rejected'
+        : item.rightsStatus === rightsFilter.value)
+  )
+)
+const page = ref(1)
+watch([query, rightsFilter], () => (page.value = 1))
 const awaitingReview = computed(
   () => (data.value?.items ?? []).filter((item) => item.rightsStatus === 'pending' && item.canApprove !== false).length
 )
 
-const columns: Column<MediaAsset>[] = [
+const columns = [
   { key: 'originalName', label: 'Archivo' },
-  { key: 'ownerName', label: 'Derechos' },
+  { key: 'ownerName', label: 'Propietario y licencia' },
   { key: 'quarantineStatus', label: 'Estado' },
-  { key: 'sourceUrl', label: cloudflare ? 'Asociaciones' : 'Ruta pública', hideOnMobile: !cloudflare }
+  { key: 'sourceUrl', label: cloudflare ? 'Usado en' : 'Enlace público', hideOnMobile: !cloudflare }
 ]
 
 /* --- Subida --- */
@@ -163,7 +189,8 @@ async function confirmDecision() {
       }
     })
     toast.add({
-      title: target.decision === 'approve' ? 'Derechos aprobados; la publicación es independiente' : 'Asset bloqueado',
+      title:
+        target.decision === 'approve' ? 'Derechos aprobados; la publicación es independiente' : 'Archivo bloqueado',
       color: 'success',
       icon: 'i-lucide-check'
     })
@@ -232,302 +259,315 @@ function kib(bytes: number) {
 </script>
 
 <template>
-  <div>
-    <UiPageHeader
-      title="Biblioteca de medios"
-      :count="rows.length"
-      :count-label="rows.length === 1 ? 'archivo' : 'archivos'"
-      description="Publicar exige análisis de seguridad y derechos aprobados, además de asociar el archivo explícitamente a un producto."
-    >
-      <template #actions>
-        <UButton
-          icon="i-lucide-upload"
-          :disabled="cloudflare && data?.capabilities?.canUpload !== true"
-          @click="uploadOpen = true"
-          >Subir archivo</UButton
-        >
-      </template>
-    </UiPageHeader>
+  <AdminPage :count="rows.length" :count-label="rows.length === 1 ? 'archivo' : 'archivos'">
+    <template #actions>
+      <AdminButton
+        variant="primary"
+        icon="i-lucide-upload"
+        :disabled="cloudflare && data?.capabilities?.canUpload !== true"
+        @click="uploadOpen = true"
+      >
+        Subir archivo
+      </AdminButton>
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="awaitingReview"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-shield-question"
+        :title="`${awaitingReview} ${awaitingReview === 1 ? 'archivo espera' : 'archivos esperan'} la aprobación de derechos`"
+        description="Revisa la autorización de cada uno. Aprobar los derechos no publica el archivo por sí solo."
+      />
 
-    <UAlert
-      v-if="awaitingReview"
-      class="mb-4"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-shield-question"
-      :title="`${awaitingReview} ${awaitingReview === 1 ? 'archivo espera' : 'archivos esperan'} la aprobación de derechos`"
-      description="Revisa la autorización. Aprobar los derechos no sustituye al análisis de seguridad ni publica el archivo automáticamente."
-    />
-
-    <UiDataTable
-      :rows="rows"
-      :columns="columns"
-      :row-key="(row) => row.id"
-      :status="fetchStatus === 'pending' ? 'pending' : fetchStatus === 'error' ? 'error' : 'idle'"
-      :total="rows.length"
-      :per-page="rows.length || 1"
-      search-placeholder="Buscar por nombre, propietario o alt"
-      empty-title="La biblioteca está vacía"
-      empty-description="Sube las fotos de producto y las fichas de seguridad. Cada archivo necesita propietario, licencia y fecha de autorización antes de poder publicarse."
-      error-message="No hemos podido cargar la biblioteca."
-      @search="(value) => (query = value)"
-      @retry="refresh()"
-    >
-      <template #empty-action>
-        <UButton
-          icon="i-lucide-upload"
-          :disabled="cloudflare && data?.capabilities?.canUpload !== true"
-          @click="uploadOpen = true"
-          >Subir el primer archivo</UButton
-        >
-      </template>
-
-      <template #cell-originalName="{ row }">
-        <p class="max-w-xs truncate font-medium text-[var(--text-strong)]">{{ row.originalName }}</p>
-        <p class="text-xs text-[var(--text-muted)]">
-          {{ row.mimeType.replace('image/', '').replace('application/', '').toUpperCase() }} · {{ kib(row.bytes) }}
-          <template v-if="row.width"> · {{ row.width }}×{{ row.height }}</template>
-        </p>
-        <p class="max-w-xs truncate text-xs text-[var(--text-muted)]">
-          {{ row.altText || 'Sin texto alternativo' }}
-        </p>
-      </template>
-
-      <template #cell-ownerName="{ row }">
-        <p class="text-[var(--text)]">{{ row.ownerName || '—' }}</p>
-        <p class="text-xs text-[var(--text-muted)]">
-          {{ row.license || 'Sin licencia' }} ·
-          {{ row.authorizedAt ? new Date(row.authorizedAt).toLocaleDateString('es-ES') : 'sin fecha' }}
-        </p>
-      </template>
-
-      <template #cell-quarantineStatus="{ row }">
-        <div class="flex flex-col items-start gap-1">
-          <UBadge :color="(QUARANTINE[row.quarantineStatus] ?? { color: 'neutral' }).color" variant="subtle">
-            {{ (QUARANTINE[row.quarantineStatus] ?? { label: row.quarantineStatus }).label }}
-          </UBadge>
-          <UBadge :color="(RIGHTS[row.rightsStatus] ?? { color: 'neutral' }).color" variant="subtle">
-            {{ (RIGHTS[row.rightsStatus] ?? { label: row.rightsStatus }).label }}
-          </UBadge>
-        </div>
-      </template>
-
-      <template #cell-sourceUrl="{ row }">
-        <ul v-if="cloudflare && row.publications?.length" class="space-y-2 text-xs">
-          <li v-for="publication in row.publications" :key="publication.id">
-            <p class="max-w-xs break-words">
-              {{ publication.title }} · {{ publication.role }} · v{{ publication.version }}
-            </p>
-            <span class="text-[var(--text-muted)]">{{
-              publication.status === 'withdrawn' ? 'Retirada' : 'Asociada (entrega condicionada)'
-            }}</span>
-            <UButton
-              v-if="publication.status === 'active' && canWithdraw"
-              size="xs"
-              color="error"
-              variant="ghost"
-              @click="((withdrawal = { asset: row, publication }), (withdrawalReason = ''))"
-              >Retirar</UButton
-            >
-          </li>
-        </ul>
-        <UButton
-          v-else-if="!cloudflare && row.sourceUrl"
-          size="xs"
-          color="neutral"
-          variant="ghost"
-          icon="i-lucide-copy"
-          class="font-mono"
-          @click="copy(row.sourceUrl)"
-        >
-          {{ row.sourceUrl }}
-        </UButton>
-        <span v-else class="text-xs text-[var(--text-muted)]">Sin asociación pública</span>
-      </template>
-
-      <template #row-actions="{ row }">
-        <div class="flex flex-wrap justify-end gap-1">
-          <UButton
-            v-if="cloudflare"
-            size="xs"
-            variant="outline"
-            :disabled="!canWithdraw || row.canPublish !== true"
-            @click="canWithdraw && row.canPublish === true && (publicationAsset = row)"
-            >Asociar</UButton
+      <AdminTable
+        v-model:page="page"
+        :rows="visibleRows"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="fetchStatus === 'pending' ? 'pending' : fetchStatus === 'error' ? 'error' : 'idle'"
+        :filtered="Boolean(query) || rightsFilter !== 'all'"
+        empty-title="La biblioteca está vacía"
+        empty-description="Sube las fotos de producto y las fichas de seguridad. Cada archivo necesita propietario, licencia y fecha de autorización antes de poder publicarse."
+        empty-icon="i-lucide-image"
+        error-message="No hemos podido cargar la biblioteca."
+        caption="Archivos de la biblioteca"
+        @retry="refresh()"
+        @clear-filters="((query = ''), (rightsFilter = 'all'))"
+      >
+        <template #toolbar>
+          <AdminToolbar
+            v-model:search="query"
+            placeholder="Buscar por nombre, propietario o descripción"
+            search-label="Buscar en la biblioteca"
           >
-          <UButton
-            v-if="row.rightsStatus !== 'approved' && canDecide"
-            size="xs"
-            variant="outline"
-            :disabled="
-              cloudflare
-                ? row.canApprove !== true
-                : row.canApprove === undefined
-                  ? row.quarantineStatus !== 'clean'
-                  : !row.canApprove
-            "
-            :title="
-              row.canApprove === undefined && row.quarantineStatus !== 'clean'
-                ? 'Tiene que pasar el antivirus primero'
-                : undefined
-            "
-            @click="((deciding = { item: row, decision: 'approve' }), (reason = ''))"
+            <AdminFilters v-model="rightsFilter" :options="rightsOptions" label="Filtrar por derechos" />
+          </AdminToolbar>
+        </template>
+
+        <template #empty-action>
+          <AdminButton
+            variant="primary"
+            icon="i-lucide-upload"
+            :disabled="cloudflare && data?.capabilities?.canUpload !== true"
+            @click="uploadOpen = true"
           >
-            Aprobar
-          </UButton>
-          <UButton
-            v-if="canDecide && row.rightsStatus !== 'blocked' && row.rightsStatus !== 'rejected'"
-            size="xs"
-            color="error"
+            Subir el primer archivo
+          </AdminButton>
+        </template>
+
+        <template #cell-originalName="{ row }">
+          <p class="max-w-xs truncate font-medium text-[var(--text-strong)]">{{ row.originalName }}</p>
+          <p class="text-xs text-[var(--text-muted)]">
+            {{ row.mimeType.replace('image/', '').replace('application/', '').toUpperCase() }} · {{ kib(row.bytes) }}
+            <template v-if="row.width"> · {{ row.width }}×{{ row.height }}</template>
+          </p>
+          <p class="max-w-xs truncate text-xs text-[var(--text-muted)]">
+            {{ row.altText || 'Sin texto alternativo' }}
+          </p>
+        </template>
+
+        <template #cell-ownerName="{ row }">
+          <p>{{ row.ownerName || '—' }}</p>
+          <p class="text-xs text-[var(--text-muted)]">
+            {{ row.license || 'Sin licencia' }} ·
+            {{ row.authorizedAt ? adminDate(row.authorizedAt) : 'sin fecha' }}
+          </p>
+        </template>
+
+        <template #cell-quarantineStatus="{ row }">
+          <div class="flex flex-col items-start gap-1">
+            <AdminBadge :tone="TONES[(QUARANTINE[row.quarantineStatus] ?? { color: 'neutral' as const }).color]">
+              {{ QUARANTINE[row.quarantineStatus]?.label ?? adminStatusLabel(row.quarantineStatus) }}
+            </AdminBadge>
+            <AdminBadge :tone="TONES[(RIGHTS[row.rightsStatus] ?? { color: 'neutral' as const }).color]">
+              {{ RIGHTS[row.rightsStatus]?.label ?? adminStatusLabel(row.rightsStatus) }}
+            </AdminBadge>
+          </div>
+        </template>
+
+        <template #cell-sourceUrl="{ row }">
+          <ul v-if="cloudflare && row.publications?.length" class="space-y-2 text-xs">
+            <li v-for="publication in row.publications" :key="publication.id">
+              <p class="max-w-xs break-words">
+                {{ publication.title }} · {{ USES[publication.role] ?? adminHumanize(publication.role) }} · versión
+                {{ publication.version }}
+              </p>
+              <div class="mt-0.5 flex flex-wrap items-center gap-2">
+                <AdminBadge :tone="publication.status === 'withdrawn' ? 'neutral' : 'success'">{{
+                  publication.status === 'withdrawn' ? 'Retirada' : 'En uso'
+                }}</AdminBadge>
+                <AdminButton
+                  v-if="publication.status === 'active' && canWithdraw"
+                  variant="danger-soft"
+                  size="sm"
+                  @click="((withdrawal = { asset: row, publication }), (withdrawalReason = ''))"
+                >
+                  Retirar
+                </AdminButton>
+              </div>
+            </li>
+          </ul>
+          <AdminButton
+            v-else-if="!cloudflare && row.sourceUrl"
             variant="ghost"
-            @click="((deciding = { item: row, decision: 'reject' }), (reason = ''))"
+            size="sm"
+            icon="i-lucide-copy"
+            @click="copy(row.sourceUrl)"
           >
-            Bloquear
-          </UButton>
-        </div>
-      </template>
-    </UiDataTable>
+            Copiar enlace
+          </AdminButton>
+          <span v-else class="text-xs text-[var(--text-muted)]">Sin usar en ningún producto</span>
+        </template>
 
-    <MediaPublicationDialog
-      v-if="publicationAsset && canWithdraw"
-      :asset="publicationAsset"
-      @close="publicationAsset = null"
-      @published="publicationCreated"
-    />
+        <template #actions="{ row }">
+          <div class="flex flex-wrap justify-end gap-1">
+            <AdminButton
+              v-if="cloudflare"
+              size="sm"
+              :disabled="!canWithdraw || row.canPublish !== true"
+              @click="canWithdraw && row.canPublish === true && (publicationAsset = row)"
+            >
+              Asociar
+            </AdminButton>
+            <AdminButton
+              v-if="row.rightsStatus !== 'approved' && canDecide"
+              size="sm"
+              :disabled="
+                cloudflare
+                  ? row.canApprove !== true
+                  : row.canApprove === undefined
+                    ? row.quarantineStatus !== 'clean'
+                    : !row.canApprove
+              "
+              :title="
+                row.canApprove === undefined && row.quarantineStatus !== 'clean'
+                  ? 'Primero tiene que pasar el análisis de seguridad'
+                  : undefined
+              "
+              @click="((deciding = { item: row, decision: 'approve' }), (reason = ''))"
+            >
+              Aprobar
+            </AdminButton>
+            <AdminButton
+              v-if="canDecide && row.rightsStatus !== 'blocked' && row.rightsStatus !== 'rejected'"
+              variant="danger-soft"
+              size="sm"
+              @click="((deciding = { item: row, decision: 'reject' }), (reason = ''))"
+            >
+              Bloquear
+            </AdminButton>
+          </div>
+        </template>
+      </AdminTable>
 
-    <UModal
-      :open="Boolean(withdrawal)"
-      title="Retirar asociación"
-      @update:open="(open) => !open && !withdrawing && (withdrawal = null)"
-    >
-      <template #body>
-        <p class="mb-4 text-sm">
-          Retira «{{ withdrawal?.publication.title }}» sin borrar el archivo ni el historial. El resto de asociaciones
-          no cambia.
-        </p>
-        <UFormField label="Motivo de retirada" required hint="Al menos 3 caracteres; queda registrado."
-          ><UTextarea v-model="withdrawalReason" maxlength="500" class="w-full"
-        /></UFormField>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" :disabled="withdrawing" @click="withdrawal = null">Cancelar</UButton>
-          <UButton
-            color="error"
-            :disabled="!canWithdraw || withdrawalReason.trim().length < 3"
-            :loading="withdrawing"
-            @click="withdraw"
-            >Retirar asociación</UButton
+      <MediaPublicationDialog
+        v-if="publicationAsset && canWithdraw"
+        :asset="publicationAsset"
+        @close="publicationAsset = null"
+        @published="publicationCreated"
+      />
+
+      <!-- Retirar asociación -->
+      <AdminConfirm
+        :open="Boolean(withdrawal)"
+        title="Retirar asociación"
+        confirm-label="Retirar asociación"
+        danger
+        :loading="withdrawing"
+        @update:open="(open) => !open && !withdrawing && (withdrawal = null)"
+        @confirm="withdraw"
+      >
+        <div class="adm-stack">
+          <p>
+            Retira «{{ withdrawal?.publication.title }}» sin borrar el archivo ni el historial. El resto de asociaciones
+            no cambia.
+          </p>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Motivo de retirada"
+            required
+            help="Al menos 3 caracteres. Queda anotado en el historial."
           >
+            <textarea :id="id" v-model="withdrawalReason" maxlength="500" rows="3" class="adm-input" />
+          </AdminFormField>
         </div>
-      </template>
-    </UModal>
+      </AdminConfirm>
 
-    <!-- Subida -->
-    <UModal v-model:open="uploadOpen" title="Subir archivo">
-      <template #body>
-        <form id="media-form" class="space-y-4" @submit.prevent="upload">
-          <UFormField label="Archivo" required hint="JPEG, PNG o PDF">
+      <!-- Subida -->
+      <AdminDrawer v-model:open="uploadOpen" title="Subir archivo">
+        <form id="media-form" class="adm-stack" @submit.prevent="upload">
+          <AdminFormField v-slot="{ id }" label="Archivo" required help="JPEG, PNG o PDF">
             <input
+              :id="id"
               type="file"
               accept="image/jpeg,image/png,application/pdf"
               required
               class="block w-full text-sm file:mr-3 file:rounded-[var(--radius-control)] file:border-0 file:bg-[var(--surface-sunken)] file:px-3 file:py-1.5 file:text-sm"
               @change="choose"
             />
-          </UFormField>
-          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Propietario o licenciante" required hint="De quién es la imagen">
-              <UInput v-model="form.ownerName" required class="w-full" />
-            </UFormField>
-            <UFormField label="Licencia o autorización" required>
-              <UInput
+          </AdminFormField>
+          <div class="adm-form-grid">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Propietario o licenciante"
+              required
+              help="De quién es la imagen"
+              data-field="Propietario o licenciante"
+            >
+              <input :id="id" v-model="form.ownerName" type="text" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Licencia o autorización"
+              required
+              data-field="Licencia o autorización"
+            >
+              <input
+                :id="id"
                 v-model="form.license"
+                type="text"
                 required
-                class="w-full"
                 placeholder="Cesión del proveedor, banco, propia…"
               />
-            </UFormField>
-            <UFormField label="Fecha de autorización" required>
-              <UInput v-model="form.authorizedAt" type="date" required class="w-full" />
-            </UFormField>
-            <UFormField label="Texto alternativo" hint="Obligatorio en imágenes, para accesibilidad">
-              <UInput v-model="form.altText" class="w-full" />
-            </UFormField>
-            <UFormField
-              label="Referencia de autorización"
-              :required="cloudflare"
-              hint="Documento, URL o referencia verificable de la licencia. No es una ruta pública del archivo."
-              class="sm:col-span-2"
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Fecha de autorización" required data-field="Fecha de autorización">
+              <input :id="id" v-model="form.authorizedAt" type="date" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Texto alternativo"
+              help="Describe la imagen. Obligatorio en imágenes."
+              data-field="Texto alternativo"
             >
-              <UInput v-model="form.source" :required="cloudflare" maxlength="1000" class="w-full" />
-            </UFormField>
+              <input :id="id" v-model="form.altText" type="text" />
+            </AdminFormField>
           </div>
-          <p class="text-sm text-[var(--text-muted)]">
-            El archivo entra en cuarentena. Publicarlo exige análisis de seguridad vigente, derechos aprobados y una
-            asociación explícita al producto. Subirlo o aprobar sus derechos no lo publica automáticamente.
+          <AdminFormField
+            v-slot="{ id }"
+            label="Referencia de autorización"
+            :required="cloudflare"
+            help="Documento, enlace o número de contrato que acredita la licencia."
+            data-field="Referencia de autorización"
+          >
+            <input :id="id" v-model="form.source" type="text" :required="cloudflare" maxlength="1000" />
+          </AdminFormField>
+          <p class="adm-help">
+            El archivo se analiza al subirlo. Para que se vea en la tienda hacen falta el análisis de seguridad
+            superado, los derechos aprobados y asociarlo a un producto. Subirlo no lo publica.
           </p>
         </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="uploadOpen = false">Cancelar</UButton>
-          <UButton type="submit" form="media-form" :loading="uploading" icon="i-lucide-upload">Subir</UButton>
-        </div>
-      </template>
-    </UModal>
+        <template #footer>
+          <AdminButton @click="uploadOpen = false">Cancelar</AdminButton>
+          <AdminButton variant="primary" type="submit" form="media-form" :loading="uploading" icon="i-lucide-upload">
+            Subir
+          </AdminButton>
+        </template>
+      </AdminDrawer>
 
-    <!-- Decisión de derechos -->
-    <UModal
-      :open="Boolean(deciding)"
-      :title="deciding?.decision === 'approve' ? 'Aprobar los derechos' : 'Bloquear el archivo'"
-      @update:open="(value) => !value && (deciding = null)"
-    >
-      <template #body>
-        <div v-if="deciding" class="space-y-4">
-          <p class="text-[var(--text)]">
+      <!-- Decisión de derechos -->
+      <AdminConfirm
+        :open="Boolean(deciding)"
+        :title="deciding?.decision === 'approve' ? 'Aprobar los derechos' : 'Bloquear el archivo'"
+        :confirm-label="deciding?.decision === 'approve' ? 'Aprobar' : 'Bloquear'"
+        :danger="deciding?.decision === 'reject'"
+        :loading="saving"
+        @update:open="(value) => !value && (deciding = null)"
+        @confirm="confirmDecision"
+      >
+        <div v-if="deciding" class="adm-stack">
+          <p>
             <strong>{{ deciding.item.originalName }}</strong>
             <template v-if="deciding.item.ownerName"> · {{ deciding.item.ownerName }}</template>
           </p>
-          <p class="text-sm text-[var(--text-muted)]">
+          <p class="adm-help">
             <template v-if="deciding.decision === 'approve'">
-              Aprobar los derechos no publica el archivo: siguen haciendo falta análisis vigente y asociación al
-              producto. Confirma que has revisado la autorización.
+              Aprobar los derechos no publica el archivo: siguen haciendo falta el análisis de seguridad superado y
+              asociarlo a un producto. Confirma que has revisado la autorización.
             </template>
             <template v-else>Quedará bloqueado y no podrá usarse en ninguna parte.</template>
           </p>
-          <UFormField
+          <AdminFormField
+            v-slot="{ id }"
             label="Motivo"
             required
-            hint="Queda en el registro de auditoría"
-            :error="reason.trim().length && reason.trim().length < 3 ? 'Al menos 3 caracteres.' : ''"
+            help="Al menos 3 caracteres. Queda anotado en el historial."
+            :error="reason.trim().length && reason.trim().length < 3 ? 'Al menos 3 caracteres.' : undefined"
           >
-            <UTextarea
+            <textarea
+              :id="id"
               v-model="reason"
-              class="w-full"
-              :rows="2"
+              rows="2"
+              class="adm-input"
               :placeholder="
                 deciding.decision === 'approve'
                   ? 'Contrato de cesión verificado con el proveedor'
                   : 'Sin autorización del titular'
               "
             />
-          </UFormField>
+          </AdminFormField>
         </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="deciding = null">Cancelar</UButton>
-          <UButton
-            :color="deciding?.decision === 'approve' ? 'primary' : 'error'"
-            :disabled="reason.trim().length < 3"
-            :loading="saving"
-            @click="confirmDecision"
-          >
-            {{ deciding?.decision === 'approve' ? 'Aprobar' : 'Bloquear' }}
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+      </AdminConfirm>
+    </div>
+  </AdminPage>
 </template>

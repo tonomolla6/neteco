@@ -1,10 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Revisión de Feeds de Proveedores · Admin' })
+useSeoMeta({ title: 'Tarifas de proveedores · Admin' })
 </script>
 
 <template>
-  <div class="p-6">
+  <AdminPage>
     <AdminSupplierFeedComparison />
-  </div>
+  </AdminPage>
 </template>

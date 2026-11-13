@@ -14,7 +14,7 @@ import {
 } from '~~/shared/catalog-publication-policy'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Políticas de catálogo · Admin' })
+useSeoMeta({ title: 'Reglas de publicación · Admin' })
 const runtime = useRuntimeConfig()
 const cloudflare = computed(() => runtime.public.serverRuntime === 'cloudflare')
 const FIELDS = REQUIRED_PUBLICATION_FIELDS
@@ -155,6 +155,7 @@ function list(value: unknown, page: number, perPage: number, code: string): List
       own(value.capabilities, ['publicationPoliciesWrite']) && value.capabilities.publicationPoliciesWrite === true
   }
 }
+const view = ref('list')
 const filter = ref('')
 const query = reactive({ code: '', page: 1 })
 const queryUrl = computed(
@@ -232,22 +233,22 @@ const busy = computed(
 const writable = computed(() => !!snapshot.value?.writable && !blocked.value && !busy.value && !command)
 const errors: Record<string, string> = {
   policy_in_use:
-    'No se puede retirar: hay productos publicados que usan esta política. Ocúltalos mediante su editor de estados antes de volver a revisar la retirada.',
-  version_conflict: 'La versión ha cambiado. Consulta de nuevo antes de preparar otro comando.',
+    'No se puede retirar: hay productos publicados que usan esta regla. Ocúltalos desde su ficha antes de volver a intentarlo.',
+  version_conflict: 'Alguien ha cambiado esta regla mientras tanto. Pulsa «Actualizar» antes de volver a intentarlo.',
   idempotency_conflict:
-    'La clave registrada no corresponde a este comando. Consulta de nuevo; no lo repitas con una clave distinta.',
-  forbidden: 'No tienes permiso para este cambio. Verifica tu acceso y consulta de nuevo.',
-  mfa_required: 'Verifica el segundo factor y consulta de nuevo.',
-  unauthenticated: 'Inicia sesión y consulta de nuevo.',
-  email_unverified: 'Verifica tu correo y consulta de nuevo.',
-  invalid_input: 'Revisa los campos y consulta de nuevo antes de preparar otro comando.',
-  conflict: 'El servidor ha rechazado el cambio. Consulta de nuevo.',
-  not_found: 'La política no está disponible. Consulta de nuevo.',
-  policy_unavailable: 'La política ya no está disponible. Consulta de nuevo.',
-  invalid_state: 'El estado actual no permite este cambio. Consulta de nuevo.',
-  csrf_rejected: 'El origen no está autorizado. Abre el panel desde su dirección correcta.',
-  rate_limited: 'Hay demasiados intentos. Espera antes de consultar de nuevo.',
-  body_too_large: 'La petición supera el tamaño permitido. Consulta de nuevo y reduce el texto.'
+    'Este cambio ya se había enviado con otros datos. Pulsa «Actualizar» y revisa la lista antes de repetirlo.',
+  forbidden: 'No tienes permiso para este cambio.',
+  mfa_required: 'Completa la verificación en dos pasos y vuelve a intentarlo.',
+  unauthenticated: 'Inicia sesión y vuelve a intentarlo.',
+  email_unverified: 'Verifica tu correo y vuelve a intentarlo.',
+  invalid_input: 'Revisa los campos y vuelve a intentarlo.',
+  conflict: 'No se ha podido guardar el cambio. Pulsa «Actualizar» y vuelve a intentarlo.',
+  not_found: 'Esta regla ya no está disponible. Pulsa «Actualizar».',
+  policy_unavailable: 'Esta regla ya no está disponible. Pulsa «Actualizar».',
+  invalid_state: 'La regla ya no admite este cambio. Pulsa «Actualizar».',
+  csrf_rejected: 'Abre el panel desde su dirección habitual y vuelve a intentarlo.',
+  rate_limited: 'Hay demasiados intentos. Espera un momento antes de volver a probar.',
+  body_too_large: 'El texto es demasiado largo. Acórtalo y vuelve a intentarlo.'
 }
 function authorized(value: Command) {
   return (
@@ -309,12 +310,12 @@ async function dispatch(intent: Command, replay: boolean) {
     command = null
     uncertain.value = false
     blocked.value = true
-    notice.value = 'Cambio registrado. La consulta actualizada, no el recibo, muestra la política vigente.'
+    notice.value = 'Cambio registrado. La lista ya muestra las reglas actualizadas.'
     await reload()
   } catch (cause) {
     if (request !== generation || !authorized(intent)) return
     if (!command) {
-      error.value = 'El cambio está registrado, pero falta actualizar la consulta. Consulta de nuevo.'
+      error.value = 'El cambio está registrado, pero la lista no se ha actualizado. Pulsa «Actualizar».'
       return
     }
     const code = (cause as { data?: { error?: { code?: unknown } } } | null)?.data?.error?.code
@@ -326,7 +327,7 @@ async function dispatch(intent: Command, replay: boolean) {
     } else {
       uncertain.value = true
       error.value =
-        'No se ha podido confirmar el resultado. Puedes reintentar exactamente el mismo comando; no se reenviará automáticamente.'
+        'No sabemos si el cambio se ha guardado. Puedes reintentar exactamente el mismo cambio; no se reenviará solo.'
     }
   } finally {
     saving.value = false
@@ -335,7 +336,7 @@ async function dispatch(intent: Command, replay: boolean) {
 async function readList(code = query.code, page = query.page) {
   if (!active || !cloudflare.value || busy.value || (command && !uncertain.value)) return
   if (code && !/^[a-z][a-z0-9_-]{0,63}$/.test(code)) {
-    error.value = 'El código del filtro no es válido.'
+    error.value = 'La clave buscada no es válida: usa minúsculas, números y guiones.'
     return
   }
   reading.value = true
@@ -350,7 +351,7 @@ async function readList(code = query.code, page = query.page) {
       withdrawConfirmed.value = false
     }
   } catch {
-    error.value = 'No se ha podido consultar el catálogo de políticas.'
+    error.value = 'No se han podido cargar las reglas.'
   } finally {
     reading.value = false
   }
@@ -368,7 +369,7 @@ async function reload() {
       lookupCode.value = ''
     }
   } catch {
-    error.value = 'No se ha podido actualizar la consulta.'
+    error.value = 'No se ha podido actualizar la lista.'
   } finally {
     reading.value = false
   }
@@ -380,7 +381,7 @@ async function lookup() {
   try {
     await refreshLatest()
   } catch {
-    error.value = 'No se ha podido consultar la última versión de este código.'
+    error.value = 'No se ha podido comprobar la última versión de esta clave.'
   } finally {
     reading.value = false
   }
@@ -401,7 +402,7 @@ async function createPolicy() {
     (form.validUntil && (!instant(form.validUntil) || form.validUntil <= form.validFrom)) ||
     form.confirmed !== true
   ) {
-    if (writable.value) error.value = 'Revisa los campos, la consulta de versión y la confirmación.'
+    if (writable.value) error.value = 'Revisa los campos, comprueba la clave y marca la confirmación.'
     return
   }
   const parsed = policyCreateInputSchema.safeParse({
@@ -416,7 +417,7 @@ async function createPolicy() {
     reason: form.reason
   })
   if (!parsed.success) {
-    error.value = 'Revisa los campos antes de preparar el comando.'
+    error.value = 'Revisa los campos antes de guardar.'
     return
   }
   try {
@@ -430,7 +431,7 @@ async function createPolicy() {
       payload: JSON.stringify(parsed.data)
     })
   } catch {
-    error.value = 'No se ha podido preparar una clave segura. No se ha enviado ningún cambio.'
+    error.value = 'No se ha podido preparar el envío. No se ha guardado ningún cambio.'
     return
   }
   await dispatch(command, false)
@@ -462,7 +463,7 @@ async function withdrawPolicy() {
       payload: JSON.stringify(parsed.data)
     })
   } catch {
-    error.value = 'No se ha podido preparar una clave segura. No se ha enviado ningún cambio.'
+    error.value = 'No se ha podido preparar el envío. No se ha guardado ningún cambio.'
     return
   }
   await dispatch(command, false)
@@ -495,231 +496,369 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl space-y-6">
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold">Políticas de publicación</h1>
-        <p class="mt-2 text-sm text-[var(--text-muted)]">
-          Reglas versionadas y retiradas auditadas. No sustituyen la revisión legal ni autorizan por sí solas una
-          publicación.
-        </p>
+  <AdminPage>
+    <template #actions>
+      <button v-if="cloudflare" type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="readList()">
+        <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+      </button>
+      <button v-if="snapshot?.writable" type="button" class="adm-btn adm-btn--primary" @click="view = 'create'">
+        <UIcon name="i-lucide-plus" class="size-4" />Nueva regla
+      </button>
+    </template>
+    <div class="adm-stack">
+      <div v-if="error" role="alert">
+        <UAlert color="error" variant="subtle" icon="i-lucide-triangle-alert" :description="error" />
       </div>
-      <UButton to="/admin/productos" color="neutral" variant="outline">Volver a productos</UButton>
-    </header>
-    <p v-if="!cloudflare" role="alert">Esta gestión sólo está disponible en el entorno Cloudflare.</p>
-    <p v-else-if="status === 'idle' || status === 'pending' || reading" role="status">Consultando políticas…</p>
-    <template v-else-if="snapshot">
-      <section class="rounded-xl border border-[var(--border)] bg-white p-5">
-        <form class="flex flex-wrap items-end gap-3" @submit.prevent="readList(filter, 1)">
-          <div class="flex-1">
-            <label for="policy-filter" class="block text-sm font-medium">Filtrar por código exacto</label
-            ><input
-              id="policy-filter"
-              v-model="filter"
-              class="mt-1 w-full rounded border p-2"
-              maxlength="64"
-              placeholder="Sin filtro"
-            />
-          </div>
-          <UButton type="submit" :disabled="busy">Consultar</UButton>
-        </form>
-        <p class="mt-3 text-sm">
-          {{ snapshot.pagination.total }} versiones · página {{ snapshot.pagination.page }} de
-          {{ snapshot.pagination.pages || 1 }} ·
-          <time :datetime="snapshot.evaluatedAt">{{ snapshot.evaluatedAt }}</time>
-        </p>
-        <p v-if="!snapshot.items.length" role="status" class="mt-4">No hay políticas en esta consulta.</p>
-        <ul v-else class="mt-4 divide-y divide-[var(--border)]">
-          <li v-for="item in snapshot.items" :key="item.id" class="py-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <h2 class="font-semibold">
-                {{ item.name }} <span class="text-sm font-normal">{{ item.code }} · v{{ item.version }}</span>
-              </h2>
-              <UBadge color="neutral">{{
-                item.withdrawn ? 'Retirada' : item.current ? 'Vigente' : 'No vigente'
-              }}</UBadge>
+      <div v-if="notice" role="status">
+        <UAlert color="success" variant="subtle" icon="i-lucide-circle-check" :description="notice" />
+      </div>
+      <p v-if="saving" role="status" class="adm-help">Guardando el cambio…</p>
+      <div v-if="cloudflare && uncertain">
+        <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy || !snapshot?.writable" @click="retry">
+          Reintentar exactamente el mismo cambio
+        </button>
+      </div>
+
+      <div v-if="!cloudflare" role="alert">
+        <AdminEmptyState
+          icon="i-lucide-shield-check"
+          title="Las reglas de publicación no están disponibles"
+          description="Esta instalación de la tienda no permite gestionarlas desde el panel."
+        />
+      </div>
+      <div
+        v-else-if="status === 'idle' || status === 'pending' || reading"
+        role="status"
+        class="adm-card adm-table-skeleton"
+        aria-busy="true"
+      >
+        <span class="sr-only">Cargando las reglas…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+      </div>
+      <template v-else-if="snapshot">
+        <AdminTabs
+          v-if="snapshot.writable"
+          v-model="view"
+          :tabs="[
+            { value: 'list', label: 'Reglas', count: snapshot.pagination.total },
+            { value: 'create', label: 'Nueva regla o versión' }
+          ]"
+          label="Apartados de las reglas de publicación"
+        />
+
+        <div v-show="view === 'list' || !snapshot.writable" class="adm-stack">
+          <div class="adm-card adm-tablecard">
+            <div class="adm-tablecard__bar">
+              <form class="adm-toolbar" role="search" @submit.prevent="readList(filter, 1)">
+                <label for="policy-filter" class="adm-toolbar__search">
+                  <span class="sr-only">Buscar por clave exacta</span>
+                  <UIcon name="i-lucide-search" class="size-4" />
+                  <input
+                    id="policy-filter"
+                    v-model="filter"
+                    type="search"
+                    maxlength="64"
+                    placeholder="Buscar por clave exacta…"
+                  />
+                </label>
+                <button type="submit" class="adm-btn adm-btn--secondary adm-btn--sm" :disabled="busy">Buscar</button>
+              </form>
             </div>
-            <p class="mt-2 text-sm">
-              {{ item.assignedProductCount }} productos asignados · {{ item.publishedProductCount }} publicados.
-              Vigencia: {{ item.validFrom }} — {{ item.validUntil || 'sin fin definido' }}.
-            </p>
-            <p class="mt-1 text-sm">
-              Campos: {{ item.requiredFields.map((field) => FIELD_LABELS[field]).join(', ') || 'ninguno' }}. Documentos:
-              {{ item.requiredMediaRoles.map((role) => ROLE_LABELS[role]).join(', ') || 'ninguno' }}. Excepciones de
-              identificador: {{ item.identifierExceptionsAllowed ? 'permitidas con evidencia' : 'no permitidas' }}.
-            </p>
-            <p v-if="item.publishedProductCount > 0 && !item.withdrawn" class="mt-2 text-sm">
-              Retirada bloqueada: oculta primero los productos publicados, mediante su editor de estados.
-            </p>
-            <UButton
-              v-if="snapshot.writable && !item.withdrawn"
-              type="button"
-              color="neutral"
-              variant="outline"
-              class="mt-2"
-              :aria-label="`Revisar retirada de ${item.name} (${item.code}, versión ${item.version})`"
-              :disabled="!writable || item.publishedProductCount > 0"
-              @click="reviewWithdrawal(item.id)"
-              >Revisar retirada</UButton
-            >
-          </li>
-        </ul>
-        <div class="mt-3 flex gap-2">
-          <UButton color="neutral" :disabled="busy || query.page <= 1" @click="readList(query.code, query.page - 1)"
-            >Anterior</UButton
-          ><UButton
-            color="neutral"
-            :disabled="busy || query.page >= snapshot.pagination.pages"
-            @click="readList(query.code, query.page + 1)"
-            >Siguiente</UButton
-          >
-        </div>
-      </section>
-      <section v-if="snapshot.writable" class="rounded-xl border border-[var(--border)] bg-white p-5">
-        <h2 class="text-lg font-semibold">Crear una versión revisada</h2>
-        <p class="mt-2 text-sm">
-          Cada código identifica una clasificación decidida explícitamente por el responsable. Las versiones existentes
-          y su auditoría se conservan.
-        </p>
-        <form class="mt-4 space-y-4" :aria-busy="saving" @submit.prevent="createPolicy">
-          <fieldset :disabled="!writable" class="space-y-4">
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label for="policy-code">Código de clasificación</label
-                ><input
-                  id="policy-code"
-                  v-model="form.code"
-                  required
-                  maxlength="64"
-                  class="mt-1 w-full rounded border p-2"
-                /><UButton
-                  type="button"
-                  color="neutral"
-                  class="mt-2"
-                  :disabled="!/^[a-z][a-z0-9_-]{0,63}$/.test(form.code)"
-                  @click="lookup"
-                  >Consultar última versión de este código</UButton
-                >
-                <p v-if="expectedVersion !== null" role="status" class="mt-2 text-sm">
-                  Última versión: {{ expectedVersion }}. Nueva versión: {{ expectedVersion + 1 }}.
-                </p>
-                <p v-else class="mt-2 text-sm">
-                  Consulta el código exacto antes de crear; el listado general no determina la última versión.
-                </p>
-              </div>
-              <div>
-                <label for="policy-name">Nombre de la política</label
-                ><input
-                  id="policy-name"
-                  v-model="form.name"
-                  required
-                  minlength="3"
-                  maxlength="160"
-                  class="mt-1 w-full rounded border p-2"
-                />
-              </div>
-            </div>
-            <fieldset>
-              <legend class="font-medium">Campos obligatorios</legend>
-              <label v-for="field in FIELDS" :key="field" class="mt-2 flex items-center gap-2 text-sm"
-                ><input v-model="form.requiredFields" type="checkbox" :value="field" />{{ FIELD_LABELS[field] }}</label
-              >
-            </fieldset>
-            <fieldset>
-              <legend class="font-medium">Roles documentales obligatorios</legend>
-              <div class="flex flex-wrap gap-4">
-                <label v-for="role in ROLES" :key="role" class="mt-2 flex items-center gap-2 text-sm"
-                  ><input v-model="form.requiredMediaRoles" type="checkbox" :value="role" />{{
-                    ROLE_LABELS[role]
-                  }}</label
-                >
-              </div>
-            </fieldset>
-            <div>
-              <label for="policy-exceptions">¿Permite excepciones de identificador con evidencia?</label
-              ><select id="policy-exceptions" v-model="form.exceptions" required class="mt-1 w-full rounded border p-2">
-                <option value="" disabled>Selecciona expresamente</option>
-                <option value="false">No</option>
-                <option value="true">Sí</option>
-              </select>
-            </div>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label for="policy-from">Vigente desde (UTC, segundos)</label
-                ><input
-                  id="policy-from"
-                  v-model="form.validFrom"
-                  required
-                  placeholder="2026-09-30T10:00:00Z"
-                  class="mt-1 w-full rounded border p-2"
-                />
-              </div>
-              <div>
-                <label for="policy-until">Vigente hasta (opcional, UTC)</label
-                ><input
-                  id="policy-until"
-                  v-model="form.validUntil"
-                  placeholder="2027-09-30T10:00:00Z"
-                  class="mt-1 w-full rounded border p-2"
-                />
-              </div>
-            </div>
-            <div>
-              <label for="policy-reason">Motivo de la nueva versión</label
-              ><input
-                id="policy-reason"
-                v-model="form.reason"
-                required
-                minlength="10"
-                maxlength="500"
-                class="mt-1 w-full rounded border p-2"
+            <div v-if="!snapshot.items.length" role="status">
+              <AdminEmptyState
+                :variant="query.code ? 'filtered' : 'empty'"
+                icon="i-lucide-shield-check"
+                title="No hay reglas en esta consulta"
+                :description="
+                  query.code
+                    ? 'Ninguna regla tiene exactamente esa clave. Borra la búsqueda para verlas todas.'
+                    : 'Crea la primera regla para decidir qué debe tener una ficha antes de publicarse.'
+                "
               />
             </div>
-            <label class="flex items-start gap-2 text-sm"
-              ><input v-model="form.confirmed" type="checkbox" required class="mt-1" />He revisado la clasificación, los
-              requisitos y la vigencia. Esto no constituye una aprobación legal ni publica productos.</label
-            ><UButton type="submit" :disabled="expectedVersion === null || !form.confirmed" :loading="saving"
-              >Crear versión de política</UButton
-            >
-          </fieldset>
-        </form>
-        <form v-if="selectedWithdrawal" class="mt-6 space-y-3 border-t pt-4" @submit.prevent="withdrawPolicy">
-          <fieldset :disabled="!writable" class="space-y-3">
-            <legend class="font-semibold">
-              Confirmar retirada de {{ selectedWithdrawal.name }} ({{ selectedWithdrawal.code }}, versión
-              {{ selectedWithdrawal.version }})
-            </legend>
-            <label for="policy-withdraw-reason">Motivo de retirada</label
-            ><input
-              id="policy-withdraw-reason"
-              v-model="withdrawReason"
-              required
-              minlength="10"
-              maxlength="500"
-              class="w-full rounded border p-2"
-            /><label class="flex items-start gap-2 text-sm"
-              ><input v-model="withdrawConfirmed" required type="checkbox" class="mt-1" />Confirmo la retirada; se
-              conserva el historial y no se ocultan productos automáticamente.</label
-            ><UButton type="submit" color="neutral" :disabled="!withdrawConfirmed" :loading="saving"
-              >Retirar política</UButton
-            >
-          </fieldset>
-        </form>
-      </section>
-    </template>
-    <p v-else-if="cloudflare" role="alert">
-      No se ha podido confirmar una consulta privada válida. Revisa tu permiso catalog.publish y la verificación en dos
-      pasos; no se muestran datos guardados.
-    </p>
-    <p v-if="error" role="alert" class="text-sm text-red-700">{{ error }}</p>
-    <p v-if="notice" role="status" class="text-sm">{{ notice }}</p>
-    <p v-if="saving" role="status">Registrando el comando…</p>
-    <div v-if="cloudflare" class="flex flex-wrap gap-2">
-      <UButton v-if="uncertain" type="button" color="neutral" :disabled="busy || !snapshot?.writable" @click="retry"
-        >Reintentar exactamente el mismo comando</UButton
-      ><UButton type="button" color="neutral" variant="outline" :disabled="busy" @click="readList()"
-        >Consultar de nuevo</UButton
-      >
+            <div v-else class="adm-table-wrap">
+              <table class="adm-table">
+                <caption class="sr-only">
+                  Reglas de publicación
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Regla</th>
+                    <th scope="col">Qué exige</th>
+                    <th scope="col">Validez</th>
+                    <th scope="col" data-numeric>Productos</th>
+                    <th scope="col">Estado</th>
+                    <th v-if="snapshot.writable" scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in snapshot.items" :key="item.id">
+                    <td class="align-top">
+                      <h2 class="text-sm font-semibold text-[var(--text-strong)]">{{ item.name }}</h2>
+                      <p class="adm-help">Clave {{ item.code }} · versión {{ item.version }}</p>
+                    </td>
+                    <td class="min-w-56 align-top text-[0.8125rem] whitespace-normal">
+                      <p>
+                        <span class="text-[var(--text-muted)]">Datos:</span>
+                        {{ item.requiredFields.map((field) => FIELD_LABELS[field]).join(', ') || 'ninguno' }}
+                      </p>
+                      <p>
+                        <span class="text-[var(--text-muted)]">Documentos:</span>
+                        {{ item.requiredMediaRoles.map((role) => ROLE_LABELS[role]).join(', ') || 'ninguno' }}
+                      </p>
+                      <p class="adm-help">
+                        {{
+                          item.identifierExceptionsAllowed
+                            ? 'Admite productos sin código de barras si se justifica'
+                            : 'No admite productos sin código de barras'
+                        }}
+                      </p>
+                    </td>
+                    <td class="align-top text-[0.8125rem]">
+                      <time :datetime="item.validFrom">{{ adminDate(item.validFrom, true) }}</time>
+                      <p class="adm-help">
+                        <template v-if="item.validUntil">
+                          hasta <time :datetime="item.validUntil">{{ adminDate(item.validUntil, true) }}</time>
+                        </template>
+                        <template v-else>sin fecha de fin</template>
+                      </p>
+                    </td>
+                    <td data-numeric class="align-top">
+                      {{ item.assignedProductCount }}
+                      <p class="adm-help">{{ item.publishedProductCount }} publicados</p>
+                    </td>
+                    <td class="align-top">
+                      <AdminBadge :tone="item.withdrawn ? 'neutral' : item.current ? 'success' : 'warning'">{{
+                        item.withdrawn ? 'Retirada' : item.current ? 'Vigente' : 'No vigente'
+                      }}</AdminBadge>
+                    </td>
+                    <td v-if="snapshot.writable" data-numeric class="adm-table__actions align-top">
+                      <button
+                        v-if="!item.withdrawn"
+                        type="button"
+                        class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                        :aria-label="`Revisar retirada de ${item.name} (${item.code}, versión ${item.version})`"
+                        :disabled="!writable || item.publishedProductCount > 0"
+                        @click="reviewWithdrawal(item.id)"
+                      >
+                        Revisar retirada
+                      </button>
+                      <p
+                        v-if="item.publishedProductCount > 0 && !item.withdrawn"
+                        class="adm-help mt-1 max-w-56 text-right whitespace-normal"
+                      >
+                        Retirada bloqueada: oculta antes los productos publicados que la usan.
+                      </p>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="adm-pagination">
+              <p>
+                {{ snapshot.pagination.total }} {{ snapshot.pagination.total === 1 ? 'versión' : 'versiones' }} · página
+                {{ snapshot.pagination.page }} de {{ snapshot.pagination.pages || 1 }} · actualizado
+                <time :datetime="snapshot.evaluatedAt">{{ adminDate(snapshot.evaluatedAt, true) }}</time>
+              </p>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :disabled="busy || query.page <= 1"
+                  @click="readList(query.code, query.page - 1)"
+                >
+                  <UIcon name="i-lucide-chevron-left" class="size-4" />Anterior
+                </button>
+                <button
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :disabled="busy || query.page >= snapshot.pagination.pages"
+                  @click="readList(query.code, query.page + 1)"
+                >
+                  Siguiente<UIcon name="i-lucide-chevron-right" class="size-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <AdminCard v-if="snapshot.writable && selectedWithdrawal" title="Retirar una regla">
+            <form class="adm-stack" @submit.prevent="withdrawPolicy">
+              <fieldset :disabled="!writable" class="adm-stack">
+                <legend class="mb-3 text-sm font-semibold text-[var(--text-strong)]">
+                  Confirmar retirada de {{ selectedWithdrawal.name }} ({{ selectedWithdrawal.code }}, versión
+                  {{ selectedWithdrawal.version }})
+                </legend>
+                <div class="adm-field">
+                  <label for="policy-withdraw-reason" class="adm-label">Motivo de la retirada</label>
+                  <input
+                    id="policy-withdraw-reason"
+                    v-model="withdrawReason"
+                    required
+                    minlength="10"
+                    maxlength="500"
+                    class="adm-input w-full"
+                  />
+                  <p class="adm-help">Entre 10 y 500 caracteres. Queda guardado en el historial.</p>
+                </div>
+                <label class="adm-check"
+                  ><input v-model="withdrawConfirmed" required type="checkbox" />Confirmo la retirada. Se conserva el
+                  historial y no se oculta ningún producto automáticamente.</label
+                >
+                <div class="flex flex-wrap justify-end gap-2">
+                  <button type="button" class="adm-btn adm-btn--secondary" @click="withdrawal = ''">Cancelar</button>
+                  <button
+                    type="submit"
+                    class="adm-btn adm-btn--danger"
+                    :disabled="!withdrawConfirmed || saving"
+                    :aria-busy="saving"
+                  >
+                    Retirar regla
+                  </button>
+                </div>
+              </fieldset>
+            </form>
+          </AdminCard>
+        </div>
+
+        <AdminCard
+          v-if="snapshot.writable"
+          v-show="view === 'create'"
+          title="Nueva regla o nueva versión"
+          description="Usa una clave nueva para crear una regla, o la clave de una existente para sustituirla por una versión nueva. Las versiones anteriores se conservan."
+        >
+          <form id="policy-create-form" class="adm-stack" :aria-busy="saving" @submit.prevent="createPolicy">
+            <fieldset :disabled="!writable" class="adm-stack">
+              <div class="adm-form-grid">
+                <div class="adm-field">
+                  <label for="policy-code" class="adm-label">Clave de la regla</label>
+                  <div class="flex flex-wrap gap-2">
+                    <input
+                      id="policy-code"
+                      v-model="form.code"
+                      required
+                      maxlength="64"
+                      class="adm-input min-w-0 flex-1"
+                    />
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--secondary"
+                      :disabled="!/^[a-z][a-z0-9_-]{0,63}$/.test(form.code)"
+                      @click="lookup"
+                    >
+                      Comprobar clave
+                    </button>
+                  </div>
+                  <p v-if="expectedVersion !== null" role="status" class="adm-help">
+                    Última versión: {{ expectedVersion }}. Nueva versión: {{ expectedVersion + 1 }}.
+                  </p>
+                  <p v-else class="adm-help">
+                    Solo minúsculas, números y guiones. Consulta el código exacto antes de crear: así sabremos qué
+                    versión toca.
+                  </p>
+                </div>
+                <div class="adm-field">
+                  <label for="policy-name" class="adm-label">Nombre de la regla</label>
+                  <input
+                    id="policy-name"
+                    v-model="form.name"
+                    required
+                    minlength="3"
+                    maxlength="160"
+                    class="adm-input w-full"
+                  />
+                </div>
+              </div>
+              <fieldset>
+                <legend class="adm-label">Datos obligatorios en la ficha</legend>
+                <div class="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+                  <label v-for="field in FIELDS" :key="field" class="adm-check"
+                    ><input v-model="form.requiredFields" type="checkbox" :value="field" />{{
+                      FIELD_LABELS[field]
+                    }}</label
+                  >
+                </div>
+              </fieldset>
+              <fieldset>
+                <legend class="adm-label">Documentos obligatorios</legend>
+                <div class="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+                  <label v-for="role in ROLES" :key="role" class="adm-check"
+                    ><input v-model="form.requiredMediaRoles" type="checkbox" :value="role" />{{
+                      ROLE_LABELS[role]
+                    }}</label
+                  >
+                </div>
+              </fieldset>
+              <div class="adm-form-grid">
+                <div class="adm-field">
+                  <label for="policy-exceptions" class="adm-label"
+                    >¿Admite productos sin código de barras si se justifica?</label
+                  >
+                  <select id="policy-exceptions" v-model="form.exceptions" required class="adm-input w-full">
+                    <option value="" disabled>Elige una opción</option>
+                    <option value="false">No</option>
+                    <option value="true">Sí</option>
+                  </select>
+                </div>
+                <div class="adm-field">
+                  <label for="policy-from" class="adm-label">Válida desde</label>
+                  <input
+                    id="policy-from"
+                    v-model="form.validFrom"
+                    required
+                    placeholder="2026-09-30T10:00:00Z"
+                    class="adm-input w-full"
+                  />
+                  <p class="adm-help">Fecha y hora universal (UTC), con este formato: 2026-09-30T10:00:00Z</p>
+                </div>
+                <div class="adm-field">
+                  <label for="policy-until" class="adm-label">Válida hasta (opcional)</label>
+                  <input
+                    id="policy-until"
+                    v-model="form.validUntil"
+                    placeholder="2027-09-30T10:00:00Z"
+                    class="adm-input w-full"
+                  />
+                  <p class="adm-help">Déjalo vacío si no tiene fecha de fin.</p>
+                </div>
+              </div>
+              <div class="adm-field">
+                <label for="policy-reason" class="adm-label">Motivo del cambio</label>
+                <input
+                  id="policy-reason"
+                  v-model="form.reason"
+                  required
+                  minlength="10"
+                  maxlength="500"
+                  class="adm-input w-full"
+                />
+                <p class="adm-help">Entre 10 y 500 caracteres. Queda guardado en el historial.</p>
+              </div>
+              <label class="adm-check"
+                ><input v-model="form.confirmed" type="checkbox" required />He revisado los requisitos y las fechas.
+                Guardar la regla no publica ningún producto ni sustituye la revisión legal.</label
+              >
+              <div class="flex flex-wrap justify-end gap-2">
+                <button type="button" class="adm-btn adm-btn--secondary" @click="view = 'list'">Cancelar</button>
+                <button
+                  type="submit"
+                  class="adm-btn adm-btn--primary"
+                  :disabled="expectedVersion === null || !form.confirmed || saving"
+                  :aria-busy="saving"
+                >
+                  Guardar regla
+                </button>
+              </div>
+            </fieldset>
+          </form>
+        </AdminCard>
+      </template>
+      <div v-else-if="cloudflare" role="alert">
+        <AdminEmptyState
+          variant="error"
+          title="No se han podido cargar las reglas"
+          description="Comprueba que tu usuario puede publicar el catálogo y que has pasado la verificación en dos pasos, y pulsa «Actualizar»."
+        />
+      </div>
     </div>
-  </div>
+  </AdminPage>
 </template>

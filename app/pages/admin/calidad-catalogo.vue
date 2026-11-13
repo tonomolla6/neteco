@@ -20,14 +20,16 @@ function openProduct(productId: number | string) {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-semibold">Calidad del catálogo</h1>
-      <p class="text-sm text-muted">
-        Productos ordenados por puntuación y revisión más antigua: campos, atributos, imágenes y documentos que faltan.
-      </p>
-    </header>
-    <AdminCatalogQualityQueue v-if="cloudflare" :categories="categories" @select-product="openProduct" />
-    <p v-else role="status">La cola de calidad sólo está disponible en el runtime Cloudflare.</p>
-  </div>
+  <AdminPage>
+    <div class="adm-stack">
+      <AdminCatalogQualityQueue v-if="cloudflare" :categories="categories" @select-product="openProduct" />
+      <div v-else role="status">
+        <AdminEmptyState
+          icon="i-lucide-badge-check"
+          title="La revisión de calidad no está disponible"
+          description="Esta instalación de la tienda no permite revisar la calidad de las fichas desde el panel."
+        />
+      </div>
+    </div>
+  </AdminPage>
 </template>

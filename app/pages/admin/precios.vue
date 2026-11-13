@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import type { Column } from '~/components/ui/DataTable.vue'
 import GovernedPriceEditor from '~/components/GovernedPriceEditor.vue'
 import { catalogPriceListSchema } from '~~/shared/catalog-price-commands'
 
@@ -126,13 +125,16 @@ function upcoming(item: PriceItem) {
   if (cloudflare) return item.scheduled ?? undefined
   return item.history.filter(isUpcoming).sort((a, b) => a.validFrom.localeCompare(b.validFrom))[0]
 }
+const canManage = computed(
+  () => confirmedD1.value?.capabilities.priceSchedule === true || confirmedD1.value?.capabilities.priceCancel === true
+)
 const scheduledCount = computed(() => items.value.filter((item) => upcoming(item)).length)
 
-const columns = computed<Column<PriceItem>[]>(() => [
+const columns = computed(() => [
   { key: 'product', label: 'Referencia' },
   { key: 'grossCents', label: 'Precio actual', numeric: true },
-  { key: 'referenceGrossCents30d', label: 'Ref. 30 días', numeric: true, hideOnMobile: !cloudflare },
-  { key: 'volumeTiers', label: 'Tramos', hideOnMobile: !cloudflare },
+  { key: 'referenceGrossCents30d', label: 'Mínimo 30 días', numeric: true, hideOnMobile: !cloudflare },
+  { key: 'volumeTiers', label: 'Por cantidad', hideOnMobile: !cloudflare },
   ...(canReadSchedules.value ? [{ key: 'scheduled', label: 'Programado' }] : [])
 ])
 
@@ -347,289 +349,271 @@ async function reloadList() {
 </script>
 
 <template>
-  <div>
-    <UiPageHeader
-      title="Tarifa"
-      :count="total"
-      :count-label="total === 1 ? 'referencia' : 'referencias'"
-      :description="
-        cloudflare
-          ? 'Consulta la tarifa vigente, las referencias de 30 días y el histórico disponible.'
-          : 'Programa vigencias sin despliegue, conserva la referencia de 30 días y define tramos por volumen.'
-      "
-    />
+  <AdminPage :count="total" :count-label="total === 1 ? 'referencia' : 'referencias'">
+    <div class="adm-stack">
+      <UAlert
+        v-if="cloudflare && !canRead && fetchStatus !== 'pending' && fetchStatus !== 'idle'"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se pueden consultar los precios"
+        description="Tu sesión no tiene acceso a la tarifa en este momento. Vuelve a iniciar sesión o pide acceso a un administrador."
+      />
+      <UAlert
+        v-else-if="cloudflare && canRead && !canManage"
+        color="info"
+        variant="subtle"
+        icon="i-lucide-eye"
+        title="Solo consulta"
+        description="Tu usuario puede ver la tarifa, pero no programar ni cancelar cambios de precio."
+      />
 
-    <UAlert
-      v-if="cloudflare"
-      class="mb-4"
-      color="info"
-      variant="subtle"
-      icon="i-lucide-info"
-      :title="canRead ? 'Tarifa D1 gobernada' : 'Consulta de precios no disponible'"
-      :description="
-        confirmedD1?.capabilities.priceSchedule || confirmedD1?.capabilities.priceCancel
-          ? 'La programación y cancelación requieren permiso administrativo vigente, segundo factor y auditoría. No modifican existencias ni publican productos.'
-          : 'Sólo consulta: tu sesión no dispone de permisos administrativos vigentes para modificar precios.'
-      "
-    />
-    <p v-if="cloudflare && canRead && data?.pricingInstant" class="mb-4 text-xs text-[var(--text-muted)]">
-      Tarifa evaluada el {{ stamp(data.pricingInstant) }}.
-    </p>
+      <UAlert
+        v-if="scheduledCount"
+        color="info"
+        variant="subtle"
+        icon="i-lucide-calendar-clock"
+        :title="`${scheduledCount} ${scheduledCount === 1 ? 'referencia tiene' : 'referencias tienen'} un cambio de precio programado${cloudflare ? ' en esta página' : ''}`"
+        description="El nuevo precio se aplicará solo en la fecha indicada."
+      />
 
-    <UAlert
-      v-if="scheduledCount"
-      class="mb-4"
-      color="info"
-      variant="subtle"
-      icon="i-lucide-calendar-clock"
-      :title="`${scheduledCount} ${scheduledCount === 1 ? 'referencia tiene' : 'referencias tienen'} un cambio de precio programado${cloudflare ? ' en esta página' : ''}`"
-      :description="
-        cloudflare
-          ? 'Cambios aprobados existentes, según el instante del servidor. La gestión requiere permiso administrativo vigente.'
-          : 'Entrarán en vigor solas, sin desplegar nada.'
-      "
-    />
-
-    <UiDataTable
-      :rows="paged"
-      :columns="columns"
-      :row-key="(row) => row.variantId"
-      :status="
-        fetchStatus === 'pending' || fetchStatus === 'idle'
-          ? 'pending'
-          : fetchStatus === 'error' || (cloudflare && !canRead)
-            ? 'error'
-            : 'idle'
-      "
-      :total="total"
-      :page="page"
-      :per-page="perPage"
-      search-placeholder="Buscar por producto o referencia"
-      empty-title="No hay referencias con precio"
-      :empty-description="
-        cloudflare
-          ? 'Las referencias no descatalogadas con un precio vigente aparecerán aquí cuando la consulta esté disponible.'
-          : 'Las referencias publicadas con precio vigente aparecerán aquí.'
-      "
-      error-message="No hemos podido cargar la tarifa."
-      @search="(value) => (query = value)"
-      @update:page="(value) => (page = value)"
-      @retry="reloadList"
-    >
-      <template #cell-product="{ row }">
-        <p class="font-medium text-[var(--text-strong)]">{{ row.product }}</p>
-        <p class="text-xs text-[var(--text-muted)]">
-          {{ row.format }} · <span class="font-mono">{{ row.sku }}</span>
-        </p>
-      </template>
-
-      <template #cell-grossCents="{ row }">
-        <span class="font-semibold">{{ displayPrice(row.grossCents, row.currency) }}</span>
-        <p v-if="cloudflare" class="text-xs text-[var(--text-muted)]">
-          {{ row.validFrom ? `Desde ${stamp(row.validFrom)}` : 'Precio base sin fecha de vigencia registrada' }}
-        </p>
-        <p v-if="row.compareAtGrossCents" class="text-xs text-[var(--text-muted)]">
-          antes <s>{{ displayPrice(row.compareAtGrossCents, row.currency) }}</s>
-        </p>
-      </template>
-
-      <template #cell-referenceGrossCents30d="{ row }">
-        <span class="text-[var(--text-muted)]">
-          {{ row.referenceGrossCents30d ? displayPrice(row.referenceGrossCents30d, row.currency) : '—' }}
-        </span>
-      </template>
-
-      <template #cell-volumeTiers="{ row }">
-        <span v-if="!row.volumeTiers.length" class="text-[var(--text-muted)]">—</span>
-        <UBadge v-else color="success" variant="subtle">
-          {{ row.volumeTiers.length }} {{ row.volumeTiers.length === 1 ? 'tramo' : 'tramos' }}
-        </UBadge>
-        <ul v-if="cloudflare && row.volumeTiers.length" class="mt-1 text-xs text-[var(--text-muted)]">
-          <li v-for="tier in row.volumeTiers" :key="tier.minimumQuantity">
-            ≥ {{ tier.minimumQuantity }}: {{ displayPrice(tier.unitGrossCents, row.currency) }}/ud
-          </li>
-        </ul>
-      </template>
-
-      <template #cell-scheduled="{ row }">
-        <template v-if="upcoming(row)">
-          <UBadge color="warning" variant="subtle">{{ displayPrice(upcoming(row)!.grossCents, row.currency) }}</UBadge>
-          <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ stamp(upcoming(row)!.validFrom) }}</p>
+      <AdminTable
+        v-model:page="page"
+        :rows="paged"
+        :columns="columns"
+        :row-key="(row) => row.variantId"
+        :status="
+          fetchStatus === 'pending' || fetchStatus === 'idle'
+            ? 'pending'
+            : fetchStatus === 'error' || (cloudflare && !canRead)
+              ? 'error'
+              : 'idle'
+        "
+        :total="total"
+        :per-page="perPage"
+        :filtered="Boolean(query)"
+        empty-title="No hay referencias con precio"
+        empty-description="Las referencias con un precio en vigor aparecerán aquí."
+        empty-icon="i-lucide-tag"
+        error-message="No hemos podido cargar la tarifa."
+        caption="Tarifa de precios por referencia"
+        @retry="reloadList"
+        @clear-filters="query = ''"
+      >
+        <template #toolbar>
+          <AdminToolbar
+            v-model:search="query"
+            placeholder="Buscar por producto o referencia"
+            search-label="Buscar en la tarifa"
+          >
+            <template v-if="cloudflare && canRead && data?.pricingInstant" #actions>
+              <span class="text-xs text-[var(--text-muted)]">Precios a {{ stamp(data.pricingInstant) }}</span>
+            </template>
+          </AdminToolbar>
         </template>
-        <span v-else class="text-[var(--text-muted)]">—</span>
-      </template>
 
-      <template #row-actions="{ row }">
-        <div class="flex justify-end gap-1">
-          <UButton
-            v-if="canReadHistory"
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-history"
-            @click="viewHistory(row)"
-          >
-            <span class="sr-only">Ver histórico de {{ row.sku }}</span>
-          </UButton>
-          <UButton
-            v-if="node"
-            size="xs"
-            color="neutral"
-            variant="outline"
-            icon="i-lucide-calendar-plus"
-            @click="startSchedule(row)"
-          >
-            Programar
-          </UButton>
-          <UButton
-            v-if="cloudflare && (confirmedD1?.capabilities.priceSchedule || confirmedD1?.capabilities.priceCancel)"
-            size="xs"
-            color="neutral"
-            variant="outline"
-            @click="openGoverned(row)"
-            >Gestionar vigencias</UButton
-          >
-        </div>
-      </template>
-    </UiDataTable>
+        <template #cell-product="{ row }">
+          <p class="font-medium text-[var(--text-strong)]">{{ row.product }}</p>
+          <p class="text-xs text-[var(--text-muted)]">
+            {{ row.format }} · <span class="font-mono">{{ row.sku }}</span>
+          </p>
+        </template>
 
-    <!-- Programar vigencia -->
-    <UModal
-      v-if="node"
-      :open="Boolean(editing)"
-      title="Programar un precio"
-      @update:open="(value) => !value && (editing = null)"
-    >
-      <template #body>
-        <form v-if="editing" id="price-form" class="space-y-5" @submit.prevent="schedule">
-          <div>
-            <p class="font-semibold text-[var(--text-strong)]">{{ editing.product }}</p>
-            <p class="text-sm text-[var(--text-muted)]">
-              {{ editing.format }} · <span class="font-mono">{{ editing.sku }}</span> · ahora
-              <span class="tabular font-semibold">{{ formatPrice(editing.grossCents) }}</span>
-            </p>
+        <template #cell-grossCents="{ row }">
+          <span class="font-semibold text-[var(--text-strong)]">{{ displayPrice(row.grossCents, row.currency) }}</span>
+          <p v-if="row.compareAtGrossCents" class="text-xs text-[var(--text-muted)]">
+            antes <s>{{ displayPrice(row.compareAtGrossCents, row.currency) }}</s>
+          </p>
+          <p v-if="cloudflare" class="text-xs text-[var(--text-muted)]">
+            {{ row.validFrom ? `Desde ${stamp(row.validFrom)}` : 'Precio base sin fecha de vigencia registrada' }}
+          </p>
+        </template>
+
+        <template #cell-referenceGrossCents30d="{ row }">
+          <span class="text-[var(--text-muted)]">
+            {{ row.referenceGrossCents30d ? displayPrice(row.referenceGrossCents30d, row.currency) : '—' }}
+          </span>
+        </template>
+
+        <template #cell-volumeTiers="{ row }">
+          <span v-if="!row.volumeTiers.length" class="text-[var(--text-muted)]">—</span>
+          <AdminBadge v-else tone="success">
+            {{ row.volumeTiers.length }} {{ row.volumeTiers.length === 1 ? 'tramo' : 'tramos' }}
+          </AdminBadge>
+          <ul v-if="cloudflare && row.volumeTiers.length" class="mt-1 text-xs text-[var(--text-muted)]">
+            <li v-for="tier in row.volumeTiers" :key="tier.minimumQuantity">
+              ≥ {{ tier.minimumQuantity }}: {{ displayPrice(tier.unitGrossCents, row.currency) }}/ud
+            </li>
+          </ul>
+        </template>
+
+        <template #cell-scheduled="{ row }">
+          <template v-if="upcoming(row)">
+            <AdminBadge tone="warning">{{ displayPrice(upcoming(row)!.grossCents, row.currency) }}</AdminBadge>
+            <p class="mt-0.5 text-xs text-[var(--text-muted)]">{{ stamp(upcoming(row)!.validFrom) }}</p>
+          </template>
+          <span v-else class="text-[var(--text-muted)]">—</span>
+        </template>
+
+        <template #actions="{ row }">
+          <div class="flex justify-end gap-1">
+            <AdminButton
+              v-if="canReadHistory"
+              variant="ghost"
+              size="sm"
+              icon="i-lucide-history"
+              :label="`Ver histórico de ${row.sku}`"
+              @click="viewHistory(row)"
+            />
+            <AdminButton v-if="node" size="sm" icon="i-lucide-calendar-plus" @click="startSchedule(row)">
+              Programar
+            </AdminButton>
+            <AdminButton v-if="cloudflare && canManage" size="sm" @click="openGoverned(row)">
+              Gestionar vigencias
+            </AdminButton>
+          </div>
+        </template>
+      </AdminTable>
+
+      <!-- Programar un precio -->
+      <AdminDrawer
+        v-if="node"
+        :open="Boolean(editing)"
+        title="Programar un precio"
+        :description="editing ? `${editing.product} · ${editing.format}` : undefined"
+        @update:open="(value) => !value && (editing = null)"
+      >
+        <form v-if="editing" id="price-form" class="adm-stack" @submit.prevent="schedule">
+          <p class="text-sm text-[var(--text-muted)]">
+            Referencia <span class="font-mono">{{ editing.sku }}</span> · precio actual
+            <strong class="tabular-nums text-[var(--text-strong)]">{{ formatPrice(editing.grossCents) }}</strong>
+          </p>
+
+          <div class="adm-form-grid">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Nuevo precio (IVA incluido)"
+              data-field="Nuevo precio (IVA incluido)"
+              required
+            >
+              <input :id="id" v-model.number="form.gross" type="number" min="0.01" step="0.01" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Precio anterior"
+              data-field="Precio anterior"
+              help="Para mostrarlo tachado. Opcional."
+            >
+              <input :id="id" v-model.number="form.compareAt" type="number" min="0.01" step="0.01" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Vigente desde" data-field="Vigente desde" required>
+              <input :id="id" v-model="form.validFrom" type="datetime-local" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Motivo"
+              data-field="Motivo"
+              required
+              help="Queda anotado en el historial."
+            >
+              <input :id="id" v-model="form.reason" type="text" required placeholder="Campaña, tarifa de proveedor…" />
+            </AdminFormField>
           </div>
 
-          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Nuevo precio (IVA incluido)" required>
-              <UInput v-model.number="form.gross" type="number" min="0.01" step="0.01" required class="w-full" />
-            </UFormField>
-            <UFormField label="Precio anterior" hint="Para mostrar el tachado. Opcional.">
-              <UInput v-model.number="form.compareAt" type="number" min="0.01" step="0.01" class="w-full" />
-            </UFormField>
-            <UFormField label="Vigente desde" required>
-              <UInput v-model="form.validFrom" type="datetime-local" required class="w-full" />
-            </UFormField>
-            <UFormField label="Motivo" required hint="Queda en la auditoría">
-              <UInput v-model="form.reason" required placeholder="Campaña, tarifa de proveedor…" class="w-full" />
-            </UFormField>
-          </div>
-
-          <div>
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-[var(--text-strong)]">Tramos por volumen</h3>
-              <UButton
-                type="button"
-                size="xs"
-                color="neutral"
-                variant="outline"
+          <AdminCard title="Precios por cantidad" description="«A partir de N unidades, X € por unidad».">
+            <template #actions>
+              <AdminButton
+                size="sm"
                 icon="i-lucide-plus"
                 @click="form.tiers.push({ minimumQuantity: null, unitGross: null })"
               >
                 Añadir tramo
-              </UButton>
-            </div>
-            <p class="mt-1 text-xs text-[var(--text-muted)]">
-              «A partir de N unidades, X €/ud». Es el argumento de venta en B2B y hoy no hay ninguna referencia que lo
-              use.
+              </AdminButton>
+            </template>
+            <p v-if="!form.tiers.length" class="adm-help">
+              Sin tramos: se cobra el mismo precio para cualquier cantidad.
             </p>
-            <div v-for="(tier, index) in form.tiers" :key="index" class="mt-2 flex items-end gap-2">
-              <UFormField label="Desde unidades" class="flex-1">
-                <UInput v-model.number="tier.minimumQuantity" type="number" min="1" required class="w-full" />
-              </UFormField>
-              <UFormField label="Precio unitario" class="flex-1">
-                <UInput v-model.number="tier.unitGross" type="number" min="0.01" step="0.01" required class="w-full" />
-              </UFormField>
-              <UButton
-                type="button"
-                color="error"
+            <div v-for="(tier, index) in form.tiers" :key="index" class="mb-2 flex items-end gap-2">
+              <AdminFormField v-slot="{ id }" label="Desde unidades" class="flex-1">
+                <input :id="id" v-model.number="tier.minimumQuantity" type="number" min="1" required />
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="Precio por unidad" class="flex-1">
+                <input :id="id" v-model.number="tier.unitGross" type="number" min="0.01" step="0.01" required />
+              </AdminFormField>
+              <AdminButton
                 variant="ghost"
                 icon="i-lucide-trash-2"
-                :aria-label="`Quitar el tramo ${index + 1}`"
+                :label="`Quitar el tramo ${index + 1}`"
                 @click="form.tiers.splice(index, 1)"
               />
             </div>
-          </div>
+          </AdminCard>
 
-          <div class="rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3 text-sm">
-            <span class="text-[var(--text-muted)]">Quedará en</span>
-            <strong class="tabular ml-1">{{ formatPrice(Math.round(Number(form.gross || 0) * 100)) }}</strong>
-            <span class="text-[var(--text-muted)]">
-              desde {{ form.validFrom ? stamp(form.validFrom) : '—' }}
-              <template v-if="form.tiers.length">
-                · {{ form.tiers.length }} {{ form.tiers.length === 1 ? 'tramo' : 'tramos' }}
-              </template>
-            </span>
-          </div>
+          <p class="rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3 text-sm text-[var(--text-muted)]">
+            Quedará en
+            <strong class="tabular-nums text-[var(--text-strong)]">{{
+              formatPrice(Math.round(Number(form.gross || 0) * 100))
+            }}</strong>
+            desde {{ form.validFrom ? stamp(form.validFrom) : '—' }}
+            <template v-if="form.tiers.length">
+              · {{ form.tiers.length }} {{ form.tiers.length === 1 ? 'tramo' : 'tramos' }}
+            </template>
+          </p>
         </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="editing = null">Cancelar</UButton>
-          <UButton type="submit" form="price-form" :loading="saving" icon="i-lucide-calendar-check">
+        <template #footer>
+          <AdminButton @click="editing = null">Cancelar</AdminButton>
+          <AdminButton
+            variant="primary"
+            type="submit"
+            form="price-form"
+            :loading="saving"
+            icon="i-lucide-calendar-check"
+          >
             Programar precio
-          </UButton>
-        </div>
-      </template>
-    </UModal>
+          </AdminButton>
+        </template>
+      </AdminDrawer>
 
-    <!-- Histórico -->
-    <UModal
-      :open="Boolean(viewing) && canReadHistory"
-      title="Histórico de precios"
-      @update:open="(value) => !value && closeHistory()"
-    >
-      <template #body>
-        <div v-if="viewing">
-          <p class="font-semibold text-[var(--text-strong)]">{{ viewing.product }}</p>
+      <!-- Histórico -->
+      <AdminDrawer
+        :open="Boolean(viewing) && canReadHistory"
+        title="Histórico de precios"
+        :description="viewing ? `${viewing.product} · ${viewing.format}` : undefined"
+        @update:open="(value) => !value && closeHistory()"
+      >
+        <div v-if="viewing" class="adm-stack">
           <p class="text-sm text-[var(--text-muted)]">
-            {{ viewing.format }} · <span class="font-mono">{{ viewing.sku }}</span>
+            Referencia <span class="font-mono">{{ viewing.sku }}</span>
           </p>
 
-          <p
-            v-if="cloudflare && historyStatus === 'pending'"
-            role="status"
-            class="mt-4 text-sm text-[var(--text-muted)]"
-          >
+          <p v-if="cloudflare && historyStatus === 'pending'" role="status" class="text-sm text-[var(--text-muted)]">
             Cargando el histórico…
           </p>
-          <div v-else-if="cloudflare && historyStatus === 'error'" role="alert" class="mt-4 space-y-3">
-            <p class="text-sm text-[var(--text-muted)]">No hemos podido cargar el histórico.</p>
-            <UButton color="neutral" variant="outline" icon="i-lucide-rotate-cw" @click="loadHistory()">
-              Reintentar histórico
-            </UButton>
+          <div v-else-if="cloudflare && historyStatus === 'error'" role="alert">
+            <AdminEmptyState variant="error" compact title="No hemos podido cargar el histórico">
+              <AdminButton icon="i-lucide-rotate-cw" @click="loadHistory()">Reintentar histórico</AdminButton>
+            </AdminEmptyState>
           </div>
-          <ul v-else-if="history.length" class="mt-4 divide-y divide-[var(--border)]">
-            <li v-for="version in history" :key="version.id" class="py-3">
+          <ul v-else-if="history.length" class="divide-y divide-[var(--border)]">
+            <li v-for="version in history" :key="version.id" class="py-3 first:pt-0">
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span class="tabular font-semibold text-[var(--text-strong)]">
+                <span class="font-semibold tabular-nums text-[var(--text-strong)]">
                   {{ displayPrice(version.grossCents, historyItem?.currency) }}
                 </span>
-                <UBadge
-                  variant="subtle"
-                  :color="version.status === 'cancelled' ? 'neutral' : isUpcoming(version) ? 'warning' : 'success'"
+                <AdminBadge
+                  :tone="version.status === 'cancelled' ? 'neutral' : isUpcoming(version) ? 'warning' : 'success'"
                 >
                   {{ version.status === 'cancelled' ? 'Cancelado' : isUpcoming(version) ? 'Programado' : 'Aplicado' }}
-                </UBadge>
-                <UButton
+                </AdminBadge>
+                <AdminButton
                   v-if="node && isUpcoming(version)"
-                  size="xs"
-                  color="error"
-                  variant="ghost"
+                  variant="danger-soft"
+                  size="sm"
+                  class="ml-auto"
                   @click="cancelling = version"
                 >
                   Cancelar
-                </UButton>
+                </AdminButton>
               </div>
               <p class="mt-0.5 text-sm text-[var(--text-muted)]">
                 {{ stamp(version.validFrom) }}
@@ -655,81 +639,86 @@ async function reloadList() {
               </ul>
             </li>
           </ul>
-          <p v-else class="mt-4 text-sm text-[var(--text-muted)]">
-            Esta referencia no tiene cambios de precio todavía.
-          </p>
+          <AdminEmptyState
+            v-else
+            compact
+            icon="i-lucide-history"
+            title="Esta referencia no tiene cambios de precio todavía"
+          />
 
-          <div v-if="cloudflare && historyPagination" class="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div v-if="cloudflare && historyPagination" class="flex flex-wrap items-center justify-between gap-3">
             <p class="text-xs text-[var(--text-muted)]">
               {{ historyPagination.total }} {{ historyPagination.total === 1 ? 'versión' : 'versiones' }} · página
               {{ historyPagination.page }} de
               {{ historyPagination.pages || 1 }}
             </p>
             <div class="flex gap-2">
-              <UButton
-                color="neutral"
-                variant="outline"
+              <AdminButton
+                size="sm"
                 :disabled="historyStatus === 'pending' || historyPagination.page <= 1"
                 @click="loadHistory(historyPagination!.page - 1)"
               >
                 Histórico anterior
-              </UButton>
-              <UButton
-                color="neutral"
-                variant="outline"
+              </AdminButton>
+              <AdminButton
+                size="sm"
                 :disabled="historyStatus === 'pending' || historyPagination.page >= historyPagination.pages"
                 @click="loadHistory(historyPagination!.page + 1)"
               >
                 Histórico siguiente
-              </UButton>
+              </AdminButton>
             </div>
           </div>
         </div>
-      </template>
-      <template #footer>
-        <UButton color="neutral" variant="ghost" @click="closeHistory()">Cerrar histórico</UButton>
-      </template>
-    </UModal>
+        <template #footer>
+          <AdminButton @click="closeHistory()">Cerrar histórico</AdminButton>
+        </template>
+      </AdminDrawer>
 
-    <!-- Cancelar programación -->
-    <UModal
-      v-if="node"
-      :open="Boolean(cancelling)"
-      title="Cancelar el precio programado"
-      @update:open="(value) => !value && (cancelling = null)"
-    >
-      <template #body>
-        <div v-if="cancelling" class="space-y-4">
-          <p class="text-[var(--text)]">
+      <!-- Cancelar un precio programado -->
+      <AdminConfirm
+        v-if="node"
+        :open="Boolean(cancelling)"
+        title="Cancelar el precio programado"
+        confirm-label="Cancelar programación"
+        cancel-label="Volver"
+        danger
+        :loading="saving"
+        @update:open="(value) => !value && (cancelling = null)"
+        @confirm="confirmCancel"
+      >
+        <div v-if="cancelling" class="adm-stack">
+          <p>
             No llegará a aplicarse el precio de
-            <strong class="tabular">{{ formatPrice(cancelling.grossCents) }}</strong> previsto para
-            {{ stamp(cancelling.validFrom) }}. El precio vigente se mantiene.
+            <strong class="tabular-nums">{{ formatPrice(cancelling.grossCents) }}</strong> previsto para
+            {{ stamp(cancelling.validFrom) }}. El precio actual se mantiene.
           </p>
-          <UFormField
+          <AdminFormField
+            v-slot="{ id }"
             label="Motivo"
             required
-            :error="cancelReason.trim().length && cancelReason.trim().length < 3 ? 'Al menos 3 caracteres.' : ''"
+            :error="cancelReason.trim().length && cancelReason.trim().length < 3 ? 'Al menos 3 caracteres.' : undefined"
           >
-            <UInput v-model="cancelReason" class="w-full" placeholder="Por ejemplo: la campaña se ha aplazado" />
-          </UFormField>
+            <input
+              :id="id"
+              v-model="cancelReason"
+              type="text"
+              class="adm-input"
+              placeholder="Por ejemplo: la campaña se ha aplazado"
+            />
+          </AdminFormField>
         </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="cancelling = null">Volver</UButton>
-          <UButton color="error" :disabled="cancelReason.trim().length < 3" :loading="saving" @click="confirmCancel">
-            Cancelar programación
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-    <UModal
-      v-if="cloudflare"
-      :open="!!governed"
-      title="Gestionar vigencias de precio"
-      @update:open="(value) => !value && (governed = null)"
-    >
-      <template #body>
+      </AdminConfirm>
+
+      <!-- Cambiar precio (programar o cancelar) -->
+      <AdminDrawer
+        v-if="cloudflare"
+        :open="!!governed"
+        title="Gestionar vigencias de precio"
+        description="Programa un precio nuevo o cancela uno que aún no ha entrado en vigor."
+        wide
+        @update:open="(value) => !value && (governed = null)"
+      >
         <GovernedPriceEditor
           v-if="governed"
           :key="governed.id"
@@ -738,12 +727,10 @@ async function reloadList() {
           :authorize="authorizePrice"
           :refresh-list="reloadList"
         />
-      </template>
-      <template #footer
-        ><UButton type="button" color="neutral" variant="ghost" @click="governed = null"
-          >Cerrar gestión de vigencias</UButton
-        ></template
-      >
-    </UModal>
-  </div>
+        <template #footer>
+          <AdminButton @click="governed = null">Cerrar</AdminButton>
+        </template>
+      </AdminDrawer>
+    </div>
+  </AdminPage>
 </template>

@@ -425,211 +425,258 @@ function valueLabel(value: string | boolean | null) {
 </script>
 
 <template>
-  <section
-    :aria-labelledby="`${prefix}-heading`"
-    :aria-busy="busy"
-    class="space-y-5 rounded-xl border border-slate-200 bg-white p-5"
-  >
-    <header class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h2 :id="`${prefix}-heading`" class="text-lg font-semibold text-slate-900">Importación editorial CSV</h2>
-        <p class="mt-1 max-w-3xl text-sm text-slate-600">
-          Revisa cambios en borradores existentes antes de aplicarlos. No se importan precios, stock, medios, estado ni
-          aprobaciones; no se publica ningún producto.
+  <section :aria-labelledby="`${prefix}-heading`" :aria-busy="busy" class="adm-card">
+    <header class="adm-card__head">
+      <div class="min-w-0">
+        <h2 :id="`${prefix}-heading`" class="adm-card__title">Actualizar textos desde un archivo</h2>
+        <p class="adm-card__hint">
+          Cambia de una vez el nombre, las descripciones, el uso, la serie y el destacado de productos en borrador. No
+          se importan precios, stock, imágenes ni estados, y no se publica ningún producto.
         </p>
       </div>
-      <UButton
+      <button
         v-if="enabled"
         data-editorial-template
         type="button"
-        variant="outline"
+        class="adm-btn adm-btn--secondary"
         :disabled="busy || !!intent"
         @click="downloadTemplate"
-        >{{ downloading ? 'Descargando…' : 'Descargar plantilla CSV' }}</UButton
       >
+        <UIcon name="i-lucide-download" class="size-4 shrink-0" />
+        {{ downloading ? 'Descargando…' : 'Descargar plantilla' }}
+      </button>
     </header>
-    <p v-if="!enabled" data-editorial-unavailable role="status" class="rounded-lg bg-slate-50 p-4 text-sm">
-      La importación requiere el backend Cloudflare y acceso actual habilitado. No está disponible en este contexto.
-    </p>
-    <template v-else>
-      <div class="rounded-lg border border-slate-200 p-4">
-        <h3 class="font-medium">1. Selecciona el archivo</h3>
-        <p :id="`${prefix}-format`" class="mt-1 text-sm text-slate-600">
-          CSV UTF-8 · hasta 1.000.000 bytes · máximo {{ MAX_PRODUCTS }} productos. Conserva los identificadores y las
-          versiones de la plantilla. XLSX no está admitido.
-        </p>
-        <details class="mt-2 text-sm">
-          <summary class="cursor-pointer text-slate-700">Ver las nueve columnas del perfil editorial v1</summary>
-          <code class="mt-2 block break-all text-xs">{{ EDITORIAL_CSV_COLUMNS.join(',') }}</code>
-        </details>
-        <label :for="`${prefix}-file`" class="mt-3 block text-sm font-medium">Archivo CSV</label>
-        <input
-          :id="`${prefix}-file`"
-          ref="fileInput"
-          data-editorial-file
-          type="file"
-          accept=".csv,text/csv"
-          :aria-describedby="`${prefix}-format`"
-          :disabled="!!intent || previewing || reading || writing || downloading"
-          class="mt-2 block max-w-full rounded border border-slate-300 p-2 text-sm"
-          @change="chooseFile"
-        />
-        <p v-if="filename" data-editorial-filename class="mt-2 break-all text-sm text-slate-700">{{ filename }}</p>
-        <p v-if="fileReading" role="status" class="mt-2 text-sm">Leyendo el archivo…</p>
-        <div class="mt-3 flex flex-wrap gap-2">
-          <UButton data-editorial-preview type="button" :disabled="!csv || busy || !!intent" @click="createPreview">{{
-            previewing ? 'Validando…' : 'Validar y previsualizar'
-          }}</UButton
-          ><UButton data-editorial-reset type="button" variant="ghost" :disabled="busy || !!intent" @click="clear"
-            >Limpiar selección</UButton
-          >
-        </div>
-      </div>
-      <p
-        v-if="feedback"
-        data-editorial-feedback
-        :role="readFailed || issues.length || intent ? 'alert' : 'status'"
-        aria-live="polite"
-        class="rounded-lg bg-slate-50 p-3 text-sm text-slate-800"
-      >
-        {{ feedback }}
+    <div class="adm-card__body adm-stack">
+      <p v-if="!enabled" data-editorial-unavailable role="status" class="adm-help">
+        Ahora mismo no puedes importar textos: hace falta una sesión de administrador verificada y que la importación
+        esté activada en esta tienda.
       </p>
-      <div v-if="issues.length" data-editorial-issues class="rounded-lg border border-amber-300 p-4">
-        <h3 class="font-medium">Corrige el archivo antes de continuar</h3>
-        <ul class="mt-2 space-y-2 text-sm">
-          <li v-for="(issue, index) in issues" :key="index">
-            <span v-if="issue.row">Fila {{ issue.row }} · </span><span v-if="issue.field">{{ issue.field }} · </span
-            >{{ issue.message }} <code class="text-xs">({{ issue.code }})</code>
-          </li>
-        </ul>
-      </div>
-      <div v-if="binding" class="flex flex-wrap items-center gap-3">
-        <UButton data-editorial-refresh type="button" variant="outline" :disabled="busy" @click="refresh">{{
-          reading ? 'Consultando…' : 'Consultar estado actual'
-        }}</UButton>
-        <p v-if="intent" data-editorial-uncertain class="text-sm text-amber-800">
-          Intento conservado sin reenvío. No prepares otra escritura hasta confirmar el resultado.
-        </p>
-      </div>
-      <div v-if="preview" data-editorial-diff class="space-y-4 rounded-lg border border-slate-200 p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h3 class="font-medium">2. Revisa las diferencias · {{ preview.products.length }} productos</h3>
-          <span data-editorial-status class="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium">{{
-            statuses[preview.status]
-          }}</span>
-        </div>
-        <p class="text-xs text-slate-600">
-          Creada: <time :datetime="preview.createdAt">{{ preview.createdAt }}</time> · Caducidad para aplicar:
-          <time :datetime="preview.expiresAt">{{ preview.expiresAt }}</time
-          >. Las versiones pertenecen al snapshot histórico, no garantizan el estado actual de los productos.
-        </p>
-        <details
-          v-for="(product, index) in preview.products"
-          :key="product.productId"
-          :open="index === 0"
-          class="rounded-lg border border-slate-200"
-        >
-          <summary class="cursor-pointer p-3 text-sm font-medium">
-            {{ product.after.name }} · ID {{ product.legacyId }} · versión {{ product.expectedVersion }}
-          </summary>
-          <div class="space-y-2 px-3 pb-3">
-            <p class="break-all text-xs text-slate-500">{{ product.productId }}</p>
-            <div class="overflow-x-auto">
-              <table class="w-full min-w-[480px] text-left text-sm">
-                <caption class="sr-only">
-                  Diferencias editoriales de
-                  {{
-                    product.after.name
-                  }}
-                </caption>
-                <thead>
-                  <tr class="border-b border-slate-200">
-                    <th scope="col" class="p-2">Campo</th>
-                    <th scope="col" class="p-2">Antes</th>
-                    <th scope="col" class="p-2">Propuesto</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="field in fields"
-                    :key="field"
-                    :data-editorial-changed="product.before[field] !== product.after[field]"
-                    class="border-b border-slate-100 align-top"
-                  >
-                    <th scope="row" class="p-2 font-medium">{{ labels[field] }}</th>
-                    <td class="w-2/5 p-2">
-                      <p class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
-                        {{ valueLabel(product.before[field]) }}
-                      </p>
-                    </td>
-                    <td class="w-2/5 p-2" :class="product.before[field] !== product.after[field] ? 'bg-blue-50' : ''">
-                      <p class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
-                        {{ valueLabel(product.after[field]) }}
-                      </p>
-                      <span v-if="product.before[field] === product.after[field]" class="text-xs text-slate-500"
-                        >Sin cambios</span
-                      >
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </details>
-        <p v-if="preview.status === 'expired'" role="status" class="text-sm text-amber-800">
-          Esta vista previa ha caducado. Crea otra con las versiones actuales; no se aplicará automáticamente.
-        </p>
-        <p v-if="preview.status === 'reverted'" role="status" class="text-sm text-slate-600">
-          Reversión registrada. Este historial no confirma que los productos permanezcan sin cambios posteriores.
-        </p>
-        <form
-          v-if="preview.status === 'pending' || preview.status === 'applied'"
-          class="space-y-3 border-t border-slate-200 pt-4"
-          @submit.prevent="submit(preview.status === 'pending' ? 'apply' : 'revert')"
-        >
-          <h3 class="font-medium">
-            3. {{ preview.status === 'pending' ? 'Confirma la importación' : 'Revisa la reversión' }}
-          </h3>
-          <p v-if="preview.status === 'applied'" class="text-sm text-slate-600">
-            La reversión restaura los seis valores anteriores, incluidos los vacíos. Si algún producto cambió después,
-            el backend rechazará la reversión completa.
+      <template v-else>
+        <div class="adm-field">
+          <h3 class="adm-label">1. Elige el archivo</h3>
+          <p :id="`${prefix}-format`" class="adm-help">
+            Archivo CSV UTF-8 de hasta 1 MB y {{ MAX_PRODUCTS }} productos como máximo. Parte de la plantilla y no
+            cambies sus columnas de identificador y versión. XLSX no está admitido.
           </p>
-          <label :for="`${prefix}-reason`" class="block text-sm font-medium"
-            >Motivo de {{ preview.status === 'pending' ? 'la aplicación' : 'la reversión' }}</label
-          >
-          <textarea
-            :id="`${prefix}-reason`"
-            v-model="reason"
-            data-editorial-reason
-            rows="3"
-            minlength="3"
-            maxlength="500"
-            required
-            :disabled="busy || !!intent"
-            class="block w-full rounded border border-slate-300 p-2 text-sm"
+          <details class="text-sm">
+            <summary class="cursor-pointer text-[var(--text-muted)]">
+              Ver las columnas que debe tener el archivo
+            </summary>
+            <code class="mt-2 block break-all text-xs">{{ EDITORIAL_CSV_COLUMNS.join(',') }}</code>
+          </details>
+          <label :for="`${prefix}-file`" class="adm-label mt-2">Archivo CSV</label>
+          <input
+            :id="`${prefix}-file`"
+            ref="fileInput"
+            data-editorial-file
+            type="file"
+            accept=".csv,text/csv"
+            :aria-describedby="`${prefix}-format`"
+            :disabled="!!intent || previewing || reading || writing || downloading"
+            class="block w-full max-w-md text-sm file:mr-3 file:rounded-[var(--radius-control)] file:border file:border-[var(--border-strong)] file:bg-[var(--surface)] file:px-3 file:py-1.5 file:text-sm file:font-medium"
+            @change="chooseFile"
           />
-          <label class="flex items-start gap-2 text-sm"
-            ><input
-              v-model="confirmed"
-              data-editorial-confirm
-              type="checkbox"
+          <p v-if="filename" data-editorial-filename class="break-all text-sm text-[var(--text-muted)]">
+            {{ filename }}
+          </p>
+          <p v-if="fileReading" role="status" class="adm-help">Leyendo el archivo…</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button
+              data-editorial-preview
+              type="button"
+              class="adm-btn adm-btn--primary"
+              :disabled="!csv || busy || !!intent"
+              @click="createPreview"
+            >
+              {{ previewing ? 'Revisando…' : 'Revisar cambios' }}
+            </button>
+            <button
+              data-editorial-reset
+              type="button"
+              class="adm-btn adm-btn--ghost"
               :disabled="busy || !!intent"
-              class="mt-1"
-            /><span
-              >He revisado todos los productos y los seis campos. Esta operación no modifica precios, stock, medios,
-              estados ni aprobaciones.</span
-            ></label
+              @click="clear"
+            >
+              Quitar archivo
+            </button>
+          </div>
+        </div>
+        <p
+          v-if="feedback"
+          data-editorial-feedback
+          :role="readFailed || issues.length || intent ? 'alert' : 'status'"
+          aria-live="polite"
+          class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-sm text-[var(--text-strong)]"
+        >
+          {{ feedback }}
+        </p>
+        <div
+          v-if="issues.length"
+          data-editorial-issues
+          class="rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-4"
+        >
+          <h3 class="adm-label">Corrige el archivo antes de continuar</h3>
+          <ul class="mt-2 list-disc space-y-1 pl-5 text-sm">
+            <li v-for="(issue, index) in issues" :key="index">
+              <span v-if="issue.row">Fila {{ issue.row }} · </span><span v-if="issue.field">{{ issue.field }} · </span
+              >{{ issue.message }}
+            </li>
+          </ul>
+        </div>
+        <div v-if="binding" class="flex flex-wrap items-center gap-3">
+          <button
+            data-editorial-refresh
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="busy"
+            @click="refresh"
           >
-          <UButton
-            data-editorial-apply
-            type="submit"
-            :disabled="!canSubmit(preview.status === 'pending' ? 'apply' : 'revert')"
-            >{{
-              preview.status === 'pending' ? 'Aplicar cambios editoriales' : 'Revertir cambios editoriales'
-            }}</UButton
+            {{ reading ? 'Consultando…' : 'Comprobar cómo ha quedado' }}
+          </button>
+          <p v-if="intent" data-editorial-uncertain class="adm-help">
+            No sabemos si el último envío llegó. Lo conservamos sin reenvío: comprueba cómo ha quedado antes de preparar
+            otro cambio.
+          </p>
+        </div>
+        <div v-if="preview" data-editorial-diff class="adm-stack border-t border-[var(--border)] pt-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="adm-label">
+              2. Revisa los cambios · {{ preview.products.length }}
+              {{ preview.products.length === 1 ? 'producto' : 'productos' }}
+            </h3>
+            <span
+              data-editorial-status
+              class="adm-badge"
+              :class="
+                preview.status === 'applied'
+                  ? 'adm-badge--success'
+                  : preview.status === 'pending'
+                    ? 'adm-badge--warning'
+                    : ''
+              "
+              >{{ statuses[preview.status] }}</span
+            >
+          </div>
+          <p class="adm-help">
+            Revisión preparada el
+            <time :datetime="preview.createdAt">{{ adminDate(preview.createdAt, true) }}</time> · se puede aplicar hasta
+            el <time :datetime="preview.expiresAt">{{ adminDate(preview.expiresAt, true) }}</time
+            >. Compara con los productos tal como estaban en ese momento, no con cambios posteriores.
+          </p>
+          <details
+            v-for="(product, index) in preview.products"
+            :key="product.productId"
+            :open="index === 0"
+            class="rounded-[var(--radius-surface)] border border-[var(--border)]"
           >
-        </form>
-      </div>
-    </template>
+            <summary class="cursor-pointer px-3 py-2 text-sm font-medium">
+              {{ product.after.name }}
+              <span class="font-normal text-[var(--text-muted)]">
+                · ref. {{ product.legacyId }} · versión {{ product.expectedVersion }}
+              </span>
+            </summary>
+            <div class="px-3 pb-3">
+              <div class="adm-table-wrap">
+                <table class="adm-table min-w-[480px]">
+                  <caption class="sr-only">
+                    Cambios de textos de
+                    {{
+                      product.after.name
+                    }}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Campo</th>
+                      <th scope="col">Antes</th>
+                      <th scope="col">Después</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="field in fields"
+                      :key="field"
+                      :data-editorial-changed="product.before[field] !== product.after[field]"
+                      class="align-top"
+                    >
+                      <th scope="row" class="font-medium">{{ labels[field] }}</th>
+                      <td class="w-2/5">
+                        <p class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
+                          {{ valueLabel(product.before[field]) }}
+                        </p>
+                      </td>
+                      <td class="w-2/5" :class="product.before[field] !== product.after[field] ? 'bg-neteco-50' : ''">
+                        <p class="max-h-40 overflow-y-auto whitespace-pre-wrap break-words">
+                          {{ valueLabel(product.after[field]) }}
+                        </p>
+                        <span v-if="product.before[field] === product.after[field]" class="adm-help">Sin cambios</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </details>
+          <p v-if="preview.status === 'expired'" role="status" class="adm-help">
+            Esta revisión ha caducado y no se aplicará. Vuelve a subir el archivo para preparar otra con los datos
+            actuales.
+          </p>
+          <p v-if="preview.status === 'reverted'" role="status" class="adm-help">
+            Los cambios se deshicieron. Los productos pueden tener cambios posteriores que no aparecen aquí.
+          </p>
+          <form
+            v-if="preview.status === 'pending' || preview.status === 'applied'"
+            class="adm-stack border-t border-[var(--border)] pt-4"
+            @submit.prevent="submit(preview.status === 'pending' ? 'apply' : 'revert')"
+          >
+            <h3 class="adm-label">
+              3. {{ preview.status === 'pending' ? 'Confirma los cambios' : 'Deshacer los cambios' }}
+            </h3>
+            <p v-if="preview.status === 'applied'" class="adm-help">
+              Al deshacer, los seis campos vuelven a su valor anterior, incluidos los que estaban vacíos. Si algún
+              producto se ha modificado después, no se deshará ninguno.
+            </p>
+            <div class="adm-field">
+              <label :for="`${prefix}-reason`" class="adm-label"
+                >Motivo para {{ preview.status === 'pending' ? 'aplicar los cambios' : 'deshacerlos' }}</label
+              >
+              <textarea
+                :id="`${prefix}-reason`"
+                v-model="reason"
+                data-editorial-reason
+                rows="3"
+                minlength="3"
+                maxlength="500"
+                required
+                :disabled="busy || !!intent"
+                class="adm-input w-full"
+              />
+            </div>
+            <label class="adm-check items-start"
+              ><input
+                v-model="confirmed"
+                data-editorial-confirm
+                type="checkbox"
+                :disabled="busy || !!intent"
+                class="mt-0.5"
+              /><span
+                >He revisado todos los productos y sus seis campos. Esto no cambia precios, stock, imágenes ni
+                estados.</span
+              ></label
+            >
+            <div>
+              <button
+                data-editorial-apply
+                type="submit"
+                class="adm-btn"
+                :class="preview.status === 'pending' ? 'adm-btn--primary' : 'adm-btn--danger'"
+                :disabled="!canSubmit(preview.status === 'pending' ? 'apply' : 'revert')"
+              >
+                {{ preview.status === 'pending' ? 'Aplicar cambios' : 'Deshacer cambios' }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </template>
+    </div>
   </section>
 </template>

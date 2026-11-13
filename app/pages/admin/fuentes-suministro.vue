@@ -1,10 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Multi-Proveedor y Fuentes de Suministro · Admin' })
+useSeoMeta({ title: 'Elección de proveedor · Admin' })
 </script>
 
 <template>
-  <div class="p-6">
+  <AdminPage>
     <AdminSupplierSourcingPanel />
-  </div>
+  </AdminPage>
 </template>

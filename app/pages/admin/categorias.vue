@@ -69,6 +69,20 @@ const STATUS_LABELS: Record<AdminCatalogStatus, string> = {
   hidden: 'Oculto',
   discontinued: 'Descatalogado'
 }
+const STATUS_TONES: Record<AdminCatalogStatus, 'neutral' | 'success' | 'warning'> = {
+  draft: 'neutral',
+  review: 'warning',
+  published: 'success',
+  hidden: 'neutral',
+  discontinued: 'neutral'
+}
+/* --- Estado de interfaz: apartado visible y familia enviada al editor --- */
+const tab = ref('familias')
+const TABS = [
+  { value: 'familias', label: 'Familias' },
+  { value: 'caracteristicas', label: 'Características por familia' }
+]
+const managed = ref<{ id: number } | null>(null)
 const validTree = computed(() => {
   if (cloudflare) return privateView.value !== null
   if (!Array.isArray(catData.value?.roots) || !Array.isArray(catData.value?.flat)) return false
@@ -140,6 +154,14 @@ function privateCategoryAuthority(identity?: { id: number; uuid: string; version
   const category = current.flat.find((row) => row.id === identity.id)?.authoring
   return !!category && category.uuid === identity.uuid && category.version === identity.version
 }
+
+const canManage = computed(
+  () =>
+    cloudflare &&
+    canRead.value &&
+    privateCategoryAuthority() &&
+    (hasCapability('categoryUpdate') || hasCapability('categoryDelete'))
+)
 
 interface Row {
   id: number
@@ -349,284 +371,305 @@ watch([canCreate, canEdit, canDelete], ([create, edit, remove]) => {
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl">
-    <UiPageHeader
-      title="Familias de productos"
-      :count="canRead ? flat.length : undefined"
-      :count-label="flat.length === 1 ? 'familia' : 'familias'"
-      description="El árbol de la tienda: el menú, el catálogo y los filtros se generan de aquí. Los identificadores del ERP se conservan tal cual."
-    >
-      <template #actions>
-        <UButton
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-refresh-cw"
-          :disabled="!supportedRuntime"
-          :loading="fetchStatus === 'pending'"
-          @click="reload"
-          >Actualizar</UButton
-        >
-        <UButton v-if="canCreate" icon="i-lucide-plus" @click="canCreate && (creating = true)">Nueva familia</UButton>
-      </template>
-    </UiPageHeader>
-
-    <UAlert
-      v-if="cloudflare"
-      class="mb-4"
-      color="info"
-      title="Familias: gestión editorial privada"
-      description="Árbol privado con todos los estados. Los recuentos incluyen subfamilias, no existencias. Las nuevas familias son borradores pendientes de publicación explícita; editar no concede permiso para publicar."
-    />
-    <UAlert
-      v-if="unmapped"
-      class="mb-4"
-      color="warning"
-      title="Familias sin identificador heredado"
-      :description="`${unmapped} familias no tienen identificador visible. Sus descendientes mapeados y sus recuentos se conservan en el árbol.`"
-    />
-
-    <div v-if="canRead" class="mb-3 flex flex-wrap items-center gap-2">
-      <UInput
-        v-model="search"
-        icon="i-lucide-search"
-        placeholder="Buscar familia"
-        aria-label="Buscar familia"
-        class="w-full sm:w-72"
+  <AdminPage :count="canRead ? flat.length : undefined" :count-label="flat.length === 1 ? 'familia' : 'familias'">
+    <template #actions>
+      <AdminButton
+        icon="i-lucide-refresh-cw"
+        :disabled="!supportedRuntime"
+        :loading="fetchStatus === 'pending'"
+        @click="reload"
+        >Actualizar</AdminButton
       >
-        <template v-if="search" #trailing>
-          <UButton
-            size="xs"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-x"
-            aria-label="Borrar búsqueda"
-            @click="search = ''"
-          />
-        </template>
-      </UInput>
-      <div class="ml-auto flex gap-1">
-        <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-chevrons-down-up" @click="collapseAll">
-          Plegar todo
-        </UButton>
-        <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-chevrons-up-down" @click="expandAll">
-          Desplegar
-        </UButton>
-      </div>
-    </div>
+      <AdminButton v-if="canCreate" variant="primary" icon="i-lucide-plus" @click="canCreate && (creating = true)"
+        >Nueva familia</AdminButton
+      >
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="unmapped"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Hay familias importadas que no aparecen en la lista"
+        :description="`${unmapped} ${unmapped === 1 ? 'familia no tiene' : 'familias no tienen'} número asignado y no se ${unmapped === 1 ? 'muestra' : 'muestran'}. Sus subfamilias y sus recuentos se conservan.`"
+      />
 
-    <UiSurface padding="none">
+      <AdminTabs v-if="cloudflare && canRead" v-model="tab" :tabs="TABS" label="Apartados de familias" />
+
       <div
-        v-if="fetchStatus === 'pending' && supportedRuntime"
-        class="divide-y divide-[var(--border)]"
-        aria-busy="true"
-        aria-label="Cargando familias"
+        v-show="tab === 'familias'"
+        class="grid items-start gap-5"
+        :class="cloudflare && 'xl:grid-cols-[minmax(0,1fr)_24rem]'"
       >
-        <div v-for="n in 8" :key="n" class="px-4 py-3">
-          <div class="h-4 w-1/3 animate-pulse rounded bg-[var(--surface-sunken)]" />
-        </div>
-      </div>
-
-      <UiEmptyState
-        v-else-if="fetchStatus === 'error' || !catData"
-        variant="error"
-        title="No se han podido consultar las familias"
-        description="No podemos confirmar el árbol ni sus recuentos. Comprueba tu sesión y vuelve a intentarlo."
-      >
-        <UButton v-if="supportedRuntime" @click="reload">Reintentar</UButton>
-      </UiEmptyState>
-      <UiEmptyState
-        v-else-if="!canRead"
-        title="Consulta de familias no disponible"
-        description="Este entorno no permite confirmar el árbol privado. Los datos ausentes no equivalen a cero familias."
-      >
-        <UButton v-if="supportedRuntime" @click="reload">Reintentar</UButton>
-      </UiEmptyState>
-
-      <UiEmptyState
-        v-else-if="search && !visible.length"
-        variant="filtered"
-        icon="i-lucide-folder-search"
-        :title="`Ninguna familia contiene «${search}»`"
-        description="Prueba con otra palabra o revisa si está escrita de otra forma."
-      >
-        <UButton color="neutral" variant="outline" @click="search = ''">Borrar búsqueda</UButton>
-      </UiEmptyState>
-
-      <UiEmptyState
-        v-else-if="!flat.length"
-        icon="i-lucide-folder-tree"
-        title="Todavía no hay familias"
-        :description="
-          canCreate
-            ? 'Las familias organizan el catálogo y generan el menú de la tienda. Crea la primera para empezar.'
-            : cloudflare && privateCategoryAuthority() && hasCapability('categoryCreate')
-              ? 'Puedes crear la primera familia como borrador con el editor. Seguirá pendiente de publicación explícita.'
-              : 'La consulta autorizada no devuelve familias con identificador. Tu sesión no permite crear familias.'
-        "
-      >
-        <UButton v-if="canCreate" icon="i-lucide-plus" @click="canCreate && (creating = true)">Nueva familia</UButton>
-      </UiEmptyState>
-
-      <ul v-else class="divide-y divide-[var(--border)]" aria-label="Familias y subfamilias" data-category-tree>
-        <li
-          v-for="row in visible"
-          :key="row.id"
-          :data-category-id="row.id"
-          :data-depth="row.depth"
-          class="group flex flex-wrap items-center gap-2 px-3 py-2 transition-colors hover:bg-[var(--canvas)]"
-          :style="{ paddingLeft: `${0.75 + Math.min(row.depth, 3) * 0.5}rem` }"
-        >
-          <button
-            v-if="row.hasChildren"
-            type="button"
-            class="shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]"
-            :aria-expanded="!!matches || !collapsed.has(row.id)"
-            :aria-label="`${matches || !collapsed.has(row.id) ? 'Plegar' : 'Desplegar'} ${row.name}`"
-            :disabled="!!matches"
-            @click="toggle(row.id)"
-          >
-            <UIcon
-              name="i-lucide-chevron-down"
-              class="size-4 transition-transform"
-              :class="collapsed.has(row.id) && '-rotate-90'"
-            />
-          </button>
-          <span v-else class="w-5 shrink-0" aria-hidden="true" />
-
-          <UIcon
-            :name="row.hasChildren ? 'i-lucide-folder-tree' : 'i-lucide-folder'"
-            class="size-4 shrink-0 text-neteco-600"
-          />
-
-          <span class="min-w-0 flex-1 break-words text-sm font-medium text-[var(--text-strong)]"
-            ><span class="sr-only">Nivel {{ row.depth + 1 }}. </span>{{ row.name }}</span
-          >
-          <UBadge v-if="row.status" color="neutral" variant="subtle">{{
-            STATUS_LABELS[row.status] ?? 'Estado no disponible'
-          }}</UBadge>
-
-          <span class="tabular shrink-0 text-xs text-[var(--text-muted)]">
-            {{ row.count }}
-            {{ row.count === 1 ? 'producto' : 'productos' }}
-          </span>
+        <div class="adm-card adm-tablecard min-w-0">
+          <div v-if="canRead" class="adm-tablecard__bar">
+            <div class="adm-toolbar" role="search">
+              <label class="adm-toolbar__search">
+                <UIcon name="i-lucide-search" class="size-4" />
+                <input
+                  v-model="search"
+                  type="search"
+                  placeholder="Buscar familia"
+                  aria-label="Buscar familia"
+                  data-slot="adm-search"
+                />
+              </label>
+              <AdminButton
+                v-if="search"
+                variant="ghost"
+                size="sm"
+                icon="i-lucide-x"
+                label="Borrar búsqueda"
+                @click="search = ''"
+              />
+              <div class="adm-toolbar__end">
+                <AdminButton variant="ghost" size="sm" icon="i-lucide-chevrons-down-up" @click="collapseAll"
+                  >Plegar todo</AdminButton
+                >
+                <AdminButton variant="ghost" size="sm" icon="i-lucide-chevrons-up-down" @click="expandAll"
+                  >Desplegar</AdminButton
+                >
+              </div>
+            </div>
+          </div>
 
           <div
-            v-if="canEdit || canDelete"
-            class="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100"
+            v-if="fetchStatus === 'pending' && supportedRuntime"
+            class="divide-y divide-[var(--border)]"
+            aria-busy="true"
+            aria-label="Cargando familias"
           >
-            <UButton
-              v-if="canEdit"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              icon="i-lucide-pencil"
-              :aria-label="`Editar ${row.name}`"
-              @click="startEdit(row)"
-            />
-            <UButton
-              v-if="canDelete"
-              size="xs"
-              color="error"
-              variant="ghost"
-              icon="i-lucide-trash-2"
-              :disabled="row.hasChildren || row.count > 0"
-              :aria-label="`Eliminar ${row.name}`"
-              @click="startRemove(row)"
-            />
+            <div v-for="n in 8" :key="n" class="px-4 py-3">
+              <div class="h-4 w-1/3 animate-pulse rounded bg-[var(--surface-sunken)]" />
+            </div>
           </div>
-        </li>
-      </ul>
-    </UiSurface>
 
-    <CategoryCrudEditor
-      v-if="cloudflare"
-      class="mt-5"
-      :view="catData"
-      :read-status="fetchStatus"
-      :runtime="runtime"
-      :authorize="privateCategoryAuthority"
-      :refresh="reload"
-    />
-    <CategoryAttributeDefinitionsEditor
-      v-if="cloudflare"
-      class="mt-5"
-      :runtime="runtime"
-      :available="canRead"
-      :categories="canRead ? privateView?.flat.map((category) => ({ id: category.id, name: category.name })) : []"
-    />
+          <AdminEmptyState
+            v-else-if="fetchStatus === 'error' || !catData"
+            data-empty="error"
+            role="alert"
+            variant="error"
+            title="No se han podido consultar las familias"
+            description="Comprueba que tu sesión sigue abierta y vuelve a intentarlo."
+          >
+            <AdminButton v-if="supportedRuntime" icon="i-lucide-rotate-cw" @click="reload">Reintentar</AdminButton>
+          </AdminEmptyState>
+          <AdminEmptyState
+            v-else-if="!canRead"
+            data-empty="empty"
+            role="status"
+            icon="i-lucide-lock"
+            title="Consulta de familias no disponible"
+            description="Ahora mismo no podemos mostrarte las familias. No significa que no haya ninguna: vuelve a intentarlo o revisa tus permisos."
+          >
+            <AdminButton v-if="supportedRuntime" icon="i-lucide-rotate-cw" @click="reload">Reintentar</AdminButton>
+          </AdminEmptyState>
 
-    <p v-if="canDelete" class="mt-2 text-xs text-[var(--text-muted)]">
-      Solo se pueden eliminar familias vacías, sin productos ni subfamilias.
-    </p>
+          <AdminEmptyState
+            v-else-if="search && !visible.length"
+            data-empty="filtered"
+            role="status"
+            variant="filtered"
+            :title="`Ninguna familia contiene «${search}»`"
+            description="Prueba con otra palabra o revisa si está escrita de otra forma."
+          >
+            <AdminButton @click="search = ''">Borrar búsqueda</AdminButton>
+          </AdminEmptyState>
 
-    <!-- Alta -->
-    <UModal v-if="canCreate" v-model:open="creating" title="Nueva familia">
-      <template #body>
-        <form id="new-family" class="space-y-4" @submit.prevent="createCategory">
-          <UFormField label="Nombre" required>
-            <UInput v-model="createForm.name" class="w-full" placeholder="Por ejemplo: Desengrasantes" />
-          </UFormField>
-          <UFormField label="Dentro de" hint="Déjalo en «familia principal» para crear una raíz del menú">
-            <USelect v-model="createForm.parentId" :items="parentOptions" class="w-full" />
-          </UFormField>
-        </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="creating = false">Cancelar</UButton>
-          <UButton type="submit" form="new-family" :loading="saving">Crear familia</UButton>
-        </div>
-      </template>
-    </UModal>
+          <AdminEmptyState
+            v-else-if="!flat.length"
+            data-empty="empty"
+            role="status"
+            icon="i-lucide-folder-tree"
+            title="Todavía no hay familias"
+            :description="
+              canCreate
+                ? 'Las familias organizan el catálogo y generan el menú de la tienda. Crea la primera para empezar.'
+                : cloudflare && privateCategoryAuthority() && hasCapability('categoryCreate')
+                  ? 'Crea la primera familia desde el panel de la derecha. Se guardará como borrador hasta que la publiques.'
+                  : 'No hay familias que mostrar. Tu sesión no permite crear familias.'
+            "
+          >
+            <AdminButton v-if="canCreate" variant="primary" icon="i-lucide-plus" @click="canCreate && (creating = true)"
+              >Nueva familia</AdminButton
+            >
+          </AdminEmptyState>
 
-    <!-- Editar -->
-    <UModal
-      v-if="canEdit"
-      :open="Boolean(editing)"
-      title="Editar familia"
-      @update:open="(value) => !value && (editing = null)"
-    >
-      <template #body>
-        <form v-if="editing" id="edit-family" class="space-y-4" @submit.prevent="saveEdit">
-          <UFormField label="Nombre" required>
-            <UInput v-model="editForm.name" class="w-full" />
-          </UFormField>
-          <UFormField label="Dentro de" hint="Al mover una familia se mueven también sus subfamilias y sus productos">
-            <USelect v-model="editForm.parentId" :items="moveOptions" class="w-full" />
-          </UFormField>
-          <p class="text-xs text-[var(--text-muted)]">
-            Identificador en el ERP: <span class="font-mono">{{ editing.id }}</span
-            >. No se puede cambiar: es el vínculo con el importador de catálogo.
+          <ul v-else class="divide-y divide-[var(--border)]" aria-label="Familias y subfamilias" data-category-tree>
+            <li
+              v-for="row in visible"
+              :key="row.id"
+              :data-category-id="row.id"
+              :data-depth="row.depth"
+              class="group flex min-h-11 flex-wrap items-center gap-2 px-3 py-1.5 transition-colors hover:bg-[var(--canvas)]"
+              :style="{ paddingLeft: `${0.75 + Math.min(row.depth, 3) * 0.5}rem` }"
+            >
+              <button
+                v-if="row.hasChildren"
+                type="button"
+                class="shrink-0 rounded p-0.5 text-[var(--text-muted)] hover:bg-[var(--surface-sunken)]"
+                :aria-expanded="!!matches || !collapsed.has(row.id)"
+                :aria-label="`${matches || !collapsed.has(row.id) ? 'Plegar' : 'Desplegar'} ${row.name}`"
+                :disabled="!!matches"
+                @click="toggle(row.id)"
+              >
+                <UIcon
+                  name="i-lucide-chevron-down"
+                  class="size-4 transition-transform"
+                  :class="collapsed.has(row.id) && '-rotate-90'"
+                />
+              </button>
+              <span v-else class="w-5 shrink-0" aria-hidden="true" />
+
+              <UIcon
+                :name="row.hasChildren ? 'i-lucide-folder-tree' : 'i-lucide-folder'"
+                class="size-4 shrink-0 text-neteco-600"
+              />
+
+              <span class="min-w-0 flex-1 break-words text-sm font-medium text-[var(--text-strong)]"
+                ><span class="sr-only">Nivel {{ row.depth + 1 }}. </span>{{ row.name }}</span
+              >
+              <AdminBadge v-if="row.status" :tone="STATUS_TONES[row.status] ?? 'neutral'">{{
+                STATUS_LABELS[row.status] ?? 'Estado no disponible'
+              }}</AdminBadge>
+
+              <span class="shrink-0 text-xs tabular-nums text-[var(--text-muted)]">
+                {{ row.count }}
+                {{ row.count === 1 ? 'producto' : 'productos' }}
+              </span>
+
+              <div v-if="canEdit || canDelete || canManage" class="flex shrink-0 gap-0.5">
+                <AdminButton
+                  v-if="canManage"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-pencil"
+                  :label="`Gestionar ${row.name}`"
+                  @click="managed = { id: row.id }"
+                />
+                <AdminButton
+                  v-if="canEdit"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-pencil"
+                  :label="`Editar ${row.name}`"
+                  @click="startEdit(row)"
+                />
+                <AdminButton
+                  v-if="canDelete"
+                  variant="ghost"
+                  size="sm"
+                  icon="i-lucide-trash-2"
+                  :disabled="row.hasChildren || row.count > 0"
+                  :label="`Eliminar ${row.name}`"
+                  @click="startRemove(row)"
+                />
+              </div>
+            </li>
+          </ul>
+
+          <p
+            v-if="canRead && flat.length"
+            class="adm-help border-t border-[var(--border)] px-4 py-2.5"
+            data-category-note
+          >
+            <template v-if="cloudflare"
+              >Se muestran las familias en todos los estados. El recuento suma los productos de sus subfamilias, no
+              existencias.</template
+            >
+            <template v-else-if="canDelete"
+              >Solo se pueden eliminar familias vacías, sin productos ni subfamilias.</template
+            >
+            <template v-else>El recuento suma los productos de sus subfamilias.</template>
           </p>
-        </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="editing = null">Cancelar</UButton>
-          <UButton type="submit" form="edit-family" :loading="saving">Guardar cambios</UButton>
         </div>
-      </template>
-    </UModal>
 
-    <!-- Eliminar -->
-    <UModal
-      v-if="canDelete"
-      :open="Boolean(removing)"
-      title="Eliminar familia"
-      @update:open="(value) => !value && (removing = null)"
-    >
-      <template #body>
+        <CategoryCrudEditor
+          v-if="cloudflare"
+          :view="catData"
+          :read-status="fetchStatus"
+          :runtime="runtime"
+          :authorize="privateCategoryAuthority"
+          :refresh="reload"
+          :focus="managed"
+        />
+      </div>
+
+      <div v-if="cloudflare" v-show="tab === 'caracteristicas'">
+        <CategoryAttributeDefinitionsEditor
+          :runtime="runtime"
+          :available="canRead"
+          :categories="canRead ? privateView?.flat.map((category) => ({ id: category.id, name: category.name })) : []"
+        />
+      </div>
+
+      <!-- Alta -->
+      <UModal v-if="canCreate" v-model:open="creating" title="Nueva familia">
+        <template #body>
+          <form id="new-family" class="space-y-4" @submit.prevent="createCategory">
+            <UFormField label="Nombre" required>
+              <UInput v-model="createForm.name" class="w-full" placeholder="Por ejemplo: desengrasantes" />
+            </UFormField>
+            <UFormField label="Dentro de" hint="Déjalo en «familia principal» para crear una raíz del menú">
+              <USelect v-model="createForm.parentId" :items="parentOptions" class="w-full" />
+            </UFormField>
+          </form>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <AdminButton @click="creating = false">Cancelar</AdminButton>
+            <AdminButton variant="primary" type="submit" form="new-family" :loading="saving">Crear familia</AdminButton>
+          </div>
+        </template>
+      </UModal>
+
+      <!-- Editar -->
+      <UModal
+        v-if="canEdit"
+        :open="Boolean(editing)"
+        title="Editar familia"
+        @update:open="(value) => !value && (editing = null)"
+      >
+        <template #body>
+          <form v-if="editing" id="edit-family" class="space-y-4" @submit.prevent="saveEdit">
+            <UFormField label="Nombre" required>
+              <UInput v-model="editForm.name" class="w-full" />
+            </UFormField>
+            <UFormField label="Dentro de" hint="Al mover una familia se mueven también sus subfamilias y sus productos">
+              <USelect v-model="editForm.parentId" :items="moveOptions" class="w-full" />
+            </UFormField>
+            <p class="adm-help">
+              Número de familia en el programa de gestión: <span class="font-mono">{{ editing.id }}</span
+              >. No se puede cambiar porque enlaza con la importación del catálogo.
+            </p>
+          </form>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <AdminButton @click="editing = null">Cancelar</AdminButton>
+            <AdminButton variant="primary" type="submit" form="edit-family" :loading="saving"
+              >Guardar cambios</AdminButton
+            >
+          </div>
+        </template>
+      </UModal>
+
+      <!-- Eliminar -->
+      <AdminConfirm
+        v-if="canDelete"
+        :open="Boolean(removing)"
+        title="Eliminar familia"
+        confirm-label="Eliminar familia"
+        danger
+        :loading="saving"
+        @update:open="(value: boolean) => !value && (removing = null)"
+        @confirm="confirmRemove"
+      >
         <p class="text-[var(--text)]">
           Se eliminará <strong>{{ removing?.name }}</strong> del árbol. Desaparecerá del menú de la tienda y de los
           filtros del catálogo.
         </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="removing = null">Cancelar</UButton>
-          <UButton color="error" :loading="saving" @click="confirmRemove">Eliminar familia</UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+      </AdminConfirm>
+    </div>
+  </AdminPage>
 </template>

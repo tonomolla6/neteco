@@ -142,6 +142,11 @@ const attrs = computed(() => {
   return Array.isArray(items) ? items.map(ownRecord).filter((item) => item !== null) : []
 })
 const badges = ['eco', 'alimentaria', 'concentrado'] as const
+const badgeLabels: Record<(typeof badges)[number], string> = {
+  eco: 'eco',
+  alimentaria: 'de uso alimentario',
+  concentrado: 'de concentrado'
+}
 const visualTypes = [
   'garrafa',
   'botella',
@@ -357,231 +362,248 @@ async function reloadOptions() {
 </script>
 
 <template>
-  <section
-    class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6"
+  <AdminCard
     :aria-labelledby="`${prefix}-heading`"
+    description="Se crea con una variante, precio pendiente de aprobación (0) y stock 0. No publica: antes de vender hay que aprobar el precio, completar las imágenes y dar de alta el stock."
   >
-    <h2 :id="`${prefix}-heading`" class="text-lg font-semibold text-[var(--text-strong)]">Crear producto borrador</h2>
-    <p class="mt-1 text-sm text-[var(--text-muted)]">
-      Se crea con una variante, precio pendiente de aprobación (0) y stock 0. No publica: requiere precio, política y
-      medios válidos, y stock gestionado antes de vender.
-    </p>
-    <p v-if="optionsStatus === 'pending'" role="status" class="mt-4 text-sm">Consultando referencias…</p>
-    <p v-else-if="!references" role="alert" class="mt-4 text-sm">
-      No hay una lectura válida de referencias. No se puede crear un borrador.
-    </p>
-    <p v-else-if="!allowed" role="status" class="mt-4 text-sm">No tienes autorización para crear borradores.</p>
-    <form
-      v-if="references && allowed && safeForm && !completed"
-      class="mt-5 space-y-5"
-      :aria-busy="busy"
-      @submit.prevent="submit"
-    >
-      <fieldset :disabled="busy || reloading || uncertain || blocked" class="space-y-3">
-        <legend class="font-semibold">Identidad y metadatos</legend>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label
+    <template #title>
+      <span :id="`${prefix}-heading`">Crear producto en borrador</span>
+    </template>
+    <div class="adm-stack">
+      <p v-if="optionsStatus === 'pending'" role="status" class="adm-help">Cargando familias, marcas e impuestos…</p>
+      <UAlert
+        v-else-if="!references"
+        role="alert"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se han podido cargar las familias, marcas e impuestos"
+        description="Sin esos datos no se puede crear el producto. Vuelve a cargarlos con el botón de abajo."
+      />
+      <UAlert
+        v-else-if="!allowed"
+        role="status"
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="Tu usuario no puede crear productos"
+      />
+      <form
+        v-if="references && allowed && safeForm && !completed"
+        class="adm-stack"
+        :aria-busy="busy"
+        @submit.prevent="submit"
+      >
+        <fieldset :disabled="busy || reloading || uncertain || blocked" class="min-w-0 space-y-4">
+          <legend class="adm-section__title">Identidad y metadatos</legend>
+          <div class="adm-form-grid">
+            <div
+              v-for="field in [
+                { key: 'name', label: 'Nombre', max: 160 },
+                { key: 'shortDesc', label: 'Descripción breve', max: 500 },
+                { key: 'series', label: 'Gama (opcional)', max: 160 }
+              ]"
+              :key="field.key"
+              class="adm-field"
+            >
+              <label :for="`${prefix}-${field.key}`" class="adm-label">{{ field.label }}</label>
+              <input
+                :id="`${prefix}-${field.key}`"
+                :data-field="field.key"
+                class="adm-input w-full"
+                :value="safeForm[field.key] ?? ''"
+                :maxlength="field.max"
+                :required="field.key !== 'series'"
+                @input="update(field.key, $event)"
+              />
+            </div>
+            <div class="adm-field">
+              <label :for="`${prefix}-categoryId`" class="adm-label">Familia</label>
+              <select
+                :id="`${prefix}-categoryId`"
+                data-field="categoryId"
+                class="adm-input w-full"
+                :value="safeForm.categoryId"
+                required
+                @change="update('categoryId', $event, true)"
+              >
+                <option value="">Elige una familia</option>
+                <option v-for="entry in references.categories" :key="entry.id" :value="entry.id">
+                  {{ entry.name }}
+                </option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label :for="`${prefix}-brandId`" class="adm-label">Marca</label>
+              <select
+                :id="`${prefix}-brandId`"
+                data-field="brandId"
+                class="adm-input w-full"
+                :value="safeForm.brandId"
+                required
+                @change="update('brandId', $event)"
+              >
+                <option value="">Elige una marca</option>
+                <option v-for="entry in references.brands" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
+              </select>
+            </div>
+          </div>
+          <div
             v-for="field in [
-              { key: 'name', label: 'Nombre', max: 160 },
-              { key: 'shortDesc', label: 'Descripción breve', max: 500 },
-              { key: 'series', label: 'Serie (opcional)', max: 160 }
+              { key: 'description', label: 'Descripción', max: 10000, rows: 5 },
+              { key: 'usage', label: 'Modo de empleo (opcional)', max: 2000, rows: 3 }
             ]"
             :key="field.key"
-            :for="`${prefix}-${field.key}`"
-            class="text-sm"
+            class="adm-field"
           >
-            {{ field.label
-            }}<input
+            <label :for="`${prefix}-${field.key}`" class="adm-label">{{ field.label }}</label>
+            <textarea
               :id="`${prefix}-${field.key}`"
               :data-field="field.key"
-              class="draft-field"
-              :value="safeForm[field.key] ?? ''"
+              class="adm-input w-full"
+              :rows="field.rows"
+              :value="typeof safeForm[field.key] === 'string' ? String(safeForm[field.key]) : ''"
               :maxlength="field.max"
-              :required="field.key !== 'series'"
+              :required="field.key === 'description'"
               @input="update(field.key, $event)"
             />
-          </label>
-          <label :for="`${prefix}-categoryId`" class="text-sm"
-            >Categoría<select
-              :id="`${prefix}-categoryId`"
-              data-field="categoryId"
-              class="draft-field"
-              :value="safeForm.categoryId"
-              required
-              @change="update('categoryId', $event, true)"
+          </div>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2">
+            <label :for="`${prefix}-featured`" class="adm-check"
+              ><input
+                :id="`${prefix}-featured`"
+                data-field="featured"
+                type="checkbox"
+                :checked="safeForm.featured === true"
+                @change="update('featured', $event)"
+              />
+              Destacado en la tienda</label
             >
-              <option value="">Selecciona una referencia</option>
-              <option v-for="entry in references.categories" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-            </select></label
-          >
-          <label :for="`${prefix}-brandId`" class="text-sm"
-            >Marca<select
-              :id="`${prefix}-brandId`"
-              data-field="brandId"
-              class="draft-field"
-              :value="safeForm.brandId"
-              required
-              @change="update('brandId', $event)"
+            <label v-for="badge in badges" :key="badge" :for="`${prefix}-badge-${badge}`" class="adm-check"
+              ><input
+                :id="`${prefix}-badge-${badge}`"
+                type="checkbox"
+                :checked="Array.isArray(safeForm.badges) && safeForm.badges.includes(badge)"
+                @change="toggleBadge(badge, $event)"
+              />Sello {{ badgeLabels[badge] }}</label
             >
-              <option value="">Selecciona una referencia</option>
-              <option v-for="entry in references.brands" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-            </select></label
-          >
-          <label :for="`${prefix}-featured`" class="flex items-center gap-2 text-sm"
-            ><input
-              :id="`${prefix}-featured`"
-              data-field="featured"
-              type="checkbox"
-              :checked="safeForm.featured === true"
-              @change="update('featured', $event)"
-            />
-            Destacado editorial</label
-          >
-        </div>
-        <label
-          v-for="field in [
-            { key: 'description', label: 'Descripción', max: 10000 },
-            { key: 'usage', label: 'Uso (opcional)', max: 2000 }
-          ]"
-          :key="field.key"
-          :for="`${prefix}-${field.key}`"
-          class="block text-sm"
-          >{{ field.label
-          }}<textarea
-            :id="`${prefix}-${field.key}`"
-            :data-field="field.key"
-            class="draft-field"
-            :value="typeof safeForm[field.key] === 'string' ? String(safeForm[field.key]) : ''"
-            :maxlength="field.max"
-            :required="field.key === 'description'"
-            @input="update(field.key, $event)"
-          />
-        </label>
-        <div class="flex flex-wrap gap-4">
-          <label
-            v-for="badge in badges"
-            :key="badge"
-            :for="`${prefix}-badge-${badge}`"
-            class="flex items-center gap-2 text-sm"
-            ><input
-              :id="`${prefix}-badge-${badge}`"
-              type="checkbox"
-              :checked="Array.isArray(safeForm.badges) && safeForm.badges.includes(badge)"
-              @change="toggleBadge(badge, $event)"
-            />{{ badge }}</label
-          >
-        </div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <label :for="`${prefix}-visual-type`" class="text-sm"
-            >Tipo visual<select
-              :id="`${prefix}-visual-type`"
-              data-field="visual-type"
-              class="draft-field"
-              :value="visual?.type"
-              @change="updateVisual('type', $event)"
+          </div>
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label :for="`${prefix}-visual-type`" class="adm-label">Tipo de envase</label>
+              <select
+                :id="`${prefix}-visual-type`"
+                data-field="visual-type"
+                class="adm-input w-full"
+                :value="visual?.type"
+                @change="updateVisual('type', $event)"
+              >
+                <option v-for="type in visualTypes" :key="type" :value="type">{{ ENVASE_LABELS[type] ?? type }}</option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label :for="`${prefix}-visual-color`" class="adm-label">Color del envase</label>
+              <input
+                :id="`${prefix}-visual-color`"
+                data-field="visual-color"
+                class="adm-input w-full"
+                :value="visual?.color"
+                maxlength="7"
+                required
+                :aria-describedby="`${prefix}-visual-color-help`"
+                @input="updateVisual('color', $event)"
+              />
+              <p :id="`${prefix}-visual-color-help`" class="adm-help">Código de color, por ejemplo #52665B.</p>
+            </div>
+          </div>
+          <div class="space-y-3">
+            <p class="adm-label">Características</p>
+            <div
+              v-for="(attribute, index) in attrs"
+              :key="index"
+              class="grid items-end gap-2 sm:grid-cols-[1fr_1fr_auto]"
             >
-              <option v-for="type in visualTypes" :key="type" :value="type">{{ type }}</option>
-            </select></label
-          ><label :for="`${prefix}-visual-color`" class="text-sm"
-            >Color visual<input
-              :id="`${prefix}-visual-color`"
-              data-field="visual-color"
-              class="draft-field"
-              :value="visual?.color"
-              maxlength="7"
-              required
-              @input="updateVisual('color', $event)"
-          /></label>
-        </div>
-        <div v-for="(attribute, index) in attrs" :key="index" class="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-          <label :for="`${prefix}-attr-${index}-k`" class="text-sm"
-            >Atributo<input
-              :id="`${prefix}-attr-${index}-k`"
-              class="draft-field"
-              :value="attribute.k"
-              maxlength="100"
-              required
-              @input="changeAttribute(index, 'k', $event)"
-          /></label>
-          <label :for="`${prefix}-attr-${index}-v`" class="text-sm"
-            >Valor<input
-              :id="`${prefix}-attr-${index}-v`"
-              class="draft-field"
-              :value="attribute.v"
-              maxlength="1000"
-              required
-              @input="changeAttribute(index, 'v', $event)"
-          /></label>
-          <UButton type="button" color="neutral" variant="outline" @click="removeAttribute(index)"
-            >Quitar atributo</UButton
-          >
-        </div>
-        <UButton type="button" color="neutral" variant="outline" :disabled="attrs.length >= 50" @click="addAttribute"
-          >Añadir atributo</UButton
-        >
-      </fieldset>
-      <DraftVariantFields
-        :model-value="safeForm.initialVariant"
-        :options="references"
-        :prefix="`${prefix}-initial`"
-        :disabled="busy || reloading || uncertain || blocked"
-        @update:model-value="updateVariant"
-      />
-      <label :for="`${prefix}-reason`" class="block text-sm"
-        >Motivo de creación<input
-          :id="`${prefix}-reason`"
-          data-field="reason"
-          class="draft-field"
-          :value="safeForm.reason"
-          minlength="3"
-          maxlength="500"
-          required
+              <div class="adm-field">
+                <label :for="`${prefix}-attr-${index}-k`" class="adm-label">Característica</label>
+                <input
+                  :id="`${prefix}-attr-${index}-k`"
+                  class="adm-input w-full"
+                  :value="attribute.k"
+                  maxlength="100"
+                  required
+                  @input="changeAttribute(index, 'k', $event)"
+                />
+              </div>
+              <div class="adm-field">
+                <label :for="`${prefix}-attr-${index}-v`" class="adm-label">Valor</label>
+                <input
+                  :id="`${prefix}-attr-${index}-v`"
+                  class="adm-input w-full"
+                  :value="attribute.v"
+                  maxlength="1000"
+                  required
+                  @input="changeAttribute(index, 'v', $event)"
+                />
+              </div>
+              <AdminButton variant="ghost" icon="i-lucide-x" @click="removeAttribute(index)">Quitar</AdminButton>
+            </div>
+            <AdminButton icon="i-lucide-plus" size="sm" :disabled="attrs.length >= 50" @click="addAttribute"
+              >Añadir característica</AdminButton
+            >
+          </div>
+        </fieldset>
+        <DraftVariantFields
+          :model-value="safeForm.initialVariant"
+          :options="references"
+          :prefix="`${prefix}-initial`"
           :disabled="busy || reloading || uncertain || blocked"
-          @input="update('reason', $event)"
-      /></label>
-      <UButton data-action="create" type="submit" :disabled="!canSubmit" :loading="busy">Crear borrador</UButton>
-    </form>
-    <p v-if="message" class="mt-4 text-sm" role="status" aria-live="polite">{{ message }}</p>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <UButton
-        v-if="uncertain"
-        data-action="retry"
-        type="button"
-        color="neutral"
-        variant="outline"
-        :disabled="!canRetry"
-        :loading="busy"
-        @click="retry"
-        >Reintentar la misma solicitud</UButton
-      >
-      <UButton
-        data-action="reload-options"
-        type="button"
-        color="neutral"
-        variant="outline"
-        :disabled="busy || reloading || runtime !== 'cloudflare'"
-        :loading="reloading"
-        @click="reloadOptions"
-        >Consultar referencias de nuevo</UButton
-      >
+          @update:model-value="updateVariant"
+        />
+        <div class="adm-field">
+          <label :for="`${prefix}-reason`" class="adm-label">Motivo del alta</label>
+          <input
+            :id="`${prefix}-reason`"
+            data-field="reason"
+            class="adm-input w-full"
+            :value="safeForm.reason"
+            minlength="3"
+            maxlength="500"
+            required
+            :disabled="busy || reloading || uncertain || blocked"
+            :aria-describedby="`${prefix}-reason-help`"
+            @input="update('reason', $event)"
+          />
+          <p :id="`${prefix}-reason-help`" class="adm-help">Queda guardado en el historial del producto.</p>
+        </div>
+        <div class="flex justify-end">
+          <AdminButton data-action="create" type="submit" variant="primary" :disabled="!canSubmit" :loading="busy"
+            >Crear borrador</AdminButton
+          >
+        </div>
+      </form>
+      <p v-if="message" class="text-sm text-[var(--text)]" role="status" aria-live="polite">{{ message }}</p>
     </div>
-  </section>
+    <template #footer>
+      <div class="flex flex-wrap gap-2">
+        <AdminButton
+          v-if="uncertain"
+          data-action="retry"
+          icon="i-lucide-rotate-cw"
+          :disabled="!canRetry"
+          :loading="busy"
+          @click="retry"
+          >Reintentar la misma solicitud</AdminButton
+        >
+        <AdminButton
+          data-action="reload-options"
+          variant="ghost"
+          icon="i-lucide-refresh-cw"
+          :disabled="busy || reloading || runtime !== 'cloudflare'"
+          :loading="reloading"
+          @click="reloadOptions"
+          >Volver a cargar familias y marcas</AdminButton
+        >
+      </div>
+    </template>
+  </AdminCard>
 </template>
-
-<style scoped>
-.draft-field {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  margin-top: 0.25rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  padding: 0.5rem;
-  background: var(--surface);
-  color: var(--text-strong);
-}
-.draft-field:focus-visible {
-  outline: 2px solid var(--color-neteco-600);
-  outline-offset: 1px;
-}
-</style>

@@ -148,54 +148,67 @@ const evaluatedAt = computed(() =>
 </script>
 
 <template>
-  <section
-    class="mb-6 rounded-xl border border-slate-200 p-5"
+  <AdminCard
     aria-labelledby="publication-readiness-heading"
     :aria-busy="loading"
+    description="Revisión orientativa de lo que le falta a la ficha: no permite publicar ni garantiza que el producto esté listo."
   >
-    <h2 id="publication-readiness-heading" class="text-lg font-semibold">Comprobación informativa de publicación</h2>
-    <p class="mt-2 text-sm text-slate-600">
-      Esta consulta es informativa: no permite publicar ni acredita que el producto esté listo para publicación.
-    </p>
-    <p v-if="loading" role="status" class="mt-4 text-sm">Consultando incidencias y limitaciones…</p>
-    <template v-else-if="snapshot">
-      <p role="status" class="mt-4 text-sm text-slate-600">
-        Versión {{ snapshot.catalogVersion }} · Evaluado el
+    <template #title><span id="publication-readiness-heading">Comprobación informativa de publicación</span></template>
+    <template v-if="snapshot || (!loading && authorized)" #actions>
+      <button
+        v-if="!snapshot && !loading && authorized"
+        type="button"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        @click="retry"
+      >
+        Reintentar consulta
+      </button>
+      <AdminBadge v-else-if="snapshot" :tone="snapshot.issues.length ? 'warning' : 'neutral'">
+        {{
+          snapshot.issues.length
+            ? `${snapshot.issues.length} ${snapshot.issues.length === 1 ? 'pendiente' : 'pendientes'}`
+            : 'Sin pendientes'
+        }}
+      </AdminBadge>
+    </template>
+    <p v-if="loading" role="status" class="adm-help">Consultando incidencias y limitaciones…</p>
+    <div v-else-if="snapshot" class="adm-stack">
+      <p role="status" class="adm-help">
+        Versión {{ snapshot.catalogVersion }} de la ficha · comprobada el
         <time :datetime="snapshot.evaluatedAt">{{ evaluatedAt }}</time
         >.
       </p>
-      <h3 class="mt-4 font-semibold">Incidencias observadas</h3>
-      <ul v-if="snapshot.issues.length" class="mt-2 space-y-3">
-        <li v-for="(issue, index) in snapshot.issues" :key="`${issue.code}:${issue.path}:${index}`">
-          <p>{{ issue.message }}</p>
-          <p class="text-xs text-slate-500">
-            <code>{{ issue.code }}</code> · <code>{{ issue.path }}</code>
-          </p>
-        </li>
-      </ul>
-      <p v-else class="mt-2 text-sm">
-        No se han observado incidencias en estas comprobaciones. Esto no confirma completitud ni habilita publicación.
-      </p>
-      <h3 class="mt-4 font-semibold">Limitaciones de esta consulta</h3>
-      <ul v-if="snapshot.limitations.length" class="mt-2 space-y-3">
-        <li v-for="(limitation, index) in snapshot.limitations" :key="`${limitation.code}:${limitation.path}:${index}`">
-          <p>{{ limitation.message }}</p>
-          <p class="text-xs text-slate-500">
-            <code>{{ limitation.code }}</code> · <code>{{ limitation.path }}</code>
-          </p>
-        </li>
-      </ul>
-      <p v-else class="mt-2 text-sm">
-        La ausencia de limitaciones enumeradas no acredita aprobación ni sustituye la validación de publicación.
-      </p>
-    </template>
-    <template v-else>
-      <p role="alert" class="mt-4 text-sm">
-        No hemos podido obtener una consulta válida para la versión actual del producto.
-      </p>
-      <UButton v-if="authorized" type="button" class="mt-3" color="neutral" variant="outline" @click="retry"
-        >Reintentar consulta</UButton
-      >
-    </template>
-  </section>
+      <div>
+        <h3 class="adm-label">Incidencias observadas</h3>
+        <ul v-if="snapshot.issues.length" class="adm-list">
+          <li v-for="(issue, index) in snapshot.issues" :key="`${issue.code}:${issue.path}:${index}`">
+            <p>{{ issue.message }}</p>
+          </li>
+        </ul>
+        <p v-else class="adm-help">
+          No se han observado incidencias en esta revisión. Esto no confirma completitud ni habilita publicación: la
+          tienda vuelve a validar la ficha al publicar.
+        </p>
+      </div>
+      <div>
+        <h3 class="adm-label">Limitaciones de esta consulta</h3>
+        <ul v-if="snapshot.limitations.length" class="adm-list">
+          <li
+            v-for="(limitation, index) in snapshot.limitations"
+            :key="`${limitation.code}:${limitation.path}:${index}`"
+          >
+            <p>{{ limitation.message }}</p>
+          </li>
+        </ul>
+        <p v-else class="adm-help">Esta revisión no sustituye la validación final que se hace al publicar.</p>
+      </div>
+    </div>
+    <UAlert
+      v-else
+      role="alert"
+      color="warning"
+      variant="subtle"
+      title="No hemos podido obtener una consulta válida para la versión actual del producto."
+    />
+  </AdminCard>
 </template>

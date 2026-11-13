@@ -29,7 +29,7 @@ const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const busy = ref(false)
 
-const activeTab = ref<'auto-discounts' | 'free-shipping' | 'store-credit'>('auto-discounts')
+const activeTab = ref<string>('auto-discounts')
 const discountRules = ref<AutoDiscountRule[]>([])
 const shippingRules = ref<FreeShippingRule[]>([])
 
@@ -50,6 +50,38 @@ const shippingMinCents = ref<number | ''>(10000)
 const creditCustomerId = ref('')
 const creditAmountCents = ref<number | ''>(2500)
 const creditReason = ref('Compensación incidencia envío')
+
+const tabs = computed(() => [
+  { value: 'auto-discounts', label: 'Descuentos automáticos', count: discountRules.value.length },
+  { value: 'free-shipping', label: 'Envío gratis', count: shippingRules.value.length },
+  { value: 'store-credit', label: 'Saldo de tienda' }
+])
+const SCOPE_LABELS: Record<string, string> = {
+  basket: 'Toda la cesta',
+  category: 'Una categoría',
+  product: 'Un producto',
+  volume: 'Compras por volumen'
+}
+const scopeLabel = (code: string) => SCOPE_LABELS[code] ?? adminHumanize(code)
+const ZONE_LABELS: Record<string, string> = {
+  peninsula: 'Península',
+  baleares: 'Baleares',
+  canarias: 'Canarias',
+  local: 'Zona de reparto propio'
+}
+const zoneLabel = (code: string) => ZONE_LABELS[code] ?? adminHumanize(code)
+const ERROR_TEXTS: Record<string, string> = {
+  forbidden: 'No tienes permiso para gestionar estas reglas.',
+  unauthenticated: 'Tu sesión ha caducado. Vuelve a iniciar sesión.',
+  mfa_required: 'Verifica el segundo paso de acceso para continuar.',
+  invalid_input: 'Revisa los datos del formulario.',
+  not_found: 'No hemos encontrado ese cliente o esa regla.',
+  rate_limited: 'Demasiadas acciones seguidas. Espera un momento.',
+  error_servidor: 'No se ha podido completar la operación. Vuelve a intentarlo.'
+}
+const errorText = (code: string) =>
+  ERROR_TEXTS[code] ??
+  (/^[a-z0-9_]+$/.test(code) ? 'No se ha podido completar la operación. Vuelve a intentarlo.' : code)
 
 function errorMessage(caught: unknown): string {
   const code = (caught as { data?: { error?: { code?: string } } })?.data?.error?.code
@@ -160,7 +192,7 @@ async function issueCredit() {
         reason: creditReason.value.trim()
       }
     })
-    notice.value = `Saldo de tienda emitido a ${creditCustomerId.value}.`
+    notice.value = `Saldo de tienda añadido al cliente ${creditCustomerId.value}.`
     creditCustomerId.value = ''
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -175,329 +207,247 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-bold text-slate-900">Reglas de precios y envío (PRI-014/017/018)</h1>
-      <p class="text-sm text-slate-600">
-        Gestión unificada de descuentos automáticos, envío gratis por margen/zona y emisión de crédito de tienda.
-      </p>
-    </header>
-
-    <div
+  <div class="adm-stack">
+    <UAlert
       v-if="notice"
       data-test="notice"
       role="status"
       aria-live="polite"
-      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="notice"
+    />
+    <UAlert
+      v-if="error"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorText(error)"
     >
-      {{ notice }}
-    </div>
+      <template #actions>
+        <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm" :disabled="loading" @click="loadRules">
+          Reintentar
+        </button>
+      </template>
+    </UAlert>
 
-    <div v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      Error: {{ error }}
-    </div>
+    <AdminTabs v-model="activeTab" :tabs="tabs" label="Tipos de regla" />
 
-    <!-- Navigation Tabs -->
-    <div role="tablist" class="flex gap-2 border-b border-slate-200 pb-2">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'auto-discounts'"
-        class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
-        :class="
-          activeTab === 'auto-discounts' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-        "
-        @click="activeTab = 'auto-discounts'"
-      >
-        Descuentos automáticos ({{ discountRules.length }})
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'free-shipping'"
-        class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
-        :class="
-          activeTab === 'free-shipping' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-        "
-        @click="activeTab = 'free-shipping'"
-      >
-        Reglas de envío gratis ({{ shippingRules.length }})
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'store-credit'"
-        class="rounded-lg px-4 py-2 text-sm font-semibold transition-colors"
-        :class="
-          activeTab === 'store-credit' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-        "
-        @click="activeTab = 'store-credit'"
-      >
-        Crédito de tienda
-      </button>
-    </div>
+    <!-- Descuentos automáticos -->
+    <div v-if="activeTab === 'auto-discounts'" class="adm-stack">
+      <AdminCard as="section" aria-labelledby="discount-list-heading" flush>
+        <template #title><span id="discount-list-heading">Descuentos configurados</span></template>
+        <div v-if="loading && !discountRules.length" class="adm-table-skeleton" role="status" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="row in 3" :key="row"><i /><i /><i /><i /></div>
+        </div>
+        <AdminEmptyState
+          v-else-if="discountRules.length === 0"
+          compact
+          icon="i-lucide-percent"
+          title="No hay descuentos automáticos"
+          description="Crea el primero con el formulario de abajo."
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Nombre</th>
+                <th scope="col">Se aplica a</th>
+                <th scope="col" data-numeric>Descuento</th>
+                <th scope="col" data-numeric>Prioridad</th>
+                <th scope="col">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in discountRules" :key="r.id">
+                <td class="font-semibold text-[var(--text-strong)]">
+                  {{ r.name }}
+                  <AdminBadge v-if="r.stackable" plain class="ml-2">Acumulable</AdminBadge>
+                </td>
+                <td>{{ scopeLabel(r.scope) }}</td>
+                <td data-numeric>
+                  {{ r.discountType === 'percentage' ? `${r.discountValue}%` : `${r.discountValue} €` }}
+                </td>
+                <td data-numeric>{{ r.priority }}</td>
+                <td><AdminBadge :status="r.status" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </AdminCard>
 
-    <!-- TAB 1: Auto Discounts -->
-    <div v-if="activeTab === 'auto-discounts'" class="space-y-6">
-      <section aria-labelledby="new-discount-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h2 id="new-discount-heading" class="text-base font-semibold text-slate-900">
-          Nueva regla de descuento automático
-        </h2>
-        <form class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3" @submit.prevent="createDiscount">
-          <div>
-            <label for="discount-name" class="block text-xs font-medium text-slate-700">Nombre de la regla</label>
-            <input
-              id="discount-name"
-              v-model="discountName"
-              data-test="discount-name"
-              type="text"
-              required
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label for="discount-scope" class="block text-xs font-medium text-slate-700">Alcance</label>
-            <select
-              id="discount-scope"
-              v-model="discountScope"
-              data-test="discount-scope"
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            >
-              <option value="basket">Cesta global</option>
-              <option value="category">Categoría</option>
-              <option value="product">Producto</option>
-              <option value="volume">Volumen</option>
-            </select>
-          </div>
-          <div>
-            <label for="discount-type" class="block text-xs font-medium text-slate-700">Tipo</label>
-            <select
-              id="discount-type"
-              v-model="discountType"
-              data-test="discount-type"
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            >
-              <option value="percentage">Porcentaje (%)</option>
-              <option value="fixed">Importe fijo (EUR)</option>
-            </select>
-          </div>
-          <div>
-            <label for="discount-value" class="block text-xs font-medium text-slate-700">Valor</label>
-            <input
-              id="discount-value"
-              v-model.number="discountValue"
-              data-test="discount-value"
-              type="number"
-              min="1"
-              required
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label for="discount-priority" class="block text-xs font-medium text-slate-700">Prioridad</label>
-            <input
-              id="discount-priority"
-              v-model.number="discountPriority"
-              type="number"
-              min="1"
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
-          </div>
-          <div class="flex items-center gap-2 pt-5">
-            <label class="flex items-center gap-1 text-xs font-medium text-slate-700">
-              <input v-model="discountStackable" type="checkbox" /> Acumulable (stackable)
+      <AdminCard
+        as="section"
+        aria-labelledby="new-discount-heading"
+        description="Se guarda como borrador. Con prioridad más baja se aplica antes."
+      >
+        <template #title><span id="new-discount-heading">Nuevo descuento automático</span></template>
+        <form class="adm-stack" @submit.prevent="createDiscount">
+          <div class="adm-form-grid">
+            <AdminFormField label="Nombre de la regla" for="discount-name" required>
+              <input id="discount-name" v-model="discountName" data-test="discount-name" type="text" required />
+            </AdminFormField>
+            <AdminFormField label="Se aplica a" for="discount-scope">
+              <select id="discount-scope" v-model="discountScope" data-test="discount-scope">
+                <option value="basket">Toda la cesta</option>
+                <option value="category">Una categoría</option>
+                <option value="product">Un producto</option>
+                <option value="volume">Compras por volumen</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField label="Tipo de descuento" for="discount-type">
+              <select id="discount-type" v-model="discountType" data-test="discount-type">
+                <option value="percentage">Porcentaje (%)</option>
+                <option value="fixed">Importe fijo (€)</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField label="Valor" for="discount-value" required>
+              <input
+                id="discount-value"
+                v-model.number="discountValue"
+                data-test="discount-value"
+                type="number"
+                min="1"
+                required
+              />
+            </AdminFormField>
+            <AdminFormField label="Prioridad" for="discount-priority">
+              <input id="discount-priority" v-model.number="discountPriority" type="number" min="1" />
+            </AdminFormField>
+            <label class="adm-check self-end">
+              <input v-model="discountStackable" type="checkbox" /> Se puede acumular con otros descuentos
             </label>
           </div>
-
-          <div class="md:col-span-3 pt-2">
+          <div class="flex justify-end">
             <button
               type="button"
               data-test="save-discount-btn"
               :disabled="busy || !discountName"
-              class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+              class="adm-btn adm-btn--primary"
               @click="createDiscount"
             >
               Guardar regla de descuento
             </button>
           </div>
         </form>
-      </section>
+      </AdminCard>
+    </div>
 
-      <!-- Rules list -->
-      <section
-        aria-labelledby="discount-list-heading"
-        class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4"
-      >
-        <h2 id="discount-list-heading" class="text-base font-semibold text-slate-900">Reglas configuradas</h2>
-        <div v-if="discountRules.length === 0" class="text-xs text-slate-500 py-3">
-          No hay reglas de descuento automático.
+    <!-- Envío gratis -->
+    <div v-if="activeTab === 'free-shipping'" class="adm-stack">
+      <AdminCard as="section" aria-labelledby="fs-list-heading" flush>
+        <template #title><span id="fs-list-heading">Reglas de envío gratis</span></template>
+        <div v-if="loading && !shippingRules.length" class="adm-table-skeleton" role="status" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="row in 3" :key="row"><i /><i /><i /><i /></div>
         </div>
-        <div v-else class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 font-medium text-slate-600">
+        <AdminEmptyState
+          v-else-if="shippingRules.length === 0"
+          compact
+          icon="i-lucide-truck"
+          title="No hay reglas de envío gratis"
+          description="Crea la primera con el formulario de abajo."
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
               <tr>
-                <th scope="col" class="px-3 py-2">Nombre</th>
-                <th scope="col" class="px-3 py-2">Alcance</th>
-                <th scope="col" class="px-3 py-2">Descuento</th>
-                <th scope="col" class="px-3 py-2">Prioridad</th>
-                <th scope="col" class="px-3 py-2">Estado</th>
+                <th scope="col">Nombre</th>
+                <th scope="col">Zona</th>
+                <th scope="col" data-numeric>Pedido mínimo</th>
+                <th scope="col">Estado</th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="r in discountRules" :key="r.id" class="hover:bg-slate-50">
-                <td class="px-3 py-2 font-medium text-slate-900">{{ r.name }}</td>
-                <td class="px-3 py-2 text-slate-600">{{ r.scope }}</td>
-                <td class="px-3 py-2 font-semibold text-slate-800">
-                  {{ r.discountType === 'percentage' ? `${r.discountValue}%` : `${r.discountValue} €` }}
-                </td>
-                <td class="px-3 py-2 text-slate-600">{{ r.priority }}</td>
-                <td class="px-3 py-2">
-                  <span
-                    class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                    :class="r.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'"
-                  >
-                    {{ r.status }}
-                  </span>
-                </td>
+            <tbody>
+              <tr v-for="s in shippingRules" :key="s.id">
+                <td class="font-semibold text-[var(--text-strong)]">{{ s.name }}</td>
+                <td>{{ zoneLabel(s.destinationZone) }}</td>
+                <td data-numeric>{{ adminMoney(s.minOrderGrossCents) }}</td>
+                <td><AdminBadge :status="s.status" /></td>
               </tr>
             </tbody>
           </table>
         </div>
-      </section>
-    </div>
+      </AdminCard>
 
-    <!-- TAB 2: Free Shipping -->
-    <div v-if="activeTab === 'free-shipping'" class="space-y-6">
-      <section aria-labelledby="shipping-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h2 id="shipping-heading" class="text-base font-semibold text-slate-900">Nueva regla de envío gratis</h2>
-        <form class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3" @submit.prevent="createShippingRule">
-          <div>
-            <label for="shipping-name" class="block text-xs font-medium text-slate-700">Nombre de la política</label>
-            <input
-              id="shipping-name"
-              v-model="shippingName"
-              type="text"
+      <AdminCard as="section" aria-labelledby="shipping-heading" description="Se guarda como borrador.">
+        <template #title><span id="shipping-heading">Nueva regla de envío gratis</span></template>
+        <form class="adm-stack" @submit.prevent="createShippingRule">
+          <div class="adm-form-grid">
+            <AdminFormField label="Nombre de la regla" for="shipping-name" required>
+              <input id="shipping-name" v-model="shippingName" type="text" required />
+            </AdminFormField>
+            <AdminFormField label="Zona de destino" for="shipping-zone">
+              <select id="shipping-zone" v-model="shippingZone">
+                <option value="peninsula">Península</option>
+                <option value="baleares">Baleares</option>
+                <option value="canarias">Canarias</option>
+                <option value="local">Zona de reparto propio</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField
+              label="Pedido mínimo (en céntimos)"
+              for="shipping-min"
+              :help="`Equivale a ${adminMoney(Number(shippingMinCents) || 0)}, impuestos incluidos.`"
               required
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
+            >
+              <input id="shipping-min" v-model.number="shippingMinCents" type="number" min="0" required />
+            </AdminFormField>
           </div>
-          <div>
-            <label for="shipping-zone" class="block text-xs font-medium text-slate-700">Zona destino</label>
-            <select id="shipping-zone" v-model="shippingZone" class="mt-1 w-full rounded border p-1.5 text-sm">
-              <option value="peninsula">Península</option>
-              <option value="baleares">Baleares</option>
-              <option value="canarias">Canarias</option>
-              <option value="local">Zona local propia</option>
-            </select>
-          </div>
-          <div>
-            <label for="shipping-min" class="block text-xs font-medium text-slate-700">Umbral mínimo (céntimos)</label>
-            <input
-              id="shipping-min"
-              v-model.number="shippingMinCents"
-              type="number"
-              min="0"
-              required
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
-          </div>
-          <div class="md:col-span-3 pt-2">
+          <div class="flex justify-end">
             <button
               type="button"
               :disabled="busy || !shippingName"
-              class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+              class="adm-btn adm-btn--primary"
               @click="createShippingRule"
             >
               Guardar regla de envío
             </button>
           </div>
         </form>
-      </section>
-
-      <!-- Free shipping rules list -->
-      <section
-        aria-labelledby="fs-list-heading"
-        class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4"
-      >
-        <h2 id="fs-list-heading" class="text-base font-semibold text-slate-900">Políticas de envío gratis</h2>
-        <div v-if="shippingRules.length === 0" class="text-xs text-slate-500 py-3">No hay reglas de envío gratis.</div>
-        <div v-else class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-slate-200 text-left text-xs">
-            <thead class="bg-slate-50 font-medium text-slate-600">
-              <tr>
-                <th scope="col" class="px-3 py-2">Nombre</th>
-                <th scope="col" class="px-3 py-2">Zona</th>
-                <th scope="col" class="px-3 py-2">Mínimo pedido</th>
-                <th scope="col" class="px-3 py-2">Estado</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-for="s in shippingRules" :key="s.id" class="hover:bg-slate-50">
-                <td class="px-3 py-2 font-medium text-slate-900">{{ s.name }}</td>
-                <td class="px-3 py-2 text-slate-600">{{ s.destinationZone }}</td>
-                <td class="px-3 py-2 font-semibold text-slate-800">{{ (s.minOrderGrossCents / 100).toFixed(2) }} €</td>
-                <td class="px-3 py-2">
-                  <span
-                    class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                    :class="s.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'"
-                  >
-                    {{ s.status }}
-                  </span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
+      </AdminCard>
     </div>
 
-    <!-- TAB 3: Store Credit -->
-    <div v-if="activeTab === 'store-credit'" class="space-y-6">
-      <section aria-labelledby="credit-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <h2 id="credit-heading" class="text-base font-semibold text-slate-900">Emitir crédito de tienda a cliente</h2>
-        <form class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3" @submit.prevent="issueCredit">
-          <div>
-            <label for="credit-customer" class="block text-xs font-medium text-slate-700">UUID del Cliente</label>
-            <input
-              id="credit-customer"
-              v-model="creditCustomerId"
-              type="text"
+    <!-- Saldo de tienda -->
+    <div v-if="activeTab === 'store-credit'" class="adm-stack">
+      <AdminCard
+        as="section"
+        aria-labelledby="credit-heading"
+        description="El cliente podrá gastar este saldo en sus próximos pedidos."
+      >
+        <template #title><span id="credit-heading">Dar saldo de tienda a un cliente</span></template>
+        <form class="adm-stack" @submit.prevent="issueCredit">
+          <div class="adm-form-grid">
+            <AdminFormField label="Identificador del cliente" for="credit-customer" required>
+              <input id="credit-customer" v-model="creditCustomerId" type="text" required />
+            </AdminFormField>
+            <AdminFormField
+              label="Importe (en céntimos)"
+              for="credit-amount"
+              :help="`Equivale a ${adminMoney(Number(creditAmountCents) || 0)}.`"
               required
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
+            >
+              <input id="credit-amount" v-model.number="creditAmountCents" type="number" min="1" required />
+            </AdminFormField>
+            <AdminFormField label="Motivo" for="credit-reason">
+              <input id="credit-reason" v-model="creditReason" type="text" />
+            </AdminFormField>
           </div>
-          <div>
-            <label for="credit-amount" class="block text-xs font-medium text-slate-700">Importe (céntimos)</label>
-            <input
-              id="credit-amount"
-              v-model.number="creditAmountCents"
-              type="number"
-              min="1"
-              required
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
-          </div>
-          <div>
-            <label for="credit-reason" class="block text-xs font-medium text-slate-700">Motivo</label>
-            <input
-              id="credit-reason"
-              v-model="creditReason"
-              type="text"
-              class="mt-1 w-full rounded border p-1.5 text-sm"
-            />
-          </div>
-          <div class="md:col-span-3 pt-2">
+          <div class="flex justify-end">
             <button
               type="button"
               :disabled="busy || !creditCustomerId || !creditAmountCents"
-              class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+              class="adm-btn adm-btn--primary"
               @click="issueCredit"
             >
-              Emitir saldo
+              Dar saldo
             </button>
           </div>
         </form>
-      </section>
+      </AdminCard>
     </div>
   </div>
 </template>

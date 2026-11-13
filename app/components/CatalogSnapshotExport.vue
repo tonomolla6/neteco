@@ -164,9 +164,9 @@ const countLabels: Record<keyof CatalogExportSnapshot['counts'], string> = {
   products: 'Productos',
   variants: 'Variantes',
   inventory: 'Inventario',
-  prices: 'Versiones de precio',
-  media: 'Referencias de medios',
-  references: 'Referencias de catálogo'
+  prices: 'Precios',
+  media: 'Imágenes y archivos',
+  references: 'Familias, marcas y otros datos'
 }
 const statusLabels = {
   draft: 'Borrador',
@@ -178,100 +178,96 @@ const statusLabels = {
 </script>
 
 <template>
-  <section
-    :aria-labelledby="`${prefix}-heading`"
-    :aria-busy="busy"
-    class="space-y-4 rounded-xl border border-slate-200 bg-white p-5"
-  >
-    <header>
-      <h2 :id="`${prefix}-heading`" class="text-lg font-semibold text-slate-900">Exportar snapshot del catálogo</h2>
-      <p class="mt-1 max-w-3xl text-sm text-slate-600">
-        Descarga todos los productos que coincidan con los filtros, no sólo la página visible. Es una consulta privada
-        de lectura: no modifica el catálogo ni llama a proveedores.
-      </p>
-    </header>
-    <p v-if="!enabled" data-snapshot-export-unavailable role="status" class="rounded-lg bg-slate-50 p-3 text-sm">
-      La exportación requiere Cloudflare, acceso actual habilitado y una sesión administrativa verificada. Los filtros
-      sólo admiten búsqueda, categoría y estado.
-    </p>
-    <template v-else>
-      <form class="flex flex-wrap items-end gap-3" @submit.prevent="download">
-        <div>
-          <label :for="`${prefix}-format`" class="block text-sm font-medium">Formato del archivo</label>
-          <select
-            :id="`${prefix}-format`"
-            v-model="format"
-            data-snapshot-export-format
-            :disabled="busy"
-            class="mt-1 rounded border border-slate-300 bg-white px-3 py-2 text-sm"
-            :aria-describedby="`${prefix}-profile`"
-          >
-            <option value="csv">CSV completo · entidades y Manifest</option>
-            <option value="xlsx">XLSX · seis hojas y Manifest</option>
-          </select>
-        </div>
-        <UButton data-snapshot-export-download type="submit" :disabled="busy">{{
-          busy ? 'Preparando snapshot…' : 'Consultar y descargar'
-        }}</UButton>
-      </form>
-      <p :id="`${prefix}-profile`" class="text-sm text-slate-600">
-        Perfil nativo de lectura <code>native_catalog_snapshot_v1</code>. No es importable mediante el CSV editorial ni
-        el formato heredado. El CSV incluye todas las entidades como <code>sheet,row_index,record_json</code>; XLSX
-        contiene las mismas entidades y el Manifest. Los valores JSON conservan tipos y vacíos.
-      </p>
-      <p class="text-xs text-slate-500">
-        Límites: 1.000 productos, 10.000 filas, 8.000.000 bytes y 20.000 caracteres por celda. Si se supera un límite,
-        no se descargará un archivo parcial.
-      </p>
-      <p v-if="status === 'loading'" data-snapshot-export-loading role="status" aria-live="polite" class="text-sm">
-        Consultando y verificando el snapshot antes de generar el archivo…
-      </p>
-      <p
-        v-if="status === 'error'"
-        data-snapshot-export-error
-        role="alert"
-        class="rounded-lg bg-amber-50 p-3 text-sm text-amber-900"
-      >
-        No se ha confirmado un snapshot completo ni su archivo. No hay descarga parcial ni datos anteriores de respaldo.
-        Puedes reintentar únicamente con el botón de consulta.
-      </p>
-      <div v-if="snapshot" data-snapshot-export-result class="space-y-3 rounded-lg border border-slate-200 p-4">
-        <p v-if="status === 'empty'" data-snapshot-export-empty role="status" class="text-sm">
-          Snapshot válido sin productos que coincidan con estos filtros. El archivo mantiene su Manifest y las
-          referencias incluidas.
-        </p>
-        <p v-else role="status" class="text-sm">
-          Archivo preparado para descarga a partir de este snapshot verificado.
-        </p>
-        <dl class="grid gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt class="font-medium">Observado en D1</dt>
-            <dd>
-              <time :datetime="snapshot.observedAt">{{ snapshot.observedAt }} · UTC</time>
-            </dd>
-          </div>
-          <div>
-            <dt class="font-medium">Ámbito de la consulta</dt>
-            <dd>
-              Búsqueda: {{ snapshot.filters.q || 'Sin búsqueda' }} · Categoría:
-              {{ snapshot.filters.category ?? 'Todas' }} · Estado:
-              {{ snapshot.filters.status ? statusLabels[snapshot.filters.status] : 'Todos' }}
-            </dd>
-          </div>
-        </dl>
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div v-for="(label, key) in countLabels" :key="key" class="rounded-lg bg-slate-50 p-3">
-            <p class="text-xs text-slate-600">{{ label }}</p>
-            <p data-snapshot-export-count class="mt-1 text-lg font-semibold tabular-nums">
-              {{ snapshot.counts[key].toLocaleString('es-ES') }}
-            </p>
-          </div>
-        </div>
-        <p class="text-xs text-slate-600">
-          Refleja la consulta observada, no datos vivos. No acredita precios vigentes, disponibilidad de stock ni
-          aprobación de publicación.
+  <section :aria-labelledby="`${prefix}-heading`" :aria-busy="busy" class="adm-card">
+    <header class="adm-card__head">
+      <div class="min-w-0">
+        <h2 :id="`${prefix}-heading`" class="adm-card__title">Exportar el catálogo a un archivo</h2>
+        <p class="adm-card__hint">
+          Descarga todos los productos que coinciden con la búsqueda y los filtros del listado, no solo la página que
+          ves. Es una copia de consulta: no cambia nada en el catálogo.
         </p>
       </div>
-    </template>
+    </header>
+    <div class="adm-card__body adm-stack">
+      <p v-if="!enabled" data-snapshot-export-unavailable role="status" class="adm-help">
+        Ahora mismo no puedes exportar: hace falta una sesión de administrador verificada y que la exportación esté
+        activada en esta tienda.
+      </p>
+      <template v-else>
+        <form class="flex flex-wrap items-end gap-3" @submit.prevent="download">
+          <div class="adm-field">
+            <label :for="`${prefix}-format`" class="adm-label">Formato del archivo</label>
+            <select
+              :id="`${prefix}-format`"
+              v-model="format"
+              data-snapshot-export-format
+              :disabled="busy"
+              class="adm-input"
+              :aria-describedby="`${prefix}-profile`"
+            >
+              <option value="csv">CSV · un solo archivo de texto</option>
+              <option value="xlsx">Excel (XLSX) · seis hojas</option>
+            </select>
+          </div>
+          <button data-snapshot-export-download type="submit" class="adm-btn adm-btn--primary" :disabled="busy">
+            <UIcon name="i-lucide-download" class="size-4 shrink-0" />
+            {{ busy ? 'Preparando el archivo…' : 'Descargar' }}
+          </button>
+        </form>
+        <p :id="`${prefix}-profile`" class="adm-help">
+          El archivo es una copia completa para consultar o guardar: productos, variantes, stock, precios e imágenes. No
+          es importable desde «Importar». Como máximo 1.000 productos y 10.000 filas; si se supera, no se descarga un
+          archivo a medias: acota antes la búsqueda o los filtros del listado.
+        </p>
+        <p v-if="status === 'loading'" data-snapshot-export-loading role="status" aria-live="polite" class="adm-help">
+          Preparando y comprobando el archivo…
+        </p>
+        <p v-if="status === 'error'" data-snapshot-export-error role="alert" class="adm-field__error">
+          No se ha podido preparar el archivo completo y no se ha descargado nada. Vuelve a pulsar «Descargar».
+        </p>
+        <div
+          v-if="snapshot"
+          data-snapshot-export-result
+          class="adm-stack rounded-[var(--radius-surface)] border border-[var(--border)] p-4"
+        >
+          <p v-if="status === 'empty'" data-snapshot-export-empty role="status" class="text-sm">
+            Ningún producto coincide con estos filtros. El archivo se ha descargado igualmente, sin productos.
+          </p>
+          <p v-else role="status" class="text-sm font-semibold text-[var(--text-strong)]">Archivo descargado.</p>
+          <dl class="grid gap-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt class="adm-help">Datos tomados el</dt>
+              <dd>
+                <time :datetime="snapshot.observedAt">{{ adminDate(snapshot.observedAt, true) }}</time>
+              </dd>
+            </div>
+            <div>
+              <dt class="adm-help">Qué incluye</dt>
+              <dd>
+                Búsqueda: {{ snapshot.filters.q || 'sin búsqueda' }} · familia:
+                {{ snapshot.filters.category == null ? 'todas' : 'la elegida en el listado' }} · estado:
+                {{ snapshot.filters.status ? statusLabels[snapshot.filters.status] : 'todos' }}
+              </dd>
+            </div>
+          </dl>
+          <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div
+              v-for="(label, key) in countLabels"
+              :key="key"
+              class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2"
+            >
+              <p class="adm-help">{{ label }}</p>
+              <p data-snapshot-export-count class="text-base font-semibold tabular-nums text-[var(--text-strong)]">
+                {{ snapshot.counts[key].toLocaleString('es-ES') }}
+              </p>
+            </div>
+          </div>
+          <p class="adm-help">
+            Refleja el catálogo en ese momento, no datos vivos: los precios, el stock y los estados pueden haber
+            cambiado después.
+          </p>
+        </div>
+      </template>
+    </div>
   </section>
 </template>

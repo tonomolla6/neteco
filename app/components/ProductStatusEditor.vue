@@ -356,87 +356,114 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="mb-6 rounded-xl border border-slate-200 p-5"
+  <AdminCard
     aria-labelledby="product-status-heading"
     data-product-status-editor
+    description="Cada cambio pide un motivo y una confirmación. La consulta informativa no autoriza la publicación: la tienda comprueba los requisitos antes de publicar."
   >
-    <h2 id="product-status-heading" class="text-lg font-semibold">Cambiar estado editorial</h2>
-    <p class="mt-2 text-sm text-slate-600">
-      Editor separado con motivo y confirmación. La consulta informativa no autoriza la publicación: el servidor valida
-      sus requisitos antes de publicar.
-    </p>
-    <p v-if="!current" role="status" class="mt-3 text-sm">
-      Cambio de estado no disponible: se necesita una consulta privada válida y permiso explícito.
-    </p>
-    <p v-if="stale" role="alert" class="mt-3 text-sm">
-      Hay un estado o versión más reciente. Consulta de nuevo antes de preparar otro cambio.
-    </p>
-    <p v-if="error" id="product-status-error" role="alert" class="mt-3 text-sm text-red-700">{{ error }}</p>
-    <p v-if="notice" role="status" class="mt-3 text-sm">{{ notice }}</p>
-    <form
-      v-if="current"
-      class="mt-4 space-y-3"
-      :aria-busy="saving || reloading || checkingReadiness"
-      @submit.prevent="saveStatus"
-    >
-      <fieldset :disabled="!canPrepare" class="space-y-3">
-        <p v-if="baseline" class="text-sm">
-          Estado consultado: {{ LABELS[baseline.status] }} · versión {{ baseline.version }}.
-        </p>
-        <label for="product-target-status" class="block text-sm font-medium">Nuevo estado</label>
-        <select id="product-target-status" v-model="target" required class="w-full rounded border border-slate-300 p-2">
-          <option value="" disabled>Selecciona un estado</option>
-          <option v-for="choice in choices" :key="choice" :value="choice">{{ LABELS[choice] }}</option>
-        </select>
-        <label for="product-status-reason" class="block text-sm font-medium">Motivo del cambio de estado</label>
-        <input
-          id="product-status-reason"
-          v-model="reason"
-          type="text"
-          required
-          minlength="3"
-          maxlength="500"
-          class="w-full rounded border border-slate-300 p-2"
-          aria-describedby="product-status-impact"
-        />
-        <p id="product-status-impact" class="text-sm text-slate-600">{{ impact }}</p>
-        <label class="flex items-start gap-2 text-sm"
-          ><input v-model="confirmed" type="checkbox" required class="mt-1" />Confirmo el impacto del cambio de estado
-          seleccionado.</label
-        >
-        <UButton type="submit" :disabled="!canSubmit" :loading="saving">Aplicar cambio de estado</UButton>
-      </fieldset>
-      <p v-if="saving" role="status" class="text-sm">Registrando el cambio de estado…</p>
-    </form>
-    <div class="mt-3 flex flex-wrap gap-2">
-      <UButton
-        v-if="uncertain"
-        type="button"
+    <template #title><span id="product-status-heading">Cambiar estado editorial</span></template>
+    <template v-if="baseline" #actions>
+      <AdminBadge :status="baseline.status">{{ LABELS[baseline.status] }}</AdminBadge>
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="!current"
+        role="status"
         color="neutral"
-        :disabled="!current || saving || reloading || checkingReadiness"
-        @click="retry"
-        >Reintentar el mismo cambio</UButton
+        variant="subtle"
+        title="Ahora mismo no puedes cambiar el estado de este producto: hace falta cargar la ficha de nuevo y tener permiso para ello."
+      />
+      <UAlert
+        v-if="stale"
+        role="alert"
+        color="warning"
+        variant="subtle"
+        title="La ficha ha cambiado desde que la abriste. Actualízala antes de preparar otro cambio."
+      />
+      <UAlert v-if="error" id="product-status-error" role="alert" color="error" variant="subtle" :title="error" />
+      <UAlert v-if="notice" role="status" color="success" variant="subtle" :title="notice" />
+      <form
+        v-if="current"
+        class="adm-stack"
+        :aria-busy="saving || reloading || checkingReadiness"
+        @submit.prevent="saveStatus"
       >
-      <UButton
-        type="button"
-        color="neutral"
-        variant="outline"
-        :disabled="!current || saving || reloading || checkingReadiness"
-        :loading="reloading"
-        @click="reload"
-        >Consultar estado de nuevo</UButton
-      >
-      <UButton
-        v-if="publicationBlocked && readinessAvailable"
-        type="button"
-        color="neutral"
-        variant="outline"
-        :disabled="!current || saving || reloading || checkingReadiness"
-        :loading="checkingReadiness"
-        @click="consultReadiness"
-        >Reconsultar incidencias informativas</UButton
-      >
+        <fieldset :disabled="!canPrepare" class="adm-stack">
+          <p v-if="baseline" class="adm-help">
+            Estado consultado: {{ LABELS[baseline.status] }} · versión {{ baseline.version }}.
+          </p>
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label for="product-target-status" class="adm-label">Nuevo estado</label>
+              <select id="product-target-status" v-model="target" required class="adm-input">
+                <option value="" disabled>Selecciona un estado</option>
+                <option v-for="choice in choices" :key="choice" :value="choice">{{ LABELS[choice] }}</option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label for="product-status-reason" class="adm-label">Motivo del cambio de estado</label>
+              <input
+                id="product-status-reason"
+                v-model="reason"
+                type="text"
+                required
+                minlength="3"
+                maxlength="500"
+                class="adm-input"
+                aria-describedby="product-status-impact"
+              />
+            </div>
+          </div>
+          <p id="product-status-impact" class="adm-help">{{ impact }}</p>
+          <label class="adm-check"
+            ><input v-model="confirmed" type="checkbox" required /><span
+              >Confirmo que entiendo el efecto de este cambio de estado.</span
+            ></label
+          >
+          <div>
+            <button type="submit" class="adm-btn adm-btn--secondary" :disabled="!canSubmit || saving">
+              <UIcon v-if="saving" name="i-lucide-loader-circle" class="size-4 animate-spin" />Cambiar estado
+            </button>
+          </div>
+        </fieldset>
+        <p v-if="saving" role="status" class="adm-help">Registrando el cambio de estado…</p>
+      </form>
     </div>
-  </section>
+    <template #footer>
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-if="uncertain"
+          type="button"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          :disabled="!current || saving || reloading || checkingReadiness"
+          @click="retry"
+        >
+          Reintentar el mismo cambio
+        </button>
+        <button
+          type="button"
+          class="adm-btn adm-btn--ghost adm-btn--sm"
+          :disabled="!current || saving || reloading || checkingReadiness"
+          @click="reload"
+        >
+          <UIcon
+            :name="reloading ? 'i-lucide-loader-circle' : 'i-lucide-rotate-cw'"
+            class="size-4"
+            :class="reloading && 'animate-spin'"
+          />
+          Actualizar estado
+        </button>
+        <button
+          v-if="publicationBlocked && readinessAvailable"
+          type="button"
+          class="adm-btn adm-btn--ghost adm-btn--sm"
+          :disabled="!current || saving || reloading || checkingReadiness"
+          @click="consultReadiness"
+        >
+          <UIcon v-if="checkingReadiness" name="i-lucide-loader-circle" class="size-4 animate-spin" />
+          Volver a revisar qué falta para publicar
+        </button>
+      </div>
+    </template>
+  </AdminCard>
 </template>

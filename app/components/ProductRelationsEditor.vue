@@ -56,6 +56,12 @@ const query = ref(''),
   choices = ref<Array<{ id: number; name: string }>>([]),
   picked = ref<number | null>(null)
 const kind = ref<'substitute' | 'compatible' | 'accessory' | 'equivalent'>('substitute')
+const KIND_LABELS: Record<'substitute' | 'compatible' | 'accessory' | 'equivalent', string> = {
+  substitute: 'Sustitución',
+  compatible: 'Compatibilidad',
+  accessory: 'Accesorio',
+  equivalent: 'Equivalente'
+}
 const relations = ref<CatalogRelationsInput['relations']>([]),
   reason = ref(''),
   reference = ref(''),
@@ -265,83 +271,169 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section v-if="authorized" aria-label="Relaciones dirigidas de producto" class="min-w-0 space-y-3">
-    <h2>Relaciones dirigidas de producto</h2>
-    <p>
-      Una relación origen → destino no confirma compatibilidad química ni reciprocidad. Requiere revisión documental
-      manual.
-    </p>
-    <p v-if="state === 'loading'" role="status">Consultando relaciones…</p>
-    <p v-else-if="state === 'error'" role="alert">
-      No se pudieron consultar las relaciones. No se habilitarán cambios.
-    </p>
-    <button v-if="state === 'error'" type="button" :disabled="busy" @click="read">Actualizar relaciones</button>
-    <template v-if="snapshot">
-      <p v-if="!relations.length">Sin relaciones configuradas</p>
-      <ul>
-        <li v-for="(item, index) in relations" :key="item.targetProductId + ':' + item.kind">
-          Producto {{ item.targetProductId }} · {{ item.kind }}
-          <button type="button" :disabled="busy || !!intent" @click="relations.splice(index, 1)">
-            Quitar relación
-          </button>
-        </li>
-      </ul>
-      <form data-relation-search @submit.prevent="search">
-        <label
-          >Buscar producto <input v-model="query" data-relation-query maxlength="100" :disabled="busy || !!intent"
-        /></label>
-        <button type="submit" :disabled="busy || !!intent">Buscar</button>
-      </form>
-      <ul>
-        <li v-for="choice in choices" :key="choice.id">
-          <button
-            type="button"
-            :data-relation-pick="choice.id"
-            :disabled="busy || !!intent"
-            @click="picked = choice.id"
-          >
-            {{ choice.name }}
-          </button>
-        </li>
-      </ul>
-      <label
-        >Tipo de relación
-        <select v-model="kind" data-relation-kind :disabled="busy || !!intent">
-          <option value="substitute">Sustitución</option>
-          <option value="compatible">Compatibilidad</option>
-          <option value="accessory">Accesorio</option>
-          <option value="equivalent">Equivalente</option>
-        </select></label
-      >
-      <button data-relation-add type="button" :disabled="busy || !!intent || picked === null" @click="add">
-        Añadir relación dirigida
-      </button>
-      <form data-relation-review @submit.prevent="review">
-        <label
-          >Motivo <textarea v-model="reason" data-relation-reason maxlength="500" :disabled="busy || !!intent" />
-        </label>
-        <label
-          >Referencia de revisión manual
-          <input v-model="reference" data-relation-reference maxlength="200" :disabled="busy || !!intent"
-        /></label>
-        <button type="submit" :disabled="busy || !!intent">Revisar cambios</button>
-      </form>
-      <template v-if="intent">
-        <p>
-          Se enviará la instantánea revisada, versión {{ intent.body.expectedVersion }}. No se crean relaciones
-          inversas.
-        </p>
-        <button v-if="!intent.sent" data-relation-confirm type="button" :disabled="busy" @click="send">
-          Confirmar relaciones
+  <AdminCard
+    v-if="authorized"
+    aria-label="Relaciones dirigidas de producto"
+    title="Productos relacionados"
+    description="Sustitutos, compatibles, accesorios y equivalentes que se sugieren desde este producto. Una relación no confirma compatibilidad química ni se aplica en sentido contrario: revísala con la documentación técnica."
+  >
+    <div class="adm-stack min-w-0">
+      <p v-if="state === 'loading'" role="status" class="adm-help">Cargando productos relacionados…</p>
+      <UAlert
+        v-else-if="state === 'error'"
+        role="alert"
+        color="error"
+        variant="subtle"
+        title="No se han podido cargar los productos relacionados, así que no se pueden hacer cambios."
+      />
+      <div v-if="state === 'error'">
+        <button type="button" class="adm-btn adm-btn--secondary adm-btn--sm" :disabled="busy" @click="read">
+          <UIcon name="i-lucide-rotate-cw" class="size-4" />Volver a cargar
         </button>
-        <template v-else
-          ><button data-relation-check type="button" :disabled="busy" @click="check">Comprobar operación</button
-          ><button type="button" :disabled="busy" @click="send">
-            Reintentar exactamente la misma operación
-          </button></template
-        >
+      </div>
+      <template v-if="snapshot">
+        <AdminEmptyState
+          v-if="!relations.length"
+          compact
+          icon="i-lucide-link"
+          title="Sin relaciones configuradas"
+          description="Busca un producto abajo y añádelo."
+        />
+        <ul v-else class="adm-list">
+          <li
+            v-for="(item, index) in relations"
+            :key="item.targetProductId + ':' + item.kind"
+            class="flex flex-wrap items-center justify-between gap-2"
+          >
+            <span class="min-w-0">
+              <span class="font-medium text-[var(--text-strong)]">Producto n.º {{ item.targetProductId }}</span>
+              <AdminBadge class="ml-2">{{ KIND_LABELS[item.kind] }}</AdminBadge>
+            </span>
+            <button
+              type="button"
+              class="adm-btn adm-btn--ghost adm-btn--sm"
+              :disabled="busy || !!intent"
+              @click="relations.splice(index, 1)"
+            >
+              <UIcon name="i-lucide-x" class="size-4" />Quitar
+            </button>
+          </li>
+        </ul>
+
+        <div class="rounded-[var(--radius-surface)] border border-[var(--border)] p-4">
+          <h3 class="adm-label">Añadir un producto relacionado</h3>
+          <form data-relation-search class="mt-2 flex flex-wrap items-end gap-2" @submit.prevent="search">
+            <label class="adm-label min-w-0 flex-1"
+              >Buscar producto
+              <input
+                v-model="query"
+                data-relation-query
+                maxlength="100"
+                class="adm-input mt-1 w-full"
+                placeholder="Nombre o referencia"
+                :disabled="busy || !!intent"
+            /></label>
+            <button type="submit" class="adm-btn adm-btn--secondary" :disabled="busy || !!intent">Buscar</button>
+          </form>
+          <ul v-if="choices.length" class="mt-3 flex flex-wrap gap-2">
+            <li v-for="choice in choices" :key="choice.id">
+              <button
+                type="button"
+                class="adm-chip"
+                :data-relation-pick="choice.id"
+                :aria-pressed="picked === choice.id"
+                :disabled="busy || !!intent"
+                @click="picked = choice.id"
+              >
+                {{ choice.name }}
+              </button>
+            </li>
+          </ul>
+          <div class="mt-3 flex flex-wrap items-end gap-2">
+            <label class="adm-label"
+              >Tipo de relación
+              <select v-model="kind" data-relation-kind class="adm-input mt-1" :disabled="busy || !!intent">
+                <option value="substitute">Sustitución</option>
+                <option value="compatible">Compatibilidad</option>
+                <option value="accessory">Accesorio</option>
+                <option value="equivalent">Equivalente</option>
+              </select></label
+            >
+            <button
+              data-relation-add
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              :disabled="busy || !!intent || picked === null"
+              @click="add"
+            >
+              <UIcon name="i-lucide-plus" class="size-4" />Añadir
+            </button>
+          </div>
+        </div>
+
+        <form data-relation-review class="adm-stack" @submit.prevent="review">
+          <div class="adm-form-grid">
+            <label class="adm-label"
+              >Motivo del cambio
+              <textarea
+                v-model="reason"
+                data-relation-reason
+                maxlength="500"
+                rows="2"
+                class="adm-input mt-1 w-full"
+                :disabled="busy || !!intent"
+              />
+            </label>
+            <label class="adm-label"
+              >Documento o nota de la revisión
+              <input
+                v-model="reference"
+                data-relation-reference
+                maxlength="200"
+                class="adm-input mt-1 w-full"
+                placeholder="Ficha técnica, correo del proveedor…"
+                :disabled="busy || !!intent"
+            /></label>
+          </div>
+          <div>
+            <button type="submit" class="adm-btn adm-btn--secondary" :disabled="busy || !!intent">
+              Revisar cambios
+            </button>
+          </div>
+        </form>
+        <UAlert
+          v-if="intent"
+          color="warning"
+          variant="subtle"
+          title="Se guardará la lista tal como la ves. No se crean relaciones en sentido contrario."
+        />
+        <div v-if="intent" class="flex flex-wrap gap-2">
+          <button
+            v-if="!intent.sent"
+            data-relation-confirm
+            type="button"
+            class="adm-btn adm-btn--secondary"
+            :disabled="busy"
+            @click="send"
+          >
+            Guardar productos relacionados
+          </button>
+          <template v-else
+            ><button
+              data-relation-check
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              :disabled="busy"
+              @click="check"
+            >
+              Comprobar si se ha guardado</button
+            ><button type="button" class="adm-btn adm-btn--ghost" :disabled="busy" @click="send">
+              Reintentar el mismo guardado
+            </button></template
+          >
+        </div>
       </template>
-    </template>
-    <p v-if="feedback" role="status">{{ feedback }}</p>
-  </section>
+      <p v-if="feedback" role="status" class="adm-help">{{ feedback }}</p>
+    </div>
+  </AdminCard>
 </template>

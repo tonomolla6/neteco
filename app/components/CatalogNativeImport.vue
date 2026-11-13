@@ -273,72 +273,157 @@ async function dispatch() {
     if (current(version, identity)) busy.value = false
   }
 }
+const previewStatusLabels: Record<NativeImportPreview['status'], string> = {
+  pending: 'Sin importar',
+  expired: 'Caducada',
+  applied: 'Importado',
+  reverted: 'Deshecho'
+}
 </script>
 
 <template>
-  <section v-if="enabled" class="mb-4 rounded-xl border border-[var(--border)] p-4" :aria-busy="busy">
-    <h2 class="text-base font-semibold">Importación nativa completa</h2>
-    <p class="mt-2 text-sm">
-      CSV o XLSX de 71 columnas: validación local hasta 20 MB. Aplicación limitada a 500 registros y 900.000 bytes JSON
-      por lote; divide los archivos mayores.
-    </p>
-    <p class="mt-2 text-sm">
-      Siempre crea productos y variantes nuevos en borrador. Inicializa precios y stock sólo con autorización explícita.
-      Las aprobaciones del archivo no autorizan medios ni publicación: los medios quedan pendientes de verificación.
-    </p>
-    <label :for="`${prefix}-file`" class="mt-3 block">Archivo de catálogo</label>
-    <input :id="`${prefix}-file`" ref="input" type="file" accept=".csv,.xlsx" @change="selected" />
-    <p v-if="records" class="mt-2 text-sm">{{ records.length }} registros preparados localmente.</p>
-    <button type="button" data-native-preview :disabled="busy || !records || !!intent" @click="createPreview">
-      Solicitar vista previa al servidor
-    </button>
-    <button v-if="binding" type="button" data-native-refresh :disabled="busy" @click="refresh">Consultar estado</button>
-    <div v-if="preview" class="mt-3 text-sm" data-native-summary>
-      <p>
-        Estado: {{ preview.status }} · {{ preview.counts.products }} productos · {{ preview.counts.variants }} variantes
-        · {{ preview.counts.assets }} archivos · {{ preview.counts.mappings }} relaciones.
-      </p>
-      <p>
-        Política del servidor: {{ preview.policy.publication }} · {{ preview.policy.media }} ·
-        {{ preview.policy.priceStock }}.
-      </p>
-      <p>Caduca: {{ preview.expiresAt }}.</p>
-    </div>
-    <div v-if="binding" class="mt-3">
-      <label :for="`${prefix}-reason`" class="block">Motivo de la operación (3–500 caracteres)</label>
-      <textarea
-        :id="`${prefix}-reason`"
-        v-model="reason"
-        data-native-reason
-        maxlength="500"
-        :disabled="busy || !!intent"
-      />
-      <label class="block"
-        ><input v-model="confirmed" data-native-confirm type="checkbox" :disabled="busy || !!intent" /> Confirmo la
-        creación de borradores y la inicialización autorizada de precios y stock, o su reversión compensatoria.</label
+  <section v-if="enabled" class="adm-card" :aria-busy="busy">
+    <header class="adm-card__head">
+      <div class="min-w-0">
+        <h2 class="adm-card__title">Dar de alta productos desde un archivo</h2>
+        <p class="adm-card__hint">
+          Crea productos y variantes nuevos, siempre como borradores: nada se publica solo y las imágenes quedan
+          pendientes de verificar.
+        </p>
+      </div>
+    </header>
+    <div class="adm-card__body adm-stack">
+      <div class="adm-field">
+        <label :for="`${prefix}-file`" class="adm-label">Archivo de catálogo</label>
+        <input
+          :id="`${prefix}-file`"
+          ref="input"
+          type="file"
+          accept=".csv,.xlsx"
+          class="block w-full max-w-md text-sm file:mr-3 file:rounded-[var(--radius-control)] file:border file:border-[var(--border-strong)] file:bg-[var(--surface)] file:px-3 file:py-1.5 file:text-sm file:font-medium"
+          @change="selected"
+        />
+        <p class="adm-help">
+          CSV o XLSX con el formato completo de 71 columnas, de hasta 20 MB. Cada lote admite como máximo 500 registros
+          y 900.000 bytes; divide los archivos mayores. Los precios y el stock iniciales solo se cargan si lo confirmas
+          más abajo.
+        </p>
+        <p v-if="records" class="text-sm">{{ records.length }} registros preparados en este navegador.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="adm-btn adm-btn--primary"
+          data-native-preview
+          :disabled="busy || !records || !!intent"
+          @click="createPreview"
+        >
+          Revisar antes de importar
+        </button>
+        <button
+          v-if="binding"
+          type="button"
+          class="adm-btn adm-btn--secondary"
+          data-native-refresh
+          :disabled="busy"
+          @click="refresh"
+        >
+          Comprobar cómo ha quedado
+        </button>
+      </div>
+      <div
+        v-if="preview"
+        class="rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-4 text-sm"
+        data-native-summary
       >
-      <p class="mt-2 text-sm">
-        La reversión sólo admite un lote sin cambios ni uso posterior; compensa stock y precios y conserva auditoría e
-        historial.
+        <p class="flex flex-wrap items-center gap-2">
+          <span
+            class="adm-badge"
+            :class="
+              preview.status === 'applied'
+                ? 'adm-badge--success'
+                : preview.status === 'pending'
+                  ? 'adm-badge--warning'
+                  : ''
+            "
+            >{{ previewStatusLabels[preview.status] }}</span
+          >
+          <span>
+            {{ preview.counts.products }} productos · {{ preview.counts.variants }} variantes ·
+            {{ preview.counts.assets }} archivos · {{ preview.counts.mappings }} relaciones
+          </span>
+        </p>
+        <p class="adm-help mt-2">
+          Se crearán como borradores, con las imágenes pendientes de verificar y los precios y el stock iniciales del
+          archivo. Esta revisión caduca el {{ adminDate(preview.expiresAt, true) }}.
+        </p>
+      </div>
+      <div v-if="binding" class="adm-stack border-t border-[var(--border)] pt-4">
+        <div class="adm-field">
+          <label :for="`${prefix}-reason`" class="adm-label">Motivo (de 3 a 500 caracteres)</label>
+          <textarea
+            :id="`${prefix}-reason`"
+            v-model="reason"
+            class="adm-input w-full"
+            data-native-reason
+            maxlength="500"
+            :disabled="busy || !!intent"
+          />
+        </div>
+        <label class="adm-check items-start"
+          ><input v-model="confirmed" class="mt-0.5" data-native-confirm type="checkbox" :disabled="busy || !!intent" />
+          <span
+            >Confirmo que quiero crear estos borradores con sus precios y stock iniciales, o deshacer el lote.</span
+          ></label
+        >
+        <p class="adm-help">
+          Un lote solo se puede deshacer si sus productos no se han modificado ni usado después. Al deshacerlo se
+          retiran su stock y sus precios, y queda anotado en el historial.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="adm-btn adm-btn--primary"
+            data-native-apply
+            :disabled="!canSubmit('apply')"
+            @click="submit('apply')"
+          >
+            Importar lote
+          </button>
+          <button
+            type="button"
+            class="adm-btn adm-btn--danger"
+            data-native-revert
+            :disabled="!canSubmit('revert')"
+            @click="submit('revert')"
+          >
+            Deshacer lote
+          </button>
+        </div>
+      </div>
+      <div v-if="intent">
+        <button type="button" class="adm-btn adm-btn--secondary" data-native-retry :disabled="busy" @click="dispatch">
+          Reintentar el mismo envío
+        </button>
+      </div>
+      <p v-if="busy" role="status" aria-live="polite" class="adm-help">Procesando…</p>
+      <p
+        v-if="feedback"
+        role="status"
+        aria-live="polite"
+        class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-sm text-[var(--text-strong)]"
+      >
+        {{ feedback }}
       </p>
-      <button type="button" data-native-apply :disabled="!canSubmit('apply')" @click="submit('apply')">
-        Aplicar lote
-      </button>
-      <button type="button" data-native-revert :disabled="!canSubmit('revert')" @click="submit('revert')">
-        Revertir lote
-      </button>
+      <div v-if="issues.length" class="text-sm">
+        <p>{{ issues.length }} incidencias; se muestran hasta 100.</p>
+        <ul class="mt-2 max-h-64 list-disc space-y-1 overflow-auto pl-5">
+          <li v-for="(issue, index) in issues.slice(0, 100)" :key="index" data-native-issue>
+            <span v-if="issue.row">Fila {{ issue.row }} · </span><span v-if="issue.field">{{ issue.field }}: </span
+            >{{ issue.message }}
+          </li>
+        </ul>
+      </div>
     </div>
-    <button v-if="intent" type="button" data-native-retry :disabled="busy" @click="dispatch">
-      Reintentar el mismo intento
-    </button>
-    <p v-if="busy" role="status" aria-live="polite">Procesando la solicitud explícita…</p>
-    <p v-if="feedback" role="status" aria-live="polite" class="mt-2 text-sm">{{ feedback }}</p>
-    <p v-if="issues.length" class="mt-2 text-sm">{{ issues.length }} incidencias; se muestran hasta 100.</p>
-    <ul v-if="issues.length" class="mt-2 max-h-64 overflow-auto text-sm">
-      <li v-for="(issue, index) in issues.slice(0, 100)" :key="index" data-native-issue>
-        <span v-if="issue.row">Fila {{ issue.row }} · </span><span v-if="issue.field">{{ issue.field }}: </span
-        >{{ issue.message }}
-      </li>
-    </ul>
   </section>
 </template>

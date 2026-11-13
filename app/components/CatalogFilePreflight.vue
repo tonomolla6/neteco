@@ -92,53 +92,69 @@ const issues = computed(() => report.value?.issues.slice(0, 100) ?? [])
 </script>
 
 <template>
-  <section v-if="enabled" class="mb-4 rounded-xl border border-[var(--border)] p-4" :aria-busy="busy">
-    <h2 class="text-base font-semibold">Preparar importación completa</h2>
-    <p id="catalog-file-description" class="mt-1 text-sm text-[var(--text-muted)]">
-      Revisa un CSV o XLSX de 71 columnas en este navegador. Máximo 20 MB de archivo CSV o XLSX comprimido, 100 MB de
-      contenido XLSX descomprimido y 25.000 filas; deben cumplirse todos los límites. No modifica el catálogo ni envía
-      el archivo al servidor.
-    </p>
-    <label for="catalog-file-preflight" class="mt-3 block text-sm font-medium">Archivo de catálogo</label>
-    <input
-      id="catalog-file-preflight"
-      ref="input"
-      type="file"
-      accept=".csv,.xlsx"
-      aria-describedby="catalog-file-description catalog-file-boundary"
-      class="mt-1 block w-full max-w-full text-sm file:mr-3 file:rounded-md file:border file:border-[var(--border)] file:px-3 file:py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-      @change="selected"
-    />
-    <p id="catalog-file-boundary" class="mt-2 text-sm text-[var(--text-muted)]">
-      No autoriza una importación. Referencias, permisos, precios, stock, derechos y publicación deben comprobarse en
-      servidor antes de aplicar. El snapshot de exportación y la plantilla editorial usan perfiles distintos.
-    </p>
-    <p v-if="busy" role="status" aria-live="polite" class="mt-3 text-sm">Validando archivo localmente…</p>
-    <p v-if="failure" role="alert" class="mt-3 text-sm text-[var(--danger)]">{{ failure }}</p>
-    <p v-if="limitRejected" data-import-limit-help role="status" class="mt-3 text-sm">
-      0 filas aceptadas de este archivo; no se ha enviado ni realizado una importación parcial. Prepara manualmente
-      archivos menores por productos completos, con todas sus variantes y relaciones coherentes, conservando las 71
-      columnas. No cortes el CSV por saltos de línea. Cada archivo debe cumplir los límites; las importaciones separadas
-      son independientes, no una única operación atómica.
-    </p>
-    <div v-if="report" :data-catalog-file-format="reportFormat" class="mt-3 text-sm">
-      <p role="status" aria-live="polite" class="font-medium">
-        {{ report.valid ? 'Estructura local válida' : 'El archivo tiene incidencias que corregir' }}
+  <section v-if="enabled" class="adm-card" :aria-busy="busy">
+    <header class="adm-card__head">
+      <div class="min-w-0">
+        <h2 class="adm-card__title">Comprobar un archivo antes de importarlo</h2>
+        <p id="catalog-file-description" class="adm-card__hint">
+          Revisa aquí mismo, en tu navegador, un CSV o XLSX con el formato completo de 71 columnas. No modifica el
+          catálogo ni envía el archivo a ningún sitio.
+        </p>
+      </div>
+    </header>
+    <div class="adm-card__body adm-stack">
+      <div class="adm-field">
+        <label for="catalog-file-preflight" class="adm-label">Archivo de catálogo</label>
+        <input
+          id="catalog-file-preflight"
+          ref="input"
+          type="file"
+          accept=".csv,.xlsx"
+          aria-describedby="catalog-file-description catalog-file-boundary"
+          class="block w-full max-w-md text-sm file:mr-3 file:rounded-[var(--radius-control)] file:border file:border-[var(--border-strong)] file:bg-[var(--surface)] file:px-3 file:py-1.5 file:text-sm file:font-medium"
+          @change="selected"
+        />
+        <p id="catalog-file-boundary" class="adm-help">
+          Tamaño máximo: 20 MB de archivo CSV o XLSX comprimido, 100 MB de contenido XLSX descomprimido y 25.000 filas.
+          No autoriza una importación: las referencias, los precios, el stock y los permisos se vuelven a comprobar al
+          importar. El archivo de «Exportar» y la plantilla de textos tienen otro formato.
+        </p>
+      </div>
+      <p v-if="busy" role="status" aria-live="polite" class="adm-help">Comprobando el archivo…</p>
+      <p v-if="failure" role="alert" class="adm-field__error">{{ failure }}</p>
+      <p
+        v-if="limitRejected"
+        data-import-limit-help
+        role="status"
+        class="rounded-[var(--radius-control)] bg-[var(--surface-sunken)] px-3 py-2 text-sm"
+      >
+        0 filas aceptadas de este archivo; no se ha enviado ni realizado una importación parcial. Divídelo a mano en
+        archivos más pequeños por productos completos, con todas sus variantes y relaciones, conservando las 71
+        columnas. No cortes el CSV por saltos de línea. Cada archivo debe cumplir los límites y se importa por separado.
       </p>
-      <p class="mt-1">
-        {{ report.summary.rows }} filas · {{ report.summary.products }}
-        {{ report.summary.products === 1 ? 'producto' : 'productos' }} · {{ report.summary.variants }} variantes ·
-        {{ report.summary.assets }} archivos · {{ report.summary.documents }} documentos
-      </p>
-      <p v-if="report.issues.length" class="mt-2">
-        {{ report.issues.length }} incidencias{{ report.issues.length > 100 ? '; se muestran las primeras 100' : '' }}.
-      </p>
-      <ul v-if="issues.length" class="mt-2 max-h-64 list-disc space-y-1 overflow-auto pl-5">
-        <li v-for="(issue, index) in issues" :key="index" data-import-issue>
-          <span v-if="issue.row">Fila {{ issue.row }} · </span>
-          <span v-if="issue.field">{{ issue.field }}: </span>{{ issue.message }}
-        </li>
-      </ul>
+      <div v-if="report" :data-catalog-file-format="reportFormat" class="adm-stack text-sm">
+        <div>
+          <p role="status" aria-live="polite" class="font-semibold text-[var(--text-strong)]">
+            {{ report.valid ? 'Estructura local válida' : 'El archivo tiene incidencias que corregir' }}
+          </p>
+          <p class="adm-help mt-1">
+            {{ report.summary.rows }} filas · {{ report.summary.products }}
+            {{ report.summary.products === 1 ? 'producto' : 'productos' }} · {{ report.summary.variants }} variantes ·
+            {{ report.summary.assets }} archivos · {{ report.summary.documents }} documentos
+          </p>
+        </div>
+        <p v-if="report.issues.length">
+          {{ report.issues.length }} incidencias{{
+            report.issues.length > 100 ? '; se muestran las primeras 100' : ''
+          }}.
+        </p>
+        <ul v-if="issues.length" class="max-h-64 list-disc space-y-1 overflow-auto pl-5">
+          <li v-for="(issue, index) in issues" :key="index" data-import-issue>
+            <span v-if="issue.row">Fila {{ issue.row }} · </span>
+            <span v-if="issue.field">{{ issue.field }}: </span>{{ issue.message }}
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 </template>

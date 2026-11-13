@@ -6,7 +6,7 @@ useSeoMeta({ title: 'Reglas de precios y envío · Admin', robots: 'noindex, nof
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminPricingRules />
-  </div>
+  </AdminPage>
 </template>

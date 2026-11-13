@@ -349,12 +349,12 @@ function moveAttr(i: number, dir: number) {
 
 const toast = useToast()
 /** El estado editorial se mostraba con el valor crudo de la base (`draft`, `published`). */
-const STATUS_LABELS: Record<string, { label: string; color: 'neutral' | 'warning' | 'success' | 'error' }> = {
+const STATUS_LABELS: Record<string, { label: string; color: 'neutral' | 'warning' | 'success' | 'danger' }> = {
   draft: { label: 'Borrador', color: 'neutral' },
   review: { label: 'En revisión', color: 'warning' },
   published: { label: 'Publicado', color: 'success' },
   hidden: { label: 'Oculto', color: 'neutral' },
-  discontinued: { label: 'Descatalogado', color: 'error' }
+  discontinued: { label: 'Descatalogado', color: 'danger' }
 }
 const STATUS_META = computed(() =>
   isNew && node.value
@@ -372,6 +372,25 @@ function toggleVariant(index: number) {
   else next.add(index)
   openVariants.value = next
 }
+
+/* --- Apartados de la ficha: un único formulario repartido en pestañas --- */
+const FORM_TABS = ['general', 'variantes', 'atributos', 'imagenes']
+const tab = ref('general')
+const showTabs = computed(() => node.value || (cloudflare.value && !isNew && canonicalId))
+const tabs = computed(() => {
+  const extra = cloudflare.value && !isNew && canonicalId
+  return [
+    { value: 'general', label: 'General' },
+    { value: 'variantes', label: 'Variantes y precios', count: form.variants.length || null },
+    { value: 'atributos', label: 'Características' },
+    { value: 'imagenes', label: 'Imágenes' },
+    ...(extra && canReadDetail.value ? [{ value: 'relacionados', label: 'Relacionados' }] : []),
+    ...(extra ? [{ value: 'publicacion', label: 'Publicación' }] : [])
+  ]
+})
+watch(tabs, (list) => {
+  if (!list.some((entry) => entry.value === tab.value)) tab.value = 'general'
+})
 
 const saving = ref(false)
 watch(
@@ -626,10 +645,14 @@ async function save() {
   }
 }
 
+const removeOpen = ref(false)
+function askRemoveProduct() {
+  if (!canDelete.value || saving.value) return
+  removeOpen.value = true
+}
 async function removeProduct() {
   if (!canDelete.value || saving.value) return
-  if (!confirm(`¿Eliminar «${form.name}»? Esta acción no se puede deshacer.`)) return
-  if (!canDelete.value) return
+  removeOpen.value = false
   await $fetch(`/api/admin/products/${id}`, { method: 'DELETE' })
   toast.add({ title: 'Producto eliminado', icon: 'i-lucide-trash-2', color: 'success' })
   refreshNuxtData('categories')
@@ -638,465 +661,521 @@ async function removeProduct() {
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl">
-    <!-- Barra de acción fija: el formulario mide más de 4.000 px y para guardar había que
-         bajar hasta el final. Guardar es la acción que se repite, así que vive arriba. -->
-    <div
-      class="sticky top-0 z-30 -mx-4 mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--border)] bg-[var(--canvas)]/95 px-4 py-3 backdrop-blur"
-    >
-      <NuxtLink
-        to="/admin/productos"
-        class="flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-neteco-700"
+  <AdminPage
+    :title="isNew ? 'Nuevo producto' : form.name || 'Editar producto'"
+    :back="{ to: '/admin/productos', label: 'Productos' }"
+    description=""
+  >
+    <template v-if="!isNew" #title-extra>
+      <AdminBadge :tone="STATUS_META.color">{{ STATUS_META.label }}</AdminBadge>
+    </template>
+    <template #actions>
+      <AdminButton to="/admin/productos">Cancelar</AdminButton>
+      <AdminButton
+        v-if="canWrite"
+        variant="primary"
+        type="submit"
+        form="product-form"
+        icon="i-lucide-save"
+        :loading="saving"
       >
-        <UIcon name="i-lucide-arrow-left" class="size-4" /> Productos
-      </NuxtLink>
-
-      <div class="min-w-0 flex-1">
-        <h1 class="truncate text-lg font-bold text-[var(--text-strong)]">
-          {{ isNew ? 'Nuevo producto' : form.name || 'Editar producto' }}
-        </h1>
-      </div>
-
-      <UBadge v-if="!isNew" :color="STATUS_META.color" variant="subtle">{{ STATUS_META.label }}</UBadge>
-
-      <div class="flex shrink-0 gap-2">
-        <UButton to="/admin/productos" color="neutral" variant="ghost" size="sm">Cancelar</UButton>
-        <UButton v-if="canWrite" type="submit" form="product-form" size="sm" icon="i-lucide-save" :loading="saving">
-          {{ isNew ? 'Crear' : 'Guardar' }}
-        </UButton>
-      </div>
-    </div>
-    <p v-if="cloudflare" role="status" class="mb-6 text-sm text-[var(--text-muted)]">
-      Catálogo D1. Las altas, marcas, variantes y metadatos de borradores se gestionan en editores separados con motivo
-      y control de versión. Los precios y el stock siguen siendo de consulta aquí; un alta deja precio pendiente y stock
-      cero. Ninguna edición de borrador publica ni aprueba el producto.
-    </p>
-    <p v-if="!supportedRuntime" role="alert" class="mb-6 text-sm">
-      Este entorno no permite consultar ni editar productos.
-    </p>
-    <p v-else-if="!isNew && !canReadDetail" role="alert" class="mb-6 text-sm">
-      {{
-        existingStatus === 'pending'
-          ? 'Consultando el producto…'
-          : 'No se ha podido confirmar una consulta autorizada del producto.'
-      }}
-      <UButton v-if="cloudflare && canonicalId" :loading="existingStatus === 'pending'" @click="reloadPrivateProduct"
-        >Consultar de nuevo</UButton
-      >
-    </p>
-    <CatalogPublicationReadiness
-      v-if="readinessIdentity"
-      :key="`${readinessIdentity.id}:${readinessIdentity.uuid}:${readinessIdentity.version}`"
-      :product-id="id"
-      :product-uuid="readinessIdentity.uuid"
-      :catalog-version="readinessIdentity.version"
-      :runtime="runtime"
-      :authorize="privateReadinessAuthority"
-    />
-
-    <ProductStatusEditor
-      v-if="cloudflare && !isNew && canonicalId"
-      :key="typeof existing?.uuid === 'string' ? `${id}:${existing.uuid}` : id"
-      :product="existing ?? null"
-      :product-id="id"
-      :runtime="runtime"
-      :read-status="existingStatus"
-      :authorize="privateStatusAuthority"
-      :refresh-product="reloadPrivateProduct"
-      :readiness-available="!!readinessIdentity"
-      :refresh-readiness="reloadStatusReadiness"
-    />
-
-    <ProductRelationsEditor
-      v-if="cloudflare && !isNew && canonicalId && canReadDetail"
-      :key="id"
-      :product-id="Number(id)"
-      :runtime="runtime"
-    />
-
-    <TypedProductAttributesEditor
-      v-if="cloudflare && !isNew && canonicalId"
-      :runtime="runtime"
-      :available="canReadDetail && localDraftAuthority()"
-      :product="existing"
-      class="mb-5"
-    />
-    <DraftProductMetadataEditor
-      v-if="cloudflare && !isNew && canonicalId"
-      :product="existing ?? null"
-      :product-id="id"
-      :runtime="runtime"
-      :read-status="existingStatus"
-      :categories="familiaItems"
-      :categories-ready="canReadCategories"
-      :authorize="privateMetadataAuthority"
-      :refresh-product="reloadPrivateProduct"
-    />
-
-    <ProductPublicationPolicyEditor
-      v-if="publicationPolicyMountIdentity"
-      :key="`${publicationPolicyMountIdentity.id}:${publicationPolicyMountIdentity.uuid}`"
-      :product="existing ?? null"
-      :product-id="id"
-      :runtime="runtime"
-      :read-status="existingStatus"
-      :authorize="privatePublicationPolicyAuthority"
-      :refresh-product="reloadPrivateProduct"
-    />
-
-    <DraftProductCreate
-      v-if="cloudflare && isNew"
-      :options="authoringOptions"
-      :options-status="authoringOptionsStatus"
-      :runtime="runtime"
-      :refresh-options="reloadAuthoringOptions"
-      :authorize="privateDraftCreateAuthority"
-      :on-created="openCreatedDraft"
-    />
-    <DraftProductVariantsEditor
-      v-if="cloudflare && !isNew && canonicalId"
-      :product="existing"
-      :product-id="id"
-      :read-status="existingStatus"
-      :options="authoringOptions"
-      :options-status="authoringOptionsStatus"
-      :runtime="runtime"
-      :authorize="privateDraftAuthority"
-      :refresh-product="reloadDraftProduct"
-      :refresh-options="reloadAuthoringOptions"
-    />
-    <form v-if="node || (!isNew && canReadDetail)" id="product-form" class="space-y-6" @submit.prevent="save">
-      <fieldset :disabled="!canWrite" class="min-w-0 space-y-6">
-        <!-- datos principales -->
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 class="font-bold text-slate-900">Datos principales</h2>
-          <div class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Nombre (con el envase entre paréntesis)" class="sm:col-span-2">
-              <UInput
-                v-model="form.name"
-                class="w-full"
-                placeholder="Guante de nitrilo Nitriflex Blue (caja 100 uds)"
-              />
-            </UFormField>
-            <UFormField label="Marca" hint="Opcional">
-              <UInput v-model="form.brand" class="w-full" />
-            </UFormField>
-            <UFormField label="Familia">
-              <USelect
-                :model-value="form.categoryId ?? undefined"
-                :items="familiaItems"
-                class="w-full"
-                placeholder="Elige una familia…"
-                @update:model-value="(value) => (form.categoryId = value ?? null)"
-              />
-            </UFormField>
-            <UFormField label="Gama (enlaza colores/versiones hermanas)" hint="Opcional">
-              <UInput v-model="form.series" class="w-full" placeholder="guantes-nitriflex" />
-            </UFormField>
-            <div class="flex flex-wrap items-end gap-6 pb-1">
-              <label class="flex items-center gap-2 text-sm text-slate-700">
-                <input v-model="form.featured" type="checkbox" class="size-4 accent-neteco-600" /> Destacado en portada
-              </label>
-              <p class="text-sm text-[var(--text-muted)]">
-                Estado editorial: <strong class="text-[var(--text-strong)]">{{ STATUS_META.label }}</strong
-                >. Se cambia desde el listado, donde queda auditado con su motivo.
-              </p>
-            </div>
-          </div>
-
-          <div class="mt-4 flex flex-wrap gap-4">
-            <span class="text-sm font-medium text-slate-700">Sellos:</span>
-            <label v-for="(b, key) in BADGES" :key="key" class="flex items-center gap-1.5 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                :checked="form.badges.includes(String(key))"
-                class="size-4 accent-neteco-600"
-                @change="toggleBadge(String(key))"
-              />
-              {{ b.label }}
-            </label>
-          </div>
-        </section>
-
-        <!-- textos -->
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 class="font-bold text-slate-900">Textos</h2>
-          <div class="mt-4 space-y-4">
-            <UFormField label="Descripción corta (tarjetas y buscador)">
-              <UTextarea v-model="form.shortDesc" :rows="2" class="w-full" />
-            </UFormField>
-            <UFormField label="Descripción completa">
-              <UTextarea v-model="form.description" :rows="4" class="w-full" />
-            </UFormField>
-            <UFormField label="Modo de empleo y dosificación" hint="Opcional">
-              <UTextarea v-model="form.usage" :rows="2" class="w-full" />
-            </UFormField>
-          </div>
-        </section>
-
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 class="font-bold text-slate-900">Imagen principal y derechos</h2>
-          <p class="mt-1 text-sm text-slate-500">
-            La publicación exige correspondencia exacta, texto alternativo y evidencia de licencia o autorización.
-          </p>
-          <div class="mt-4 grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Ruta de la imagen" class="sm:col-span-2">
-              <UInput v-model="form.image" class="w-full" placeholder="/media/uuid-del-asset-aprobado" />
-            </UFormField>
-            <UFormField label="Texto alternativo" class="sm:col-span-2">
-              <UInput v-model="form.imageAlt" class="w-full" placeholder="Envase exacto y formato mostrado" />
-            </UFormField>
-            <UFormField label="Propietario / licenciante">
-              <UInput v-model="form.imageRightsOwner" class="w-full" />
-            </UFormField>
-            <UFormField label="Licencia o autorización">
-              <UInput v-model="form.imageRightsLicense" class="w-full" placeholder="Autorización proveedor, propia…" />
-            </UFormField>
-            <UFormField label="Fecha de autorización">
-              <UInput v-model="form.imageAuthorizedAt" type="date" class="w-full" />
-            </UFormField>
-          </div>
-        </section>
-
-        <!-- características técnicas -->
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <div class="flex items-center justify-between">
-            <h2 class="font-bold text-slate-900">Características técnicas</h2>
-            <UButton size="sm" variant="soft" icon="i-lucide-plus" @click="addAttr">Añadir</UButton>
-          </div>
-          <p class="mt-1 text-sm text-slate-500">
-            Salen en la tabla «Características» de la ficha, en este mismo orden: Material, Gramaje, Unidades/caja,
-            Certificaciones, EAN…
-          </p>
-          <div v-if="form.attrs.length" class="mt-4 space-y-2">
-            <div v-for="(a, i) in form.attrs" :key="i" class="grid grid-cols-[1fr_2fr_auto] items-center gap-2">
-              <UInput v-model="a.k" placeholder="Material" />
-              <UInput v-model="a.v" placeholder="Tejido sin tejer 55 g/m²" />
-              <div class="flex gap-0.5">
-                <UButton
-                  size="xs"
-                  variant="ghost"
-                  color="neutral"
-                  icon="i-lucide-chevron-up"
-                  :disabled="i === 0"
-                  aria-label="Subir"
-                  @click="moveAttr(i, -1)"
-                />
-                <UButton
-                  size="xs"
-                  variant="ghost"
-                  color="neutral"
-                  icon="i-lucide-chevron-down"
-                  :disabled="i === form.attrs.length - 1"
-                  aria-label="Bajar"
-                  @click="moveAttr(i, 1)"
-                />
-                <UButton
-                  size="xs"
-                  color="error"
-                  variant="ghost"
-                  icon="i-lucide-trash-2"
-                  aria-label="Quitar"
-                  @click="removeAttr(i)"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- visual -->
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <h2 class="font-bold text-slate-900">Ilustración provisional</h2>
-          <p class="mt-1 text-sm text-slate-500">
-            Hasta que haya fotos reales, cada producto usa un envase dibujado con un color identificativo.
-          </p>
-          <div class="mt-4 flex flex-wrap items-center gap-6">
-            <div class="w-28"><ProductVisual :visual="form.visual" /></div>
-            <UFormField label="Tipo de envase">
-              <USelect v-model="form.visual.type" :items="envaseItems" class="w-44" />
-            </UFormField>
-            <UFormField label="Color">
-              <input
-                v-model="form.visual.color"
-                type="color"
-                aria-label="Color de la ilustración de envase"
-                class="h-9 w-16 cursor-pointer rounded border border-slate-300"
-              />
-            </UFormField>
-          </div>
-        </section>
-
-        <!-- variantes -->
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
-          <div class="flex items-center justify-between">
-            <h2 class="font-bold text-slate-900">Variantes (formatos / tallas)</h2>
-            <UButton size="sm" variant="soft" icon="i-lucide-plus" @click="addVariant">Añadir variante</UButton>
-          </div>
-          <p class="mt-1 text-sm text-slate-500">
-            La <strong>referencia</strong> debe ser el código de artículo del ERP. El precio va en euros,
-            <strong>IVA incluido</strong>; el €/ud–€/L se calcula solo a partir del formato.
-          </p>
-          <div class="mt-4 space-y-2">
-            <div
-              v-for="(v, i) in form.variants"
-              :key="i"
-              class="rounded-[var(--radius-surface)] border border-[var(--border)]"
-            >
-              <!-- Cada variante tiene veinte campos. Con cinco tallas eran cien campos abiertos
-                 a la vez, imposible de repasar. Se abre la que se va a tocar. -->
-              <button
-                type="button"
-                class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--canvas)]"
-                :aria-expanded="openVariants.has(i)"
-                @click="toggleVariant(i)"
-              >
-                <UIcon
-                  name="i-lucide-chevron-down"
-                  class="size-4 shrink-0 text-[var(--text-muted)] transition-transform"
-                  :class="!openVariants.has(i) && '-rotate-90'"
-                />
-                <span class="min-w-0 flex-1">
-                  <span class="block truncate font-medium text-[var(--text-strong)]">
-                    {{ v.format || `Variante ${i + 1}` }}
-                  </span>
-                  <span class="block truncate text-xs text-[var(--text-muted)]">
-                    <template v-if="v.sku">Ref. {{ v.sku }}</template>
-                    <template v-else>Sin referencia del ERP</template>
-                    <template v-if="v.price"> · {{ formatPrice(Math.round(Number(v.price) * 100)) }}</template>
-                    <template v-if="v.stock !== undefined && v.stock !== null"> · {{ v.stock }} en stock</template>
-                  </span>
-                </span>
-              </button>
-
-              <div v-show="openVariants.has(i)" class="border-t border-[var(--border)] p-4">
-                <div class="grid items-end gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-6">
-                  <UFormField label="Formato"
-                    ><UInput v-model="v.format" placeholder="Talla M · Garrafa 5 L…"
-                  /></UFormField>
-                  <UFormField label="Referencia ERP"><UInput v-model="v.sku" placeholder="1133" /></UFormField>
-                  <UFormField label="EAN"><UInput v-model="v.ean" inputmode="numeric" /></UFormField>
-                  <UFormField label="GTIN"><UInput v-model="v.gtin" inputmode="numeric" /></UFormField>
-                  <UFormField label="MPN fabricante"><UInput v-model="v.mpn" /></UFormField>
-                  <UButton
-                    size="sm"
-                    color="error"
-                    variant="ghost"
-                    icon="i-lucide-trash-2"
-                    :disabled="form.variants.length <= 1"
-                    @click="removeVariant(i)"
-                    >Quitar</UButton
-                  >
-                </div>
-                <UFormField
-                  label="Excepción de identificador"
-                  hint="Obligatoria y motivada si no hay EAN, GTIN ni MPN"
-                  class="mt-3"
-                >
-                  <UInput v-model="v.identifierExceptionReason" class="w-full" />
-                </UFormField>
-                <div class="mt-3 grid items-end gap-3 grid-cols-1 sm:grid-cols-3 lg:grid-cols-6">
-                  <UFormField label="Precio € IVA inc."
-                    ><input v-model.number="v.price" type="number" step="0.01" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Stock"
-                    ><input v-model.number="v.stock" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Stock seguridad"
-                    ><input v-model.number="v.safetyStock" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Unidad base"><UInput v-model="v.unitBase" placeholder="unit, l, kg" /></UFormField>
-                  <UFormField label="Etiqueta unidad"><UInput v-model="v.unitLabel" placeholder="unidad" /></UFormField>
-                  <UFormField label="Contenido"
-                    ><input
-                      v-model.number="v.contentQuantity"
-                      type="number"
-                      min="0.0001"
-                      step="0.0001"
-                      class="admin-number"
-                  /></UFormField>
-                </div>
-                <div class="mt-3 grid items-end gap-3 grid-cols-1 sm:grid-cols-3 lg:grid-cols-6">
-                  <UFormField label="MOQ"
-                    ><input v-model.number="v.minimumQuantity" type="number" min="1" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Incremento"
-                    ><input v-model.number="v.quantityIncrement" type="number" min="1" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Máximo"
-                    ><input v-model.number="v.maximumQuantity" type="number" min="1" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Uds./caja"
-                    ><input v-model.number="v.unitsPerCase" type="number" min="1" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Cajas/palé"
-                    ><input v-model.number="v.casesPerPallet" type="number" min="1" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Imagen variante"><UInput v-model="v.image" /></UFormField>
-                </div>
-                <div class="mt-3 grid items-end gap-3 grid-cols-1 sm:grid-cols-3 lg:grid-cols-6">
-                  <UFormField label="Peso g"
-                    ><input v-model.number="v.weightGrams" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Ancho mm"
-                    ><input v-model.number="v.widthMm" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Alto mm"
-                    ><input v-model.number="v.heightMm" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Fondo mm"
-                    ><input v-model.number="v.depthMm" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                  <UFormField label="Color"><UInput v-model="v.color" placeholder="#f7c600" /></UFormField>
-                  <UFormField label="Lead time días"
-                    ><input v-model.number="v.leadTimeDays" type="number" min="0" class="admin-number"
-                  /></UFormField>
-                </div>
-                <label class="mt-3 flex items-center gap-2 text-sm text-slate-700"
-                  ><input v-model="v.backorderAllowed" type="checkbox" class="size-4" /> Permitir bajo pedido (requiere
-                  lead time)</label
-                >
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <div
-          v-if="!isNew && canDelete"
-          class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-6 pb-10"
+        {{ isNew ? 'Crear producto' : 'Guardar cambios' }}
+      </AdminButton>
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="cloudflare"
+        role="status"
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-info"
+        :description="
+          isNew
+            ? 'El producto se crea como borrador, con el precio pendiente y sin stock. Crear un borrador no lo publica en la tienda.'
+            : 'Cada bloque se guarda por separado y pide un motivo. Los precios y el stock siguen siendo de consulta aquí: se cambian en sus propias pantallas. Guardar un borrador no publica el producto.'
+        "
+      />
+      <UAlert
+        v-if="!supportedRuntime"
+        role="alert"
+        color="error"
+        variant="subtle"
+        description="Este entorno no permite consultar ni editar productos."
+      />
+      <div v-else-if="!isNew && !canReadDetail" role="alert" class="flex flex-wrap items-center gap-3">
+        <UAlert
+          class="min-w-0 flex-1"
+          :color="existingStatus === 'pending' ? 'neutral' : 'warning'"
+          variant="subtle"
+          :description="
+            existingStatus === 'pending'
+              ? 'Consultando el producto…'
+              : 'No hemos podido cargar este producto. Vuelve a intentarlo.'
+          "
+        />
+        <AdminButton
+          v-if="cloudflare && canonicalId"
+          icon="i-lucide-rotate-cw"
+          :loading="existingStatus === 'pending'"
+          @click="reloadPrivateProduct"
         >
-          <div>
-            <p class="font-semibold text-[var(--text-strong)]">Eliminar este producto</p>
-            <p class="mt-0.5 text-sm text-[var(--text-muted)]">
-              No se puede deshacer. Si solo quieres retirarlo de la tienda, cámbialo a «Descatalogado» desde el listado.
-            </p>
-          </div>
-          <UButton color="error" variant="outline" icon="i-lucide-trash-2" @click="removeProduct">
-            Eliminar producto
-          </UButton>
-        </div>
-        <div v-else class="pb-10" />
-      </fieldset>
-    </form>
-  </div>
+          Consultar de nuevo
+        </AdminButton>
+      </div>
+
+      <DraftProductCreate
+        v-if="cloudflare && isNew"
+        :options="authoringOptions"
+        :options-status="authoringOptionsStatus"
+        :runtime="runtime"
+        :refresh-options="reloadAuthoringOptions"
+        :authorize="privateDraftCreateAuthority"
+        :on-created="openCreatedDraft"
+      />
+
+      <AdminTabs v-if="showTabs" v-model="tab" :tabs="tabs" label="Apartados del producto" />
+
+      <!-- Los apartados se ocultan con v-show: ningún editor se desmonta ni pierde lo escrito al cambiar de pestaña. -->
+      <div v-if="cloudflare && !isNew && canonicalId" v-show="tab === 'general'" class="adm-stack">
+        <DraftProductMetadataEditor
+          :product="existing ?? null"
+          :product-id="id"
+          :runtime="runtime"
+          :read-status="existingStatus"
+          :categories="familiaItems"
+          :categories-ready="canReadCategories"
+          :authorize="privateMetadataAuthority"
+          :refresh-product="reloadPrivateProduct"
+        />
+      </div>
+
+      <div v-if="cloudflare && !isNew && canonicalId" v-show="tab === 'variantes'" class="adm-stack">
+        <DraftProductVariantsEditor
+          :product="existing"
+          :product-id="id"
+          :read-status="existingStatus"
+          :options="authoringOptions"
+          :options-status="authoringOptionsStatus"
+          :runtime="runtime"
+          :authorize="privateDraftAuthority"
+          :refresh-product="reloadDraftProduct"
+          :refresh-options="reloadAuthoringOptions"
+        />
+      </div>
+
+      <div v-if="cloudflare && !isNew && canonicalId" v-show="tab === 'atributos'" class="adm-stack">
+        <TypedProductAttributesEditor
+          :runtime="runtime"
+          :available="canReadDetail && localDraftAuthority()"
+          :product="existing"
+        />
+      </div>
+
+      <div
+        v-if="cloudflare && !isNew && canonicalId && canReadDetail"
+        v-show="tab === 'relacionados'"
+        class="adm-stack"
+      >
+        <ProductRelationsEditor :key="id" :product-id="Number(id)" :runtime="runtime" />
+      </div>
+
+      <div v-if="cloudflare && !isNew && canonicalId" v-show="tab === 'publicacion'" class="adm-stack">
+        <CatalogPublicationReadiness
+          v-if="readinessIdentity"
+          :key="`${readinessIdentity.id}:${readinessIdentity.uuid}:${readinessIdentity.version}`"
+          :product-id="id"
+          :product-uuid="readinessIdentity.uuid"
+          :catalog-version="readinessIdentity.version"
+          :runtime="runtime"
+          :authorize="privateReadinessAuthority"
+        />
+
+        <ProductStatusEditor
+          :key="typeof existing?.uuid === 'string' ? `${id}:${existing.uuid}` : id"
+          :product="existing ?? null"
+          :product-id="id"
+          :runtime="runtime"
+          :read-status="existingStatus"
+          :authorize="privateStatusAuthority"
+          :refresh-product="reloadPrivateProduct"
+          :readiness-available="!!readinessIdentity"
+          :refresh-readiness="reloadStatusReadiness"
+        />
+
+        <ProductPublicationPolicyEditor
+          v-if="publicationPolicyMountIdentity"
+          :key="`${publicationPolicyMountIdentity.id}:${publicationPolicyMountIdentity.uuid}`"
+          :product="existing ?? null"
+          :product-id="id"
+          :runtime="runtime"
+          :read-status="existingStatus"
+          :authorize="privatePublicationPolicyAuthority"
+          :refresh-product="reloadPrivateProduct"
+        />
+      </div>
+
+      <form
+        v-if="node || (!isNew && canReadDetail)"
+        v-show="FORM_TABS.includes(tab)"
+        id="product-form"
+        @submit.prevent="save"
+      >
+        <fieldset :disabled="!canWrite" class="adm-stack min-w-0">
+          <p v-if="!canWrite && !isNew" class="adm-help">
+            Datos actuales del producto, solo de consulta{{
+              cloudflare ? ': se cambian en el bloque de arriba mientras el producto es un borrador.' : '.'
+            }}
+          </p>
+
+          <!-- General -->
+          <AdminCard v-show="tab === 'general'" title="Datos principales">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <UFormField label="Nombre" hint="Con el envase entre paréntesis" class="sm:col-span-2">
+                <UInput
+                  v-model="form.name"
+                  class="w-full"
+                  placeholder="Guante de nitrilo nitriflex blue (caja 100 uds)"
+                />
+              </UFormField>
+              <UFormField label="Marca" hint="Opcional">
+                <UInput v-model="form.brand" class="w-full" />
+              </UFormField>
+              <UFormField label="Familia">
+                <USelect
+                  :model-value="form.categoryId ?? undefined"
+                  :items="familiaItems"
+                  class="w-full"
+                  placeholder="Elige una familia…"
+                  @update:model-value="(value) => (form.categoryId = value ?? null)"
+                />
+              </UFormField>
+              <UFormField label="Gama" hint="Opcional · agrupa colores o versiones del mismo producto">
+                <UInput v-model="form.series" class="w-full" placeholder="guantes-nitriflex" />
+              </UFormField>
+              <div class="flex flex-col justify-end gap-2">
+                <label class="adm-check">
+                  <input v-model="form.featured" type="checkbox" /> Destacado en portada
+                </label>
+                <p class="adm-help">
+                  Estado: <strong class="text-[var(--text-strong)]">{{ STATUS_META.label }}</strong
+                  >. Se cambia {{ cloudflare ? 'en el apartado «Publicación»' : 'desde el listado' }}, donde queda
+                  anotado con su motivo.
+                </p>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-[var(--border)] pt-4">
+              <span class="adm-label">Sellos</span>
+              <label v-for="(b, key) in BADGES" :key="key" class="adm-check">
+                <input
+                  type="checkbox"
+                  :checked="form.badges.includes(String(key))"
+                  @change="toggleBadge(String(key))"
+                />
+                {{ b.label }}
+              </label>
+            </div>
+          </AdminCard>
+
+          <AdminCard v-show="tab === 'general'" title="Textos">
+            <div class="space-y-4">
+              <UFormField label="Descripción corta" hint="Se ve en las tarjetas y en el buscador">
+                <UTextarea v-model="form.shortDesc" :rows="2" class="w-full" />
+              </UFormField>
+              <UFormField label="Descripción completa">
+                <UTextarea v-model="form.description" :rows="4" class="w-full" />
+              </UFormField>
+              <UFormField label="Modo de empleo y dosificación" hint="Opcional">
+                <UTextarea v-model="form.usage" :rows="2" class="w-full" />
+              </UFormField>
+            </div>
+          </AdminCard>
+
+          <!-- Variantes y precios -->
+          <AdminCard
+            v-show="tab === 'variantes'"
+            title="Variantes"
+            description="Formatos o tallas del producto. La referencia es tu código de artículo. El precio va en euros con IVA incluido; el precio por unidad o por litro se calcula solo."
+          >
+            <template #actions>
+              <AdminButton size="sm" icon="i-lucide-plus" @click="addVariant">Añadir variante</AdminButton>
+            </template>
+            <div class="space-y-2">
+              <div
+                v-for="(v, i) in form.variants"
+                :key="i"
+                class="rounded-[var(--radius-surface)] border border-[var(--border)]"
+              >
+                <!-- Cada variante tiene veinte campos. Con cinco tallas eran cien campos abiertos
+                 a la vez, imposible de repasar. Se abre la que se va a tocar. -->
+                <button
+                  type="button"
+                  class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--canvas)]"
+                  :aria-expanded="openVariants.has(i)"
+                  @click="toggleVariant(i)"
+                >
+                  <UIcon
+                    name="i-lucide-chevron-down"
+                    class="size-4 shrink-0 text-[var(--text-muted)] transition-transform"
+                    :class="!openVariants.has(i) && '-rotate-90'"
+                  />
+                  <span class="min-w-0 flex-1">
+                    <span class="block truncate font-medium text-[var(--text-strong)]">
+                      {{ v.format || `Variante ${i + 1}` }}
+                    </span>
+                    <span class="block truncate text-xs text-[var(--text-muted)]">
+                      <template v-if="v.sku">Ref. {{ v.sku }}</template>
+                      <template v-else>Sin referencia</template>
+                      <template v-if="v.price"> · {{ formatPrice(Math.round(Number(v.price) * 100)) }}</template>
+                      <template v-if="v.stock !== undefined && v.stock !== null"> · {{ v.stock }} en stock</template>
+                    </span>
+                  </span>
+                </button>
+
+                <div v-show="openVariants.has(i)" class="space-y-5 border-t border-[var(--border)] p-4">
+                  <div>
+                    <p class="adm-label mb-2">Identificación</p>
+                    <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                      <UFormField label="Formato"
+                        ><UInput v-model="v.format" class="w-full" placeholder="Talla M · garrafa 5 L…"
+                      /></UFormField>
+                      <UFormField label="Referencia"
+                        ><UInput v-model="v.sku" class="w-full" placeholder="1133"
+                      /></UFormField>
+                      <UFormField label="Código de barras (EAN)"
+                        ><UInput v-model="v.ean" class="w-full" inputmode="numeric"
+                      /></UFormField>
+                      <UFormField label="GTIN"
+                        ><UInput v-model="v.gtin" class="w-full" inputmode="numeric"
+                      /></UFormField>
+                      <UFormField label="Ref. del fabricante"><UInput v-model="v.mpn" class="w-full" /></UFormField>
+                    </div>
+                    <UFormField
+                      label="Motivo si no tiene código"
+                      hint="Obligatorio cuando no hay EAN, GTIN ni referencia del fabricante"
+                      class="mt-3"
+                    >
+                      <UInput v-model="v.identifierExceptionReason" class="w-full" />
+                    </UFormField>
+                  </div>
+                  <div>
+                    <p class="adm-label mb-2">Precio y stock</p>
+                    <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                      <UFormField label="Precio (€, IVA incl.)"
+                        ><input v-model.number="v.price" type="number" step="0.01" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Stock"
+                        ><input v-model.number="v.stock" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Stock de seguridad"
+                        ><input v-model.number="v.safetyStock" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Plazo de entrega (días)"
+                        ><input v-model.number="v.leadTimeDays" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <label class="adm-check sm:col-span-2 lg:pb-2"
+                        ><input v-model="v.backorderAllowed" type="checkbox" /> Permitir venta bajo pedido (requiere
+                        plazo de entrega)</label
+                      >
+                    </div>
+                  </div>
+                  <div>
+                    <p class="adm-label mb-2">Unidades y cantidades de compra</p>
+                    <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                      <UFormField label="Unidad base"
+                        ><UInput v-model="v.unitBase" class="w-full" placeholder="unit, l, kg"
+                      /></UFormField>
+                      <UFormField label="Nombre de la unidad"
+                        ><UInput v-model="v.unitLabel" class="w-full" placeholder="unidad"
+                      /></UFormField>
+                      <UFormField label="Contenido"
+                        ><input
+                          v-model.number="v.contentQuantity"
+                          type="number"
+                          min="0.0001"
+                          step="0.0001"
+                          class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Unidades por caja"
+                        ><input v-model.number="v.unitsPerCase" type="number" min="1" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Cajas por palé"
+                        ><input v-model.number="v.casesPerPallet" type="number" min="1" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Pedido mínimo"
+                        ><input v-model.number="v.minimumQuantity" type="number" min="1" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Se vende de … en …"
+                        ><input v-model.number="v.quantityIncrement" type="number" min="1" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Pedido máximo"
+                        ><input v-model.number="v.maximumQuantity" type="number" min="1" class="adm-input w-full"
+                      /></UFormField>
+                    </div>
+                  </div>
+                  <div>
+                    <p class="adm-label mb-2">Envío y aspecto</p>
+                    <div class="grid grid-cols-1 items-end gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                      <UFormField label="Peso (g)"
+                        ><input v-model.number="v.weightGrams" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Ancho (mm)"
+                        ><input v-model.number="v.widthMm" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Alto (mm)"
+                        ><input v-model.number="v.heightMm" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Fondo (mm)"
+                        ><input v-model.number="v.depthMm" type="number" min="0" class="adm-input w-full"
+                      /></UFormField>
+                      <UFormField label="Color"
+                        ><UInput v-model="v.color" class="w-full" placeholder="#f7c600"
+                      /></UFormField>
+                      <UFormField label="Imagen de la variante"><UInput v-model="v.image" class="w-full" /></UFormField>
+                    </div>
+                  </div>
+                  <div class="flex justify-end border-t border-[var(--border)] pt-3">
+                    <AdminButton
+                      variant="danger-soft"
+                      size="sm"
+                      icon="i-lucide-trash-2"
+                      :disabled="form.variants.length <= 1"
+                      @click="removeVariant(i)"
+                    >
+                      Quitar variante
+                    </AdminButton>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </AdminCard>
+
+          <!-- Características -->
+          <AdminCard
+            v-show="tab === 'atributos'"
+            title="Características técnicas"
+            description="Salen en la tabla de características de la ficha, en este mismo orden: material, gramaje, unidades por caja, certificaciones…"
+          >
+            <template #actions>
+              <AdminButton size="sm" icon="i-lucide-plus" @click="addAttr">Añadir</AdminButton>
+            </template>
+            <div v-if="form.attrs.length" class="space-y-2">
+              <div v-for="(a, i) in form.attrs" :key="i" class="grid grid-cols-[1fr_2fr_auto] items-center gap-2">
+                <UInput v-model="a.k" placeholder="Material" />
+                <UInput v-model="a.v" placeholder="Tejido sin tejer 55 g/m²" />
+                <div class="flex gap-0.5">
+                  <AdminButton
+                    variant="ghost"
+                    size="sm"
+                    icon="i-lucide-chevron-up"
+                    :disabled="i === 0"
+                    label="Subir"
+                    @click="moveAttr(i, -1)"
+                  />
+                  <AdminButton
+                    variant="ghost"
+                    size="sm"
+                    icon="i-lucide-chevron-down"
+                    :disabled="i === form.attrs.length - 1"
+                    label="Bajar"
+                    @click="moveAttr(i, 1)"
+                  />
+                  <AdminButton
+                    variant="ghost"
+                    size="sm"
+                    icon="i-lucide-trash-2"
+                    label="Quitar"
+                    @click="removeAttr(i)"
+                  />
+                </div>
+              </div>
+            </div>
+            <AdminEmptyState
+              v-else
+              compact
+              icon="i-lucide-list"
+              title="Sin características"
+              description="Añade las que quieras mostrar en la ficha del producto."
+            />
+          </AdminCard>
+
+          <!-- Imágenes -->
+          <AdminCard
+            v-show="tab === 'imagenes'"
+            title="Imagen principal y derechos de uso"
+            description="Para publicar hace falta que la imagen sea la del producto, un texto alternativo y de quién es la imagen o quién autoriza a usarla."
+          >
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <UFormField label="Dirección de la imagen" class="sm:col-span-2">
+                <UInput v-model="form.image" class="w-full" placeholder="/media/…" />
+              </UFormField>
+              <UFormField label="Texto alternativo" class="sm:col-span-2">
+                <UInput v-model="form.imageAlt" class="w-full" placeholder="Envase exacto y formato mostrado" />
+              </UFormField>
+              <UFormField label="Propietario de la imagen">
+                <UInput v-model="form.imageRightsOwner" class="w-full" />
+              </UFormField>
+              <UFormField label="Licencia o autorización">
+                <UInput
+                  v-model="form.imageRightsLicense"
+                  class="w-full"
+                  placeholder="Autorización del proveedor, propia…"
+                />
+              </UFormField>
+              <UFormField label="Fecha de autorización">
+                <UInput v-model="form.imageAuthorizedAt" type="date" class="w-full" />
+              </UFormField>
+            </div>
+          </AdminCard>
+
+          <AdminCard
+            v-show="tab === 'imagenes'"
+            title="Ilustración provisional"
+            description="Mientras no haya foto real, el producto se muestra con un envase dibujado en su color."
+          >
+            <div class="flex flex-wrap items-center gap-6">
+              <div class="w-28"><ProductVisual :visual="form.visual" /></div>
+              <UFormField label="Tipo de envase">
+                <USelect v-model="form.visual.type" :items="envaseItems" class="w-44" />
+              </UFormField>
+              <UFormField label="Color">
+                <input
+                  v-model="form.visual.color"
+                  type="color"
+                  aria-label="Color de la ilustración de envase"
+                  class="h-9 w-16 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-strong)]"
+                />
+              </UFormField>
+            </div>
+          </AdminCard>
+
+          <AdminCard v-if="!isNew && canDelete" v-show="tab === 'general'" title="Eliminar este producto">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <p class="adm-help min-w-0 flex-1">
+                No se puede deshacer. Si solo quieres retirarlo de la tienda, cámbialo a «Descatalogado» desde el
+                listado.
+              </p>
+              <AdminButton variant="danger-soft" icon="i-lucide-trash-2" @click="askRemoveProduct">
+                Eliminar producto
+              </AdminButton>
+            </div>
+          </AdminCard>
+        </fieldset>
+      </form>
+
+      <AdminConfirm
+        v-model:open="removeOpen"
+        title="Eliminar producto"
+        confirm-label="Eliminar definitivamente"
+        danger
+        :loading="saving"
+        @confirm="removeProduct"
+      >
+        <p class="text-[var(--text)]">
+          Se eliminará <strong>{{ form.name }}</strong> con todas sus variantes.
+          <strong>Esta acción no se puede deshacer.</strong>
+        </p>
+      </AdminConfirm>
+    </div>
+  </AdminPage>
 </template>
-
-<style scoped>
-/* El foco de estos campos era `#169f62`, un verde que no pertenece a ninguna escala del
-   sistema ni a la marca: en la misma pantalla, un campo enfocado se veía verde y el de al
-   lado azul. Ahora usan los tokens. */
-.admin-number {
-  width: 100%;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  padding: 0.375rem 0.75rem;
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.admin-number:focus-visible {
-  border-color: var(--color-neteco-600);
-  outline: 2px solid var(--color-neteco-600);
-  outline-offset: 1px;
-}
-</style>

@@ -427,168 +427,190 @@ function removeHistorical(id: string) {
 }
 </script>
 <template>
-  <section
+  <AdminCard
     v-if="allowed"
-    class="rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
     :aria-labelledby="`${prefix}-title`"
+    description="Características técnicas de la familia del producto. Deja sin marcar las que no apliquen: un dato sin rellenar no equivale a cero ni a «no»."
   >
-    <h2 :id="`${prefix}-title`" class="text-lg font-semibold">Atributos tipados del producto</h2>
-    <p class="mt-1 text-sm text-slate-600">
-      Valores separados de los atributos heredados. Ausente no equivale a cero ni a «No».
-    </p>
-    <button
-      data-typed-load
-      type="button"
-      class="mt-3 rounded-lg border px-3 py-2 text-sm disabled:opacity-50"
-      :disabled="loading || busy"
-      @click="load"
-    >
-      {{ loading ? 'Consultando…' : 'Consultar atributos' }}
-    </button>
-    <p v-if="message" role="status" class="mt-3 text-sm">{{ message }}</p>
-    <form v-if="view || intent" data-typed-form class="mt-4 space-y-4" @submit.prevent="submit">
-      <p v-if="view && !writable()" class="text-sm">
-        Edición no disponible: se requiere un borrador y permiso de catálogo vigente.
+    <template #title><span :id="`${prefix}-title`">Características del producto</span></template>
+    <template #actions>
+      <button
+        data-typed-load
+        type="button"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
+        :disabled="loading || busy"
+        @click="load"
+      >
+        {{ loading ? 'Cargando…' : 'Cargar características' }}
+      </button>
+    </template>
+    <div class="adm-stack">
+      <p v-if="message" role="status" class="adm-help">{{ message }}</p>
+      <p v-if="!message && !view && !intent" class="adm-help">
+        Pulsa «Cargar características» para verlas y editarlas.
       </p>
-      <fieldset :disabled="frozen || !writable()" class="space-y-4">
-        <legend class="sr-only">Valores tipados por definición</legend>
-        <div
-          v-for="entry in historical"
-          :key="entry.definitionId"
-          :data-typed-historical="entry.definitionId"
-          class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm"
-        >
-          <p class="break-words">
-            {{ historicalLabel(entry) }} · Histórico, revisión {{ entry.revision }}:
-            {{ typeof entry.value === 'object' ? JSON.stringify(entry.value) : String(entry.value) }}
-          </p>
-          <p class="mt-1">Se conservará sin cambios. Una definición retirada u obsoleta no se reinterpreta.</p>
-          <button
-            :data-typed-remove="entry.definitionId"
-            type="button"
-            class="mt-2 rounded border px-3 py-1"
-            @click="removeHistorical(entry.definitionId)"
+      <form v-if="view || intent" data-typed-form class="adm-stack" @submit.prevent="submit">
+        <UAlert
+          v-if="view && !writable()"
+          color="neutral"
+          variant="subtle"
+          title="No se pueden editar: el producto tiene que estar en borrador y necesitas permiso de catálogo."
+        />
+        <fieldset :disabled="frozen || !writable()" class="adm-stack">
+          <legend class="sr-only">Valores de cada característica</legend>
+          <div
+            v-for="entry in historical"
+            :key="entry.definitionId"
+            :data-typed-historical="entry.definitionId"
+            class="rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3"
           >
-            Quitar explícitamente este histórico
+            <p class="break-words">
+              <span class="font-medium text-[var(--text-strong)]">{{ historicalLabel(entry) }}</span>
+              <AdminBadge tone="warning" class="ml-2">Característica retirada</AdminBadge>
+              <span class="mt-1 block">{{
+                typeof entry.value === 'object' ? JSON.stringify(entry.value) : String(entry.value)
+              }}</span>
+            </p>
+            <p class="adm-help mt-1">
+              Este dato es de una característica que ya no se usa. Se conserva tal cual salvo que lo quites.
+            </p>
+            <button
+              :data-typed-remove="entry.definitionId"
+              type="button"
+              class="adm-btn adm-btn--ghost adm-btn--sm mt-2"
+              @click="removeHistorical(entry.definitionId)"
+            >
+              Quitar este dato
+            </button>
+          </div>
+          <div
+            v-for="definition in editable"
+            :key="definition.id"
+            class="min-w-0 rounded-[var(--radius-surface)] border border-[var(--border)] p-3"
+          >
+            <label class="adm-check font-medium"
+              ><input
+                v-model="fields[definition.id]!.present"
+                :data-typed-presence="definition.id"
+                type="checkbox"
+              /><span>{{ definition.label }}</span></label
+            >
+            <template v-if="fields[definition.id]!.present">
+              <fieldset v-if="definition.kind === 'list'" class="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+                <legend class="adm-help mb-2">{{ definition.label }}: puedes marcar hasta 16 opciones</legend>
+                <label
+                  v-for="option in definition.config.options.filter((item) => item.status === 'active')"
+                  :key="option.code"
+                  class="adm-check"
+                  ><input
+                    v-model="fields[definition.id]!.selections"
+                    :data-typed-option="`${definition.id}:${option.code}`"
+                    type="checkbox"
+                    :value="option.code"
+                  /><span>{{ option.label }}</span></label
+                >
+              </fieldset>
+              <ReferencePicker
+                v-else-if="definition.kind === 'reference'"
+                v-model="fields[definition.id]!.input"
+                :definition-id="definition.id"
+                :label="definition.label"
+                :self-id="view?.product.uuid ?? ''"
+                :available="!frozen && writable()"
+                :authority="authority"
+                @denied="revoke"
+              />
+              <div v-else class="mt-3 grid gap-3 sm:grid-cols-2">
+                <label class="adm-label"
+                  >{{ definition.label }}
+                  <select
+                    v-if="definition.kind === 'boolean'"
+                    v-model="fields[definition.id]!.input"
+                    :data-typed-input="definition.id"
+                    class="adm-input mt-1 w-full"
+                  >
+                    <option value="false">No</option>
+                    <option value="true">Sí</option>
+                  </select>
+                  <input
+                    v-else
+                    v-model="fields[definition.id]!.input"
+                    :data-typed-input="definition.id"
+                    :type="definition.kind === 'number' || definition.kind === 'unit' ? 'number' : 'text'"
+                    :step="
+                      definition.kind === 'number' || definition.kind === 'unit'
+                        ? 10 ** -definition.config.precision
+                        : undefined
+                    "
+                    :maxlength="definition.kind === 'text' ? definition.config.maxLength : undefined"
+                    class="adm-input mt-1 w-full"
+                  />
+                </label>
+                <label v-if="definition.kind === 'unit'" class="adm-label"
+                  >Unidad<select
+                    v-model="fields[definition.id]!.unit"
+                    :data-typed-unit="definition.id"
+                    class="adm-input mt-1 w-full"
+                  >
+                    <option v-for="unit in definition.config.units" :key="unit" :value="unit">
+                      {{ CATALOG_TYPED_ATTRIBUTE_UNITS[unit] }} ({{ unit }})
+                    </option>
+                  </select></label
+                >
+              </div>
+            </template>
+          </div>
+          <AdminEmptyState
+            v-if="!current.length"
+            compact
+            icon="i-lucide-sliders-horizontal"
+            title="Esta familia no tiene características definidas"
+            description="Puedes crearlas desde Categorías."
+          />
+          <label class="adm-label"
+            >Motivo del cambio<input
+              v-model="reason"
+              data-typed-reason
+              :disabled="frozen || !writable()"
+              maxlength="500"
+              class="adm-input mt-1 w-full"
+          /></label>
+          <label class="adm-check"
+            ><input v-model="confirmation" data-typed-confirm type="checkbox" /><span
+              >Confirmo estos valores y los datos que he quitado.</span
+            ></label
+          >
+        </fieldset>
+        <p v-if="confirmation && !prepared() && !frozen" role="status" class="adm-help">
+          Antes de guardar, revisa el motivo, las casillas marcadas, los decimales, los valores permitidos y los
+          productos enlazados.
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <button data-typed-save type="submit" :disabled="!canSave" class="adm-btn adm-btn--secondary">
+            {{ busy ? 'Guardando…' : 'Guardar características' }}
+          </button>
+          <button
+            v-if="rejected && rejectionRead && intent && !blocked"
+            data-typed-discard
+            type="button"
+            :disabled="busy || loading || !sameAuthority(intent)"
+            class="adm-btn adm-btn--ghost"
+            @click="discardRejected"
+          >
+            Descartar el intento rechazado y revisar
+          </button>
+          <button
+            v-if="uncertain && intent && !blocked"
+            data-typed-retry
+            type="button"
+            :disabled="busy || loading || !sameAuthority(intent)"
+            class="adm-btn adm-btn--ghost"
+            @click="retry"
+          >
+            Reintentar el mismo guardado
           </button>
         </div>
-        <div v-for="definition in editable" :key="definition.id" class="min-w-0 rounded-lg border p-3">
-          <label class="flex items-start gap-2 text-sm font-medium"
-            ><input
-              v-model="fields[definition.id]!.present"
-              :data-typed-presence="definition.id"
-              type="checkbox"
-              class="mt-1"
-            />{{ definition.label }} · {{ definition.code }} <span class="text-slate-500">(presente)</span></label
-          >
-          <template v-if="fields[definition.id]!.present">
-            <fieldset v-if="definition.kind === 'list'" class="mt-3 flex flex-wrap gap-3">
-              <legend class="mb-2 text-sm">{{ definition.label }}: hasta 16 opciones</legend>
-              <label
-                v-for="option in definition.config.options.filter((item) => item.status === 'active')"
-                :key="option.code"
-                class="flex items-center gap-2 text-sm"
-                ><input
-                  v-model="fields[definition.id]!.selections"
-                  :data-typed-option="`${definition.id}:${option.code}`"
-                  type="checkbox"
-                  :value="option.code"
-                />{{ option.label }}</label
-              >
-            </fieldset>
-            <ReferencePicker
-              v-else-if="definition.kind === 'reference'"
-              v-model="fields[definition.id]!.input"
-              :definition-id="definition.id"
-              :label="definition.label"
-              :self-id="view?.product.uuid ?? ''"
-              :available="!frozen && writable()"
-              :authority="authority"
-              @denied="revoke"
-            />
-            <label v-else class="mt-3 block text-sm"
-              >{{ definition.label }}
-              <select
-                v-if="definition.kind === 'boolean'"
-                v-model="fields[definition.id]!.input"
-                :data-typed-input="definition.id"
-                class="mt-1 block w-full rounded-lg border p-2"
-              >
-                <option value="false">No</option>
-                <option value="true">Sí</option>
-              </select>
-              <input
-                v-else
-                v-model="fields[definition.id]!.input"
-                :data-typed-input="definition.id"
-                :type="definition.kind === 'number' || definition.kind === 'unit' ? 'number' : 'text'"
-                :step="
-                  definition.kind === 'number' || definition.kind === 'unit'
-                    ? 10 ** -definition.config.precision
-                    : undefined
-                "
-                :maxlength="definition.kind === 'text' ? definition.config.maxLength : undefined"
-                class="mt-1 block w-full rounded-lg border p-2"
-              />
-            </label>
-            <label v-if="definition.kind === 'unit'" class="mt-2 block text-sm"
-              >Unidad (sin conversión)<select
-                v-model="fields[definition.id]!.unit"
-                :data-typed-unit="definition.id"
-                class="mt-1 block w-full rounded-lg border p-2"
-              >
-                <option v-for="unit in definition.config.units" :key="unit" :value="unit">
-                  {{ CATALOG_TYPED_ATTRIBUTE_UNITS[unit] }} ({{ unit }})
-                </option>
-              </select></label
-            >
-          </template>
-        </div>
-        <p v-if="!current.length" class="text-sm text-slate-600">No hay definiciones para esta categoría.</p>
-        <label class="block text-sm"
-          >Motivo<input
-            v-model="reason"
-            data-typed-reason
-            :disabled="frozen || !writable()"
-            maxlength="500"
-            class="mt-1 block w-full rounded-lg border p-2"
-        /></label>
-        <label class="flex items-start gap-2 text-sm"
-          ><input v-model="confirmation" data-typed-confirm type="checkbox" class="mt-1" />Confirmo estos valores y las
-          retiradas explícitas indicadas.</label
-        >
-      </fieldset>
-      <p v-if="confirmation && !prepared() && !frozen" role="status" class="text-sm text-amber-800">
-        Revise motivo, presencia, precisión, rango, opciones y referencias antes de guardar.
-      </p>
-      <button
-        data-typed-save
-        type="submit"
-        :disabled="!canSave"
-        class="rounded-lg bg-neteco-600 px-3 py-2 text-sm text-white disabled:opacity-50"
-      >
-        {{ busy ? 'Enviando…' : 'Guardar valores tipados' }}
-      </button>
-      <button
-        v-if="rejected && rejectionRead && intent && !blocked"
-        data-typed-discard
-        type="button"
-        :disabled="busy || loading || !sameAuthority(intent)"
-        class="ml-2 rounded-lg border px-3 py-2 text-sm"
-        @click="discardRejected"
-      >
-        Descartar intento rechazado y revisar borrador
-      </button>
-      <button
-        v-if="uncertain && intent && !blocked"
-        data-typed-retry
-        type="button"
-        :disabled="busy || loading || !sameAuthority(intent)"
-        class="ml-2 rounded-lg border px-3 py-2 text-sm"
-        @click="retry"
-      >
-        Reintentar la misma solicitud
-      </button>
-    </form>
-  </section>
+      </form>
+    </div>
+  </AdminCard>
 </template>

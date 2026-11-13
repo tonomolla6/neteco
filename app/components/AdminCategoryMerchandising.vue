@@ -326,217 +326,301 @@ const number = (value: number) => value.toLocaleString('es-ES', { maximumFractio
 </script>
 
 <template>
-  <section class="mx-auto w-full min-w-0 max-w-5xl space-y-6 px-4 py-6" aria-labelledby="cm-title">
-    <h2 id="cm-title" class="text-xl font-semibold">Orden de categoría por reglas</h2>
-    <p class="text-sm">
-      Combina stock, margen, popularidad, contrato y campaña. Los productos sin stock van siempre al final y las
-      salvaguardas impiden priorizar por debajo de tus mínimos. Previsualiza antes de guardar.
-    </p>
-    <p v-if="runtime !== 'cloudflare'" role="status">Esta función requiere el catálogo Cloudflare.</p>
-    <p v-else-if="!allowed" role="status">Inicia sesión con una cuenta de administración verificada.</p>
+  <section class="adm-stack" aria-label="Orden de productos por categoría">
+    <AdminEmptyState
+      v-if="runtime !== 'cloudflare'"
+      role="status"
+      icon="i-lucide-cloud-off"
+      title="Función no disponible en este entorno"
+      description="El orden por reglas solo funciona con el catálogo en línea de la tienda."
+    />
+    <AdminEmptyState
+      v-else-if="!allowed"
+      role="status"
+      icon="i-lucide-lock"
+      title="Necesitas una cuenta de administración verificada"
+      description="Inicia sesión con una cuenta verificada para gestionar el orden de las categorías."
+    />
     <template v-else>
-      <p v-if="loading" data-cm-loading role="status">Cargando…</p>
-      <div v-if="loadError" data-cm-error role="alert" class="space-y-2">
-        <p>{{ loadError }}</p>
-        <button type="button" data-cm-retry class="rounded border px-3 py-1" @click="load">Reintentar</button>
-      </div>
+      <p v-if="loading" data-cm-loading role="status" class="adm-help">Cargando…</p>
+      <AdminEmptyState
+        v-if="loadError"
+        data-cm-error
+        role="alert"
+        variant="error"
+        title="No se han podido cargar las reglas"
+        :description="loadError"
+      >
+        <button type="button" data-cm-retry class="adm-btn adm-btn--secondary" @click="load">Reintentar</button>
+      </AdminEmptyState>
       <template v-else>
-        <form class="space-y-4 rounded border p-4" aria-label="Editor de regla" @submit.prevent="runPreview">
-          <p v-if="editing" class="font-medium">Editando la versión {{ editing.version }} de la regla</p>
-          <label class="block"
-            >Categoría
-            <select v-model="categoryId" data-cm-category class="ml-2 rounded border p-1" :disabled="editing !== null">
-              <option value="">Elige una categoría</option>
-              <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </select></label
+        <UAlert
+          v-if="notice"
+          data-cm-notice
+          role="status"
+          color="success"
+          variant="subtle"
+          icon="i-lucide-circle-check"
+          :title="notice"
+        />
+        <UAlert
+          v-if="actionError"
+          data-cm-error
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="actionError"
+        />
+
+        <div class="grid items-start gap-5 xl:grid-cols-2">
+          <AdminCard
+            :title="editing ? 'Editar regla' : 'Nueva regla'"
+            description="Los productos sin stock van siempre al final. Comprueba el resultado antes de guardar."
           >
-          <fieldset class="grid gap-2 sm:grid-cols-5">
-            <legend class="font-medium">Peso de cada señal (0 a 10)</legend>
-            <label v-for="s in signals" :key="s" class="block"
-              >{{ signalLabels[s] }}
-              <input
-                v-model.number="weights[s]"
-                v-bind="{ [`data-cm-w-${s}`]: '' }"
-                type="number"
-                min="0"
-                max="10"
-                step="1"
-                class="block w-full rounded border p-1"
-            /></label>
-          </fieldset>
-          <fieldset class="grid gap-2 sm:grid-cols-3">
-            <legend class="font-medium">Salvaguardas</legend>
-            <label class="block"
-              >Stock mínimo para priorizar
-              <input
-                v-model.number="minStock"
-                data-cm-min-stock
-                type="number"
-                min="0"
-                step="1"
-                class="block w-full rounded border p-1"
-            /></label>
-            <label class="block"
-              >Margen mínimo (%), vacío = sin suelo
-              <input
-                v-model="minMarginPercent"
-                data-cm-min-margin
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                class="block w-full rounded border p-1"
-            /></label>
-            <label class="block"
-              >Máximo de productos priorizados
-              <input
-                v-model.number="maxBoosted"
-                data-cm-max-boosted
-                type="number"
-                min="1"
-                max="50"
-                step="1"
-                class="block w-full rounded border p-1"
-            /></label>
-          </fieldset>
-          <fieldset class="grid gap-2 sm:grid-cols-2">
-            <legend class="font-medium">Campaña (opcional)</legend>
-            <label class="block"
-              >Identificador de campaña comercial
-              <input v-model="campaignId" data-cm-campaign-id class="block w-full rounded border p-1 font-mono"
-            /></label>
-            <label class="block"
-              >Productos de campaña (un UUID por línea)
-              <textarea
-                v-model="campaignProducts"
-                data-cm-campaign-products
-                rows="3"
-                class="block w-full rounded border p-1 font-mono"
-              />
-            </label>
-          </fieldset>
-          <label class="block"
-            >Vigencia en días (1 a 180)
-            <input
-              v-model.number="days"
-              data-cm-days
-              type="number"
-              min="1"
-              max="180"
-              step="1"
-              class="ml-2 w-24 rounded border p-1"
-          /></label>
-          <label class="block"
-            >Motivo (obligatorio para guardar)
-            <input v-model="reason" data-cm-reason maxlength="500" class="block w-full rounded border p-1"
-          /></label>
-          <div class="flex flex-wrap gap-2">
-            <button
-              type="button"
-              data-cm-preview
-              class="rounded border px-4 py-2"
-              :disabled="!canPreview"
-              @click="runPreview"
-            >
-              Previsualizar orden
-            </button>
-            <button type="button" data-cm-save class="rounded border px-4 py-2" :disabled="!canSave" @click="save">
-              Guardar regla
-            </button>
-            <button v-if="editing" type="button" class="rounded border px-4 py-2" @click="resetForm">
-              Cancelar edición
-            </button>
-          </div>
-        </form>
-        <p v-if="notice" data-cm-notice role="status">{{ notice }}</p>
-        <p v-if="actionError" data-cm-error role="alert" class="break-words">{{ actionError }}</p>
-
-        <section v-if="preview" aria-label="Previsualización del orden">
-          <h3 class="font-medium">Orden resultante</h3>
-          <p v-if="preview.truncated" class="text-sm">
-            La categoría supera 500 productos: solo se evalúan los primeros.
-          </p>
-          <ol class="space-y-2">
-            <li
-              v-for="item in preview.items"
-              :key="item.productId"
-              data-cm-result
-              class="min-w-0 break-words rounded border p-3"
-            >
-              <p class="font-medium">{{ item.position }}. {{ item.name }} — {{ groupLabels[item.group] }}</p>
-              <p class="text-sm">
-                Puntuación {{ number(item.score) }} · antes en la posición {{ item.baselineRank }} · stock
-                {{ item.sellableStock }} · margen
-                {{ item.marginBps === null ? 'desconocido' : number(item.marginBps / 100) + ' %' }} ·
-                {{ item.units30d }} uds. en 30 días
-              </p>
-              <p v-for="g in item.guardrails" :key="g" class="text-sm">{{ guardrailLabels[g] ?? g }}</p>
-            </li>
-          </ol>
-        </section>
-
-        <section aria-label="Reglas">
-          <h3 class="font-medium">Reglas activas y programadas</h3>
-          <p v-if="!loading && !rules.length" data-cm-empty>No hay reglas. Crea la primera con el editor.</p>
-          <ul v-else class="space-y-3">
-            <li
-              v-for="rule in rules"
-              :key="rule.id"
-              :data-cm-rule="rule.id"
-              class="min-w-0 break-words rounded border p-4"
-            >
-              <p class="font-medium">
-                {{ categoryName(rule.categoryId) }} · {{ stateLabels[rule.state] }} · versión {{ rule.version }}
-              </p>
-              <p class="text-sm">{{ rule.reason }}</p>
-              <p class="text-sm">
-                <template v-for="s in signals" :key="s"
-                  ><span v-if="rule.weights[s] > 0">{{ signalLabels[s] }} {{ rule.weights[s] }} · </span></template
-                >
-                hasta {{ rule.validUntil.slice(0, 10) }}
-              </p>
-              <div class="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  :data-cm-edit="rule.id"
-                  class="rounded border px-3 py-1"
-                  :disabled="busy"
-                  @click="edit(rule)"
-                >
-                  Editar
-                </button>
-                <button
-                  type="button"
-                  :data-cm-retire="rule.id"
-                  class="rounded border px-3 py-1"
-                  :disabled="busy"
-                  @click="retiring = rule"
-                >
-                  Retirar
-                </button>
-              </div>
-              <div v-if="retiring?.id === rule.id" class="mt-3 space-y-2">
-                <label class="block"
-                  >Motivo de la retirada
+            <form class="adm-stack" aria-label="Editor de regla" @submit.prevent="runPreview">
+              <AdminFormField v-slot="{ id }" label="Categoría" required>
+                <select :id="id" v-model="categoryId" data-cm-category :disabled="editing !== null">
+                  <option value="">Elige una categoría</option>
+                  <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+                </select>
+              </AdminFormField>
+              <fieldset class="adm-field">
+                <legend class="adm-label">Importancia de cada criterio (de 0 a 10)</legend>
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                  <label v-for="s in signals" :key="s" class="adm-field">
+                    <span class="adm-help">{{ signalLabels[s] }}</span>
+                    <input
+                      v-model.number="weights[s]"
+                      v-bind="{ [`data-cm-w-${s}`]: '' }"
+                      type="number"
+                      min="0"
+                      max="10"
+                      step="1"
+                      class="w-full"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset class="adm-field">
+                <legend class="adm-label">Límites</legend>
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <label class="adm-field">
+                    <span class="adm-help">Stock mínimo para destacar</span>
+                    <input v-model.number="minStock" data-cm-min-stock type="number" min="0" step="1" class="w-full" />
+                  </label>
+                  <label class="adm-field">
+                    <span class="adm-help">Margen mínimo (%), vacío = sin mínimo</span>
+                    <input
+                      v-model="minMarginPercent"
+                      data-cm-min-margin
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      class="w-full"
+                    />
+                  </label>
+                  <label class="adm-field">
+                    <span class="adm-help">Máximo de productos destacados</span>
+                    <input
+                      v-model.number="maxBoosted"
+                      data-cm-max-boosted
+                      type="number"
+                      min="1"
+                      max="50"
+                      step="1"
+                      class="w-full"
+                    />
+                  </label>
+                </div>
+              </fieldset>
+              <fieldset class="adm-field">
+                <legend class="adm-label">Campaña (opcional)</legend>
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <label class="adm-field">
+                    <span class="adm-help">Identificador de la campaña</span>
+                    <input v-model="campaignId" data-cm-campaign-id class="w-full" />
+                  </label>
+                  <label class="adm-field">
+                    <span class="adm-help">Productos de la campaña (un identificador por línea)</span>
+                    <textarea v-model="campaignProducts" data-cm-campaign-products rows="3" class="w-full" />
+                  </label>
+                </div>
+              </fieldset>
+              <div class="grid gap-3 sm:grid-cols-[10rem_minmax(0,1fr)]">
+                <AdminFormField v-slot="{ id }" label="Duración en días" help="De 1 a 180.">
                   <input
-                    v-model="retireReason"
-                    data-cm-retire-reason
-                    maxlength="500"
-                    class="block w-full rounded border p-1"
-                /></label>
+                    :id="id"
+                    v-model.number="days"
+                    data-cm-days
+                    type="number"
+                    min="1"
+                    max="180"
+                    step="1"
+                    class="w-full"
+                  />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Motivo" help="Obligatorio para guardar." required>
+                  <input :id="id" v-model="reason" data-cm-reason maxlength="500" class="w-full" />
+                </AdminFormField>
+              </div>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button v-if="editing" type="button" class="adm-btn adm-btn--ghost" @click="resetForm">
+                  Cancelar edición
+                </button>
                 <button
                   type="button"
-                  data-cm-retire-confirm
-                  class="rounded border px-3 py-1"
-                  :disabled="busy || retireReason.trim().length < 3"
-                  @click="retire"
+                  data-cm-preview
+                  class="adm-btn adm-btn--secondary"
+                  :disabled="!canPreview"
+                  @click="runPreview"
                 >
-                  Confirmar retirada
+                  Previsualizar orden
+                </button>
+                <button type="button" data-cm-save class="adm-btn adm-btn--primary" :disabled="!canSave" @click="save">
+                  Guardar regla
                 </button>
               </div>
-            </li>
-          </ul>
-        </section>
+            </form>
+          </AdminCard>
+
+          <AdminCard
+            title="Orden resultante"
+            description="Así quedarían los productos de la categoría con esta regla."
+            :flush="preview !== null"
+          >
+            <section v-if="preview" aria-label="Previsualización del orden">
+              <p v-if="preview.truncated" class="adm-help px-4 pt-3">
+                La categoría tiene más de 500 productos: solo se muestran los primeros.
+              </p>
+              <ol class="adm-list">
+                <li v-for="item in preview.items" :key="item.productId" data-cm-result class="min-w-0 break-words">
+                  <span class="adm-list__index">{{ item.position }}</span>
+                  <div class="min-w-0 flex-1">
+                    <p class="adm-list__title">
+                      {{ item.name }}
+                      <AdminBadge
+                        :tone="item.group === 'boosted' ? 'success' : item.group === 'demoted' ? 'warning' : 'neutral'"
+                        plain
+                      >
+                        {{ groupLabels[item.group] }}
+                      </AdminBadge>
+                    </p>
+                    <p class="adm-help">
+                      Puntuación {{ number(item.score) }} · antes en la posición {{ item.baselineRank }} · stock
+                      {{ item.sellableStock }} · margen
+                      {{ item.marginBps === null ? 'desconocido' : number(item.marginBps / 100) + ' %' }} ·
+                      {{ item.units30d }} uds. en 30 días
+                    </p>
+                    <p v-for="g in item.guardrails" :key="g" class="adm-help">
+                      {{ guardrailLabels[g] ?? adminHumanize(g) }}
+                    </p>
+                  </div>
+                </li>
+              </ol>
+            </section>
+            <AdminEmptyState
+              v-else
+              compact
+              icon="i-lucide-list-ordered"
+              title="Todavía no hay vista previa"
+              description="Elige una categoría, da importancia a algún criterio y pulsa «Previsualizar orden»."
+            />
+          </AdminCard>
+        </div>
+
+        <AdminCard title="Reglas en vigor y programadas" flush>
+          <section aria-label="Reglas">
+            <div v-if="!loading && !rules.length" data-cm-empty>
+              <AdminEmptyState
+                compact
+                icon="i-lucide-arrow-down-up"
+                title="No hay reglas"
+                description="Crea la primera con el formulario de arriba."
+              />
+            </div>
+            <div v-else class="adm-table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Categoría</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Criterios</th>
+                    <th scope="col">Motivo</th>
+                    <th scope="col">Vigente hasta</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="rule in rules" :key="rule.id" :data-cm-rule="rule.id">
+                    <td class="font-semibold text-[var(--text-strong)]">{{ categoryName(rule.categoryId) }}</td>
+                    <td>
+                      <AdminBadge
+                        :tone="rule.state === 'live' ? 'success' : rule.state === 'scheduled' ? 'info' : 'neutral'"
+                      >
+                        {{ stateLabels[rule.state] }}
+                      </AdminBadge>
+                    </td>
+                    <td>
+                      <template v-for="s in signals" :key="s">
+                        <span v-if="rule.weights[s] > 0" class="adm-chip mr-1">
+                          {{ signalLabels[s] }} {{ rule.weights[s] }}
+                        </span>
+                      </template>
+                    </td>
+                    <td class="break-words">{{ rule.reason }}</td>
+                    <td class="whitespace-nowrap">{{ adminDate(rule.validUntil) }}</td>
+                    <td class="adm-table__actions">
+                      <button
+                        type="button"
+                        :data-cm-edit="rule.id"
+                        class="adm-btn adm-btn--secondary adm-btn--sm"
+                        :disabled="busy"
+                        @click="edit(rule)"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        type="button"
+                        :data-cm-retire="rule.id"
+                        class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                        :disabled="busy"
+                        @click="retiring = rule"
+                      >
+                        Retirar
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <template v-if="retiring" #footer>
+            <div class="flex w-full flex-wrap items-end gap-3">
+              <AdminFormField
+                v-slot="{ id }"
+                class="min-w-0 flex-1"
+                :label="`Motivo para retirar la regla de «${categoryName(retiring.categoryId)}»`"
+                required
+              >
+                <input :id="id" v-model="retireReason" data-cm-retire-reason maxlength="500" class="w-full" />
+              </AdminFormField>
+              <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="retiring = null">
+                Cancelar
+              </button>
+              <button
+                type="button"
+                data-cm-retire-confirm
+                class="adm-btn adm-btn--danger"
+                :disabled="busy || retireReason.trim().length < 3"
+                @click="retire"
+              >
+                Confirmar retirada
+              </button>
+            </div>
+          </template>
+        </AdminCard>
       </template>
     </template>
   </section>

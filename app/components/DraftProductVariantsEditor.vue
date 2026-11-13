@@ -30,6 +30,13 @@ const props = defineProps<{
   refreshOptions: () => Promise<unknown>
 }>()
 const prefix = useId()
+const VARIANT_STATUS_LABELS: Record<string, string> = {
+  draft: 'Borrador',
+  review: 'En revisión',
+  published: 'Publicada',
+  hidden: 'Oculta',
+  discontinued: 'Retirada'
+}
 function ownRecord(value: unknown): Record<string, unknown> | null {
   try {
     const copied = catalogPolicyOwnJson(value)
@@ -583,201 +590,246 @@ async function reload() {
 </script>
 
 <template>
-  <section
-    class="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6"
+  <AdminCard
     :aria-labelledby="`${prefix}-heading`"
+    description="La referencia (SKU) y la dirección web del producto no se pueden cambiar. Las variantes nuevas nacen con precio pendiente de aprobación (0) y stock 0; guardar aquí no publica el producto, no aprueba precios ni mueve stock."
   >
-    <h2 :id="`${prefix}-heading`" class="text-lg font-semibold text-[var(--text-strong)]">
-      Marca y variantes del borrador
-    </h2>
-    <p class="mt-1 text-sm text-[var(--text-muted)]">
-      SKU y slug permanecen fijos. Las variantes nuevas nacen con precio pendiente de aprobación (0) y stock 0; estos
-      cambios no publican, no aprueban precios y no ajustan inventario.
-    </p>
-    <p v-if="readStatus === 'pending' || optionsStatus === 'pending'" role="status" class="mt-4 text-sm">
-      Consultando producto y referencias…
-    </p>
-    <p v-else-if="!confirmed || !references" role="alert" class="mt-4 text-sm">
-      No hay una lectura válida del producto y sus referencias. No se pueden guardar cambios.
-    </p>
-    <p v-else-if="confirmed.snapshot.status !== 'draft' || !authorized()" role="status" class="mt-4 text-sm">
-      Sólo se pueden preparar estos cambios en un borrador autorizado.
-    </p>
-    <template v-if="confirmed && references && confirmed.snapshot.status === 'draft' && authorized()">
-      <p v-if="!fresh && !uncertain" role="alert" class="mt-4 text-sm">
-        La versión cambió. Consulta de nuevo antes de preparar otro cambio.
+    <template #title>
+      <span :id="`${prefix}-heading`">Marca y variantes</span>
+    </template>
+    <div class="adm-stack">
+      <p v-if="readStatus === 'pending' || optionsStatus === 'pending'" role="status" class="adm-help">
+        Cargando el producto, las marcas y los impuestos…
       </p>
-      <form
-        v-if="permitted('assign_brand')"
-        class="mt-5 space-y-3 border-b border-[var(--border)] pb-5"
-        :aria-busy="busy"
-        @submit.prevent="saveBrand"
-      >
-        <h3 class="font-semibold">Asignar marca</h3>
-        <fieldset :disabled="!editable" class="grid gap-3 sm:grid-cols-2">
-          <label :for="`${prefix}-brand`" class="text-sm"
-            >Marca<select :id="`${prefix}-brand`" v-model="brandId" data-field="brandId" class="draft-field" required>
-              <option value="">Selecciona una referencia</option>
-              <option v-for="entry in references.brands" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
-            </select></label
-          >
-          <label :for="`${prefix}-brand-reason`" class="text-sm"
-            >Motivo del cambio de marca<input
-              :id="`${prefix}-brand-reason`"
-              v-model="brandReason"
-              data-field="brandReason"
-              class="draft-field"
+      <UAlert
+        v-else-if="!confirmed || !references"
+        role="alert"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se ha podido cargar el producto"
+        description="Sin sus datos actualizados no se pueden guardar cambios. Vuelve a cargarlo con el botón de abajo."
+      />
+      <UAlert
+        v-else-if="confirmed.snapshot.status !== 'draft' || !authorized()"
+        role="status"
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="La marca y las variantes solo se pueden cambiar mientras el producto está en borrador"
+      />
+      <template v-if="confirmed && references && confirmed.snapshot.status === 'draft' && authorized()">
+        <UAlert
+          v-if="!fresh && !uncertain"
+          role="alert"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="El producto ha cambiado desde que lo abriste"
+          description="Vuelve a cargarlo antes de preparar otro cambio."
+        />
+        <form v-if="permitted('assign_brand')" class="space-y-3" :aria-busy="busy" @submit.prevent="saveBrand">
+          <h3 class="adm-section__title">Marca</h3>
+          <fieldset :disabled="!editable" class="adm-form-grid min-w-0">
+            <div class="adm-field">
+              <label :for="`${prefix}-brand`" class="adm-label">Marca</label>
+              <select :id="`${prefix}-brand`" v-model="brandId" data-field="brandId" class="adm-input w-full" required>
+                <option value="">Elige una marca</option>
+                <option v-for="entry in references.brands" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label :for="`${prefix}-brand-reason`" class="adm-label">Motivo del cambio de marca</label>
+              <input
+                :id="`${prefix}-brand-reason`"
+                v-model="brandReason"
+                data-field="brandReason"
+                class="adm-input w-full"
+                minlength="3"
+                maxlength="500"
+                required
+              />
+            </div>
+          </fieldset>
+          <div class="flex justify-end">
+            <AdminButton data-action="brand" type="submit" :disabled="!canSaveBrand" :loading="busy"
+              >Guardar marca</AdminButton
+            >
+          </div>
+        </form>
+        <div class="space-y-3 border-t border-[var(--border)] pt-5">
+          <div class="flex flex-wrap items-end justify-between gap-3">
+            <h3 class="adm-section__title">Variantes</h3>
+            <AdminButton
+              v-if="permitted('create_variant')"
+              data-action="new-variant"
+              size="sm"
+              icon="i-lucide-plus"
+              :disabled="!editable"
+              @click="startCreate"
+              >Añadir variante</AdminButton
+            >
+          </div>
+          <div class="adm-table-wrap rounded-[var(--radius-control)] border border-[var(--border)]">
+            <table class="adm-table">
+              <caption class="sr-only">
+                Variantes del producto
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Referencia</th>
+                  <th scope="col">Formato</th>
+                  <th scope="col">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="entry in confirmed.snapshot.variants"
+                  :key="entry.id"
+                  :data-selected="(mode === 'update' && String(entry.id) === selectedId) || undefined"
+                >
+                  <td class="font-medium text-[var(--text-strong)]">{{ entry.sku }}</td>
+                  <td>{{ entry.format }}</td>
+                  <td>
+                    <AdminBadge
+                      :tone="
+                        entry.status === 'published' ? 'success' : entry.status === 'review' ? 'warning' : 'neutral'
+                      "
+                      >{{ VARIANT_STATUS_LABELS[entry.status] ?? 'Borrador' }}</AdminBadge
+                    >
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="adm-field sm:max-w-md">
+            <label :for="`${prefix}-variant`" class="adm-label">Variante que quieres editar</label>
+            <select
+              :id="`${prefix}-variant`"
+              data-field="selectedVariant"
+              class="adm-input w-full"
+              :value="selectedId"
+              :disabled="!editable"
+              @change="selectVariant"
+            >
+              <option value="">Elige una variante</option>
+              <option v-for="entry in confirmed.snapshot.variants" :key="entry.id" :value="String(entry.id)">
+                {{ entry.sku }} — {{ entry.format }}{{ entry.status === 'discontinued' ? ' (retirada)' : '' }}
+              </option>
+            </select>
+          </div>
+        </div>
+        <form
+          v-if="
+            mode === 'create'
+              ? permitted('create_variant')
+              : selected && selected.status !== 'discontinued' && permitted('update_variant')
+          "
+          class="space-y-4 border-t border-[var(--border)] pt-5"
+          :aria-busy="busy"
+          @submit.prevent="saveVariant"
+        >
+          <h3 class="adm-section__title">{{ mode === 'create' ? 'Nueva variante' : 'Editar variante' }}</h3>
+          <DraftVariantFields
+            :model-value="variantForm"
+            :options="references"
+            :prefix="`${prefix}-variant-fields`"
+            :disabled="!editable"
+            :immutable-sku="mode === 'update'"
+            @update:model-value="updateVariantForm"
+          />
+          <div class="adm-field">
+            <label :for="`${prefix}-variant-reason`" class="adm-label">Motivo del cambio</label>
+            <input
+              :id="`${prefix}-variant-reason`"
+              v-model="variantReason"
+              data-field="variantReason"
+              class="adm-input w-full"
               minlength="3"
               maxlength="500"
               required
-          /></label>
-        </fieldset>
-        <UButton data-action="brand" type="submit" :disabled="!canSaveBrand" :loading="busy">Guardar marca</UButton>
-      </form>
-      <div class="mt-5 flex flex-wrap items-end gap-3">
-        <label :for="`${prefix}-variant`" class="min-w-0 flex-1 text-sm"
-          >Variante confirmada<select
-            :id="`${prefix}-variant`"
-            data-field="selectedVariant"
-            class="draft-field"
-            :value="selectedId"
-            :disabled="!editable"
-            @change="selectVariant"
-          >
-            <option value="">Selecciona una variante</option>
-            <option v-for="entry in confirmed.snapshot.variants" :key="entry.id" :value="String(entry.id)">
-              {{ entry.sku }} — {{ entry.format }}{{ entry.status === 'discontinued' ? ' (retirada)' : '' }}
-            </option>
-          </select></label
+              :disabled="!editable"
+            />
+          </div>
+          <div class="flex justify-end">
+            <AdminButton
+              data-action="variant"
+              type="submit"
+              variant="primary"
+              :disabled="!canSaveVariant"
+              :loading="busy"
+              >{{ mode === 'create' ? 'Crear variante' : 'Guardar variante' }}</AdminButton
+            >
+          </div>
+        </form>
+        <form
+          v-if="mode === 'update' && selected && selected.status !== 'discontinued' && permitted('discontinue_variant')"
+          class="space-y-3 border-t border-[var(--border)] pt-5"
+          :aria-busy="busy"
+          @submit.prevent="discontinue"
         >
-        <UButton
-          v-if="permitted('create_variant')"
-          data-action="new-variant"
-          type="button"
-          color="neutral"
-          variant="outline"
-          :disabled="!editable"
-          @click="startCreate"
-          >Añadir variante borrador</UButton
+          <h3 class="adm-section__title">Retirar variante</h3>
+          <p class="adm-help">
+            Dejará de poder venderse. Se conserva su historial y no cambia precios ni stock. El producto debe conservar
+            al menos una variante sin retirar.
+          </p>
+          <div class="adm-field">
+            <label :for="`${prefix}-remove-reason`" class="adm-label">Motivo de la retirada</label>
+            <input
+              :id="`${prefix}-remove-reason`"
+              v-model="discontinueReason"
+              data-field="discontinueReason"
+              class="adm-input w-full"
+              minlength="3"
+              maxlength="500"
+              required
+              :disabled="!editable"
+            />
+          </div>
+          <label :for="`${prefix}-remove-confirm`" class="adm-check"
+            ><input
+              :id="`${prefix}-remove-confirm`"
+              v-model="removalConfirmed"
+              data-field="removalConfirmed"
+              type="checkbox"
+              :disabled="!editable"
+            />Confirmo que quiero retirar {{ selected.sku }}</label
+          >
+          <div class="flex justify-end">
+            <AdminButton
+              data-action="discontinue"
+              type="submit"
+              variant="danger-soft"
+              :disabled="!canDiscontinue"
+              :loading="busy"
+              >Retirar variante</AdminButton
+            >
+          </div>
+        </form>
+      </template>
+      <p v-if="message" class="text-sm text-[var(--text)]" role="status" aria-live="polite">{{ message }}</p>
+    </div>
+    <template #footer>
+      <div class="flex flex-wrap gap-2">
+        <AdminButton
+          v-if="uncertain"
+          data-action="retry"
+          icon="i-lucide-rotate-cw"
+          :disabled="!canRetry"
+          :loading="busy"
+          @click="retry"
+          >Reintentar la misma solicitud</AdminButton
+        >
+        <AdminButton
+          data-action="reload"
+          variant="ghost"
+          icon="i-lucide-refresh-cw"
+          :disabled="busy || reloading || runtime !== 'cloudflare'"
+          :loading="reloading"
+          @click="reload"
+          >Volver a cargar el producto</AdminButton
         >
       </div>
-      <form
-        v-if="
-          mode === 'create'
-            ? permitted('create_variant')
-            : selected && selected.status !== 'discontinued' && permitted('update_variant')
-        "
-        class="mt-5 space-y-4"
-        :aria-busy="busy"
-        @submit.prevent="saveVariant"
-      >
-        <h3 class="font-semibold">{{ mode === 'create' ? 'Nueva variante' : 'Editar variante' }}</h3>
-        <DraftVariantFields
-          :model-value="variantForm"
-          :options="references"
-          :prefix="`${prefix}-variant-fields`"
-          :disabled="!editable"
-          :immutable-sku="mode === 'update'"
-          @update:model-value="updateVariantForm"
-        />
-        <label :for="`${prefix}-variant-reason`" class="block text-sm"
-          >Motivo del cambio de variante<input
-            :id="`${prefix}-variant-reason`"
-            v-model="variantReason"
-            data-field="variantReason"
-            class="draft-field"
-            minlength="3"
-            maxlength="500"
-            required
-            :disabled="!editable"
-        /></label>
-        <UButton data-action="variant" type="submit" :disabled="!canSaveVariant" :loading="busy">{{
-          mode === 'create' ? 'Crear variante borrador' : 'Guardar campos modificados'
-        }}</UButton>
-      </form>
-      <form
-        v-if="mode === 'update' && selected && selected.status !== 'discontinued' && permitted('discontinue_variant')"
-        class="mt-5 space-y-3 border-t border-[var(--border)] pt-5"
-        :aria-busy="busy"
-        @submit.prevent="discontinue"
-      >
-        <h3 class="font-semibold">Retirar variante</h3>
-        <p class="text-sm text-[var(--text-muted)]">
-          Dejará de estar disponible para nuevas operaciones. Se conserva su historial; no modifica precios ni stock.
-          Debe quedar al menos una variante no retirada.
-        </p>
-        <label :for="`${prefix}-remove-reason`" class="block text-sm"
-          >Motivo de retirada<input
-            :id="`${prefix}-remove-reason`"
-            v-model="discontinueReason"
-            data-field="discontinueReason"
-            class="draft-field"
-            minlength="3"
-            maxlength="500"
-            required
-            :disabled="!editable"
-        /></label>
-        <label :for="`${prefix}-remove-confirm`" class="flex items-center gap-2 text-sm"
-          ><input
-            :id="`${prefix}-remove-confirm`"
-            v-model="removalConfirmed"
-            data-field="removalConfirmed"
-            type="checkbox"
-            :disabled="!editable"
-          />Confirmo la retirada de {{ selected.sku }} y su impacto</label
-        >
-        <UButton
-          data-action="discontinue"
-          type="submit"
-          color="error"
-          variant="outline"
-          :disabled="!canDiscontinue"
-          :loading="busy"
-          >Retirar variante</UButton
-        >
-      </form>
     </template>
-    <p v-if="message" class="mt-4 text-sm" role="status" aria-live="polite">{{ message }}</p>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <UButton
-        v-if="uncertain"
-        data-action="retry"
-        type="button"
-        color="neutral"
-        variant="outline"
-        :disabled="!canRetry"
-        :loading="busy"
-        @click="retry"
-        >Reintentar la misma solicitud</UButton
-      >
-      <UButton
-        data-action="reload"
-        type="button"
-        color="neutral"
-        variant="outline"
-        :disabled="busy || reloading || runtime !== 'cloudflare'"
-        :loading="reloading"
-        @click="reload"
-        >Consultar producto y referencias de nuevo</UButton
-      >
-    </div>
-  </section>
+  </AdminCard>
 </template>
-
-<style scoped>
-.draft-field {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  margin-top: 0.25rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  padding: 0.5rem;
-  background: var(--surface);
-  color: var(--text-strong);
-}
-.draft-field:focus-visible {
-  outline: 2px solid var(--color-neteco-600);
-  outline-offset: 1px;
-}
-</style>

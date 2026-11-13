@@ -685,267 +685,345 @@ onBeforeUnmount(() => {
 
 <template>
   <section
-    class="mb-6 rounded-xl border border-[var(--border)] bg-white p-5"
+    class="adm-stack"
     aria-labelledby="product-policy-heading"
     :aria-busy="busy"
     data-product-publication-policy-editor
   >
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <h2 id="product-policy-heading" class="text-lg font-semibold">Política de publicación y revisión regulatoria</h2>
-      <UButton to="/admin/politicas-catalogo" color="neutral" variant="outline">Gestionar políticas</UButton>
-    </div>
-    <p class="mt-2 text-sm text-[var(--text-muted)]">
-      Clasificación y requisitos revisados explícitamente. Guardar aquí no publica productos ni acredita aprobación
-      legal. La publicación se valida en el servidor.
-    </p>
-    <p v-if="originAuthorized() && (status === 'idle' || status === 'pending' || reading)" role="status" class="mt-4">
-      Consultando política y excepciones…
-    </p>
-    <template v-else-if="snapshot">
-      <p class="mt-4 text-sm">
-        Versión de catálogo {{ snapshot.catalogVersion }} ·
-        <time :datetime="snapshot.evaluatedAt">{{ snapshot.evaluatedAt }}</time>
-      </p>
-      <p v-if="snapshot.policy" class="mt-2 font-medium">
-        {{ snapshot.policy.name }} · {{ snapshot.policy.code }} v{{ snapshot.policy.version }} ·
-        {{ snapshot.policy.current ? 'vigente' : 'no vigente' }}
-      </p>
-      <p v-else class="mt-2">Sin política asignada. No se presupone ninguna clasificación.</p>
-      <dl class="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-        <div v-for="(value, key) in snapshot.regulatory" :key="key">
-          <dt class="font-medium">{{ REGULATORY_LABELS[key] }}</dt>
-          <dd class="whitespace-pre-wrap">
-            {{ value === null ? 'Sin revisar' : value === true ? 'Sí' : value === false ? 'No' : value }}
-          </dd>
-        </div>
-      </dl>
-      <p v-if="!editable" role="status" class="mt-4 rounded bg-slate-50 p-3 text-sm">
-        Sólo lectura en productos publicados o descatalogados. Oculta el producto mediante su editor de estados y vuelve
-        a consultar antes de editar; aquí no se cambia su estado automáticamente.
-      </p>
-      <p v-if="stale" role="alert" class="mt-3 text-sm">
-        La versión o el estado han cambiado. Consulta de nuevo antes de preparar otro comando.
-      </p>
-      <form
-        v-if="editable && capability(snapshot.capabilities, 'productPublicationPolicyWrite')"
-        class="mt-5 space-y-4 border-t pt-4"
-        @submit.prevent="assignPolicy"
-      >
-        <fieldset :disabled="!writable('productPublicationPolicyWrite')" class="space-y-4">
-          <legend class="font-semibold">Asignar una política vigente</legend>
-          <p v-if="policiesStatus === 'idle' || policiesStatus === 'pending'" role="status">Consultando opciones…</p>
-          <p v-else-if="!options" role="alert">
-            No hay una consulta válida de políticas disponibles. No se guardan opciones cacheadas.
-          </p>
-          <template v-else
-            ><label for="product-policy-choice">Política revisada</label
-            ><select id="product-policy-choice" v-model="form.policyId" required class="w-full rounded border p-2">
-              <option value="" disabled>Selecciona una política expresamente</option>
-              <option v-for="item in options.items" :key="item.id" :value="item.id">
-                {{ item.name }} · {{ item.code }} v{{ item.version }}
-              </option>
-            </select>
-            <p v-if="!options.items.length" class="text-sm">
-              No hay políticas vigentes en esta página ({{ options.total }} versiones en total).
-            </p></template
-          >
-          <div>
-            <label for="product-policy-sds">¿Requiere ficha de seguridad (SDS)?</label
-            ><select id="product-policy-sds" v-model="form.requiresSds" required class="mt-1 w-full rounded border p-2">
-              <option value="" disabled>Selecciona expresamente; no hay valor predeterminado</option>
-              <option value="true">Sí</option>
-              <option value="false">No</option>
-            </select>
-          </div>
-          <p class="text-sm text-[var(--text-muted)]">
-            Los textos vacíos no se envían y conservan los datos existentes; no implican borrado.
-          </p>
-          <div
-            v-for="key in [
-              'safetyInstructions',
-              'hazardStatements',
-              'precautionaryStatements',
-              'manufacturer'
-            ] as const"
-            :key="key"
-          >
-            <label :for="`product-policy-${key}`">{{ REGULATORY_LABELS[key] }}</label
-            ><textarea
-              :id="`product-policy-${key}`"
-              v-model="form[key]"
-              :maxlength="key === 'manufacturer' ? 160 : 2000"
-              :rows="key === 'manufacturer' ? 1 : 3"
-              class="mt-1 w-full rounded border p-2"
-            />
-          </div>
-          <div>
-            <label for="product-policy-reason">Motivo de la asignación</label
-            ><input
-              id="product-policy-reason"
-              v-model="form.reason"
-              required
-              minlength="10"
-              maxlength="500"
-              class="mt-1 w-full rounded border p-2"
-            />
-          </div>
-          <label class="flex items-start gap-2 text-sm"
-            ><input v-model="form.confirmed" type="checkbox" required class="mt-1" />He revisado la política
-            seleccionada, la clasificación y los requisitos regulatorios. No constituye aprobación legal.</label
-          ><UButton type="submit" :disabled="!options || !form.confirmed" :loading="saving"
-            >Guardar asignación revisada</UButton
-          >
-        </fieldset>
-      </form>
-      <div v-if="editable && options" class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-        <span>Opciones: página {{ page }} de {{ options.pages || 1 }}</span
-        ><UButton color="neutral" :disabled="busy || !!command || page <= 1" @click="policyPage(page - 1)"
-          >Anterior</UButton
-        ><UButton color="neutral" :disabled="busy || !!command || page >= options.pages" @click="policyPage(page + 1)"
-          >Siguiente</UButton
+    <AdminCard
+      description="Clasificación del producto y datos de seguridad que deben estar revisados. Guardar aquí no publica productos ni acredita aprobación legal: la tienda lo valida al publicar."
+    >
+      <template #title><span id="product-policy-heading">Regla de publicación y revisión regulatoria</span></template>
+      <template #actions>
+        <NuxtLink to="/admin/politicas-catalogo" class="adm-btn adm-btn--secondary adm-btn--sm"
+          >Gestionar reglas</NuxtLink
         >
-      </div>
-      <h3 class="mt-6 font-semibold">Excepciones de identificador</h3>
-      <p class="mt-1 text-sm text-[var(--text-muted)]">
-        Se muestra sólo la excepción vigente más reciente de cada variante; el historial auditado se conserva en el
-        servidor. Una excepción con vigencia futura no aparecerá en esta consulta hasta que comience su vigencia.
+      </template>
+      <p
+        v-if="originAuthorized() && (status === 'idle' || status === 'pending' || reading)"
+        role="status"
+        class="adm-help"
+      >
+        Cargando la regla y las excepciones…
       </p>
-      <ul v-if="snapshot.variants.length" class="mt-3 space-y-3">
-        <li v-for="variant in snapshot.variants" :key="variant.id" class="rounded border p-3 text-sm">
-          <p class="font-medium">Variante {{ variant.legacyId ?? variant.id }} · {{ variant.status }}</p>
-          <template v-if="variant.identifierException"
-            ><p>{{ variant.identifierException.reason }}</p>
-            <p>Evidencia: {{ variant.identifierException.evidenceReference }}</p>
-            <p>
-              {{ variant.identifierException.validFrom }} —
-              {{ variant.identifierException.validUntil || 'sin fin definido' }}
-            </p></template
-          >
-          <p v-else>Sin excepción vigente.</p>
-        </li>
-      </ul>
-      <p v-else class="mt-2 text-sm">No hay variantes en esta consulta.</p>
-      <form
-        v-if="
-          editable &&
-          capability(snapshot.capabilities, 'productIdentifierExceptionsWrite') &&
-          exceptionCandidates.length
-        "
-        class="mt-5 space-y-3 border-t pt-4"
-        @submit.prevent="createException"
-      >
-        <fieldset :disabled="!writable('productIdentifierExceptionsWrite')" class="space-y-3">
-          <legend class="font-semibold">Crear excepción documentada</legend>
-          <label for="identifier-exception-variant">Variante sin EAN, GTIN ni MPN</label
-          ><select
-            id="identifier-exception-variant"
-            v-model="exceptionForm.variantId"
-            required
-            class="w-full rounded border p-2"
-          >
-            <option value="" disabled>Selecciona una variante privada</option>
-            <option v-for="variant in exceptionCandidates" :key="variant.id" :value="variant.id">
-              {{ variant.legacyId ?? variant.id }}
-            </option></select
-          ><label for="identifier-exception-reason">Motivo de la excepción</label
-          ><input
-            id="identifier-exception-reason"
-            v-model="exceptionForm.reason"
-            required
-            minlength="10"
-            maxlength="500"
-            class="w-full rounded border p-2"
-          /><label for="identifier-exception-evidence">Referencia de evidencia</label
-          ><input
-            id="identifier-exception-evidence"
-            v-model="exceptionForm.evidenceReference"
-            required
-            minlength="3"
-            maxlength="200"
-            class="w-full rounded border p-2"
-          />
-          <div class="grid gap-3 sm:grid-cols-2">
-            <div>
-              <label for="identifier-exception-from">Vigente desde (UTC, segundos)</label
-              ><input
-                id="identifier-exception-from"
-                v-model="exceptionForm.validFrom"
-                required
-                placeholder="2026-09-30T10:00:00Z"
-                class="mt-1 w-full rounded border p-2"
-              />
-            </div>
-            <div>
-              <label for="identifier-exception-until">Vigente hasta (opcional, UTC)</label
-              ><input
-                id="identifier-exception-until"
-                v-model="exceptionForm.validUntil"
-                placeholder="2027-09-30T10:00:00Z"
-                class="mt-1 w-full rounded border p-2"
-              />
-            </div>
+      <div v-else-if="snapshot" class="adm-stack">
+        <div>
+          <p v-if="snapshot.policy" class="font-medium text-[var(--text-strong)]">
+            {{ snapshot.policy.name }} · versión {{ snapshot.policy.version }}
+            <AdminBadge :tone="snapshot.policy.current ? 'success' : 'warning'" class="ml-1">{{
+              snapshot.policy.current ? 'Vigente' : 'No vigente'
+            }}</AdminBadge>
+          </p>
+          <p v-else>Sin regla asignada. No se presupone ninguna clasificación.</p>
+          <p class="adm-help mt-1">
+            Datos consultados el
+            <time :datetime="snapshot.evaluatedAt">{{ adminDate(snapshot.evaluatedAt, true) }}</time>
+          </p>
+        </div>
+        <dl class="grid gap-3 sm:grid-cols-2">
+          <div v-for="(value, key) in snapshot.regulatory" :key="key">
+            <dt class="adm-label">{{ REGULATORY_LABELS[key] }}</dt>
+            <dd class="whitespace-pre-wrap">
+              {{ value === null ? 'Sin revisar' : value === true ? 'Sí' : value === false ? 'No' : value }}
+            </dd>
           </div>
-          <label class="flex items-start gap-2 text-sm"
-            ><input v-model="exceptionForm.confirmed" type="checkbox" required class="mt-1" />He revisado la ausencia de
-            identificadores, la evidencia y la vigencia. No apruebo legalmente el producto ni lo publico.</label
-          ><UButton type="submit" :disabled="!exceptionForm.confirmed" :loading="saving">Registrar excepción</UButton>
-        </fieldset>
-      </form>
-      <form
-        v-if="
-          editable && capability(snapshot.capabilities, 'productIdentifierExceptionsWrite') && withdrawCandidates.length
-        "
-        class="mt-5 space-y-3 border-t pt-4"
-        @submit.prevent="withdrawException"
-      >
-        <fieldset :disabled="!writable('productIdentifierExceptionsWrite')" class="space-y-3">
-          <legend class="font-semibold">Retirar una excepción vigente</legend>
-          <label for="identifier-withdraw-variant">Excepción de variante</label
-          ><select
-            id="identifier-withdraw-variant"
-            v-model="withdrawal.variantId"
-            required
-            class="w-full rounded border p-2"
+        </dl>
+        <UAlert
+          v-if="!editable"
+          role="status"
+          color="neutral"
+          variant="subtle"
+          title="Sólo lectura en productos publicados o descatalogados."
+          description="Para editar, oculta antes el producto desde «Cambiar estado editorial» y vuelve a cargar esta sección. Aquí no se cambia su estado."
+        />
+        <UAlert
+          v-if="stale"
+          role="alert"
+          color="warning"
+          variant="subtle"
+          title="El producto ha cambiado desde que lo abriste. Vuelve a cargar antes de preparar otro cambio."
+        />
+        <form
+          v-if="editable && capability(snapshot.capabilities, 'productPublicationPolicyWrite')"
+          class="border-t border-[var(--border)] pt-4"
+          @submit.prevent="assignPolicy"
+        >
+          <fieldset :disabled="!writable('productPublicationPolicyWrite')" class="adm-stack">
+            <legend class="adm-label">Asignar una regla vigente</legend>
+            <p v-if="policiesStatus === 'idle' || policiesStatus === 'pending'" role="status" class="adm-help">
+              Cargando opciones…
+            </p>
+            <UAlert
+              v-else-if="!options"
+              role="alert"
+              color="error"
+              variant="subtle"
+              title="No se han podido cargar las reglas disponibles. Vuelve a cargar para intentarlo de nuevo."
+            />
+            <div v-else class="adm-field">
+              <label for="product-policy-choice" class="adm-label">Regla revisada</label
+              ><select id="product-policy-choice" v-model="form.policyId" required class="adm-input">
+                <option value="" disabled>Selecciona una regla</option>
+                <option v-for="item in options.items" :key="item.id" :value="item.id">
+                  {{ item.name }} · versión {{ item.version }}
+                </option>
+              </select>
+              <p v-if="!options.items.length" class="adm-help">
+                No hay reglas vigentes en esta página ({{ options.total }} en total).
+              </p>
+            </div>
+            <div class="adm-field">
+              <label for="product-policy-sds" class="adm-label">¿Requiere ficha de datos de seguridad?</label
+              ><select id="product-policy-sds" v-model="form.requiresSds" required class="adm-input">
+                <option value="" disabled>Selecciona una respuesta</option>
+                <option value="true">Sí</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+            <p class="adm-help">Los textos que dejes vacíos no se tocan: se conservan los datos que ya había.</p>
+            <div
+              v-for="key in [
+                'safetyInstructions',
+                'hazardStatements',
+                'precautionaryStatements',
+                'manufacturer'
+              ] as const"
+              :key="key"
+              class="adm-field"
+            >
+              <label :for="`product-policy-${key}`" class="adm-label">{{ REGULATORY_LABELS[key] }}</label
+              ><textarea
+                :id="`product-policy-${key}`"
+                v-model="form[key]"
+                :maxlength="key === 'manufacturer' ? 160 : 2000"
+                :rows="key === 'manufacturer' ? 1 : 3"
+                class="adm-input"
+              />
+            </div>
+            <div class="adm-field">
+              <label for="product-policy-reason" class="adm-label">Motivo de la asignación</label
+              ><input
+                id="product-policy-reason"
+                v-model="form.reason"
+                required
+                minlength="10"
+                maxlength="500"
+                class="adm-input"
+              />
+            </div>
+            <label class="adm-check"
+              ><input v-model="form.confirmed" type="checkbox" required /><span
+                >He revisado la regla seleccionada, la clasificación y los requisitos de seguridad. No constituye
+                aprobación legal.</span
+              ></label
+            >
+            <div>
+              <button
+                type="submit"
+                class="adm-btn adm-btn--secondary"
+                :disabled="!options || !form.confirmed || saving"
+              >
+                Guardar asignación revisada
+              </button>
+            </div>
+          </fieldset>
+        </form>
+        <div v-if="editable && options" class="flex flex-wrap items-center gap-2">
+          <span class="adm-help">Reglas disponibles: página {{ page }} de {{ options.pages || 1 }}</span
+          ><button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="busy || !!command || page <= 1"
+            @click="policyPage(page - 1)"
           >
-            <option value="" disabled>Selecciona una excepción</option>
-            <option v-for="variant in withdrawCandidates" :key="variant.id" :value="variant.id">
-              {{ variant.legacyId ?? variant.id }}
-            </option></select
-          ><label for="identifier-withdraw-reason">Motivo de retirada</label
-          ><input
-            id="identifier-withdraw-reason"
-            v-model="withdrawal.reason"
-            required
-            minlength="10"
-            maxlength="500"
-            class="w-full rounded border p-2"
-          /><label class="flex items-start gap-2 text-sm"
-            ><input v-model="withdrawal.confirmed" type="checkbox" required class="mt-1" />Confirmo la retirada; el
-            historial se conserva.</label
-          ><UButton type="submit" color="neutral" :disabled="!withdrawal.confirmed" :loading="saving"
-            >Retirar excepción</UButton
+            Anterior</button
+          ><button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            :disabled="busy || !!command || page >= options.pages"
+            @click="policyPage(page + 1)"
           >
-        </fieldset>
-      </form>
-    </template>
-    <p v-else role="alert" class="mt-4 text-sm">
-      No se ha podido confirmar una consulta privada vigente. Revisa el permiso catalog.publish y el segundo factor; no
-      se muestran formularios ni datos cacheados.
-    </p>
-    <p v-if="error" role="alert" class="mt-4 text-sm text-red-700">{{ error }}</p>
-    <p v-if="notice" role="status" class="mt-4 text-sm">{{ notice }}</p>
-    <p v-if="saving" role="status" class="mt-3 text-sm">Registrando el comando…</p>
-    <div v-if="originAuthorized()" class="mt-4 flex flex-wrap gap-2">
-      <UButton
+            Siguiente
+          </button>
+        </div>
+      </div>
+      <UAlert
+        v-else
+        role="alert"
+        color="error"
+        variant="subtle"
+        title="No se ha podido confirmar una consulta privada vigente."
+        description="Comprueba que tienes permiso para publicar el catálogo y la verificación en dos pasos activa. Mientras tanto no se muestran formularios ni datos antiguos."
+      />
+    </AdminCard>
+
+    <AdminCard
+      v-if="snapshot && !(originAuthorized() && (status === 'idle' || status === 'pending' || reading))"
+      title="Variantes sin código de barras"
+      description="Excepciones documentadas para variantes sin EAN, GTIN ni referencia del fabricante. Se muestra solo la excepción vigente más reciente de cada variante; el historial auditado se conserva. Una excepción con fecha de inicio futura no aparece hasta ese día."
+    >
+      <div class="adm-stack">
+        <ul v-if="snapshot.variants.length" class="adm-list">
+          <li v-for="variant in snapshot.variants" :key="variant.id">
+            <p class="font-medium text-[var(--text-strong)]">
+              Variante {{ variant.legacyId ?? variant.id }}
+              <AdminBadge :status="variant.status" class="ml-1" />
+            </p>
+            <template v-if="variant.identifierException"
+              ><p>{{ variant.identifierException.reason }}</p>
+              <p class="adm-help">Justificante: {{ variant.identifierException.evidenceReference }}</p>
+              <p class="adm-help">
+                {{ adminDate(variant.identifierException.validFrom, true) }} —
+                {{
+                  variant.identifierException.validUntil
+                    ? adminDate(variant.identifierException.validUntil, true)
+                    : 'sin fecha de fin'
+                }}
+              </p></template
+            >
+            <p v-else class="adm-help">Sin excepción vigente.</p>
+          </li>
+        </ul>
+        <p v-else class="adm-help">Este producto no tiene variantes.</p>
+        <form
+          v-if="
+            editable &&
+            capability(snapshot.capabilities, 'productIdentifierExceptionsWrite') &&
+            exceptionCandidates.length
+          "
+          class="border-t border-[var(--border)] pt-4"
+          @submit.prevent="createException"
+        >
+          <fieldset :disabled="!writable('productIdentifierExceptionsWrite')" class="adm-stack">
+            <legend class="adm-label">Crear una excepción documentada</legend>
+            <div class="adm-field">
+              <label for="identifier-exception-variant" class="adm-label">Variante sin EAN, GTIN ni MPN</label
+              ><select id="identifier-exception-variant" v-model="exceptionForm.variantId" required class="adm-input">
+                <option value="" disabled>Selecciona una variante</option>
+                <option v-for="variant in exceptionCandidates" :key="variant.id" :value="variant.id">
+                  {{ variant.legacyId ?? variant.id }}
+                </option>
+              </select>
+            </div>
+            <div class="adm-form-grid">
+              <div class="adm-field">
+                <label for="identifier-exception-reason" class="adm-label">Motivo de la excepción</label
+                ><input
+                  id="identifier-exception-reason"
+                  v-model="exceptionForm.reason"
+                  required
+                  minlength="10"
+                  maxlength="500"
+                  class="adm-input"
+                />
+              </div>
+              <div class="adm-field">
+                <label for="identifier-exception-evidence" class="adm-label">Justificante (documento o nota)</label
+                ><input
+                  id="identifier-exception-evidence"
+                  v-model="exceptionForm.evidenceReference"
+                  required
+                  minlength="3"
+                  maxlength="200"
+                  class="adm-input"
+                />
+              </div>
+              <div class="adm-field">
+                <label for="identifier-exception-from" class="adm-label">Válida desde (fecha y hora UTC)</label
+                ><input
+                  id="identifier-exception-from"
+                  v-model="exceptionForm.validFrom"
+                  required
+                  placeholder="2026-09-30T10:00:00Z"
+                  class="adm-input"
+                />
+              </div>
+              <div class="adm-field">
+                <label for="identifier-exception-until" class="adm-label">Válida hasta (opcional, UTC)</label
+                ><input
+                  id="identifier-exception-until"
+                  v-model="exceptionForm.validUntil"
+                  placeholder="2027-09-30T10:00:00Z"
+                  class="adm-input"
+                />
+              </div>
+            </div>
+            <label class="adm-check"
+              ><input v-model="exceptionForm.confirmed" type="checkbox" required /><span
+                >He revisado que la variante no tiene códigos, el justificante y las fechas. Esto no aprueba legalmente
+                el producto ni lo publica.</span
+              ></label
+            >
+            <div>
+              <button type="submit" class="adm-btn adm-btn--secondary" :disabled="!exceptionForm.confirmed || saving">
+                Registrar excepción
+              </button>
+            </div>
+          </fieldset>
+        </form>
+        <form
+          v-if="
+            editable &&
+            capability(snapshot.capabilities, 'productIdentifierExceptionsWrite') &&
+            withdrawCandidates.length
+          "
+          class="border-t border-[var(--border)] pt-4"
+          @submit.prevent="withdrawException"
+        >
+          <fieldset :disabled="!writable('productIdentifierExceptionsWrite')" class="adm-stack">
+            <legend class="adm-label">Retirar una excepción vigente</legend>
+            <div class="adm-form-grid">
+              <div class="adm-field">
+                <label for="identifier-withdraw-variant" class="adm-label">Excepción de variante</label
+                ><select id="identifier-withdraw-variant" v-model="withdrawal.variantId" required class="adm-input">
+                  <option value="" disabled>Selecciona una excepción</option>
+                  <option v-for="variant in withdrawCandidates" :key="variant.id" :value="variant.id">
+                    {{ variant.legacyId ?? variant.id }}
+                  </option>
+                </select>
+              </div>
+              <div class="adm-field">
+                <label for="identifier-withdraw-reason" class="adm-label">Motivo de retirada</label
+                ><input
+                  id="identifier-withdraw-reason"
+                  v-model="withdrawal.reason"
+                  required
+                  minlength="10"
+                  maxlength="500"
+                  class="adm-input"
+                />
+              </div>
+            </div>
+            <label class="adm-check"
+              ><input v-model="withdrawal.confirmed" type="checkbox" required /><span
+                >Confirmo la retirada; el historial se conserva.</span
+              ></label
+            >
+            <div>
+              <button type="submit" class="adm-btn adm-btn--danger" :disabled="!withdrawal.confirmed || saving">
+                Retirar excepción
+              </button>
+            </div>
+          </fieldset>
+        </form>
+      </div>
+    </AdminCard>
+
+    <UAlert v-if="error" role="alert" color="error" variant="subtle" :title="error" />
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" :title="notice" />
+    <p v-if="saving" role="status" class="adm-help">Guardando el cambio…</p>
+    <div v-if="originAuthorized()" class="flex flex-wrap gap-2">
+      <button
         v-if="uncertain"
         type="button"
-        color="neutral"
+        class="adm-btn adm-btn--secondary adm-btn--sm"
         :disabled="busy || !command || !commandAuthorized(command)"
         @click="retry"
-        >Reintentar exactamente el mismo comando</UButton
-      ><UButton type="button" color="neutral" variant="outline" :disabled="busy" @click="refreshAll()"
-        >Consultar de nuevo</UButton
       >
+        Reintentar exactamente el mismo comando</button
+      ><button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" :disabled="busy" @click="refreshAll()">
+        Volver a cargar
+      </button>
     </div>
   </section>
 </template>

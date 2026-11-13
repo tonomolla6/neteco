@@ -4,4 +4,8 @@ definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({ title: 'Orden de categorías', robots: 'noindex, nofollow' })
 </script>
 
-<template><AdminCategoryMerchandising /></template>
+<template>
+  <AdminPage>
+    <AdminCategoryMerchandising />
+  </AdminPage>
+</template>

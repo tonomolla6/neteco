@@ -471,206 +471,251 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    class="mb-6 rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6"
+  <AdminCard
     aria-labelledby="draft-metadata-title"
     data-draft-metadata-editor
+    description="Guardar aquí no publica el producto ni cambia su marca, imágenes, variantes, precios o stock."
   >
-    <h2 id="draft-metadata-title" class="font-bold text-[var(--text-strong)]">Editar metadatos del borrador</h2>
-    <p class="mt-1 text-sm text-[var(--text-muted)]">
-      Esta edición no publica el producto ni cambia marca, imágenes, variantes, precios, stock o datos regulatorios.
-    </p>
-    <p v-if="!authorized" role="status" class="mt-3 text-sm">
-      Edición de metadatos no disponible: se necesita un borrador, una consulta privada válida y permiso explícito.
-    </p>
-    <p v-if="stale" role="alert" class="mt-3 text-sm">
-      Hay una versión más reciente. Consulta de nuevo antes de preparar otro cambio.
-    </p>
-    <p v-if="error" id="draft-metadata-error" role="alert" class="mt-3 text-sm text-red-700">{{ error }}</p>
-    <p v-if="success" role="status" class="mt-3 text-sm text-green-700">{{ success }}</p>
-    <form
-      v-if="readable && authorized"
-      id="draft-metadata-form"
-      class="mt-4 space-y-4"
-      :aria-busy="saving || reloading"
-      @submit.prevent="saveMetadata"
-    >
-      <fieldset :disabled="!canPrepare || saving || command?.uncertain" class="grid min-w-0 gap-4 sm:grid-cols-2">
-        <label class="sm:col-span-2" for="draft-name"
-          >Nombre<input id="draft-name" v-model="form.name" class="draft-field" minlength="3" maxlength="160" required
-        /></label>
-        <label for="draft-category"
-          >Familia<select
-            id="draft-category"
-            v-model.number="form.categoryId"
-            class="draft-field"
-            :disabled="!categoriesReady"
-          >
-            <option v-if="!categories.some((category) => category.value === form.categoryId)" :value="form.categoryId">
-              Familia actual (consulta no disponible)
-            </option>
-            <option v-for="category in categories" :key="category.value" :value="category.value">
-              {{ category.label }}
-            </option></select
-          ><span v-if="!categoriesReady" class="text-xs"
-            >No se pueden cambiar familias sin su consulta privada autorizada.</span
-          ></label
-        >
-        <label for="draft-series"
-          >Gama (opcional)<input id="draft-series" v-model="form.series" class="draft-field" maxlength="160"
-        /></label>
-        <label class="sm:col-span-2" for="draft-short"
-          >Descripción corta<textarea
-            id="draft-short"
-            v-model="form.shortDesc"
-            class="draft-field"
-            rows="2"
-            minlength="5"
-            maxlength="500"
-          />
-        </label>
-        <label class="sm:col-span-2" for="draft-description"
-          >Descripción completa<textarea
-            id="draft-description"
-            v-model="form.description"
-            class="draft-field"
-            rows="5"
-            minlength="5"
-            maxlength="10000"
-          />
-        </label>
-        <label class="sm:col-span-2" for="draft-usage"
-          >Modo de empleo (opcional)<textarea
-            id="draft-usage"
-            v-model="form.usage"
-            class="draft-field"
-            rows="3"
-            maxlength="2000"
-          />
-        </label>
-        <label class="flex items-center gap-2"><input v-model="form.featured" type="checkbox" /> Destacado</label>
-        <div>
-          <p>Sellos</p>
-          <label v-for="(label, badge) in BADGE_LABELS" :key="badge" class="mr-3 inline-flex items-center gap-1"
-            ><input type="checkbox" :checked="form.badges.includes(badge)" @change="toggleBadge(badge)" />{{
-              label
-            }}</label
-          >
-        </div>
-        <label for="draft-visual-type"
-          >Envase provisional<select id="draft-visual-type" v-model="form.visual.type" class="draft-field">
-            <option v-for="type in VISUAL_TYPES" :key="type" :value="type">{{ ENVASE_LABELS[type] ?? type }}</option>
-          </select></label
-        >
-        <label for="draft-visual-color"
-          >Color hexadecimal<input
-            id="draft-visual-color"
-            v-model="form.visual.color"
-            class="draft-field"
-            pattern="#[0-9a-fA-F]{6}"
-            maxlength="7"
-        /></label>
-        <div class="space-y-2 sm:col-span-2">
-          <p>Características técnicas (hasta 50, en este orden)</p>
-          <div
-            v-for="(attribute, index) in form.attrs"
-            :key="index"
-            class="flex flex-wrap items-end gap-2"
-            data-draft-attribute
-          >
-            <label :for="`draft-attribute-name-${index}`" class="min-w-0 flex-1"
-              >Nombre {{ index + 1
-              }}<input
-                :id="`draft-attribute-name-${index}`"
-                v-model="attribute.k"
-                class="draft-field"
-                minlength="1"
-                maxlength="100"
-                required
-            /></label>
-            <label :for="`draft-attribute-value-${index}`" class="min-w-0 flex-1"
-              >Valor {{ index + 1
-              }}<input
-                :id="`draft-attribute-value-${index}`"
-                v-model="attribute.v"
-                class="draft-field"
-                minlength="1"
-                maxlength="1000"
-                required
-            /></label>
-            <UButton
-              type="button"
-              :disabled="index === 0"
-              :aria-label="`Subir característica ${index + 1}`"
-              @click="moveAttribute(index, -1)"
-              >Subir</UButton
+    <template #title>
+      <span id="draft-metadata-title">Editar metadatos del borrador</span>
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="!authorized"
+        role="status"
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="Estos datos solo se pueden editar mientras el producto está en borrador y con permiso para ello"
+      />
+      <UAlert
+        v-if="stale"
+        role="alert"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="El producto ha cambiado desde que lo abriste"
+        description="Vuelve a cargarlo antes de preparar otro cambio."
+      />
+      <UAlert
+        v-if="error"
+        id="draft-metadata-error"
+        role="alert"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-circle-alert"
+        :title="error"
+      />
+      <UAlert
+        v-if="success"
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="success"
+      />
+      <form
+        v-if="readable && authorized"
+        id="draft-metadata-form"
+        class="adm-stack"
+        :aria-busy="saving || reloading"
+        @submit.prevent="saveMetadata"
+      >
+        <fieldset :disabled="!canPrepare || saving || command?.uncertain" class="grid min-w-0 gap-4 sm:grid-cols-2">
+          <div class="adm-field sm:col-span-2">
+            <label class="adm-label" for="draft-name">Nombre</label>
+            <input
+              id="draft-name"
+              v-model="form.name"
+              class="adm-input w-full"
+              minlength="3"
+              maxlength="160"
+              required
+            />
+          </div>
+          <div class="adm-field">
+            <label class="adm-label" for="draft-category">Familia</label>
+            <select
+              id="draft-category"
+              v-model.number="form.categoryId"
+              class="adm-input w-full"
+              :disabled="!categoriesReady"
             >
-            <UButton
-              type="button"
-              :disabled="index === form.attrs.length - 1"
-              :aria-label="`Bajar característica ${index + 1}`"
-              @click="moveAttribute(index, 1)"
-              >Bajar</UButton
-            >
-            <UButton type="button" :aria-label="`Quitar característica ${index + 1}`" @click="removeAttribute(index)"
-              >Quitar</UButton
+              <option
+                v-if="!categories.some((category) => category.value === form.categoryId)"
+                :value="form.categoryId"
+              >
+                Familia actual
+              </option>
+              <option v-for="category in categories" :key="category.value" :value="category.value">
+                {{ category.label }}
+              </option>
+            </select>
+            <p v-if="!categoriesReady" class="adm-help">
+              No se ha podido cargar la lista de familias, así que ahora no se puede cambiar.
+            </p>
+          </div>
+          <div class="adm-field">
+            <label class="adm-label" for="draft-series">Gama (opcional)</label>
+            <input id="draft-series" v-model="form.series" class="adm-input w-full" maxlength="160" />
+          </div>
+          <div class="adm-field sm:col-span-2">
+            <label class="adm-label" for="draft-short">Descripción corta</label>
+            <textarea
+              id="draft-short"
+              v-model="form.shortDesc"
+              class="adm-input w-full"
+              rows="2"
+              minlength="5"
+              maxlength="500"
+            />
+          </div>
+          <div class="adm-field sm:col-span-2">
+            <label class="adm-label" for="draft-description">Descripción completa</label>
+            <textarea
+              id="draft-description"
+              v-model="form.description"
+              class="adm-input w-full"
+              rows="5"
+              minlength="5"
+              maxlength="10000"
+            />
+          </div>
+          <div class="adm-field sm:col-span-2">
+            <label class="adm-label" for="draft-usage">Modo de empleo (opcional)</label>
+            <textarea id="draft-usage" v-model="form.usage" class="adm-input w-full" rows="3" maxlength="2000" />
+          </div>
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 sm:col-span-2">
+            <label class="adm-check"><input v-model="form.featured" type="checkbox" /> Destacado en la tienda</label>
+            <span class="adm-label">Sellos</span>
+            <label v-for="(label, badge) in BADGE_LABELS" :key="badge" class="adm-check"
+              ><input type="checkbox" :checked="form.badges.includes(badge)" @change="toggleBadge(badge)" />{{
+                label
+              }}</label
             >
           </div>
-          <UButton type="button" :disabled="form.attrs.length >= 50" @click="addAttribute"
-            >Añadir característica</UButton
+          <div class="adm-field">
+            <label class="adm-label" for="draft-visual-type">Tipo de envase</label>
+            <select id="draft-visual-type" v-model="form.visual.type" class="adm-input w-full">
+              <option v-for="type in VISUAL_TYPES" :key="type" :value="type">{{ ENVASE_LABELS[type] ?? type }}</option>
+            </select>
+          </div>
+          <div class="adm-field">
+            <label class="adm-label" for="draft-visual-color">Color del envase</label>
+            <input
+              id="draft-visual-color"
+              v-model="form.visual.color"
+              class="adm-input w-full"
+              pattern="#[0-9a-fA-F]{6}"
+              maxlength="7"
+              aria-describedby="draft-visual-color-help"
+            />
+            <p id="draft-visual-color-help" class="adm-help">Código de color, por ejemplo #52665B.</p>
+          </div>
+          <div class="space-y-3 sm:col-span-2">
+            <p class="adm-label">Características técnicas</p>
+            <p class="adm-help">Hasta 50. Se muestran en la ficha en este mismo orden.</p>
+            <div
+              v-for="(attribute, index) in form.attrs"
+              :key="index"
+              class="flex flex-wrap items-end gap-2"
+              data-draft-attribute
+            >
+              <div class="adm-field min-w-0 flex-1">
+                <label :for="`draft-attribute-name-${index}`" class="adm-label">Nombre {{ index + 1 }}</label>
+                <input
+                  :id="`draft-attribute-name-${index}`"
+                  v-model="attribute.k"
+                  class="adm-input w-full"
+                  minlength="1"
+                  maxlength="100"
+                  required
+                />
+              </div>
+              <div class="adm-field min-w-0 flex-1">
+                <label :for="`draft-attribute-value-${index}`" class="adm-label">Valor {{ index + 1 }}</label>
+                <input
+                  :id="`draft-attribute-value-${index}`"
+                  v-model="attribute.v"
+                  class="adm-input w-full"
+                  minlength="1"
+                  maxlength="1000"
+                  required
+                />
+              </div>
+              <div class="flex gap-1">
+                <AdminButton
+                  variant="ghost"
+                  icon="i-lucide-arrow-up"
+                  :disabled="index === 0"
+                  :label="`Subir característica ${index + 1}`"
+                  @click="moveAttribute(index, -1)"
+                />
+                <AdminButton
+                  variant="ghost"
+                  icon="i-lucide-arrow-down"
+                  :disabled="index === form.attrs.length - 1"
+                  :label="`Bajar característica ${index + 1}`"
+                  @click="moveAttribute(index, 1)"
+                />
+                <AdminButton
+                  variant="ghost"
+                  icon="i-lucide-x"
+                  :label="`Quitar característica ${index + 1}`"
+                  @click="removeAttribute(index)"
+                />
+              </div>
+            </div>
+            <AdminButton size="sm" icon="i-lucide-plus" :disabled="form.attrs.length >= 50" @click="addAttribute"
+              >Añadir característica</AdminButton
+            >
+          </div>
+          <div class="adm-field sm:col-span-2">
+            <label class="adm-label" for="draft-reason">Motivo del cambio</label>
+            <textarea
+              id="draft-reason"
+              v-model="reason"
+              class="adm-input w-full"
+              minlength="3"
+              maxlength="500"
+              rows="2"
+              required
+              aria-describedby="draft-reason-help"
+            />
+            <p id="draft-reason-help" class="adm-help">Queda guardado en el historial del producto.</p>
+          </div>
+        </fieldset>
+        <div v-if="!command?.uncertain" class="flex justify-end">
+          <AdminButton
+            type="submit"
+            variant="primary"
+            :disabled="!canPrepare || !dirty"
+            :loading="saving"
+            :aria-describedby="error ? 'draft-metadata-error' : undefined"
+            >Guardar cambios del borrador</AdminButton
           >
         </div>
-        <label class="sm:col-span-2" for="draft-reason"
-          >Motivo del cambio<textarea
-            id="draft-reason"
-            v-model="reason"
-            class="draft-field"
-            minlength="3"
-            maxlength="500"
-            rows="2"
-            required
-          />
-        </label>
-      </fieldset>
-      <UButton
-        v-if="!command?.uncertain"
-        type="submit"
-        :disabled="!canPrepare || !dirty"
-        :loading="saving"
-        :aria-describedby="error ? 'draft-metadata-error' : undefined"
-        >Guardar metadatos del borrador</UButton
-      >
-    </form>
-    <div class="mt-4 flex flex-wrap gap-2">
-      <UButton v-if="command?.uncertain" :disabled="!canRetry" :loading="saving" @click="retry"
-        >Reintentar el mismo cambio</UButton
-      >
-      <UButton
-        :disabled="saving || props.runtime !== 'cloudflare' || !canonicalId"
-        :loading="reloading"
-        color="neutral"
-        variant="outline"
-        @click="reload"
-        >Consultar de nuevo y descartar cambios</UButton
-      >
+      </form>
     </div>
-  </section>
+    <template #footer>
+      <div class="flex flex-wrap gap-2">
+        <AdminButton
+          v-if="command?.uncertain"
+          icon="i-lucide-rotate-cw"
+          :disabled="!canRetry"
+          :loading="saving"
+          @click="retry"
+          >Reintentar el mismo cambio</AdminButton
+        >
+        <AdminButton
+          variant="ghost"
+          icon="i-lucide-refresh-cw"
+          :disabled="saving || props.runtime !== 'cloudflare' || !canonicalId"
+          :loading="reloading"
+          @click="reload"
+          >Descartar cambios y volver a cargar</AdminButton
+        >
+      </div>
+    </template>
+  </AdminCard>
 </template>
-
-<style scoped>
-.draft-field {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  margin-top: 0.25rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-control);
-  padding: 0.5rem;
-  background: var(--surface);
-  color: var(--text-strong);
-}
-.draft-field:focus-visible {
-  outline: 2px solid var(--color-neteco-600);
-  outline-offset: 1px;
-}
-</style>

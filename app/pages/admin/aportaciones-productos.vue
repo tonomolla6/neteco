@@ -2,7 +2,7 @@
 import AdminProductContributionsPanel from '~/components/AdminProductContributionsPanel.vue'
 import { useAdminNavigation } from '~/composables/useAdminNavigation'
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Aportaciones de productos · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Reseñas y preguntas · Admin', robots: 'noindex, nofollow' })
 const runtime = useRuntimeConfig(),
   navigation = useAdminNavigation()
 const { ready, loggedIn, user, session } = useUserSession()
@@ -28,17 +28,23 @@ const scope = computed(() =>
 )
 </script>
 <template>
-  <main class="space-y-5">
-    <h1 class="text-2xl font-semibold">Aportaciones de productos</h1>
-    <p>Modera reseñas y responde preguntas con contexto y revisión auditada. No se envían comunicaciones externas.</p>
-    <AdminProductContributionsPanel
-      :enabled="enabled"
-      :scope-key="scope"
-      :pending="false"
-      @pending="pending = $event"
-    />
-    <p v-if="pending" role="status">
-      Hay una intención pendiente de confirmar. Comprueba su recibo antes de continuar.
-    </p>
-  </main>
+  <AdminPage>
+    <div class="adm-stack">
+      <UAlert
+        v-if="pending"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-hourglass"
+        title="Hay un cambio pendiente de confirmar"
+        description="Comprueba que se ha guardado antes de continuar con otra aportación."
+      />
+      <AdminProductContributionsPanel
+        :enabled="enabled"
+        :scope-key="scope"
+        :pending="false"
+        @pending="pending = $event"
+      />
+    </div>
+  </AdminPage>
 </template>
