@@ -1,18 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Release Gates y Despliegues · Admin' })
+useSeoMeta({ title: 'Publicación de versiones · Admin' })
 </script>
 
 <template>
-  <main class="admin-page-container">
+  <AdminPage>
     <AdminReleaseGatesPanel />
-  </main>
+  </AdminPage>
 </template>
-
-<style scoped>
-.admin-page-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 1.5rem;
-}
-</style>

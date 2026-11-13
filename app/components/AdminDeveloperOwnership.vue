@@ -60,44 +60,91 @@ function abandon() {
 onMounted(load)
 </script>
 <template>
-  <section aria-labelledby="ownership-title" class="space-y-4">
-    <h2 id="ownership-title" class="text-xl font-semibold">Responsables de servicios</h2>
-    <p>Registra códigos de equipo; evita nombres de personas o datos de contacto.</p>
-    <p v-if="loading" role="status">Cargando responsables…</p>
-    <div v-else-if="failed" role="alert">
-      No se pudieron cargar los responsables. <button type="button" @click="load">Reintentar</button>
+  <AdminCard
+    aria-labelledby="ownership-title"
+    description="Indica el equipo que responde de cada servicio. Usa códigos de equipo, no nombres de personas ni datos de contacto."
+  >
+    <template #title><span id="ownership-title">Responsables de servicios</span></template>
+    <div class="adm-stack">
+      <p v-if="loading" role="status" class="adm-help">Cargando responsables…</p>
+      <div v-else-if="failed" role="alert">
+        <AdminEmptyState
+          variant="error"
+          compact
+          title="No se pudieron cargar los responsables"
+          description="Comprueba la conexión y vuelve a intentarlo."
+        >
+          <button type="button" class="adm-btn adm-btn--secondary" @click="load">Reintentar</button>
+        </AdminEmptyState>
+      </div>
+      <ul v-else class="adm-list">
+        <li v-for="service in developerServices" :key="service.id">
+          <div class="min-w-0 flex-1">
+            <p class="adm-list__title">{{ service.name }}</p>
+          </div>
+          <AdminBadge :tone="rows.find((item) => item.serviceId === service.id) ? 'info' : 'neutral'" plain>
+            {{ rows.find((item) => item.serviceId === service.id)?.owner ?? 'Sin responsable asignado' }}
+          </AdminBadge>
+        </li>
+      </ul>
+      <UAlert
+        v-if="ambiguous"
+        role="alert"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No sabemos si el cambio se guardó"
+        description="El resultado desconocido requiere revisión. Puedes reintentar la misma operación o recargar antes de hacer otro cambio."
+      >
+        <template #actions>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            data-retry-owner
+            :disabled="saving"
+            @click="send"
+          >
+            Reintentar operación
+          </button>
+          <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" :disabled="saving" @click="abandon">
+            Cerrar operación y recargar
+          </button>
+        </template>
+      </UAlert>
+      <form @submit.prevent="submit">
+        <fieldset :disabled="loading || failed || !!pending || saving" class="adm-stack">
+          <legend class="adm-label">Asignar responsable</legend>
+          <div class="adm-form-grid">
+            <div class="adm-field">
+              <label for="developer-service" class="adm-label">Servicio</label>
+              <select id="developer-service" v-model="serviceId" class="adm-input">
+                <option v-for="service in developerServices" :key="service.id" :value="service.id">
+                  {{ service.name }}
+                </option>
+              </select>
+            </div>
+            <div class="adm-field">
+              <label for="developer-owner" class="adm-label">Código de equipo</label>
+              <input
+                id="developer-owner"
+                v-model="owner"
+                class="adm-input"
+                type="text"
+                pattern="[a-z][a-z0-9._-]{1,63}"
+                maxlength="64"
+                required
+                aria-describedby="developer-owner-help"
+              />
+              <p id="developer-owner-help" class="adm-help">
+                En minúsculas, sin espacios. Por ejemplo: operaciones.tienda
+              </p>
+            </div>
+          </div>
+          <div>
+            <button type="submit" class="adm-btn adm-btn--secondary">Guardar responsable</button>
+          </div>
+        </fieldset>
+      </form>
     </div>
-    <ul v-else>
-      <li v-for="service in developerServices" :key="service.id">
-        {{ service.name }}:
-        {{ rows.find((item) => item.serviceId === service.id)?.owner ?? 'Sin responsable asignado' }}
-      </li>
-    </ul>
-    <div v-if="ambiguous" role="alert">
-      <p>
-        El resultado desconocido requiere revisión. Puedes reintentar el mismo comando o recargar antes de otro cambio.
-      </p>
-      <button type="button" data-retry-owner :disabled="saving" @click="send">Reintentar operación</button>
-      <button type="button" :disabled="saving" @click="abandon">Cerrar operación y recargar</button>
-    </div>
-    <form @submit.prevent="submit">
-      <fieldset :disabled="loading || failed || !!pending || saving">
-        <legend>Asignar responsable</legend>
-        <label for="developer-service">Servicio</label>
-        <select id="developer-service" v-model="serviceId">
-          <option v-for="service in developerServices" :key="service.id" :value="service.id">{{ service.name }}</option>
-        </select>
-        <label for="developer-owner">Código de equipo</label>
-        <input
-          id="developer-owner"
-          v-model="owner"
-          type="text"
-          pattern="[a-z][a-z0-9._-]{1,63}"
-          maxlength="64"
-          required
-        />
-        <button type="submit">Guardar responsable</button>
-      </fieldset>
-    </form>
-  </section>
+  </AdminCard>
 </template>

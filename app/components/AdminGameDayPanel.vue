@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { type GameDayScenarioId, type GameDayRunbook, GAME_DAY_RUNBOOKS } from '~~/shared/game-day-resilience'
 
 interface ScenarioResult {
@@ -50,13 +50,38 @@ interface GateStatus {
 }
 
 const SCENARIO_LABELS: Record<GameDayScenarioId, string> = {
-  beply_outage: 'Caída Beply ERP',
-  carrier_outage: 'Caída Transportista',
-  d1_outage: 'Caída Base Datos D1',
-  durable_object_outage: 'Caída Durable Object',
-  queue_outage: 'Saturación Colas Queue',
-  r2_outage: 'Caída Almacenamiento R2',
-  worker_deployment_failure: 'Fallo Despliegue Worker'
+  beply_outage: 'Caída del ERP (Beply)',
+  carrier_outage: 'Caída del transportista',
+  d1_outage: 'Caída de la base de datos',
+  durable_object_outage: 'Caída de las conexiones en directo',
+  queue_outage: 'Saturación de las tareas en espera',
+  r2_outage: 'Caída del almacén de archivos',
+  worker_deployment_failure: 'Fallo al publicar una versión'
+}
+const RESULT_LABELS: Record<string, string> = {
+  in_progress: 'En curso',
+  passed: 'Superado',
+  warning: 'Con avisos',
+  failed: 'No superado',
+  aborted: 'Interrumpido'
+}
+const RESULT_TONES: Record<string, 'info' | 'success' | 'warning' | 'danger' | 'neutral'> = {
+  in_progress: 'info',
+  passed: 'success',
+  warning: 'warning',
+  failed: 'danger',
+  aborted: 'neutral'
+}
+const CHANNEL_LABELS: Record<ScenarioResult['alertChannel'], string> = {
+  slack_sre: 'Chat del equipo técnico',
+  pagerduty: 'Aviso de guardia',
+  email_ops: 'Correo de operaciones'
+}
+const RESTORE_LABELS: Record<ScenarioResult['rollbackRestoreStatus'], string> = {
+  not_needed: 'No hizo falta',
+  rollback_executed: 'Se volvió a la versión anterior',
+  restore_completed: 'Datos restaurados',
+  failed: 'Falló'
 }
 
 const request = useRequestFetch()
@@ -90,7 +115,7 @@ async function loadData() {
       selectedDrill.value = null
     }
   } catch {
-    errorMessage.value = 'Error al cargar la información de Game Day y Resiliencia'
+    errorMessage.value = 'Comprueba la conexión y vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -116,6 +141,12 @@ function openRunbook(scenarioId: GameDayScenarioId) {
 function closeRunbook() {
   selectedRunbook.value = null
 }
+const runbookOpen = computed({
+  get: () => selectedRunbook.value !== null,
+  set: (open: boolean) => {
+    if (!open) closeRunbook()
+  }
+})
 
 onMounted(() => {
   loadData()
@@ -123,335 +154,200 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div>
-        <h2 class="text-xl font-bold text-neutral-900">Game Day y Puerta de Tráfico (OBS-024)</h2>
-        <p class="text-sm text-neutral-600 mt-0.5">
-          Verificación exhaustiva de resiliencia ante cortes de ERP, transportistas, base de datos D1, Durable Objects,
-          colas y despliegues antes de escalar campañas.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-900 focus:ring-offset-2"
-        @click="loadData"
-      >
-        <span class="i-lucide-refresh-cw h-3.5 w-3.5" />
-        Actualizar
-      </button>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Actualizar</AdminButton>
+    </AdminPageActions>
+
+    <AdminEmptyState
+      v-if="errorMessage"
+      role="alert"
+      variant="error"
+      title="No se han podido cargar los simulacros"
+      :description="errorMessage"
+    >
+      <AdminButton icon="i-lucide-rotate-cw" @click="loadData">Reintentar</AdminButton>
+    </AdminEmptyState>
+
+    <div v-else-if="loading" class="adm-table-skeleton" aria-busy="true">
+      <span class="sr-only">Cargando simulacros…</span>
+      <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
     </div>
 
-    <!-- Error state -->
-    <div v-if="errorMessage" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
-      <div class="flex items-center gap-2 font-semibold">
-        <span class="i-lucide-alert-circle h-4 w-4 text-red-600" />
-        {{ errorMessage }}
-      </div>
-    </div>
-
-    <!-- Loading state -->
-    <div v-else-if="loading" class="py-12 text-center text-sm text-neutral-500">
-      <span class="i-lucide-loader-2 inline-block h-6 w-6 animate-spin text-neutral-400 mb-2" />
-      <p>Cargando estado de Game Day y puerta de tráfico...</p>
-    </div>
-
-    <div v-else class="space-y-6">
-      <!-- Traffic Expansion Gate Banner -->
-      <div
-        class="rounded-xl border p-5 transition-all"
-        :class="{
-          'border-emerald-200 bg-emerald-50 text-emerald-950': gate?.status === 'approved',
-          'border-red-200 bg-red-50 text-red-950': gate?.status === 'blocked',
-          'border-amber-200 bg-amber-50 text-amber-950': gate?.status === 'conditional' || gate?.status === 'pending'
-        }"
-      >
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div class="space-y-1">
-            <div class="flex items-center gap-2">
-              <span
-                class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider"
-                :class="{
-                  'bg-emerald-600 text-white': gate?.status === 'approved',
-                  'bg-red-600 text-white': gate?.status === 'blocked',
-                  'bg-amber-600 text-white': gate?.status === 'conditional' || gate?.status === 'pending'
-                }"
+    <template v-else>
+      <AdminCard>
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="min-w-0 space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <AdminBadge
+                :tone="gate?.status === 'approved' ? 'success' : gate?.status === 'blocked' ? 'danger' : 'warning'"
               >
                 {{
                   gate?.status === 'approved'
-                    ? 'AMPLIACIÓN AUTORIZADA'
+                    ? 'Se puede ampliar el tráfico'
                     : gate?.status === 'conditional'
-                      ? 'AMPLIACIÓN CONDICIONAL'
-                      : 'AMPLIACIÓN BLOQUEADA'
+                      ? 'Ampliación con condiciones'
+                      : 'Ampliación bloqueada'
                 }}
-              </span>
-              <span v-if="gate?.freshnessDays !== null" class="text-xs text-neutral-600">
-                Frescura: hace {{ gate?.freshnessDays }} días (máximo 30 días)
+              </AdminBadge>
+              <span v-if="gate && gate.freshnessDays !== null" class="adm-help">
+                Último simulacro hace {{ gate.freshnessDays }} días (caduca a los 30)
               </span>
             </div>
-            <p class="text-sm font-medium">
+            <p class="text-sm">
               {{
                 gate?.status === 'approved'
-                  ? 'Todos los 7 escenarios de fallo controlado fueron validados con éxito dentro del SLO objetivo.'
+                  ? 'Los 7 simulacros de avería se han superado dentro del tiempo objetivo.'
                   : gate?.status === 'conditional'
-                    ? 'Existen advertencias en la coordinación o tiempos límite que requieren autorización manual.'
-                    : 'La puerta de tráfico bloquea el escalado por simulacros incompletos, fallidos o vencidos (> 30 días).'
+                    ? 'Hay avisos en la coordinación o en los tiempos; hace falta una autorización manual.'
+                    : 'No conviene lanzar campañas grandes: hay simulacros sin hacer, fallidos o de hace más de 30 días.'
               }}
             </p>
-          </div>
-          <div class="flex items-center gap-4 text-xs font-semibold">
-            <div class="rounded-lg bg-white/70 px-3 py-2 border border-black/5 shadow-sm text-center">
-              <div class="text-neutral-500 text-[10px] uppercase">Escenarios OK</div>
-              <div class="text-base font-bold text-neutral-900">
-                {{ gate?.scenariosPassed ?? 0 }} de {{ gate?.scenariosTotal ?? 7 }}
-              </div>
+            <div v-if="gate && gate.reasons.length > 0">
+              <p class="adm-label">Motivos</p>
+              <ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm">
+                <li v-for="reason in gate.reasons" :key="reason">{{ reason }}</li>
+              </ul>
             </div>
           </div>
+          <div class="text-right">
+            <p class="adm-help">Simulacros superados</p>
+            <p class="text-lg font-semibold tabular-nums text-[var(--text-strong)]">
+              {{ gate?.scenariosPassed ?? 0 }} de {{ gate?.scenariosTotal ?? 7 }}
+            </p>
+          </div>
         </div>
+      </AdminCard>
 
-        <!-- Blocking reasons list -->
-        <div v-if="gate && gate.reasons.length > 0" class="mt-4 pt-3 border-t border-black/10 space-y-1 text-xs">
-          <div class="font-semibold text-neutral-800">Motivos de restricción:</div>
-          <ul class="list-disc list-inside space-y-0.5 text-neutral-700">
-            <li v-for="reason in gate.reasons" :key="reason">{{ reason }}</li>
-          </ul>
-        </div>
-      </div>
-
-      <!-- Empty state -->
-      <div
+      <AdminEmptyState
         v-if="drills.length === 0"
-        class="rounded-xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-600"
-      >
-        <span class="i-lucide-shield-alert mx-auto mb-3 block h-8 w-8 text-neutral-400" />
-        <h3 class="font-semibold text-neutral-900 mb-1">No se han registrado simulacros de Game Day.</h3>
-        <p class="text-neutral-500 max-w-md mx-auto">
-          Para autorizar la ampliación de tráfico, ejecute un simulacro gobernado cubriendo los 7 escenarios de fallo
-          antes de iniciar campañas.
-        </p>
-      </div>
+        title="Todavía no se ha hecho ningún simulacro"
+        description="Antes de una campaña grande conviene ensayar las 7 averías posibles para saber que la tienda se recupera."
+        icon="i-lucide-shield-alert"
+      />
 
-      <!-- Drills List and Detail -->
-      <div v-else class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <!-- Sidebar Drills List -->
-        <div class="space-y-3">
-          <h3 class="text-xs font-semibold uppercase tracking-wider text-neutral-500 px-1">Simulacros Ejecutados</h3>
-          <div class="space-y-2">
-            <button
-              v-for="drill in drills"
-              :key="drill.id"
-              type="button"
-              class="w-full text-left rounded-lg p-3 border transition-colors text-xs space-y-1"
-              :class="
-                selectedDrill?.id === drill.id
-                  ? 'border-neutral-900 bg-neutral-900 text-white shadow-sm'
-                  : 'border-neutral-200 bg-white text-neutral-700 hover:border-neutral-300'
-              "
-              @click="selectDrill(drill)"
-            >
-              <div class="font-bold truncate">{{ drill.cohort }}</div>
-              <div
-                class="flex items-center justify-between text-[11px]"
-                :class="selectedDrill?.id === drill.id ? 'text-neutral-300' : 'text-neutral-500'"
-              >
-                <span>{{ drill.startedAt.slice(0, 10) }}</span>
-                <span
-                  class="font-semibold uppercase"
-                  :class="{
-                    'text-emerald-400': drill.status === 'passed' && selectedDrill?.id === drill.id,
-                    'text-emerald-600': drill.status === 'passed' && selectedDrill?.id !== drill.id,
-                    'text-red-400': drill.status === 'failed' && selectedDrill?.id === drill.id,
-                    'text-red-600': drill.status === 'failed' && selectedDrill?.id !== drill.id
-                  }"
-                >
-                  {{ drill.status }}
-                </span>
-              </div>
-            </button>
-          </div>
-        </div>
-
-        <!-- Main Detail: 7 Scenarios Table -->
-        <div class="lg:col-span-3 space-y-4">
-          <div v-if="selectedDrill" class="rounded-xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
-            <!-- Drill Header -->
-            <div
-              class="p-5 border-b border-neutral-200 bg-neutral-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-            >
-              <div>
-                <h3 class="font-bold text-base text-neutral-900">{{ selectedDrill.cohort }}</h3>
-                <p v-if="selectedDrill.notes" class="text-xs text-neutral-600 mt-0.5">
-                  {{ selectedDrill.notes }}
-                </p>
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  class="rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider"
-                  :class="
-                    selectedDrill.status === 'passed'
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : 'bg-red-100 text-red-800 border border-red-300'
-                  "
-                >
-                  {{ selectedDrill.status }}
-                </span>
-                <span class="text-xs text-neutral-500">
-                  {{ selectedDrill.scenariosPassed }} / {{ selectedDrill.scenariosTotal }} superados
-                </span>
-              </div>
-            </div>
-
-            <!-- Scenarios Table -->
-            <div class="overflow-x-auto">
-              <table class="w-full text-left text-xs border-collapse">
-                <thead class="bg-neutral-100 text-neutral-700 font-semibold border-b border-neutral-200">
-                  <tr>
-                    <th scope="col" class="py-3 px-4">Escenario de Fallo</th>
-                    <th scope="col" class="py-3 px-3">Detección (Obj/Real)</th>
-                    <th scope="col" class="py-3 px-3">Recuperación RTO</th>
-                    <th scope="col" class="py-3 px-3">Alerta</th>
-                    <th scope="col" class="py-3 px-3">Rollback / Restore</th>
-                    <th scope="col" class="py-3 px-3">Runbook</th>
-                    <th scope="col" class="py-3 px-4 text-right">Resultado</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-neutral-200 text-neutral-800">
-                  <tr
-                    v-for="scen in selectedDrill.scenarios ?? []"
-                    :key="scen.id"
-                    class="hover:bg-neutral-50 transition-colors"
-                  >
-                    <td class="py-3 px-4 font-semibold text-neutral-900">
-                      <div>{{ SCENARIO_LABELS[scen.scenarioId] ?? scen.scenarioId }}</div>
-                      <div class="text-[11px] text-neutral-500 font-mono">{{ scen.scenarioId }}</div>
-                    </td>
-                    <td class="py-3 px-3 font-mono">
-                      <span
-                        :class="
-                          scen.actualDetectionSeconds <= scen.targetDetectionSeconds
-                            ? 'text-emerald-700 font-bold'
-                            : 'text-red-600 font-bold'
-                        "
-                      >
-                        {{ scen.actualDetectionSeconds }}s
-                      </span>
-                      <span class="text-neutral-400"> / {{ scen.targetDetectionSeconds }}s</span>
-                    </td>
-                    <td class="py-3 px-3 font-mono">
-                      <span
-                        :class="
-                          scen.actualRecoverySeconds <= scen.targetRecoverySeconds
-                            ? 'text-emerald-700 font-bold'
-                            : 'text-red-600 font-bold'
-                        "
-                      >
-                        {{ scen.actualRecoverySeconds }}s
-                      </span>
-                      <span class="text-neutral-400"> / {{ scen.targetRecoverySeconds }}s</span>
-                    </td>
-                    <td class="py-3 px-3">
-                      <div class="flex items-center gap-1.5">
-                        <span
-                          class="h-2 w-2 rounded-full"
-                          :class="scen.alertTriggered ? 'bg-emerald-500' : 'bg-red-500'"
-                        />
-                        <span class="capitalize font-medium">{{ scen.alertChannel }}</span>
-                      </div>
-                      <span class="text-[10px] text-neutral-500 font-mono">{{ scen.alertSeverity }}</span>
-                    </td>
-                    <td class="py-3 px-3 font-mono text-[11px]">
-                      {{ scen.rollbackRestoreStatus }}
-                    </td>
-                    <td class="py-3 px-3">
-                      <button
-                        type="button"
-                        class="text-neutral-900 underline font-mono text-xs hover:text-blue-600 focus:outline-none"
-                        @click="openRunbook(scen.scenarioId)"
-                      >
-                        {{ scen.runbookReference }}
-                      </button>
-                    </td>
-                    <td class="py-3 px-4 text-right">
-                      <span
-                        class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                        :class="
-                          scen.status === 'passed'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : scen.status === 'warning'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-red-100 text-red-800'
-                        "
-                      >
-                        {{ scen.status }}
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Runbook Modal / Drawer -->
-    <div
-      v-if="selectedRunbook"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      @keydown.esc="closeRunbook"
-    >
-      <div
-        class="w-full max-w-xl rounded-xl bg-white p-6 shadow-[var(--shadow-overlay)] border border-neutral-200 space-y-4"
-      >
-        <div class="flex items-center justify-between border-b border-neutral-200 pb-3">
-          <div>
-            <span class="text-xs font-mono font-bold text-neutral-500">{{ selectedRunbook.id }}</span>
-            <h4 class="text-base font-bold text-neutral-900">{{ selectedRunbook.title }}</h4>
-          </div>
+      <template v-else>
+        <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Simulacros realizados">
           <button
+            v-for="drill in drills"
+            :key="drill.id"
             type="button"
-            class="rounded-md p-1.5 text-neutral-400 hover:text-neutral-600 focus:outline-none"
-            aria-label="Cerrar modal"
-            @click="closeRunbook"
+            class="adm-chip"
+            :aria-pressed="selectedDrill?.id === drill.id"
+            @click="selectDrill(drill)"
           >
-            <span class="i-lucide-x h-5 w-5" />
+            {{ drill.cohort }} · {{ adminDate(drill.startedAt) }} ·
+            {{ RESULT_LABELS[drill.status] ?? adminHumanize(drill.status) }}
           </button>
         </div>
 
-        <p class="text-xs text-neutral-600">{{ selectedRunbook.description }}</p>
+        <AdminCard
+          v-if="selectedDrill"
+          :title="selectedDrill.cohort"
+          :description="selectedDrill.notes || undefined"
+          flush
+        >
+          <template #actions>
+            <AdminBadge :tone="RESULT_TONES[selectedDrill.status] ?? 'neutral'">
+              {{ RESULT_LABELS[selectedDrill.status] ?? adminHumanize(selectedDrill.status) }}
+            </AdminBadge>
+            <span class="adm-help">
+              {{ selectedDrill.scenariosPassed }} de {{ selectedDrill.scenariosTotal }} superados
+            </span>
+          </template>
+          <div class="adm-table-wrap">
+            <table class="adm-table">
+              <thead>
+                <tr>
+                  <th scope="col">Avería ensayada</th>
+                  <th scope="col" data-numeric>Detección (real / objetivo)</th>
+                  <th scope="col" data-numeric>Recuperación (real / objetivo)</th>
+                  <th scope="col">Aviso</th>
+                  <th scope="col">Vuelta atrás</th>
+                  <th scope="col">Procedimiento</th>
+                  <th scope="col">Resultado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="scen in selectedDrill.scenarios ?? []" :key="scen.id">
+                  <td class="font-semibold text-[var(--text-strong)]">
+                    {{ SCENARIO_LABELS[scen.scenarioId] ?? adminHumanize(scen.scenarioId) }}
+                  </td>
+                  <td data-numeric>
+                    <span
+                      class="font-semibold"
+                      :class="scen.actualDetectionSeconds > scen.targetDetectionSeconds && 'text-red-700'"
+                    >
+                      {{ scen.actualDetectionSeconds }} s
+                    </span>
+                    <span class="text-[var(--text-muted)]"> / {{ scen.targetDetectionSeconds }} s</span>
+                  </td>
+                  <td data-numeric>
+                    <span
+                      class="font-semibold"
+                      :class="scen.actualRecoverySeconds > scen.targetRecoverySeconds && 'text-red-700'"
+                    >
+                      {{ scen.actualRecoverySeconds }} s
+                    </span>
+                    <span class="text-[var(--text-muted)]"> / {{ scen.targetRecoverySeconds }} s</span>
+                  </td>
+                  <td>
+                    <AdminBadge :tone="scen.alertTriggered ? 'success' : 'danger'" plain>
+                      {{ scen.alertTriggered ? 'Avisó' : 'No avisó' }}
+                    </AdminBadge>
+                    <div class="adm-help">
+                      {{ CHANNEL_LABELS[scen.alertChannel] }} ·
+                      {{ scen.alertSeverity === 'critical' ? 'crítico' : 'aviso' }}
+                    </div>
+                  </td>
+                  <td>{{ RESTORE_LABELS[scen.rollbackRestoreStatus] }}</td>
+                  <td>
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--ghost adm-btn--sm"
+                      @click="openRunbook(scen.scenarioId)"
+                    >
+                      Ver pasos
+                    </button>
+                  </td>
+                  <td>
+                    <AdminBadge :tone="RESULT_TONES[scen.status] ?? 'neutral'">
+                      {{ RESULT_LABELS[scen.status] ?? adminHumanize(scen.status) }}
+                    </AdminBadge>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AdminCard>
+      </template>
+    </template>
 
-        <div class="space-y-2">
-          <div class="text-xs font-bold uppercase text-neutral-700">Pasos Operativos:</div>
-          <ol
-            class="list-decimal list-inside space-y-1 text-xs text-neutral-800 bg-neutral-50 p-3 rounded-lg border border-neutral-200"
-          >
+    <AdminDrawer
+      v-model:open="runbookOpen"
+      :title="selectedRunbook?.title ?? 'Procedimiento'"
+      :description="selectedRunbook?.description"
+    >
+      <div v-if="selectedRunbook" class="adm-stack">
+        <section>
+          <h3>Pasos</h3>
+          <ol class="mt-1 list-decimal space-y-1 pl-5 text-sm">
             <li v-for="step in selectedRunbook.steps" :key="step">{{ step }}</li>
           </ol>
-        </div>
-
-        <div class="space-y-2">
-          <div class="text-xs font-bold uppercase text-neutral-700">Acciones de Mitigación:</div>
-          <ul class="list-disc list-inside space-y-1 text-xs text-neutral-800">
+        </section>
+        <section>
+          <h3>Cómo reducir el daño</h3>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-sm">
             <li v-for="action in selectedRunbook.mitigationActions" :key="action">{{ action }}</li>
           </ul>
-        </div>
-
-        <div class="pt-2 text-xs text-neutral-500 flex justify-between items-center border-t border-neutral-100">
-          <span
-            >Equipo de escalado: <strong>{{ selectedRunbook.escalationTeam }}</strong></span
-          >
-          <button
-            type="button"
-            class="rounded-md bg-neutral-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-800"
-            @click="closeRunbook"
-          >
-            Entendido
-          </button>
-        </div>
+        </section>
+        <p class="adm-help">
+          A quién avisar: <strong>{{ selectedRunbook.escalationTeam }}</strong>
+        </p>
       </div>
-    </div>
+      <template #footer>
+        <button type="button" class="adm-btn adm-btn--primary" @click="closeRunbook">Entendido</button>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

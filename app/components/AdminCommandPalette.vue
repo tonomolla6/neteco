@@ -190,7 +190,9 @@ onBeforeUnmount(() => {
         <path d="m16 16 4.5 4.5" />
       </svg>
       <span class="sr-only sm:not-sr-only sm:flex-1 sm:truncate sm:text-left">Ir a una sección…</span
-      ><kbd class="hidden shrink-0 rounded border border-white/20 px-1.5 text-[11px] text-slate-300 sm:inline">Ctrl K</kbd>
+      ><kbd class="hidden shrink-0 rounded border border-white/20 px-1.5 text-[11px] text-slate-300 sm:inline"
+        >Ctrl K</kbd
+      >
     </button>
     <p v-if="error" role="alert" class="text-sm">{{ error }}</p>
     <div

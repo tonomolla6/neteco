@@ -31,6 +31,11 @@ type Intent = Readonly<{
   path: string
 }>
 const intent = shallowRef<Intent | null>(null)
+const DEVICE_NAMES: Record<'responsive' | 'desktop' | 'mobile', string> = {
+  responsive: 'Adaptable',
+  desktop: 'Escritorio',
+  mobile: 'Móvil'
+}
 let active = true,
   generation = 0
 function authorized() {
@@ -248,110 +253,205 @@ async function send() {
 }
 </script>
 <template>
-  <section aria-label="Publicación editorial" class="space-y-4 rounded-xl border border-slate-300 p-4">
-    <h2 class="text-lg font-semibold">Publicación, programación y vista previa</h2>
-    <p>Guardar o restaurar un borrador no modifica la publicación. Cada envío requiere motivo y confirmación.</p>
-    <p v-if="!authorized()" role="alert">
-      Confirma sesión, correo y MFA antes de consultar o recuperar la operación editorial.
-    </p>
-    <button
-      data-testid="cms-publication-refresh"
-      type="button"
-      :disabled="!authorized() || loading || busy"
-      @click="refresh"
-    >
-      Consultar estado editorial
-    </button>
-    <p v-if="loading" role="status">Confirmando estado editorial…</p>
-    <template v-if="snapshot && authorized()">
-      <p>
-        Revisión editorial {{ snapshot.revision }} ·
-        {{ snapshot.publication ? 'Publicación activa' : 'Sin publicación activa' }}
-      </p>
-      <p v-if="snapshot.publication">
-        Slug publicado: {{ snapshot.publication.slug }} · {{ snapshot.publication.publishedAt }}
-      </p>
-      <p v-if="snapshot.schedule">
-        Programación aprobada: {{ snapshot.schedule.publishAt || 'sin publicación' }} /
-        {{ snapshot.schedule.unpublishAt || 'sin retirada' }}
-        <span v-if="snapshot.schedule.lastError" role="alert">Bloqueada: {{ snapshot.schedule.lastError }}</span>
-      </p>
-      <label class="block"
-        >Motivo editorial
-        <input v-model="reason" :disabled="busy || !!intent" maxlength="500" class="block w-full rounded border p-2"
-      /></label>
-      <div class="flex flex-wrap gap-3">
-        <button
-          v-if="snapshot.capabilities.publish"
-          data-testid="cms-publish"
-          :disabled="busy || loading || !!intent"
-          @click="prepare('publish')"
-        >
-          Publicar borrador confirmado
-        </button>
-        <button
-          v-if="snapshot.capabilities.withdraw && snapshot.publication"
-          data-testid="cms-withdraw"
-          :disabled="busy || loading || !!intent"
-          @click="prepare('withdraw')"
-        >
-          Retirar publicación
-        </button>
-        <button
-          v-if="snapshot.capabilities.schedule && snapshot.schedule"
-          data-testid="cms-cancel-schedule"
-          :disabled="busy || loading || !!intent"
-          @click="prepare('cancel_schedule')"
-        >
-          Cancelar programación
-        </button>
-      </div>
-      <fieldset v-if="snapshot.capabilities.schedule" :disabled="busy || !!intent" class="space-y-2">
-        <legend>Calendario Europe/Madrid</legend>
-        <label>Publicar <input v-model="publishAtLocal" type="datetime-local" /></label>
-        <label>Retirar <input v-model="unpublishAtLocal" type="datetime-local" /></label>
-        <label
-          >Hora repetida
-          <select v-model="repeatedHour">
-            <option value="later">Segunda ocurrencia</option>
-            <option value="earlier">Primera ocurrencia</option>
-          </select></label
-        >
-        <button data-testid="cms-schedule" @click="prepare('schedule')">Preparar programación</button>
-      </fieldset>
-      <fieldset v-if="snapshot.capabilities.preview" :disabled="busy || !!intent">
-        <legend>Vista previa privada de 30 minutos</legend>
-        <select v-model="device">
-          <option value="responsive">Adaptable</option>
-          <option value="desktop">Escritorio (1024 px)</option>
-          <option value="mobile">Móvil (375 px)</option>
-        </select>
-        <button data-testid="cms-preview" @click="prepare('preview')">Preparar vista previa</button>
-      </fieldset>
-      <p v-else>Vista previa desactivada: falta configuración dedicada o autorización.</p>
-      <ul>
-        <li v-for="preview in snapshot.previews" :key="preview.id">
-          {{ preview.device }} · caduca {{ preview.expiresAt }} · {{ preview.revoked ? 'revocada' : 'emitida' }}
-          <button
-            v-if="snapshot.capabilities.revokePreview && !preview.revoked"
-            :disabled="busy || !!intent"
-            @click="prepare('revoke_preview', preview.id)"
-          >
-            Revocar
-          </button>
-        </li>
-      </ul>
-    </template>
-    <p v-if="message" role="status">{{ message }}</p>
-    <div v-if="intent" class="flex gap-3">
+  <section aria-label="Publicación editorial" class="adm-stack">
+    <UAlert
+      v-if="!authorized()"
+      role="alert"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="Confirma tu sesión, tu correo y la verificación en dos pasos antes de consultar o recuperar la publicación."
+    />
+    <UAlert
+      v-if="message"
+      role="status"
+      :color="intent ? 'warning' : 'neutral'"
+      variant="subtle"
+      :icon="intent ? 'i-lucide-triangle-alert' : 'i-lucide-info'"
+      :title="message"
+    />
+    <div v-if="intent" class="flex flex-wrap gap-2">
       <button
         data-testid="cms-publication-confirm"
+        type="button"
+        class="adm-btn adm-btn--primary"
         :disabled="busy || !authorized() || intent.operatorId !== operatorId || intent.pageId !== pageId"
         @click="send"
       >
-        Confirmar / recuperar mismo intento</button
-      ><button :disabled="busy" @click="cancel">Cancelar sólo antes del envío</button>
+        Confirmar el envío
+      </button>
+      <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">
+        Cancelar (solo antes de enviar)
+      </button>
     </div>
+
+    <AdminCard
+      title="Estado de la publicación"
+      description="Guardar o restaurar un borrador no cambia lo publicado. Cada envío pide un motivo y una confirmación."
+    >
+      <template #actions>
+        <button
+          data-testid="cms-publication-refresh"
+          type="button"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          :disabled="!authorized() || loading || busy"
+          @click="refresh"
+        >
+          Actualizar
+        </button>
+      </template>
+      <p v-if="loading" role="status" class="adm-help">Consultando el estado de la publicación…</p>
+      <div v-else-if="snapshot && authorized()" class="adm-stack">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <AdminBadge :tone="snapshot.publication ? 'success' : 'neutral'">
+            {{ snapshot.publication ? 'Publicación activa' : 'Sin publicación activa' }}
+          </AdminBadge>
+          <span v-if="snapshot.publication" class="adm-help break-all">
+            /{{ snapshot.publication.slug }} · desde el {{ adminDate(snapshot.publication.publishedAt, true) }}
+          </span>
+        </div>
+        <p v-if="snapshot.schedule">
+          Programación aprobada: se publica
+          {{ snapshot.schedule.publishAt ? `el ${adminDate(snapshot.schedule.publishAt, true)}` : 'sin fecha' }} y se
+          retira
+          {{ snapshot.schedule.unpublishAt ? `el ${adminDate(snapshot.schedule.unpublishAt, true)}` : 'sin fecha' }}.
+          <span v-if="snapshot.schedule.lastError" role="alert" class="font-semibold text-red-700">
+            Bloqueada: {{ snapshot.schedule.lastError }}
+          </span>
+        </p>
+      </div>
+      <p v-else-if="authorized()" class="adm-help">
+        Todavía no se ha podido confirmar el estado. Pulsa «Actualizar» para consultarlo.
+      </p>
+    </AdminCard>
+
+    <template v-if="snapshot && authorized()">
+      <AdminCard title="Publicar o retirar">
+        <div class="adm-stack">
+          <AdminFormField v-slot="{ id }" label="Motivo" help="Entre 3 y 500 caracteres. Se guarda con cada envío.">
+            <input :id="id" v-model="reason" :disabled="busy || !!intent" maxlength="500" />
+          </AdminFormField>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-if="snapshot.capabilities.publish"
+              data-testid="cms-publish"
+              type="button"
+              class="adm-btn adm-btn--primary"
+              :disabled="busy || loading || !!intent"
+              @click="prepare('publish')"
+            >
+              Publicar el borrador
+            </button>
+            <button
+              v-if="snapshot.capabilities.withdraw && snapshot.publication"
+              data-testid="cms-withdraw"
+              type="button"
+              class="adm-btn adm-btn--danger-soft"
+              :disabled="busy || loading || !!intent"
+              @click="prepare('withdraw')"
+            >
+              Retirar la publicación
+            </button>
+            <button
+              v-if="snapshot.capabilities.schedule && snapshot.schedule"
+              data-testid="cms-cancel-schedule"
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              :disabled="busy || loading || !!intent"
+              @click="prepare('cancel_schedule')"
+            >
+              Cancelar la programación
+            </button>
+          </div>
+        </div>
+      </AdminCard>
+
+      <AdminCard
+        v-if="snapshot.capabilities.schedule"
+        title="Programar"
+        description="Fechas y horas en horario peninsular (Europe/Madrid)."
+      >
+        <fieldset :disabled="busy || !!intent" class="adm-stack min-w-0">
+          <legend class="sr-only">Programación en horario peninsular</legend>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Publicar el">
+              <input :id="id" v-model="publishAtLocal" type="datetime-local" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Retirar el">
+              <input :id="id" v-model="unpublishAtLocal" type="datetime-local" />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Si la hora se repite"
+              help="Solo afecta a la noche del cambio de hora de otoño."
+            >
+              <select :id="id" v-model="repeatedHour">
+                <option value="later">Usar la segunda vez</option>
+                <option value="earlier">Usar la primera vez</option>
+              </select>
+            </AdminFormField>
+          </div>
+          <div>
+            <button
+              data-testid="cms-schedule"
+              type="button"
+              class="adm-btn adm-btn--secondary"
+              @click="prepare('schedule')"
+            >
+              Programar
+            </button>
+          </div>
+        </fieldset>
+      </AdminCard>
+
+      <AdminCard title="Vista previa privada" description="Un enlace privado que caduca a los 30 minutos.">
+        <div class="adm-stack">
+          <fieldset v-if="snapshot.capabilities.preview" :disabled="busy || !!intent" class="min-w-0">
+            <legend class="sr-only">Vista previa privada de 30 minutos</legend>
+            <div class="flex flex-wrap items-end gap-2">
+              <AdminFormField v-slot="{ id }" label="Tamaño de pantalla">
+                <select :id="id" v-model="device">
+                  <option value="responsive">Adaptable</option>
+                  <option value="desktop">Escritorio (1024 px)</option>
+                  <option value="mobile">Móvil (375 px)</option>
+                </select>
+              </AdminFormField>
+              <button
+                data-testid="cms-preview"
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                @click="prepare('preview')"
+              >
+                Crear vista previa
+              </button>
+            </div>
+          </fieldset>
+          <p v-else class="adm-help">La vista previa no está disponible: falta configurarla o no tienes permiso.</p>
+          <ul v-if="snapshot.previews.length" class="adm-list">
+            <li v-for="preview in snapshot.previews" :key="preview.id">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  {{ DEVICE_NAMES[preview.device] }}
+                  <AdminBadge :tone="preview.revoked ? 'neutral' : 'info'" plain>
+                    {{ preview.revoked ? 'Anulada' : 'Creada' }}
+                  </AdminBadge>
+                </p>
+                <p class="adm-help">Caduca el {{ adminDate(preview.expiresAt, true) }}</p>
+              </div>
+              <button
+                v-if="snapshot.capabilities.revokePreview && !preview.revoked"
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || !!intent"
+                @click="prepare('revoke_preview', preview.id)"
+              >
+                Anular
+              </button>
+            </li>
+          </ul>
+        </div>
+      </AdminCard>
+    </template>
     <ContentPreviewPanel v-if="previewUrl && authorized()" :url="previewUrl" />
   </section>
 </template>

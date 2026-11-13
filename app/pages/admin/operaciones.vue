@@ -95,11 +95,11 @@ const bankTransfersAvailable = computed(() => node && observed('bankTransfersPen
 const deadLettersAvailable = computed(() => node && observed('deadLetters', true))
 const queueDetailsAvailable = computed(() => node && observed('queueDetails', true))
 
-const QUEUE_STATUS: Record<string, { label: string; color: 'neutral' | 'warning' | 'error' | 'info' }> = {
-  pending: { label: 'En espera', color: 'neutral' },
-  processing: { label: 'Procesando', color: 'info' },
-  retry: { label: 'Reintentando', color: 'warning' },
-  dead: { label: 'Muerto', color: 'error' }
+const QUEUE_STATUS: Record<string, { label: string; tone: 'neutral' | 'warning' | 'danger' | 'info' }> = {
+  pending: { label: 'En espera', tone: 'neutral' },
+  processing: { label: 'Procesando', tone: 'info' },
+  retry: { label: 'Reintentando', tone: 'warning' },
+  dead: { label: 'Fallido', tone: 'danger' }
 }
 
 /**
@@ -119,7 +119,7 @@ const OUTBOX_EVENT: Record<string, string> = {
 
 const SUMMARY = [
   { key: 'queueDepth', label: 'En cola', icon: 'i-lucide-list-restart', bad: false },
-  { key: 'deadLetters', label: 'Mensajes muertos', icon: 'i-lucide-triangle-alert', bad: true },
+  { key: 'deadLetters', label: 'Mensajes fallidos', icon: 'i-lucide-triangle-alert', bad: true },
   { key: 'bankTransfersPendingReview', label: 'Transferencias por conciliar', icon: 'i-lucide-landmark', bad: true },
   { key: 'staleRefunds', label: 'Reembolsos atascados', icon: 'i-lucide-banknote-x', bad: true },
   { key: 'fiscalExceptions', label: 'Facturas con incidencia', icon: 'i-lucide-file-warning', bad: true },
@@ -132,8 +132,8 @@ const SUMMARY = [
   },
   { key: 'inventoryExceptions', label: 'Stock incoherente', icon: 'i-lucide-package-x', bad: true },
   { key: 'staleShipments', label: 'Envíos sin movimiento', icon: 'i-lucide-truck', bad: true },
-  { key: 'communicationFailures', label: 'Emails rebotados', icon: 'i-lucide-mail-warning', bad: true },
-  { key: 'emailDeliveryExceptions', label: 'Entrega de emails bloqueada', icon: 'i-lucide-mail-warning', bad: true }
+  { key: 'communicationFailures', label: 'Correos rebotados', icon: 'i-lucide-mail-warning', bad: true },
+  { key: 'emailDeliveryExceptions', label: 'Entrega de correos bloqueada', icon: 'i-lucide-mail-warning', bad: true }
 ]
 
 const NODE_SUMMARY_KEYS = new Set(
@@ -280,7 +280,7 @@ async function confirmRetry() {
       method: 'POST',
       body: { reason: retryReason.value.trim() }
     })
-    toast.add({ title: 'Evento devuelto a la cola', color: 'success', icon: 'i-lucide-refresh-cw' })
+    toast.add({ title: 'Mensaje devuelto a la cola', color: 'success', icon: 'i-lucide-refresh-cw' })
     retrying.value = null
     retryReason.value = ''
     await refresh()
@@ -290,426 +290,442 @@ async function confirmRetry() {
     saving.value = false
   }
 }
+
+/* --- Apartados de la pantalla --- */
+const tab = ref('summary')
+const tabs = computed(() => [
+  { value: 'summary', label: 'Resumen' },
+  ...(node
+    ? [
+        { value: 'transfers', label: 'Transferencias', count: value('bankTransfersPendingReview') },
+        { value: 'failed', label: 'Mensajes fallidos', count: value('deadLetters') }
+      ]
+    : []),
+  { value: 'queue', label: 'Cola de envío', count: value('queueDepth') },
+  ...(cloudflare
+    ? [
+        { value: 'calendar', label: 'Calendario de envíos' },
+        { value: 'communications', label: 'Comunicaciones' }
+      ]
+    : [])
+])
+const dataTab = computed(() => !['calendar', 'communications'].includes(tab.value))
+const eventLabel = (eventType: string) => ORDER_EVENT[eventType]?.label ?? OUTBOX_EVENT[eventType] ?? eventType
+
+const TRANSFER_COLUMNS = [
+  { key: 'amountCents', label: 'Importe' },
+  { key: 'reference', label: 'Referencia recibida' },
+  { key: 'bookedAt', label: 'Fecha' },
+  { key: 'reviewReason', label: 'Por qué hay que revisarla' }
+]
+const FAILED_COLUMNS = [
+  { key: 'eventType', label: 'Proceso' },
+  { key: 'errorMessage', label: 'Error' },
+  { key: 'attempts', label: 'Intentos', numeric: true },
+  { key: 'createdAt', label: 'Antigüedad' }
+]
+const QUEUE_COLUMNS = [
+  { key: 'eventType', label: 'Tarea' },
+  { key: 'status', label: 'Estado' },
+  { key: 'depth', label: 'En cola', numeric: true },
+  { key: 'oldestAt', label: 'Más antiguo' },
+  { key: 'maxAttempts', label: 'Intentos máx.', numeric: true, hideOnMobile: true }
+]
 </script>
 
 <template>
-  <div>
-    <UiPageHeader
-      title="Operaciones y colas"
-      description="Trabajo asíncrono, excepciones y reintentos. Los datos sensibles de cada evento no se muestran."
-    >
-      <template #actions>
-        <span v-if="generatedAtLabel()" class="self-center text-sm text-[var(--text-muted)]">
-          {{ generatedAtLabel() }}
-        </span>
-        <UButton
-          color="neutral"
-          variant="outline"
-          icon="i-lucide-refresh-cw"
-          :disabled="calendarPending || communicationPending"
-          @click="refresh()"
-          >Actualizar</UButton
-        >
-      </template>
-    </UiPageHeader>
-
-    <UAlert
-      v-if="cloudflare"
-      class="mb-4"
-      color="info"
-      variant="subtle"
-      icon="i-lucide-info"
-      title="Resumen de operaciones en modo consulta"
-      description="Los recuentos provienen de D1. Los paneles independientes de calendario y comunicaciones requieren permiso administrativo y confirmación; no permiten ajustes de stock, conciliación bancaria ni reenvíos ciegos."
-    />
-
-    <ShippingCalendarPanel
-      v-if="cloudflare"
-      :scope-key="calendarScope"
-      :enabled="calendarEnabled"
-      :pending="saving || communicationPending"
-      class="mb-6"
-      @pending="calendarPending = $event"
-    />
-
-    <AdminCommunicationHistoryPanel
-      v-if="cloudflare"
-      :scope-key="calendarScope"
-      :enabled="calendarEnabled"
-      :pending="saving || calendarPending"
-      class="mb-6"
-      @pending="communicationPending = $event"
-    />
-
-    <div v-if="fetchStatus === 'pending'" class="space-y-3" aria-busy="true" aria-label="Cargando operaciones">
-      <div v-for="n in 3" :key="n" class="h-20 animate-pulse rounded bg-[var(--surface-sunken)]" />
-    </div>
-    <UiSurface v-else-if="fetchStatus === 'error' || !data" padding="none">
-      <UiEmptyState
-        variant="error"
-        title="No se han podido consultar las operaciones"
-        description="No podemos confirmar el estado de colas ni incidencias. Comprueba tu sesión y vuelve a intentarlo."
-      >
-        <UButton icon="i-lucide-refresh-cw" @click="refresh()">Reintentar</UButton>
-      </UiEmptyState>
-    </UiSurface>
-    <template v-else>
-      <!-- Contexto: el detalle accionable está debajo -->
-      <div class="grid gap-3 grid-cols-1 sm:grid-cols-3 lg:grid-cols-5">
-        <div
-          v-for="card in SUMMARY"
-          :key="card.key"
-          :data-metric="card.key"
-          class="rounded-[var(--radius-panel)] border bg-[var(--surface)] px-4 py-3"
-          :class="card.bad && flagged(card.key) ? 'border-amber-200' : 'border-[var(--border)]'"
-        >
-          <div class="flex items-center gap-2 text-[var(--text-muted)]">
-            <UIcon :name="card.icon" class="size-4" />
-            <span class="truncate text-xs font-medium">{{ card.label }}</span>
-          </div>
-          <p
-            class="tabular mt-1 font-display text-2xl font-bold"
-            :class="card.bad && flagged(card.key) ? 'text-amber-900' : 'text-[var(--text-strong)]'"
-          >
-            {{ value(card.key) ?? '—' }}
-          </p>
-          <p v-if="value(card.key) === null" class="mt-1 text-xs text-[var(--text-muted)]">No disponible</p>
-          <p v-if="cloudflare && card.key === 'supportOverdue'" class="mt-1 text-xs text-[var(--text-muted)]">
-            Expedientes activos con plazo SLA anterior a esta consulta.
-          </p>
-          <p v-if="cloudflare && card.key === 'supportNextActionOverdue'" class="mt-1 text-xs text-[var(--text-muted)]">
-            Expedientes activos con próxima acción comprometida anterior a esta consulta.
-          </p>
-          <NuxtLink
-            v-if="
-              supportDestination &&
-              ['supportOverdue', 'supportNextActionOverdue'].includes(card.key) &&
-              value(card.key) !== null
-            "
-            to="/admin/soporte"
-            class="mt-2 inline-block text-xs underline"
-            >Ver expedientes de soporte</NuxtLink
-          >
-        </div>
-      </div>
-      <p v-if="cloudflare" class="mt-3 text-sm text-[var(--text-muted)]">
-        Los expedientes pueden aparecer en ambos recuentos; no se suman. Se excluyen los resueltos y cerrados.
-      </p>
-
-      <section class="mt-8" aria-labelledby="inventory-diagnostics-heading" data-inventory-diagnostics>
-        <h2 id="inventory-diagnostics-heading" class="text-lg font-bold text-[var(--text-strong)]">
-          Inventario del único almacén
-        </h2>
-        <p id="inventory-diagnostics-context" class="mt-1 mb-4 max-w-3xl text-sm text-[var(--text-muted)]">
-          Los recuentos no se suman: una referencia puede necesitar más de una revisión. Las reservas caducadas y el
-          backorder autorizado se muestran separados del stock incoherente. Sólo consulta, sin acciones de corrección.
-        </p>
-        <UiEmptyState
-          v-if="!inventoryAvailable"
-          title="Diagnóstico detallado de inventario no disponible"
-          description="La consulta no permite distinguir reservas caducadas, divergencias de movimientos o déficit de disponibilidad. No podemos confirmar que esos estados sean cero."
-        />
-        <template v-else>
-          <p v-if="!inventoryBalanceAvailable" role="status" class="mb-4 text-sm text-[var(--text-muted)]">
-            No hay una medición válida del saldo del único almacén en esta consulta. Los recuentos no disponibles se
-            muestran como «—»; los pedidos con excepción de stock se contabilizan por separado.
-          </p>
-          <dl
-            class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
-            aria-describedby="inventory-diagnostics-context"
-          >
-            <div
-              v-for="card in INVENTORY_DIAGNOSTICS"
-              :key="card.key"
-              :data-inventory-metric="card.key"
-              class="min-w-0 rounded-[var(--radius-panel)] border bg-[var(--surface)] p-4"
-              :class="card.warning && flagged(card.key) ? 'border-amber-200' : 'border-[var(--border)]'"
-            >
-              <dt class="text-sm font-semibold text-[var(--text-strong)]">{{ card.label }}</dt>
-              <dd
-                class="tabular mt-2 text-2xl font-bold text-[var(--text-strong)]"
-                :aria-describedby="`${card.key}-description`"
-              >
-                {{ value(card.key) ?? '—' }}
-                <span v-if="value(card.key) !== null" class="ml-1 text-xs font-normal text-[var(--text-muted)]">
-                  {{ value(card.key) === 1 ? card.unit : card.units }}
-                </span>
-                <span v-else class="ml-1 text-xs font-normal text-[var(--text-muted)]">No disponible</span>
-              </dd>
-              <p :id="`${card.key}-description`" class="mt-2 text-xs text-[var(--text-muted)]">
-                {{ card.description }}
-              </p>
-            </div>
-          </dl>
-        </template>
-      </section>
-
-      <!-- Transferencias: es lo que cuesta dinero si no se hace -->
-      <section class="mt-8">
-        <h2 class="pb-1 text-lg font-bold text-[var(--text-strong)]">Transferencias por conciliar</h2>
-        <p class="pb-3 text-sm text-[var(--text-muted)]">
-          Ingresos recibidos que nadie ha casado con su pedido. Hasta que se concilien, el pedido sigue esperando cobro.
-        </p>
-
-        <UiSurface padding="none">
-          <UiEmptyState
-            v-if="!bankTransfersAvailable"
-            icon="i-lucide-landmark"
-            title="Conciliación bancaria no disponible"
-            description="Este entorno no observa ingresos bancarios ni permite conciliarlos. No podemos confirmar si hay transferencias pendientes."
-          />
-          <UiEmptyState
-            v-else-if="!data?.bankTransfers.length && value('bankTransfersPendingReview') === 0"
-            icon="i-lucide-circle-check"
-            title="No hay transferencias pendientes"
-            description="Todos los ingresos recibidos están casados con su pedido."
-          />
-          <UiEmptyState
-            v-else-if="!data?.bankTransfers.length"
-            title="Detalle de transferencias no disponible"
-            description="La consulta no aporta un desglose de ingresos pendientes. No podemos confirmar que estén todos conciliados."
-          />
-          <ul v-else class="divide-y divide-[var(--border)]">
-            <li v-for="item in data.bankTransfers" :key="item.id" class="flex flex-wrap items-center gap-4 px-4 py-3">
-              <div class="min-w-0 flex-1">
-                <p class="tabular font-semibold text-[var(--text-strong)]">
-                  {{ formatPrice(item.amountCents) }} {{ item.currency }}
-                </p>
-                <p class="text-sm text-[var(--text-muted)]">
-                  Referencia recibida: <span class="font-mono">{{ item.reference || '—' }}</span>
-                </p>
-                <p class="text-xs text-[var(--text-muted)]">
-                  {{ new Date(item.bookedAt).toLocaleDateString('es-ES') }} · {{ item.reviewReason }}
-                </p>
-              </div>
-              <UButton
-                v-if="canReconcile"
-                size="sm"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-link"
-                @click="((reconciling = item), (orderNumber = ''), (reconcileReason = ''))"
-              >
-                Conciliar
-              </UButton>
-            </li>
-          </ul>
-        </UiSurface>
-      </section>
-
-      <!-- Dead-letter -->
-      <section class="mt-8">
-        <h2 class="pb-1 text-lg font-bold text-[var(--text-strong)]">Mensajes muertos</h2>
-        <p class="pb-3 text-sm text-[var(--text-muted)]">
-          Procesos que han agotado sus reintentos. Al devolverlos a la cola se vuelven a ejecutar desde el principio.
-        </p>
-
-        <UiSurface padding="none">
-          <UiEmptyState
-            v-if="!deadLettersAvailable"
-            icon="i-lucide-list-restart"
-            title="Mensajes muertos no disponibles"
-            description="Este entorno no observa la cola de mensajes muertos ni permite reintentarlos."
-          />
-          <UiEmptyState
-            v-else-if="!data?.deadLetters.length && value('deadLetters') === 0"
-            icon="i-lucide-circle-check"
-            title="No hay mensajes muertos"
-            description="Ningún proceso asíncrono ha agotado sus reintentos."
-          />
-          <UiEmptyState
-            v-else-if="!data?.deadLetters.length"
-            title="Detalle de mensajes muertos no disponible"
-            description="La consulta no aporta un desglose. No podemos confirmar que ningún proceso haya agotado sus reintentos."
-          />
-          <ul v-else class="divide-y divide-[var(--border)]">
-            <li v-for="item in data.deadLetters" :key="item.id" class="flex flex-wrap items-start gap-4 px-4 py-3">
-              <div class="min-w-0 flex-1">
-                <p class="font-mono text-sm font-semibold text-[var(--text-strong)]">{{ item.eventType }}</p>
-                <p class="mt-0.5 text-sm text-red-700">{{ item.errorCode || 'Sin código de error' }}</p>
-                <p class="mt-0.5 max-w-2xl text-xs text-[var(--text-muted)]">{{ item.errorMessage }}</p>
-                <p class="mt-1 text-xs text-[var(--text-muted)]">
-                  {{ item.attempts }} {{ item.attempts === 1 ? 'intento' : 'intentos' }} · {{ age(item.createdAt) }}
-                </p>
-              </div>
-              <UButton
-                v-if="canReplay"
-                size="sm"
-                color="neutral"
-                variant="outline"
-                icon="i-lucide-refresh-cw"
-                @click="((retrying = item), (retryReason = ''))"
-              >
-                Reintentar
-              </UButton>
-            </li>
-          </ul>
-        </UiSurface>
-      </section>
-
-      <!-- Backlog -->
-      <section class="mt-8">
-        <h2 class="pb-1 text-lg font-bold text-[var(--text-strong)]">Cola de trabajo</h2>
-        <p class="pb-3 text-sm text-[var(--text-muted)]">
-          Lo que está pendiente de procesarse, agrupado por tipo de evento.
-        </p>
-
-        <p
-          v-if="queueStalled"
-          class="mb-3 flex items-start gap-2 rounded-[var(--radius-surface)] border border-[var(--ui-warning)]/30 bg-amber-50 p-3 text-sm text-[var(--text)]"
-          role="status"
-        >
-          <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-[var(--ui-warning)]" />
-          <span>
-            Hay trabajo en cola de hace más de un día que <b>nadie ha intentado procesar todavía</b>. Suele significar
-            que el proceso que vacía la cola no está en marcha. Mientras siga así, los correos de confirmación y las
-            facturas no salen.
-          </span>
-        </p>
-
-        <UiSurface padding="none">
-          <UiEmptyState
-            v-if="!queueDetailsAvailable"
-            icon="i-lucide-list-restart"
-            title="Detalle de colas no disponible"
-            :description="
-              value('queueDepth') === null
-                ? 'No se ha podido medir el trabajo pendiente.'
-                : `Hay ${value('queueDepth')} trabajos pendientes medidos en D1. El desglose por evento, antigüedad e intentos no está disponible.`
-            "
-          />
-          <UiEmptyState
-            v-else-if="!data?.queues.length && value('queueDepth') === 0"
-            icon="i-lucide-circle-check"
-            title="La cola está vacía"
-            description="No hay nada pendiente de procesar."
-          />
-          <UiEmptyState
-            v-else-if="!data?.queues.length"
-            title="Desglose de trabajo pendiente no disponible"
-            description="El detalle de eventos está vacío, pero el recuento no confirma que la cola esté vacía."
-          />
-          <div v-else class="overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead>
-                <tr
-                  class="border-b border-[var(--border)] text-left text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]"
-                >
-                  <th class="px-4 py-3">Evento</th>
-                  <th class="px-4 py-3">Estado</th>
-                  <th class="px-4 py-3 text-right">En cola</th>
-                  <th class="px-4 py-3">Más antiguo</th>
-                  <th class="px-4 py-3 text-right">Intentos máx.</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-[var(--border)]">
-                <tr v-for="queue in data.queues" :key="`${queue.eventType}:${queue.status}`">
-                  <td class="px-4 py-2.5">
-                    <span class="block font-medium text-[var(--text-strong)]">
-                      {{ ORDER_EVENT[queue.eventType]?.label ?? OUTBOX_EVENT[queue.eventType] ?? queue.eventType }}
-                    </span>
-                    <span class="block font-mono text-[11px] text-[var(--text-muted)]">{{ queue.eventType }}</span>
-                  </td>
-                  <td class="px-4 py-2.5">
-                    <UBadge :color="(QUEUE_STATUS[queue.status] ?? { color: 'neutral' }).color" variant="subtle">
-                      {{ (QUEUE_STATUS[queue.status] ?? { label: queue.status }).label }}
-                    </UBadge>
-                  </td>
-                  <td class="tabular px-4 py-2.5 text-right font-semibold">{{ queue.depth }}</td>
-                  <td class="px-4 py-2.5 text-[var(--text-muted)]">{{ age(queue.oldestAt) }}</td>
-                  <td class="tabular px-4 py-2.5 text-right text-[var(--text-muted)]">{{ queue.maxAttempts }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </UiSurface>
-      </section>
+  <AdminPage>
+    <template #actions>
+      <span v-if="generatedAtLabel()" class="adm-help self-center">Datos de las {{ generatedAtLabel() }}</span>
+      <AdminButton icon="i-lucide-refresh-cw" :disabled="calendarPending || communicationPending" @click="refresh()">
+        Actualizar
+      </AdminButton>
     </template>
+    <div class="adm-stack">
+      <AdminTabs v-model="tab" :tabs="tabs" label="Apartados de procesos y colas" />
 
-    <!-- Conciliar -->
-    <UModal
-      v-if="node"
-      :open="Boolean(reconciling)"
-      title="Conciliar la transferencia"
-      @update:open="(value) => !value && (reconciling = null)"
-    >
-      <template #body>
-        <div v-if="reconciling" class="space-y-4">
-          <div class="rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3">
-            <p class="tabular text-lg font-bold text-[var(--text-strong)]">
-              {{ formatPrice(reconciling.amountCents) }} {{ reconciling.currency }}
+      <div v-if="cloudflare" v-show="tab === 'calendar'">
+        <ShippingCalendarPanel
+          :scope-key="calendarScope"
+          :enabled="calendarEnabled"
+          :pending="saving || communicationPending"
+          @pending="calendarPending = $event"
+        />
+      </div>
+
+      <div v-if="cloudflare" v-show="tab === 'communications'">
+        <AdminCommunicationHistoryPanel
+          :scope-key="calendarScope"
+          :enabled="calendarEnabled"
+          :pending="saving || calendarPending"
+          @pending="communicationPending = $event"
+        />
+      </div>
+
+      <div v-show="dataTab">
+        <div
+          v-if="fetchStatus === 'pending'"
+          class="adm-card adm-table-skeleton"
+          aria-busy="true"
+          aria-label="Cargando operaciones"
+        >
+          <div v-for="n in 3" :key="n"><i /><i /><i /></div>
+        </div>
+        <AdminCard v-else-if="fetchStatus === 'error' || !data" flush>
+          <AdminEmptyState
+            role="alert"
+            variant="error"
+            title="No se han podido consultar las operaciones"
+            description="No podemos confirmar el estado de colas ni incidencias. Comprueba tu sesión y vuelve a intentarlo."
+          >
+            <AdminButton icon="i-lucide-rotate-cw" @click="refresh()">Reintentar</AdminButton>
+          </AdminEmptyState>
+        </AdminCard>
+        <template v-else>
+          <!-- Resumen -->
+          <div v-show="tab === 'summary'" class="adm-stack">
+            <UAlert
+              v-if="cloudflare"
+              color="info"
+              variant="subtle"
+              icon="i-lucide-info"
+              title="Resumen de operaciones en modo consulta"
+              description="Aquí solo se consultan los recuentos. El calendario de envíos y las comunicaciones tienen su propio apartado y piden confirmación antes de guardar; desde esta pantalla no se ajusta stock, no se concilian cobros ni se reenvían mensajes."
+            />
+            <div class="adm-grid">
+              <div
+                v-for="card in SUMMARY"
+                :key="card.key"
+                :data-metric="card.key"
+                class="adm-card adm-stat min-w-0"
+                :class="card.bad && flagged(card.key) && 'border-amber-200'"
+              >
+                <div class="adm-stat__label">
+                  <UIcon :name="card.icon" class="size-4 shrink-0" />
+                  <span class="truncate">{{ card.label }}</span>
+                </div>
+                <p class="adm-stat__value">{{ value(card.key) ?? '—' }}</p>
+                <p v-if="value(card.key) === null" class="adm-help mt-1">No disponible</p>
+                <p v-if="cloudflare && card.key === 'supportOverdue'" class="adm-help mt-1">
+                  Consultas abiertas cuyo plazo de respuesta ya ha vencido.
+                </p>
+                <p v-if="cloudflare && card.key === 'supportNextActionOverdue'" class="adm-help mt-1">
+                  Consultas abiertas con un seguimiento comprometido que ya ha vencido.
+                </p>
+                <NuxtLink
+                  v-if="
+                    supportDestination &&
+                    ['supportOverdue', 'supportNextActionOverdue'].includes(card.key) &&
+                    value(card.key) !== null
+                  "
+                  to="/admin/soporte"
+                  class="mt-2 inline-block text-[0.8125rem] font-semibold text-[var(--color-neteco-800)] underline"
+                  >Ver expedientes de soporte</NuxtLink
+                >
+              </div>
+            </div>
+            <p v-if="cloudflare" class="adm-help">
+              Los expedientes pueden aparecer en ambos recuentos; no se suman. Se excluyen los resueltos y cerrados.
             </p>
-            <p class="mt-0.5 text-sm text-[var(--text-muted)]">
-              Recibida el {{ new Date(reconciling.bookedAt).toLocaleDateString('es-ES') }} · referencia
-              <span class="font-mono">{{ reconciling.reference || '—' }}</span>
-            </p>
-            <p class="mt-1 text-sm text-amber-800">{{ reconciling.reviewReason }}</p>
+
+            <section class="adm-section" aria-labelledby="inventory-diagnostics-heading" data-inventory-diagnostics>
+              <div class="adm-section__head">
+                <div class="min-w-0">
+                  <h2 id="inventory-diagnostics-heading" class="adm-section__title">Inventario del almacén</h2>
+                  <p id="inventory-diagnostics-context" class="adm-help max-w-3xl">
+                    Los recuentos no se suman: una referencia puede necesitar más de una revisión. Las reservas
+                    caducadas y las ventas bajo pedido autorizadas se muestran separadas del stock incoherente. Solo
+                    consulta, sin acciones de corrección.
+                  </p>
+                </div>
+              </div>
+              <AdminCard v-if="!inventoryAvailable" flush>
+                <AdminEmptyState
+                  compact
+                  icon="i-lucide-package-search"
+                  title="Diagnóstico detallado de inventario no disponible"
+                  description="La consulta no permite distinguir reservas caducadas, divergencias de movimientos o déficit de disponibilidad. No podemos confirmar que esos estados sean cero."
+                />
+              </AdminCard>
+              <template v-else>
+                <p v-if="!inventoryBalanceAvailable" role="status" class="adm-help mb-3">
+                  No hay una medición válida del saldo del almacén en esta consulta. Los recuentos no disponibles se
+                  muestran como «—»; los pedidos con excepción de stock se contabilizan por separado.
+                </p>
+                <dl
+                  class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                  aria-describedby="inventory-diagnostics-context"
+                >
+                  <div
+                    v-for="card in INVENTORY_DIAGNOSTICS"
+                    :key="card.key"
+                    :data-inventory-metric="card.key"
+                    class="adm-card adm-stat min-w-0"
+                    :class="card.warning && flagged(card.key) && 'border-amber-200'"
+                  >
+                    <dt class="adm-stat__label">{{ card.label }}</dt>
+                    <dd class="adm-stat__value" :aria-describedby="`${card.key}-description`">
+                      {{ value(card.key) ?? '—' }}
+                      <span v-if="value(card.key) !== null" class="ml-1 text-xs font-normal text-[var(--text-muted)]">
+                        {{ value(card.key) === 1 ? card.unit : card.units }}
+                      </span>
+                      <span v-else class="ml-1 text-xs font-normal text-[var(--text-muted)]">No disponible</span>
+                    </dd>
+                    <p :id="`${card.key}-description`" class="adm-help mt-2">
+                      {{ card.description }}
+                    </p>
+                  </div>
+                </dl>
+              </template>
+            </section>
           </div>
 
-          <UFormField label="Número de pedido" required hint="El pedido al que corresponde este ingreso">
-            <UInput v-model="orderNumber" class="w-full font-mono uppercase" placeholder="NE55E6D06533" />
-          </UFormField>
+          <!-- Transferencias: es lo que cuesta dinero si no se hace -->
+          <div v-if="node" v-show="tab === 'transfers'" class="adm-stack">
+            <p class="adm-help">
+              Ingresos recibidos que nadie ha casado con su pedido. Hasta que se concilien, el pedido sigue esperando
+              cobro.
+            </p>
+            <AdminCard v-if="!bankTransfersAvailable" flush>
+              <AdminEmptyState
+                icon="i-lucide-landmark"
+                title="Conciliación bancaria no disponible"
+                description="Este entorno no observa ingresos bancarios ni permite conciliarlos. No podemos confirmar si hay transferencias pendientes."
+              />
+            </AdminCard>
+            <AdminCard v-else-if="!data?.bankTransfers.length && value('bankTransfersPendingReview') === 0" flush>
+              <AdminEmptyState
+                icon="i-lucide-circle-check"
+                title="No hay transferencias pendientes"
+                description="Todos los ingresos recibidos están casados con su pedido."
+              />
+            </AdminCard>
+            <AdminCard v-else-if="!data?.bankTransfers.length" flush>
+              <AdminEmptyState
+                title="Detalle de transferencias no disponible"
+                description="La consulta no aporta un desglose de ingresos pendientes. No podemos confirmar que estén todos conciliados."
+              />
+            </AdminCard>
+            <AdminTable
+              v-else
+              :rows="data.bankTransfers"
+              :columns="TRANSFER_COLUMNS"
+              :row-key="(row) => row.id"
+              caption="Transferencias por conciliar"
+            >
+              <template #cell-amountCents="{ row }">
+                <span class="font-semibold text-[var(--text-strong)]"
+                  >{{ formatPrice(row.amountCents) }} {{ row.currency }}</span
+                >
+              </template>
+              <template #cell-reference="{ row }">{{ row.reference || '—' }}</template>
+              <template #cell-bookedAt="{ row }">{{ adminDate(row.bookedAt) }}</template>
+              <template v-if="canReconcile" #actions="{ row }">
+                <AdminButton
+                  size="sm"
+                  icon="i-lucide-link"
+                  @click="((reconciling = row), (orderNumber = ''), (reconcileReason = ''))"
+                >
+                  Conciliar
+                </AdminButton>
+              </template>
+            </AdminTable>
+          </div>
 
-          <UFormField
-            label="Motivo"
-            required
-            hint="Queda en la auditoría contable"
-            :error="reconcileReason.trim().length && reconcileReason.trim().length < 3 ? 'Al menos 3 caracteres.' : ''"
-          >
-            <UInput v-model="reconcileReason" class="w-full" placeholder="Cliente confirma el ingreso por teléfono" />
-          </UFormField>
+          <!-- Mensajes fallidos -->
+          <div v-if="node" v-show="tab === 'failed'" class="adm-stack">
+            <p class="adm-help">
+              Procesos que han agotado sus reintentos. Al devolverlos a la cola se vuelven a ejecutar desde el
+              principio.
+            </p>
+            <AdminCard v-if="!deadLettersAvailable" flush>
+              <AdminEmptyState
+                icon="i-lucide-list-restart"
+                title="Mensajes fallidos no disponibles"
+                description="Este entorno no observa los mensajes fallidos ni permite reintentarlos."
+              />
+            </AdminCard>
+            <AdminCard v-else-if="!data?.deadLetters.length && value('deadLetters') === 0" flush>
+              <AdminEmptyState
+                icon="i-lucide-circle-check"
+                title="No hay mensajes fallidos"
+                description="Ningún proceso automático ha agotado sus reintentos."
+              />
+            </AdminCard>
+            <AdminCard v-else-if="!data?.deadLetters.length" flush>
+              <AdminEmptyState
+                title="Detalle de mensajes fallidos no disponible"
+                description="La consulta no aporta un desglose. No podemos confirmar que ningún proceso haya agotado sus reintentos."
+              />
+            </AdminCard>
+            <AdminTable
+              v-else
+              :rows="data.deadLetters"
+              :columns="FAILED_COLUMNS"
+              :row-key="(row) => row.id"
+              caption="Mensajes fallidos"
+            >
+              <template #cell-eventType="{ row }">
+                <span class="block font-semibold text-[var(--text-strong)]">{{ eventLabel(row.eventType) }}</span>
+                <span class="adm-help block">{{ row.eventType }}</span>
+              </template>
+              <template #cell-errorMessage="{ row }">
+                <span class="block max-w-xl">{{ row.errorMessage }}</span>
+                <span class="adm-help block">{{ row.errorCode || 'Sin código de error' }}</span>
+              </template>
+              <template #cell-createdAt="{ row }">{{ age(row.createdAt) }}</template>
+              <template v-if="canReplay" #actions="{ row }">
+                <AdminButton size="sm" icon="i-lucide-refresh-cw" @click="((retrying = row), (retryReason = ''))">
+                  Reintentar
+                </AdminButton>
+              </template>
+            </AdminTable>
+          </div>
 
-          <p class="text-sm text-[var(--text-muted)]">
-            Solo se confirmará si el pedido, el importe, la moneda y la reserva siguen siendo válidos.
-          </p>
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="reconciling = null">Cancelar</UButton>
-          <UButton
-            :disabled="!canReconcile || !orderNumber.trim() || reconcileReason.trim().length < 3"
-            :loading="saving"
-            @click="confirmReconcile"
-          >
-            Conciliar
-          </UButton>
-        </div>
-      </template>
-    </UModal>
+          <!-- Cola de envío -->
+          <div v-show="tab === 'queue'" class="adm-stack">
+            <p class="adm-help">Lo que está pendiente de procesarse, agrupado por tipo de tarea.</p>
+            <UAlert
+              v-if="queueStalled"
+              role="status"
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="Hay trabajo en cola de hace más de un día que nadie ha intentado procesar todavía"
+              description="Suele significar que el proceso que vacía la cola no está en marcha. Mientras siga así, los correos de confirmación y las facturas no salen."
+            />
+            <AdminCard v-if="!queueDetailsAvailable" flush>
+              <AdminEmptyState
+                icon="i-lucide-list-restart"
+                title="Detalle de colas no disponible"
+                :description="
+                  value('queueDepth') === null
+                    ? 'No se ha podido medir el trabajo pendiente.'
+                    : `Hay ${value('queueDepth')} trabajos pendientes. El desglose por tipo, antigüedad e intentos no está disponible.`
+                "
+              />
+            </AdminCard>
+            <AdminCard v-else-if="!data?.queues.length && value('queueDepth') === 0" flush>
+              <AdminEmptyState
+                icon="i-lucide-circle-check"
+                title="La cola está vacía"
+                description="No hay nada pendiente de procesar."
+              />
+            </AdminCard>
+            <AdminCard v-else-if="!data?.queues.length" flush>
+              <AdminEmptyState
+                title="Desglose de trabajo pendiente no disponible"
+                description="El detalle de tareas está vacío, pero el recuento no confirma que la cola esté vacía."
+              />
+            </AdminCard>
+            <AdminTable
+              v-else
+              :rows="data.queues"
+              :columns="QUEUE_COLUMNS"
+              :row-key="(row) => `${row.eventType}:${row.status}`"
+              caption="Cola de envío"
+            >
+              <template #cell-eventType="{ row }">
+                <span class="block font-semibold text-[var(--text-strong)]">{{ eventLabel(row.eventType) }}</span>
+                <span class="adm-help block">{{ row.eventType }}</span>
+              </template>
+              <template #cell-status="{ row }">
+                <AdminBadge :tone="(QUEUE_STATUS[row.status] ?? { tone: 'neutral' as const }).tone">
+                  {{ (QUEUE_STATUS[row.status] ?? { label: adminHumanize(row.status) }).label }}
+                </AdminBadge>
+              </template>
+              <template #cell-oldestAt="{ row }">{{ age(row.oldestAt) }}</template>
+            </AdminTable>
+          </div>
+        </template>
+      </div>
 
-    <!-- Reintentar -->
-    <UModal
-      v-if="node"
-      :open="Boolean(retrying)"
-      title="Devolver el evento a la cola"
-      @update:open="(value) => !value && (retrying = null)"
-    >
-      <template #body>
-        <div v-if="retrying" class="space-y-4">
-          <p class="font-mono text-sm font-semibold text-[var(--text-strong)]">{{ retrying.eventType }}</p>
-          <p class="text-sm text-[var(--text-muted)]">
-            Falló {{ retrying.attempts }} {{ retrying.attempts === 1 ? 'vez' : 'veces' }} con «{{
-              retrying.errorCode || 'sin código'
-            }}». Se volverá a ejecutar desde el principio: comprueba antes que la causa esté resuelta.
-          </p>
-          <UFormField
-            label="Motivo"
-            required
-            :error="retryReason.trim().length && retryReason.trim().length < 3 ? 'Al menos 3 caracteres.' : ''"
-          >
-            <UInput v-model="retryReason" class="w-full" placeholder="Proveedor de email ya restablecido" />
-          </UFormField>
-        </div>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="retrying = null">Cancelar</UButton>
-          <UButton :disabled="!canReplay || retryReason.trim().length < 3" :loading="saving" @click="confirmRetry">
-            Reintentar
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+      <!-- Conciliar -->
+      <UModal
+        v-if="node"
+        :open="Boolean(reconciling)"
+        title="Conciliar la transferencia"
+        @update:open="(value) => !value && (reconciling = null)"
+      >
+        <template #body>
+          <div v-if="reconciling" class="adm adm-stack">
+            <div class="rounded-[var(--radius-surface)] bg-[var(--surface-sunken)] p-3">
+              <p class="text-base font-bold tabular-nums text-[var(--text-strong)]">
+                {{ formatPrice(reconciling.amountCents) }} {{ reconciling.currency }}
+              </p>
+              <p class="adm-help mt-0.5">
+                Recibida el {{ adminDate(reconciling.bookedAt) }} · referencia {{ reconciling.reference || '—' }}
+              </p>
+              <p class="adm-help mt-1">{{ reconciling.reviewReason }}</p>
+            </div>
+
+            <UFormField label="Número de pedido" required hint="El pedido al que corresponde este ingreso">
+              <UInput v-model="orderNumber" class="w-full uppercase" placeholder="NE55E6D06533" />
+            </UFormField>
+
+            <UFormField
+              label="Motivo"
+              required
+              hint="Queda en el registro contable"
+              :error="
+                reconcileReason.trim().length && reconcileReason.trim().length < 3 ? 'Al menos 3 caracteres.' : ''
+              "
+            >
+              <UInput v-model="reconcileReason" class="w-full" placeholder="Cliente confirma el ingreso por teléfono" />
+            </UFormField>
+
+            <p class="adm-help">
+              Solo se confirmará si el pedido, el importe, la moneda y la reserva siguen siendo válidos.
+            </p>
+          </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="outline" @click="reconciling = null">Cancelar</UButton>
+            <UButton
+              :disabled="!canReconcile || !orderNumber.trim() || reconcileReason.trim().length < 3"
+              :loading="saving"
+              @click="confirmReconcile"
+            >
+              Conciliar
+            </UButton>
+          </div>
+        </template>
+      </UModal>
+
+      <!-- Reintentar -->
+      <UModal
+        v-if="node"
+        :open="Boolean(retrying)"
+        title="Devolver el mensaje a la cola"
+        @update:open="(value) => !value && (retrying = null)"
+      >
+        <template #body>
+          <div v-if="retrying" class="adm adm-stack">
+            <p class="font-semibold text-[var(--text-strong)]">{{ eventLabel(retrying.eventType) }}</p>
+            <p class="adm-help">
+              Falló {{ retrying.attempts }} {{ retrying.attempts === 1 ? 'vez' : 'veces' }} con «{{
+                retrying.errorCode || 'sin código'
+              }}». Se volverá a ejecutar desde el principio: comprueba antes que la causa esté resuelta.
+            </p>
+            <UFormField
+              label="Motivo"
+              required
+              :error="retryReason.trim().length && retryReason.trim().length < 3 ? 'Al menos 3 caracteres.' : ''"
+            >
+              <UInput v-model="retryReason" class="w-full" placeholder="Proveedor de email ya restablecido" />
+            </UFormField>
+          </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="outline" @click="retrying = null">Cancelar</UButton>
+            <UButton :disabled="!canReplay || retryReason.trim().length < 3" :loading="saving" @click="confirmRetry">
+              Reintentar
+            </UButton>
+          </div>
+        </template>
+      </UModal>
+    </div>
+  </AdminPage>
 </template>

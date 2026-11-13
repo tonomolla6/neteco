@@ -2,11 +2,11 @@
 import AdminCaseStudyEditor from '~/components/AdminCaseStudyEditor.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Casos de Éxito de Clientes · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Casos de éxito · Admin', robots: 'noindex, nofollow' })
 </script>
 
 <template>
-  <main class="p-6">
+  <AdminPage>
     <AdminCaseStudyEditor />
-  </main>
+  </AdminPage>
 </template>

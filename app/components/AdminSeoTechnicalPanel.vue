@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 const requestFetch = useRequestFetch()
 
@@ -133,7 +133,7 @@ async function triggerCrawl(type: 'manual' | 'scheduled' = 'manual') {
       method: 'POST',
       body: { triggerType: type, seedUrls: ['/'], maxDepth: 4 }
     })) as CrawlRun
-    successMessage.value = `Crawl completado: ${newRun.totalUrlsScanned} URLs analizadas.`
+    successMessage.value = `Revisión terminada: ${newRun.totalUrlsScanned} páginas analizadas.`
     await loadCrawlerData()
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : 'Error al ejecutar crawl técnico'
@@ -163,7 +163,7 @@ async function runRetentionSweep() {
     const res = (await requestFetch('/api/admin/seo/bots/retention/sweep', {
       method: 'POST'
     })) as { prunedCount: number }
-    successMessage.value = `Purga de retención completada: ${res.prunedCount} registros obsoletos eliminados.`
+    successMessage.value = `Se han borrado ${res.prunedCount} registros antiguos.`
     await loadBotData()
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : 'Error al ejecutar purga de retención'
@@ -211,613 +211,418 @@ function switchTab(tab: 'crawler' | 'bots' | 'ai-search') {
   if (tab === 'ai-search') loadAiSearchData()
 }
 
+type SeoTab = 'crawler' | 'bots' | 'ai-search'
+const TABS: Array<{ value: SeoTab; label: string }> = [
+  { value: 'crawler', label: 'Revisión de páginas' },
+  { value: 'bots', label: 'Visitas de buscadores' },
+  { value: 'ai-search', label: 'Respuestas con IA' }
+]
+const onTab = (value: string) => switchTab(value as SeoTab)
+
+const SEVERITY: Record<string, [string, 'danger' | 'warning' | 'info']> = {
+  critical: ['Grave', 'danger'],
+  warning: ['Aviso', 'warning'],
+  info: ['Informativo', 'info']
+}
+const ISSUES: Record<string, string> = {
+  canonical_missing: 'Falta indicar la dirección principal',
+  canonical_mismatch: 'La dirección principal apunta a otra página',
+  canonical_invalid: 'Dirección principal incorrecta',
+  noindex_detected: 'Página oculta a buscadores',
+  unexpected_noindex: 'Página oculta a buscadores por error',
+  missing_schema: 'Faltan datos de producto para Google',
+  schema_missing: 'Faltan datos de producto para Google',
+  orphan_page: 'Ninguna página enlaza a esta',
+  broken_link: 'Enlace roto',
+  status_4xx: 'La página no existe',
+  status_5xx: 'La página da error al abrirse',
+  redirect_chain: 'Demasiadas redirecciones seguidas',
+  accidental_change: 'Cambio inesperado desde la última revisión',
+  max_depth_exceeded: 'Página demasiado escondida en la tienda'
+}
+const issueLabel = (type: string) => ISSUES[type] ?? adminHumanize(type)
+function issueDetail(details: Record<string, unknown>): string {
+  const parts = Object.entries(details ?? {})
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(
+      ([key, value]) => `${adminHumanize(key)}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`
+    )
+  return parts.length ? parts.join(' · ') : '—'
+}
+const WASTE: Record<string, string> = {
+  search_results: 'Resultados de búsqueda',
+  internal_search: 'Resultados de búsqueda',
+  faceted_navigation: 'Filtros combinados',
+  filters: 'Filtros combinados',
+  pagination: 'Paginación',
+  parameters: 'Direcciones con parámetros',
+  tracking_parameters: 'Direcciones con parámetros de seguimiento',
+  not_found: 'Páginas que no existen',
+  error_4xx: 'Páginas que no existen',
+  error_5xx: 'Páginas que dan error',
+  redirect: 'Redirecciones',
+  duplicate: 'Páginas duplicadas',
+  noindex: 'Páginas ocultas a buscadores',
+  cart: 'Carrito y compra',
+  account: 'Área de cliente'
+}
+const wasteLabel = (category: string) => WASTE[category] ?? adminHumanize(category)
+const wasteItems = computed(() =>
+  Object.entries(botSummary.value?.wasteByCategory ?? {}).map(([category, count]) => ({
+    label: wasteLabel(category),
+    value: count
+  }))
+)
+function httpLabel(code: number): string {
+  if (code >= 500) return `Error de la tienda (${code})`
+  if (code === 404 || code === 410) return `No existe (${code})`
+  if (code >= 400) return `No disponible (${code})`
+  if (code >= 300) return `Redirección (${code})`
+  return `Correcta (${code})`
+}
+const confirmSweep = ref(false)
+async function confirmRetentionSweep() {
+  confirmSweep.value = false
+  await runRetentionSweep()
+}
+
 onMounted(() => {
   loadCrawlerData()
 })
 </script>
 
 <template>
-  <div class="seo-technical-panel" role="region" aria-label="Panel de Monitorización y Control SEO Técnico">
-    <header class="panel-header">
-      <div class="title-wrap">
-        <h1 class="panel-title">SEO Técnico, Crawl & Búsqueda IA</h1>
-        <p class="panel-subtitle">
-          Monitorización continua (SEO-023), logs de bots (SEO-024) y guardarraíles IA (SEO-032).
-        </p>
+  <div class="adm-stack" role="region" aria-label="Panel de monitorización y control SEO técnico">
+    <AdminPageActions>
+      <button
+        v-if="activeTab === 'crawler'"
+        type="button"
+        class="adm-btn adm-btn--primary"
+        :disabled="actionLoading"
+        aria-label="Analizar la tienda ahora"
+        @click="triggerCrawl('manual')"
+      >
+        <UIcon
+          :name="actionLoading ? 'i-lucide-loader-circle' : 'i-lucide-scan-search'"
+          class="size-4 shrink-0"
+          :class="actionLoading && 'animate-spin'"
+        />
+        {{ actionLoading ? 'Analizando la tienda…' : 'Analizar la tienda ahora' }}
+      </button>
+      <button
+        v-else-if="activeTab === 'bots'"
+        type="button"
+        class="adm-btn adm-btn--secondary"
+        :disabled="actionLoading"
+        aria-label="Borrar registros antiguos"
+        @click="confirmSweep = true"
+      >
+        {{ actionLoading ? 'Borrando…' : 'Borrar registros antiguos' }}
+      </button>
+    </AdminPageActions>
+
+    <AdminTabs :model-value="activeTab" :tabs="TABS" label="Secciones SEO" @update:model-value="onTab" />
+
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="No se ha podido completar la operación"
+      description="Vuelve a intentarlo dentro de un momento."
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
+
+    <!-- Revisión de páginas -->
+    <section v-if="activeTab === 'crawler'" class="adm-stack" aria-label="Monitorización SEO técnica continua">
+      <div v-if="loading" class="adm-card adm-table-skeleton" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Cargando revisiones…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
       </div>
 
-      <nav class="tabs-nav" role="tablist" aria-label="Secciones SEO">
-        <button
-          role="tab"
-          :aria-selected="activeTab === 'crawler'"
-          :class="['tab-btn', { active: activeTab === 'crawler' }]"
-          @click="switchTab('crawler')"
+      <AdminCard v-else-if="crawlRuns.length === 0" flush>
+        <AdminEmptyState
+          v-if="errorMessage"
+          variant="error"
+          title="No se han podido cargar las revisiones"
+          description="Comprueba la conexión y vuelve a intentarlo."
         >
-          Monitorización Técnica
-        </button>
-        <button
-          role="tab"
-          :aria-selected="activeTab === 'bots'"
-          :class="['tab-btn', { active: activeTab === 'bots' }]"
-          @click="switchTab('bots')"
+          <AdminButton icon="i-lucide-rotate-cw" @click="loadCrawlerData">Reintentar</AdminButton>
+        </AdminEmptyState>
+        <AdminEmptyState
+          v-else
+          icon="i-lucide-scan-search"
+          title="Todavía no se ha revisado la tienda"
+          description="La revisión recorre las páginas de la tienda y avisa de enlaces rotos, páginas ocultas a Google y otros problemas."
+          aria-live="polite"
         >
-          Análisis Bots & Desperdicio
-        </button>
-        <button
-          role="tab"
-          :aria-selected="activeTab === 'ai-search'"
-          :class="['tab-btn', { active: activeTab === 'ai-search' }]"
-          @click="switchTab('ai-search')"
-        >
-          Búsqueda IA & Guardarraíles
-        </button>
-      </nav>
-    </header>
+          <AdminButton icon="i-lucide-scan-search" :disabled="actionLoading" @click="triggerCrawl('manual')">
+            Hacer la primera revisión
+          </AdminButton>
+        </AdminEmptyState>
+      </AdminCard>
 
-    <!-- Feedback messages -->
-    <div v-if="errorMessage" class="alert alert-error" role="alert">
-      <span>{{ errorMessage }}</span>
-    </div>
-    <div v-if="successMessage" class="alert alert-success" role="status">
-      <span>{{ successMessage }}</span>
-    </div>
-
-    <!-- TAB 1: CRAWLER (SEO-023) -->
-    <section v-if="activeTab === 'crawler'" class="tab-content" aria-label="Monitorización SEO técnica continua">
-      <div class="actions-bar">
-        <button
-          class="btn btn-primary"
-          :disabled="actionLoading"
-          aria-label="Ejecutar Crawl Técnico Ahora"
-          @click="triggerCrawl('manual')"
-        >
-          {{ actionLoading ? 'Analizando catálogo...' : 'Ejecutar Crawl Técnico' }}
-        </button>
-      </div>
-
-      <div v-if="loading" class="state-box" aria-live="polite">
-        <p>Cargando auditorías técnicas...</p>
-      </div>
-
-      <div v-else-if="crawlRuns.length === 0" class="state-box empty" aria-live="polite">
-        <p>No se han registrado auditorías de crawl técnico todavía.</p>
-        <button class="btn btn-secondary" @click="triggerCrawl('manual')">Lanzar primer rastreo</button>
-      </div>
-
-      <div v-else class="crawler-dashboard">
-        <!-- Overview of latest run -->
-        <div v-if="crawlRuns[0]" class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">URLs Analizadas</span>
-            <span class="metric-value">{{ crawlRuns[0].totalUrlsScanned }}</span>
-          </div>
-          <div class="metric-card ok">
-            <span class="metric-label">2xx Válidas</span>
-            <span class="metric-value">{{ crawlRuns[0].status2xxCount }}</span>
-          </div>
-          <div class="metric-card error">
-            <span class="metric-label">4xx Rotas</span>
-            <span class="metric-value">{{ crawlRuns[0].status4xxCount }}</span>
-          </div>
-          <div class="metric-card error">
-            <span class="metric-label">5xx Errores</span>
-            <span class="metric-value">{{ crawlRuns[0].status5xxCount }}</span>
-          </div>
-          <div class="metric-card warning">
-            <span class="metric-label">Canonicals</span>
-            <span class="metric-value">{{ crawlRuns[0].canonicalIssuesCount }}</span>
-          </div>
-          <div class="metric-card warning">
-            <span class="metric-label">Noindex</span>
-            <span class="metric-value">{{ crawlRuns[0].noindexCount }}</span>
-          </div>
-          <div class="metric-card warning">
-            <span class="metric-label">Huérfanas</span>
-            <span class="metric-value">{{ crawlRuns[0].orphanCount }}</span>
-          </div>
-          <div class="metric-card critical">
-            <span class="metric-label">Regresiones</span>
-            <span class="metric-value">{{ crawlRuns[0].accidentalChangesCount }}</span>
-          </div>
+      <template v-else>
+        <div v-if="crawlRuns[0]" class="adm-grid">
+          <AdminStat
+            label="Páginas revisadas"
+            :value="crawlRuns[0].totalUrlsScanned"
+            :hint="`Última revisión: ${adminDate(crawlRuns[0].completedAt ?? crawlRuns[0].startedAt, true)}`"
+          />
+          <AdminStat label="Páginas correctas" :value="crawlRuns[0].status2xxCount" />
+          <AdminStat label="Enlaces rotos" :value="crawlRuns[0].status4xxCount" hint="Páginas que no existen" />
+          <AdminStat
+            label="Errores de la tienda"
+            :value="crawlRuns[0].status5xxCount"
+            hint="Páginas que fallan al abrir"
+          />
+          <AdminStat
+            label="Dirección principal mal indicada"
+            :value="crawlRuns[0].canonicalIssuesCount"
+            hint="Páginas duplicadas sin señalar la original"
+          />
+          <AdminStat label="Ocultas a Google" :value="crawlRuns[0].noindexCount" />
+          <AdminStat label="Sin enlaces de entrada" :value="crawlRuns[0].orphanCount" hint="Nadie enlaza a ellas" />
+          <AdminStat
+            label="Cambios inesperados"
+            :value="crawlRuns[0].accidentalChangesCount"
+            hint="Respecto a la revisión anterior"
+          />
         </div>
 
-        <!-- Issues table -->
-        <div class="issues-section">
-          <h2 class="section-title">Incidencias Detectadas ({{ runIssues.length }})</h2>
-          <div v-if="runIssues.length === 0" class="state-box clean">
-            <p>Salud técnica óptima: 0 errores críticos ni advertencias detectadas.</p>
+        <AdminCard :title="`Problemas encontrados (${runIssues.length})`" flush>
+          <template v-if="crawlRuns.length > 1" #actions>
+            <select
+              class="adm-input"
+              aria-label="Revisión que se muestra"
+              :value="selectedRunId ?? ''"
+              @change="loadRunIssues(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="run in crawlRuns" :key="run.id" :value="run.id">
+                Revisión del {{ adminDate(run.startedAt, true) }}
+              </option>
+            </select>
+          </template>
+          <AdminEmptyState
+            v-if="runIssues.length === 0"
+            compact
+            icon="i-lucide-circle-check"
+            title="Todo en orden"
+            description="La última revisión no ha encontrado errores ni avisos."
+          />
+          <div v-else class="adm-table-wrap">
+            <table class="adm-table" aria-label="Tabla de incidencias SEO">
+              <thead>
+                <tr>
+                  <th scope="col">Gravedad</th>
+                  <th scope="col">Problema</th>
+                  <th scope="col">Página</th>
+                  <th scope="col">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="issue in runIssues" :key="issue.id">
+                  <td>
+                    <AdminBadge :tone="SEVERITY[issue.severity]?.[1] ?? 'neutral'">
+                      {{ SEVERITY[issue.severity]?.[0] ?? adminHumanize(issue.severity) }}
+                    </AdminBadge>
+                  </td>
+                  <td>{{ issueLabel(issue.issueType) }}</td>
+                  <td class="break-all">{{ issue.url }}</td>
+                  <td class="adm-help">{{ issueDetail(issue.details) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <table v-else class="data-table" aria-label="Tabla de incidencias SEO">
-            <thead>
-              <tr>
-                <th scope="col">Severidad</th>
-                <th scope="col">Tipo de Incidencia</th>
-                <th scope="col">URL</th>
-                <th scope="col">Detalle</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="issue in runIssues" :key="issue.id">
-                <td>
-                  <span :class="['badge', `badge-${issue.severity}`]">{{ issue.severity }}</span>
-                </td>
-                <td class="font-mono">{{ issue.issueType }}</td>
-                <td class="font-mono text-break">{{ issue.url }}</td>
-                <td>{{ JSON.stringify(issue.details) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+        </AdminCard>
+      </template>
     </section>
 
-    <!-- TAB 2: BOT LOGS & CRAWL WASTE (SEO-024) -->
-    <section v-if="activeTab === 'bots'" class="tab-content" aria-label="Análisis de logs de bots y desperdicio">
-      <div class="actions-bar">
-        <button
-          class="btn btn-secondary"
-          :disabled="actionLoading"
-          aria-label="Ejecutar Purga de Retención"
-          @click="runRetentionSweep"
+    <!-- Visitas de buscadores -->
+    <section v-if="activeTab === 'bots'" class="adm-stack" aria-label="Análisis de logs de bots y desperdicio">
+      <div v-if="loading" class="adm-card adm-table-skeleton" aria-live="polite" aria-busy="true">
+        <span class="sr-only">Cargando visitas de buscadores…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+      </div>
+
+      <AdminCard v-else-if="!botSummary || botSummary.totalCrawls === 0" flush>
+        <AdminEmptyState
+          v-if="errorMessage"
+          variant="error"
+          title="No se han podido cargar las visitas de buscadores"
+          description="Comprueba la conexión y vuelve a intentarlo."
         >
-          {{ actionLoading ? 'Purgando...' : 'Ejecutar Purga de Retención' }}
-        </button>
-      </div>
+          <AdminButton icon="i-lucide-rotate-cw" @click="loadBotData">Reintentar</AdminButton>
+        </AdminEmptyState>
+        <AdminEmptyState
+          v-else
+          icon="i-lucide-bot"
+          title="Sin visitas de buscadores en este periodo"
+          description="Cuando Google u otros buscadores recorran la tienda, verás aquí qué páginas visitan."
+          aria-live="polite"
+        />
+      </AdminCard>
 
-      <div v-if="loading" class="state-box" aria-live="polite">
-        <p>Cargando análisis de bots...</p>
-      </div>
-
-      <div v-else-if="!botSummary || botSummary.totalCrawls === 0" class="state-box empty" aria-live="polite">
-        <p>Sin visitas de bots indexadores registradas en el periodo actual.</p>
-      </div>
-
-      <div v-else class="bots-dashboard">
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">Total Rastreos</span>
-            <span class="metric-value">{{ botSummary.totalCrawls }}</span>
-          </div>
-          <div class="metric-card ok">
-            <span class="metric-label">Bots Verificados</span>
-            <span class="metric-value">{{ botSummary.verifiedBotCrawls }}</span>
-          </div>
-          <div class="metric-card error">
-            <span class="metric-label">Bots Falsos / Spoofed</span>
-            <span class="metric-value">{{ botSummary.fakeBotCrawls }}</span>
-          </div>
-          <div class="metric-card warning">
-            <span class="metric-label">Desperdicio (Waste)</span>
-            <span class="metric-value">{{ botSummary.wastePercentage }}%</span>
-          </div>
-          <div class="metric-card error">
-            <span class="metric-label">Tasa Error 4xx</span>
-            <span class="metric-value">{{ botSummary.errorRate4xx }}%</span>
-          </div>
+      <template v-else>
+        <div class="adm-grid">
+          <AdminStat label="Visitas de buscadores" :value="botSummary.totalCrawls" />
+          <AdminStat label="Buscadores auténticos" :value="botSummary.verifiedBotCrawls" />
+          <AdminStat label="Robots que se hacen pasar por buscadores" :value="botSummary.fakeBotCrawls" />
+          <AdminStat
+            label="Visitas desaprovechadas"
+            :value="`${botSummary.wastePercentage} %`"
+            hint="En páginas que no aportan nada"
+          />
+          <AdminStat label="Visitas a páginas rotas" :value="`${botSummary.errorRate4xx} %`" />
         </div>
 
-        <div class="waste-breakdown">
-          <h2 class="section-title">Desperdicio por Categoría</h2>
-          <div class="category-bars">
-            <div v-for="(count, category) in botSummary.wasteByCategory" :key="category" class="cat-row">
-              <span class="cat-name">{{ category }}</span>
-              <span class="cat-count badge">{{ count }}</span>
-            </div>
-          </div>
-        </div>
+        <AdminCard
+          title="Dónde se desaprovechan las visitas"
+          description="Tipos de página que los buscadores recorren sin que sirva para posicionar la tienda."
+        >
+          <AdminBreakdown :items="wasteItems" />
+        </AdminCard>
 
-        <div class="top-wasted-section">
-          <h2 class="section-title">URLs con Mayor Desperdicio de Rastreo</h2>
-          <table class="data-table" aria-label="URLs con mayor desperdicio">
-            <thead>
-              <tr>
-                <th scope="col">Ruta</th>
-                <th scope="col">Impactos</th>
-                <th scope="col">Categoría de Desperdicio</th>
-                <th scope="col">Código HTTP</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in botSummary.topWastedUrls" :key="item.path">
-                <td class="font-mono text-break">{{ item.path }}</td>
-                <td>{{ item.hits }}</td>
-                <td>
-                  <span class="badge badge-warning">{{ item.wasteCategory }}</span>
-                </td>
-                <td>{{ item.statusCode }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+        <AdminCard title="Páginas con más visitas desaprovechadas" flush>
+          <div class="adm-table-wrap">
+            <table class="adm-table" aria-label="URLs con mayor desperdicio">
+              <thead>
+                <tr>
+                  <th scope="col">Página</th>
+                  <th scope="col" data-numeric>Visitas</th>
+                  <th scope="col">Motivo</th>
+                  <th scope="col">Respuesta</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in botSummary.topWastedUrls" :key="item.path">
+                  <td class="break-all">{{ item.path }}</td>
+                  <td data-numeric>{{ item.hits }}</td>
+                  <td>
+                    <AdminBadge tone="warning">{{ wasteLabel(item.wasteCategory) }}</AdminBadge>
+                  </td>
+                  <td>{{ httpLabel(item.statusCode) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AdminCard>
+      </template>
     </section>
 
-    <!-- TAB 3: AI SEARCH & SEO GUARDRAILS (SEO-032) -->
-    <section
-      v-if="activeTab === 'ai-search'"
-      class="tab-content"
-      aria-label="Búsqueda semántica IA y guardarraíles SEO"
-    >
-      <div class="guardrail-banner">
-        <div class="guardrail-badge">Protección SEO Base Activa</div>
-        <p>
-          Las respuestas sintéticas dinámicas por IA incluyen siempre encabezado
-          <code>X-Robots-Tag: noindex, follow, noarchive</code> y canónicos hacia catálogo primario. Se bloquea la
-          indexación de páginas delgadas automáticas.
-        </p>
-      </div>
+    <!-- Respuestas con IA -->
+    <section v-if="activeTab === 'ai-search'" class="adm-stack" aria-label="Búsqueda semántica IA y guardarraíles SEO">
+      <UAlert
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-shield-check"
+        title="Las respuestas automáticas no se publican en Google"
+        description="Las respuestas que genera la IA para cada búsqueda no aparecen en buscadores y siempre enlazan a la ficha del producto. Solo se publican las guías revisadas por una persona."
+      />
 
-      <div class="ai-tester-card">
-        <h2 class="section-title">Consultar motor de búsqueda semántica anclado</h2>
-        <div class="search-form">
+      <AdminCard
+        title="Probar una pregunta"
+        description="Comprueba qué respondería la tienda y en qué productos del catálogo se apoya."
+      >
+        <form class="flex flex-wrap gap-2" @submit.prevent="testGroundedSearch">
           <input
             v-model="testQuery"
             type="text"
-            class="input-text"
-            placeholder="Ej: desengrasante industrial para hornos..."
+            class="adm-input min-w-0 flex-1"
+            placeholder="Ej.: desengrasante industrial para hornos"
             aria-label="Consulta de búsqueda IA"
           />
-          <button class="btn btn-primary" :disabled="actionLoading" @click="testGroundedSearch">
-            {{ actionLoading ? 'Sintetizando...' : 'Consultar IA' }}
+          <button type="submit" class="adm-btn adm-btn--secondary" :disabled="actionLoading">
+            {{ actionLoading ? 'Preparando respuesta…' : 'Probar pregunta' }}
           </button>
-        </div>
+        </form>
 
-        <div v-if="aiResult" class="ai-result-box" aria-live="polite">
-          <div class="result-header">
-            <span class="badge badge-ok">Grounding Score: {{ aiResult.groundingScore }}</span>
-            <span class="badge badge-warning">Indexable: {{ String(aiResult.isIndexable) }}</span>
-            <span class="badge badge-ok">Noindex Enforced: {{ String(aiResult.noindexEnforced) }}</span>
+        <div v-if="aiResult" class="mt-4 space-y-4" aria-live="polite">
+          <div class="flex flex-wrap gap-2">
+            <AdminBadge :tone="aiResult.groundingScore >= 0.7 ? 'success' : 'warning'">
+              Apoyada en el catálogo: {{ Math.round(aiResult.groundingScore * 100) }} %
+            </AdminBadge>
+            <AdminBadge :tone="aiResult.isIndexable ? 'warning' : 'success'">
+              {{ aiResult.isIndexable ? 'Visible en Google' : 'No aparece en Google' }}
+            </AdminBadge>
           </div>
-          <p class="ai-answer-text">{{ aiResult.answerText }}</p>
+          <p class="text-[var(--text-strong)]">{{ aiResult.answerText }}</p>
 
-          <h3 class="citations-title">Citas Verificadas del Catálogo Activo ({{ aiResult.citations.length }})</h3>
-          <ul class="citations-list">
-            <li v-for="citation in aiResult.citations" :key="citation.productId" class="citation-item">
-              <div class="citation-info">
-                <strong>{{ citation.title }}</strong>
-                <span class="citation-sku">SKU: {{ citation.sku }} | {{ citation.formattedPrice }}</span>
-                <span class="citation-link">Canónico: {{ citation.canonicalUrl }}</span>
-              </div>
-              <p v-if="citation.safetyAdvice" class="citation-safety">{{ citation.safetyAdvice }}</p>
-            </li>
-          </ul>
+          <div>
+            <h3>Productos en los que se apoya ({{ aiResult.citations.length }})</h3>
+            <ul class="adm-list mt-2">
+              <li v-for="citation in aiResult.citations" :key="citation.productId">
+                <div class="min-w-0 flex-1">
+                  <p class="adm-list__title">{{ citation.title }}</p>
+                  <p class="adm-help">Ref. {{ citation.sku }} · {{ citation.formattedPrice }}</p>
+                  <p class="adm-help break-all">{{ citation.canonicalUrl }}</p>
+                  <p v-if="citation.safetyAdvice" class="adm-help mt-1">
+                    <UIcon name="i-lucide-triangle-alert" class="mr-1 inline size-3.5 align-[-2px]" />{{
+                      citation.safetyAdvice
+                    }}
+                  </p>
+                </div>
+              </li>
+            </ul>
+          </div>
         </div>
-      </div>
+      </AdminCard>
 
-      <!-- Curated guides section -->
-      <div class="curated-guides-section">
-        <h2 class="section-title">Guías editoriales curadas con aprobación humana</h2>
-        <p class="help-text">
-          Solo las respuestas revisadas y aprobadas por editores con profundidad de contenido demostrada pueden
-          publicarse como URLs indexables.
-        </p>
-
-        <div v-if="curatedGuides.length === 0" class="state-box empty">
-          <p>No hay guías editoriales aprobadas todavía.</p>
+      <AdminCard
+        title="Guías revisadas por el equipo"
+        description="Solo las respuestas revisadas y aprobadas por un editor se publican como páginas visibles en buscadores."
+        flush
+      >
+        <AdminEmptyState
+          v-if="curatedGuides.length === 0"
+          compact
+          icon="i-lucide-book-open"
+          title="Todavía no hay guías aprobadas"
+        />
+        <div v-else class="adm-table-wrap">
+          <table class="adm-table" aria-label="Guías editoriales curadas">
+            <thead>
+              <tr>
+                <th scope="col">Pregunta</th>
+                <th scope="col">Título</th>
+                <th scope="col">Dirección</th>
+                <th scope="col">Estado</th>
+                <th scope="col">Visible en Google</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="guide in curatedGuides" :key="guide.id">
+                <td>{{ guide.topicQuery }}</td>
+                <td class="font-semibold text-[var(--text-strong)]">{{ guide.title }}</td>
+                <td class="break-all">{{ guide.canonicalUrl }}</td>
+                <td><AdminBadge :status="guide.status" /></td>
+                <td>
+                  <AdminBadge :tone="guide.isIndexable ? 'success' : 'neutral'">
+                    {{ guide.isIndexable ? 'Sí' : 'No' }}
+                  </AdminBadge>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <table v-else class="data-table" aria-label="Guías editoriales curadas">
-          <thead>
-            <tr>
-              <th scope="col">Tema / Consulta</th>
-              <th scope="col">Título</th>
-              <th scope="col">URL Canónica</th>
-              <th scope="col">Estado</th>
-              <th scope="col">Indexable</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="guide in curatedGuides" :key="guide.id">
-              <td>{{ guide.topicQuery }}</td>
-              <td>
-                <strong>{{ guide.title }}</strong>
-              </td>
-              <td class="font-mono">{{ guide.canonicalUrl }}</td>
-              <td>
-                <span class="badge badge-ok">{{ guide.status }}</span>
-              </td>
-              <td>
-                <span :class="['badge', guide.isIndexable ? 'badge-ok' : 'badge-warning']">{{
-                  guide.isIndexable ? 'Sí' : 'No'
-                }}</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      </AdminCard>
     </section>
+
+    <AdminConfirm
+      v-model:open="confirmSweep"
+      title="Borrar registros antiguos"
+      description="Se eliminarán las visitas de buscadores que ya han superado el plazo de conservación. No se puede deshacer."
+      confirm-label="Borrar registros"
+      danger
+      @confirm="confirmRetentionSweep"
+    />
   </div>
 </template>
-
-<style scoped>
-.seo-technical-panel {
-  padding: 1.5rem;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
-  color: #1f2937;
-}
-
-.panel-header {
-  margin-bottom: 2rem;
-  border-bottom: 1px solid #e5e7eb;
-  padding-bottom: 1rem;
-}
-
-.panel-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin: 0;
-  color: #111827;
-}
-
-.panel-subtitle {
-  font-size: 0.875rem;
-  color: #6b7280;
-  margin-top: 0.25rem;
-}
-
-.tabs-nav {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.tab-btn {
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-  background: #f9fafb;
-  cursor: pointer;
-  font-weight: 500;
-  font-size: 0.875rem;
-}
-
-.tab-btn.active {
-  background: #2563eb;
-  color: #fff;
-  border-color: #2563eb;
-}
-
-.alert {
-  padding: 0.75rem 1rem;
-  border-radius: 0.375rem;
-  margin-bottom: 1rem;
-  font-size: 0.875rem;
-}
-
-.alert-error {
-  background: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #f87171;
-}
-
-.alert-success {
-  background: #dcfce7;
-  color: #166534;
-  border: 1px solid #86efac;
-}
-
-.actions-bar {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 1rem;
-}
-
-.btn {
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-weight: 500;
-  cursor: pointer;
-  border: none;
-}
-
-.btn-primary {
-  background: #2563eb;
-  color: #fff;
-}
-
-.btn-secondary {
-  background: #4b5563;
-  color: #fff;
-}
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.metric-card {
-  padding: 1rem;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  display: flex;
-  flex-direction: column;
-}
-
-.metric-card.ok {
-  border-left: 4px solid #10b981;
-}
-.metric-card.warning {
-  border-left: 4px solid #f59e0b;
-}
-.metric-card.error {
-  border-left: 4px solid #ef4444;
-}
-.metric-card.critical {
-  border-left: 4px solid #b91c1c;
-}
-
-.metric-label {
-  font-size: 0.75rem;
-  color: #6b7280;
-  text-transform: uppercase;
-}
-
-.metric-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-top: 0.25rem;
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.375rem;
-}
-
-.data-table th,
-.data-table td {
-  padding: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
-  text-align: left;
-}
-
-.data-table th {
-  background: #f9fafb;
-  font-weight: 600;
-}
-
-.font-mono {
-  font-family: monospace;
-}
-.text-break {
-  word-break: break-all;
-}
-
-.badge {
-  display: inline-block;
-  padding: 0.2rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: #e5e7eb;
-}
-
-.badge-critical {
-  background: #fee2e2;
-  color: #991b1b;
-}
-.badge-warning {
-  background: #fef3c7;
-  color: #92400e;
-}
-.badge-info {
-  background: #e0f2fe;
-  color: #075985;
-}
-.badge-ok {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.guardrail-banner {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  margin-bottom: 1.5rem;
-}
-
-.guardrail-badge {
-  font-weight: 700;
-  color: #1e40af;
-  margin-bottom: 0.5rem;
-}
-
-.ai-tester-card {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  padding: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.search-form {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.input-text {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.375rem;
-}
-
-.ai-result-box {
-  margin-top: 1.5rem;
-  padding: 1rem;
-  background: #f9fafb;
-  border-radius: 0.375rem;
-  border: 1px solid #e5e7eb;
-}
-
-.result-header {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.ai-answer-text {
-  font-size: 1rem;
-  line-height: 1.5;
-  margin-bottom: 1.5rem;
-}
-
-.citations-list {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.citation-item {
-  padding: 0.75rem;
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.375rem;
-}
-
-.citation-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.citation-sku {
-  font-size: 0.75rem;
-  color: #4b5563;
-}
-
-.citation-link {
-  font-size: 0.75rem;
-  color: #2563eb;
-  font-family: monospace;
-}
-
-.citation-safety {
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
-  color: #92400e;
-  background: #fffbeb;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-}
-
-.state-box {
-  padding: 2rem;
-  text-align: center;
-  background: #f9fafb;
-  border: 1px dashed #d1d5db;
-  border-radius: 0.5rem;
-}
-</style>

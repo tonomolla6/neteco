@@ -29,10 +29,10 @@ const crumbs = computed(() => {
   if (!found) return []
   const list: Array<{ label: string; to?: string }> = []
   if (found.section.label !== found.item.label) list.push({ label: found.section.label })
-  const inner = props.back || found.item.tabs.length > 1
+  const inner = props.back || (found.item.tabs.length > 1 && found.tab.label !== found.item.label)
   list.push({ label: found.item.label, ...(inner ? { to: found.item.tabs[0]!.to } : {}) })
   if (props.back) list.push({ label: props.title ?? 'Detalle' })
-  else if (found.item.tabs.length > 1) list.push({ label: found.tab.label })
+  else if (found.item.tabs.length > 1 && found.tab.label !== found.item.label) list.push({ label: found.tab.label })
   return list
 })
 useHead(() => ({ title: `${props.title ?? located.value?.tab.label ?? heading.value} · Panel NETECO` }))

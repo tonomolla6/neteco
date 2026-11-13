@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 interface Course {
   id: string
@@ -71,7 +71,7 @@ async function createCourse() {
         status: courseStatus.value
       }
     })
-    notice.value = `Curso "${courseTitle.value}" creado con éxito.`
+    notice.value = `Curso «${courseTitle.value}» creado.`
     courseTitle.value = ''
     courseSlug.value = ''
     courseDesc.value = ''
@@ -99,7 +99,7 @@ async function createLesson() {
         quizQuestionsJson: '[]'
       }
     })
-    notice.value = `Lección "${lessonTitle.value}" añadida a ${selectedCourse.value.title}.`
+    notice.value = `Lección «${lessonTitle.value}» añadida a ${selectedCourse.value.title}.`
     lessonTitle.value = ''
     lessonContent.value = ''
     selectedCourse.value = null
@@ -111,53 +111,123 @@ async function createLesson() {
   }
 }
 
+// Estado de interfaz: paneles laterales y columnas del listado.
+const courseOpen = ref(false)
+function openCourse() {
+  error.value = null
+  courseOpen.value = true
+}
+async function saveCourse() {
+  await createCourse()
+  if (!error.value && !courseTitle.value) courseOpen.value = false
+}
+function openLesson(course: Course) {
+  error.value = null
+  selectedCourse.value = course
+}
+const lessonOpen = computed({
+  get: () => selectedCourse.value !== null,
+  set: (open: boolean) => {
+    if (!open) selectedCourse.value = null
+  }
+})
+const columns = [
+  { key: 'title', label: 'Curso', sortable: true },
+  { key: 'status', label: 'Estado' },
+  { key: 'durationMinutes', label: 'Duración', numeric: true },
+  { key: 'passingScorePercent', label: 'Nota para aprobar', numeric: true, hideOnMobile: true }
+]
+
 onMounted(() => {
   loadCourses()
 })
 </script>
 
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-bold text-slate-900">Centro de formación y aprendizaje (MKT-033)</h1>
-      <p class="text-sm text-slate-600">
-        Cursos interactivos, lecciones multimedia y certificación oficial de competencias químicas para clientes
-        profesionales.
-      </p>
-    </header>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="openCourse">Nuevo curso</AdminButton>
+    </AdminPageActions>
 
-    <div
+    <UAlert
       v-if="notice"
       data-test="notice"
       role="status"
       aria-live="polite"
-      class="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="notice"
+    />
+    <UAlert
+      v-if="error && courses.length && !courseOpen && !lessonOpen"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      title="No se ha podido completar la operación"
+      description="Revisa los datos y vuelve a intentarlo."
+    />
+
+    <AdminTable
+      aria-labelledby="courses-list-heading"
+      :rows="courses"
+      :columns="columns"
+      :row-key="(row) => row.id"
+      :status="loading ? 'pending' : error && !courses.length ? 'error' : 'success'"
+      empty-title="Todavía no hay cursos"
+      empty-description="Crea el primer curso de formación para tus clientes."
+      empty-icon="i-lucide-graduation-cap"
+      caption="Cursos disponibles"
+      @retry="loadCourses"
     >
-      {{ notice }}
-    </div>
+      <template #cell-title="{ row }">
+        <p class="font-semibold text-[var(--text-strong)]">{{ row.title }}</p>
+        <p class="adm-help line-clamp-2">{{ row.description }}</p>
+      </template>
+      <template #cell-status="{ row }">
+        <AdminBadge :status="row.status" />
+      </template>
+      <template #cell-durationMinutes="{ row }">{{ row.durationMinutes ?? 30 }} min</template>
+      <template #cell-passingScorePercent="{ row }">{{ row.passingScorePercent }} %</template>
+      <template #actions="{ row }">
+        <AdminButton size="sm" icon="i-lucide-plus" @click="openLesson(row)">Añadir lección</AdminButton>
+      </template>
+      <template #empty-action>
+        <AdminButton icon="i-lucide-plus" @click="openCourse">Nuevo curso</AdminButton>
+      </template>
+    </AdminTable>
+    <span id="courses-list-heading" class="sr-only">Cursos disponibles ({{ courses.length }})</span>
 
-    <div v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-      Error: {{ error }}
-    </div>
-
-    <!-- Create Course Form -->
-    <section aria-labelledby="create-course-heading" class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-      <h2 id="create-course-heading" class="text-base font-semibold text-slate-900">Crear nuevo curso</h2>
-      <form class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3" @submit.prevent="createCourse">
-        <div>
-          <label for="course-title" class="block text-xs font-medium text-slate-700">Título del curso</label>
+    <AdminDrawer v-model:open="courseOpen" title="Nuevo curso">
+      <form class="adm-stack" aria-labelledby="create-course-heading" @submit.prevent="saveCourse">
+        <span id="create-course-heading" class="sr-only">Crear nuevo curso</span>
+        <UAlert
+          v-if="error"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="No se ha podido guardar el curso"
+          description="Revisa los datos y vuelve a intentarlo."
+        />
+        <AdminFormField label="Título del curso" for="course-title" required>
           <input
             id="course-title"
             v-model="courseTitle"
             data-test="course-title"
             type="text"
             required
-            placeholder="Manipulación Segura..."
-            class="mt-1 w-full rounded border p-1.5 text-sm"
+            placeholder="Manipulación segura de productos químicos"
+            class="w-full"
           />
-        </div>
-        <div>
-          <label for="course-slug" class="block text-xs font-medium text-slate-700">Slug identificador</label>
+        </AdminFormField>
+        <AdminFormField
+          label="Dirección del curso"
+          for="course-slug"
+          help="Solo minúsculas y guiones: manipulacion-segura."
+          required
+        >
           <input
             id="course-slug"
             v-model="courseSlug"
@@ -165,147 +235,73 @@ onMounted(() => {
             type="text"
             required
             placeholder="manipulacion-segura"
-            class="mt-1 w-full rounded border p-1.5 text-sm font-mono"
+            class="w-full"
           />
-        </div>
-        <div>
-          <label for="course-score" class="block text-xs font-medium text-slate-700">% Mínimo para aprobar</label>
-          <input
-            id="course-score"
-            v-model.number="passingScore"
-            type="number"
-            min="50"
-            max="100"
-            class="mt-1 w-full rounded border p-1.5 text-sm"
-          />
-        </div>
-
-        <div class="md:col-span-2">
-          <label for="course-desc" class="block text-xs font-medium text-slate-700">Descripción pedagógica</label>
+        </AdminFormField>
+        <AdminFormField label="Descripción" for="course-desc" required>
           <input
             id="course-desc"
             v-model="courseDesc"
             data-test="course-desc"
             type="text"
             required
-            placeholder="Objetivos, temario y competencias adquiridas..."
-            class="mt-1 w-full rounded border p-1.5 text-sm"
+            placeholder="Qué se aprende y a quién va dirigido"
+            class="w-full"
           />
-        </div>
-
-        <div>
-          <label for="course-status" class="block text-xs font-medium text-slate-700">Estado de publicación</label>
-          <select id="course-status" v-model="courseStatus" class="mt-1 w-full rounded border p-1.5 text-sm">
-            <option value="draft">Borrador</option>
-            <option value="published">Publicado</option>
-          </select>
-        </div>
-
-        <div class="md:col-span-3 pt-2">
-          <button
-            type="button"
-            data-test="save-course-btn"
-            :disabled="busy || !courseTitle || !courseSlug || !courseDesc"
-            class="rounded bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
-            @click="createCourse"
-          >
-            {{ busy ? 'Guardando...' : 'Crear curso' }}
-          </button>
+        </AdminFormField>
+        <div class="adm-form-grid">
+          <AdminFormField label="Nota mínima para aprobar (%)" for="course-score">
+            <input id="course-score" v-model.number="passingScore" type="number" min="50" max="100" />
+          </AdminFormField>
+          <AdminFormField label="Estado" for="course-status">
+            <select id="course-status" v-model="courseStatus">
+              <option value="draft">Borrador</option>
+              <option value="published">Publicado</option>
+            </select>
+          </AdminFormField>
         </div>
       </form>
-    </section>
-
-    <!-- Courses List -->
-    <section
-      aria-labelledby="courses-list-heading"
-      class="rounded-xl border border-slate-200 bg-white p-5 shadow-xs space-y-4"
-    >
-      <h2 id="courses-list-heading" class="text-base font-semibold text-slate-900">
-        Cursos disponibles ({{ courses.length }})
-      </h2>
-
-      <div v-if="courses.length === 0 && !loading" class="text-xs text-slate-500 py-3">
-        No hay cursos en el catálogo formativo.
-      </div>
-
-      <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <article
-          v-for="c in courses"
-          :key="c.id"
-          class="rounded-lg border border-slate-200 p-4 space-y-2 hover:border-indigo-300 transition-colors"
+      <template #footer>
+        <AdminButton @click="courseOpen = false">Cancelar</AdminButton>
+        <button
+          type="button"
+          data-test="save-course-btn"
+          :disabled="busy || !courseTitle || !courseSlug || !courseDesc"
+          class="adm-btn adm-btn--primary"
+          @click="saveCourse"
         >
-          <div class="flex items-start justify-between">
-            <div>
-              <span class="text-[11px] font-mono text-slate-500">{{ c.slug }}</span>
-              <h3 class="font-bold text-slate-900 text-base">{{ c.title }}</h3>
-            </div>
-            <span
-              class="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-              :class="c.status === 'published' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'"
-            >
-              {{ c.status }}
-            </span>
-          </div>
-
-          <p class="text-xs text-slate-600 line-clamp-2">{{ c.description }}</p>
-
-          <div class="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t">
-            <span>{{ c.durationMinutes ?? 30 }} min</span>
-            <span>Aprobado: {{ c.passingScorePercent }}%</span>
-            <button
-              type="button"
-              class="ml-auto text-indigo-600 hover:text-indigo-800 font-medium"
-              @click="selectedCourse = c"
-            >
-              + Añadir lección
-            </button>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <!-- Add Lesson Section (when course selected) -->
-    <section v-if="selectedCourse" class="rounded-xl border border-indigo-200 bg-indigo-50/50 p-5 space-y-3">
-      <div class="flex justify-between items-center">
-        <h3 class="font-bold text-slate-900 text-sm">Añadir lección al curso: {{ selectedCourse.title }}</h3>
-        <button type="button" class="text-xs text-slate-500 hover:text-slate-700" @click="selectedCourse = null">
-          Cancelar
+          {{ busy ? 'Guardando…' : 'Crear curso' }}
         </button>
-      </div>
+      </template>
+    </AdminDrawer>
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label class="block text-xs text-slate-700">Título de la lección</label>
-          <input
-            v-model="lessonTitle"
-            type="text"
-            placeholder="Tema 1:..."
-            class="mt-1 w-full rounded border p-1 text-xs bg-white"
-          />
-        </div>
-        <div>
-          <label class="block text-xs text-slate-700">Orden de impartición</label>
-          <input
-            v-model.number="lessonOrder"
-            type="number"
-            min="1"
-            class="mt-1 w-full rounded border p-1 text-xs bg-white"
-          />
-        </div>
-        <div class="md:col-span-3">
-          <label class="block text-xs text-slate-700">Contenido pedagógico (Markdown / Texto)</label>
-          <textarea v-model="lessonContent" rows="3" class="mt-1 w-full rounded border p-1 text-xs bg-white" />
-        </div>
+    <AdminDrawer v-model:open="lessonOpen" title="Añadir lección" :description="selectedCourse?.title">
+      <div class="adm-stack">
+        <UAlert
+          v-if="error"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="No se ha podido guardar la lección"
+          description="Revisa los datos y vuelve a intentarlo."
+        />
+        <AdminFormField v-slot="{ id }" label="Título de la lección" required>
+          <input :id="id" v-model="lessonTitle" type="text" placeholder="Tema 1: …" class="w-full" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Posición dentro del curso">
+          <input :id="id" v-model.number="lessonOrder" type="number" min="1" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Contenido" required>
+          <textarea :id="id" v-model="lessonContent" rows="8" class="w-full" />
+        </AdminFormField>
       </div>
-
-      <button
-        type="button"
-        :disabled="busy || !lessonTitle || !lessonContent"
-        class="rounded bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
-        @click="createLesson"
-      >
-        Guardar lección
-      </button>
-    </section>
+      <template #footer>
+        <AdminButton @click="selectedCourse = null">Cancelar</AdminButton>
+        <AdminButton variant="primary" :disabled="busy || !lessonTitle || !lessonContent" @click="createLesson">
+          Guardar lección
+        </AdminButton>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

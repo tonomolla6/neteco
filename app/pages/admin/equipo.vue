@@ -29,19 +29,27 @@ const scopeKey = computed(() =>
 )
 </script>
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-semibold">Equipo y accesos</h1>
-      <p class="mt-2 text-muted">
-        Invita a cuentas verificadas con MFA y asigna únicamente permisos que ya puedes delegar.
-      </p>
-    </header>
-    <p v-if="runtime.public.serverRuntime !== 'cloudflare'" role="status">
-      Las invitaciones están disponibles en el entorno Cloudflare, sin modificar los permisos del entorno Node.
-    </p>
-    <AdminInvitationsPanel :enabled="enabled" :scope-key="scopeKey" :pending="false" @pending="pending = $event" />
-    <p v-if="pending" role="status" aria-live="polite">
-      Hay una operación pendiente de confirmar. No crees otra invitación hasta consultar su recibo.
-    </p>
-  </div>
+  <AdminPage>
+    <div class="adm-stack">
+      <UAlert
+        v-if="runtime.public.serverRuntime !== 'cloudflare'"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-info"
+        title="Las invitaciones no están disponibles en esta instalación"
+      />
+      <UAlert
+        v-if="pending"
+        role="status"
+        aria-live="polite"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-hourglass"
+        title="Hay una invitación a medio confirmar"
+        description="Termina de confirmarla o cancélala antes de crear otra."
+      />
+      <AdminInvitationsPanel :enabled="enabled" :scope-key="scopeKey" :pending="false" @pending="pending = $event" />
+    </div>
+  </AdminPage>
 </template>

@@ -429,6 +429,68 @@ async function copy() {
     if (live(turn, actor)) message.value = 'No se pudo copiar. Comparte manualmente el enlace o secreto visible.'
   }
 }
+const STATUS: Record<AdminInvitation['status'], [string, 'warning' | 'success' | 'danger' | 'neutral']> = {
+  pending: ['Pendiente de aceptar', 'warning'],
+  accepted: ['Aceptada', 'success'],
+  revoked: ['Anulada', 'danger'],
+  expired: ['Caducada', 'neutral']
+}
+const PERMISSION_AREAS: Record<string, string> = {
+  administration: 'Administración',
+  support: 'Atención al cliente',
+  inventory: 'Inventario',
+  orders: 'Pedidos',
+  catalog: 'Catálogo',
+  customers: 'Clientes',
+  marketing: 'Marketing',
+  content: 'Contenido',
+  pricing: 'Precios',
+  returns: 'Devoluciones',
+  shipping: 'Envíos',
+  reports: 'Informes',
+  finance: 'Finanzas'
+}
+const PERMISSION_ACTIONS: Record<string, string> = {
+  manage: 'gestionar',
+  read: 'consultar',
+  write: 'editar',
+  export: 'exportar',
+  approve: 'aprobar'
+}
+function permissionLabel(code: string) {
+  const [area = '', action = ''] = code.split('.')
+  const name = PERMISSION_AREAS[area] ?? adminHumanize(area)
+  return action ? `${name} (${PERMISSION_ACTIONS[action] ?? adminHumanize(action).toLowerCase()})` : name
+}
+const columns = [
+  { key: 'recipientEmail', label: 'Correo' },
+  { key: 'roleCode', label: 'Perfil' },
+  { key: 'status', label: 'Estado' },
+  { key: 'expiresAt', label: 'Caduca', hideOnMobile: true }
+]
+const statusOptions = [
+  { value: 'all', label: 'Todas' },
+  { value: 'pending', label: 'Pendientes' },
+  { value: 'accepted', label: 'Aceptadas' },
+  { value: 'revoked', label: 'Anuladas' },
+  { value: 'expired', label: 'Caducadas' }
+]
+const search = ref(''),
+  statusFilter = ref('all')
+const filtering = computed(() => !!search.value || statusFilter.value !== 'all')
+const rows = computed(() => {
+  const term = search.value.toLowerCase()
+  return (snapshot.value?.items ?? []).filter(
+    (item) =>
+      (statusFilter.value === 'all' || item.status === statusFilter.value) &&
+      (!term || item.recipientEmail.toLowerCase().includes(term))
+  )
+})
+const selectedRole = computed(() => snapshot.value?.roles.find((role) => role.code === roleCode.value))
+function clearFilters() {
+  search.value = ''
+  statusFilter.value = 'all'
+}
 watch(
   owner,
   () => {
@@ -443,187 +505,275 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section aria-label="Invitaciones de administración" class="min-w-0 space-y-4 rounded-xl border bg-white p-4">
-    <h2 class="text-lg font-semibold">Invitaciones de administración</h2>
-    <p class="text-sm">
-      Invitaciones privadas con rol y caducidad. El enlace se comparte manualmente; no se envía correo.
-    </p>
-    <p class="text-sm">
-      La persona invitada debe tener una cuenta activa con ese correo verificado. No puedes invitarte a ti mismo.
-    </p>
-    <p v-if="!allowed" role="status">
-      Se requiere una sesión vigente, correo verificado, MFA y permiso de administración.
-    </p>
+  <section aria-label="Invitaciones de administración" class="adm-stack min-w-0">
+    <UAlert
+      v-if="!allowed"
+      role="status"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="No puedes gestionar invitaciones ahora mismo"
+      description="Hace falta una sesión activa, el correo verificado, la verificación en dos pasos y permiso de administración."
+    />
     <template v-else>
-      <p v-if="message" :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'">{{ message }}</p>
-      <button
-        type="button"
-        data-invitations-load
-        :disabled="busy || pending || !!intent"
-        class="rounded border px-3 py-2"
-        @click="load()"
+      <UAlert
+        v-if="message"
+        :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'"
+        :data-invitations-confirmed="phase === 'confirmed' ? '' : undefined"
+        :color="phase === 'unknown' || phase === 'error' ? 'error' : phase === 'confirmed' ? 'success' : 'neutral'"
+        variant="subtle"
+        :icon="
+          phase === 'unknown' || phase === 'error'
+            ? 'i-lucide-triangle-alert'
+            : phase === 'confirmed'
+              ? 'i-lucide-circle-check'
+              : 'i-lucide-info'
+        "
+        :title="message"
+      />
+
+      <AdminCard v-if="intent && !intent.attempted" title="Revisa antes de confirmar">
+        <p v-if="intent.action === 'create'" class="break-words">
+          Vas a invitar a <strong>{{ intent.body.recipientEmail }}</strong> con el perfil
+          <strong>{{ adminRoleLabel(intent.body.roleCode) }}</strong
+          >. La invitación caduca en {{ intent.body.expiresInHours }} horas.
+        </p>
+        <p v-else>Vas a anular la invitación seleccionada. Quien ya la haya aceptado conserva su acceso.</p>
+        <p class="adm-help mt-2 break-words">Motivo: {{ intent.body.reason }}</p>
+        <template #footer>
+          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
+          <button
+            data-invitations-confirm
+            type="button"
+            :disabled="busy || pending"
+            class="adm-btn"
+            :class="intent.action === 'create' ? 'adm-btn--primary' : 'adm-btn--danger'"
+            @click="send"
+          >
+            Confirmar {{ intent.action === 'create' ? 'invitación' : 'anulación' }}
+          </button>
+        </template>
+      </AdminCard>
+
+      <div v-if="intent?.attempted && phase === 'unknown'">
+        <button
+          data-invitations-check
+          type="button"
+          :disabled="busy || pending"
+          class="adm-btn adm-btn--secondary"
+          @click="check"
+        >
+          Comprobar si se ha guardado
+        </button>
+      </div>
+
+      <AdminCard
+        v-if="deliverySecret"
+        title="Enlace de la invitación"
+        description="Guárdalo ahora: solo se muestra una vez. Envíaselo tú a la persona invitada; la tienda no manda ningún correo."
       >
-        Leer invitaciones vigentes
-      </button>
-      <template v-if="snapshot">
-        <form class="space-y-3" @submit.prevent="review">
-          <fieldset :disabled="busy || pending || !!intent" class="grid gap-3 sm:grid-cols-2">
-            <label :for="`${prefix}-email`"
-              >Correo de la persona invitada<input
-                :id="`${prefix}-email`"
-                v-model="recipientEmail"
-                data-invitations-email
-                type="email"
-                maxlength="254"
-                autocomplete="off"
-                class="block w-full rounded border p-2"
-            /></label>
-            <label :for="`${prefix}-role`"
-              >Rol autorizado<select
-                :id="`${prefix}-role`"
-                v-model="roleCode"
-                data-invitations-role
-                class="block w-full rounded border p-2"
-              >
-                <option value="">Selecciona un rol</option>
-                <option v-for="role in snapshot.roles" :key="role.code" :value="role.code">{{ role.code }}</option>
-              </select></label
-            >
-            <p v-if="roleCode" class="break-words text-sm sm:col-span-2">
-              Permisos: {{ snapshot.roles.find((role) => role.code === roleCode)?.permissions.join(', ') }}
-            </p>
-            <label :for="`${prefix}-hours`"
-              >Caducidad en horas (1–168)<input
-                :id="`${prefix}-hours`"
-                v-model="expiresInHours"
-                data-invitations-hours
-                type="number"
-                min="1"
-                max="168"
-                step="1"
-                class="block w-full rounded border p-2"
-            /></label>
-            <label :for="`${prefix}-reason`" class="sm:col-span-2"
-              >Motivo de la invitación<textarea
-                :id="`${prefix}-reason`"
-                v-model="reason"
-                data-invitations-reason
-                minlength="10"
-                maxlength="500"
-                class="block w-full rounded border p-2"
-              />
-            </label>
-            <button data-invitations-review type="submit" class="rounded border px-3 py-2">Revisar invitación</button>
-          </fieldset>
-        </form>
-        <ul class="space-y-3">
-          <li v-for="item in snapshot.items" :key="item.id" class="min-w-0 rounded border p-3">
-            <p class="break-words">{{ item.recipientEmail }} · {{ item.roleCode }} · {{ item.status }}</p>
-            <p class="text-sm">Versión {{ item.version }} · caduca {{ item.expiresAt }}</p>
+        <div class="adm-stack min-w-0">
+          <a
+            v-if="deliverySecret.href"
+            :href="deliverySecret.href"
+            data-invitations-share-link
+            referrerpolicy="no-referrer"
+            class="block break-all font-semibold text-[var(--color-neteco-700)] underline"
+            >Enlace privado de aceptación</a
+          >
+          <p v-else>
+            No se ha podido generar el enlace porque la dirección pública de la tienda no es válida. Comparte esta clave
+            para usarla en la página /cuenta/invitacion.
+          </p>
+          <code
+            data-invitations-secret
+            class="block break-all rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-3 text-xs"
+            >{{ deliverySecret.token }}</code
+          >
+        </div>
+        <template #footer>
+          <button
+            data-invitations-copy
+            type="button"
+            :disabled="busy || pending"
+            class="adm-btn adm-btn--secondary"
+            @click="copy"
+          >
+            <UIcon name="i-lucide-copy" class="size-4" />Copiar enlace
+          </button>
+        </template>
+      </AdminCard>
+
+      <AdminCard v-if="revokeTarget && !intent" title="Anular invitación">
+        <form class="adm-stack" @submit.prevent="reviewRevoke">
+          <p class="break-words">
+            Invitación para <strong>{{ revokeTarget.recipientEmail }}</strong> ({{
+              adminRoleLabel(revokeTarget.roleCode)
+            }}).
+          </p>
+          <div class="adm-field">
+            <label :for="`${prefix}-revoke-reason`" class="adm-label">Motivo de la anulación</label>
+            <textarea
+              :id="`${prefix}-revoke-reason`"
+              v-model="revokeReason"
+              data-invitations-revoke-reason
+              minlength="10"
+              maxlength="500"
+              :disabled="busy || pending"
+              class="adm-input"
+            />
+            <p class="adm-help">Entre 10 y 500 caracteres.</p>
+          </div>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
             <button
-              v-if="item.status === 'pending'"
-              :data-invitations-revoke="item.id"
+              data-invitations-review-revoke
+              type="submit"
+              :disabled="busy || pending"
+              class="adm-btn adm-btn--danger"
+            >
+              Anular invitación
+            </button>
+          </div>
+        </form>
+      </AdminCard>
+
+      <AdminCard v-if="!snapshot">
+        <AdminEmptyState
+          :variant="phase === 'error' ? 'error' : 'empty'"
+          icon="i-lucide-users"
+          :title="phase === 'error' ? 'No se han podido cargar las invitaciones' : 'Invitaciones del equipo'"
+          description="Por seguridad, la lista solo se consulta cuando la pides."
+        >
+          <button
+            type="button"
+            data-invitations-load
+            :disabled="busy || pending || !!intent"
+            class="adm-btn adm-btn--primary"
+            @click="load()"
+          >
+            {{ phase === 'error' ? 'Reintentar' : 'Ver invitaciones' }}
+          </button>
+        </AdminEmptyState>
+      </AdminCard>
+
+      <div v-else class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <AdminTable
+          :rows="rows"
+          :columns="columns"
+          :row-key="(row) => row.id"
+          :status="busy ? 'pending' : 'success'"
+          :total="filtering ? undefined : snapshot.total"
+          :per-page="snapshot.perPage"
+          :page="filtering ? 1 : snapshot.page"
+          :filtered="filtering"
+          empty-title="Todavía no has invitado a nadie"
+          empty-description="Usa el formulario para dar acceso al panel a otra persona."
+          empty-icon="i-lucide-user-plus"
+          caption="Invitaciones al panel"
+          @update:page="load($event)"
+          @clear-filters="clearFilters"
+        >
+          <template #toolbar>
+            <AdminToolbar v-model:search="search" placeholder="Buscar por correo…">
+              <AdminFilters v-model="statusFilter" :options="statusOptions" label="Filtrar por estado" />
+              <template #actions>
+                <button
+                  type="button"
+                  data-invitations-load
+                  :disabled="busy || pending || !!intent"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="load()"
+                >
+                  <UIcon name="i-lucide-rotate-cw" class="size-4" />Actualizar
+                </button>
+              </template>
+            </AdminToolbar>
+          </template>
+          <template #cell-recipientEmail="{ row }">
+            <span class="break-all font-semibold text-[var(--text-strong)]">{{ row.recipientEmail }}</span>
+          </template>
+          <template #cell-roleCode="{ row }">{{ adminRoleLabel(row.roleCode) }}</template>
+          <template #cell-status="{ row }">
+            <AdminBadge :tone="STATUS[row.status][1]">{{ STATUS[row.status][0] }}</AdminBadge>
+          </template>
+          <template #cell-expiresAt="{ row }">{{ adminDate(row.expiresAt, true) }}</template>
+          <template #actions="{ row }">
+            <button
+              v-if="row.status === 'pending'"
+              :data-invitations-revoke="row.id"
               type="button"
               :disabled="busy || pending || !!intent"
-              class="rounded border px-3 py-2"
-              @click="chooseRevoke(item)"
+              class="adm-btn adm-btn--danger-soft adm-btn--sm"
+              @click="chooseRevoke(row)"
             >
-              Revisar revocación
+              Anular
             </button>
-          </li>
-        </ul>
-        <nav aria-label="Páginas de invitaciones" class="flex flex-wrap gap-2">
-          <button
-            type="button"
-            :disabled="snapshot.page <= 1 || busy || pending || !!intent"
-            @click="load(snapshot.page - 1)"
-          >
-            Anterior
-          </button>
-          <span>Página {{ snapshot.page }} · {{ snapshot.total }} invitaciones</span>
-          <button
-            type="button"
-            :disabled="snapshot.page * snapshot.perPage >= snapshot.total || busy || pending || !!intent"
-            @click="load(snapshot.page + 1)"
-          >
-            Siguiente
-          </button>
-        </nav>
-      </template>
-      <form v-if="revokeTarget && !intent" class="space-y-3" @submit.prevent="reviewRevoke">
-        <p class="break-words">
-          Revocar invitación para {{ revokeTarget.recipientEmail }} ({{ revokeTarget.roleCode }}).
-        </p>
-        <label :for="`${prefix}-revoke-reason`"
-          >Motivo de revocación<textarea
-            :id="`${prefix}-revoke-reason`"
-            v-model="revokeReason"
-            data-invitations-revoke-reason
-            minlength="10"
-            maxlength="500"
-            :disabled="busy || pending"
-            class="block w-full rounded border p-2"
-          />
-        </label>
-        <button
-          data-invitations-review-revoke
-          type="submit"
-          :disabled="busy || pending"
-          class="rounded border px-3 py-2"
+          </template>
+        </AdminTable>
+
+        <AdminCard
+          title="Invitar a una persona"
+          description="Debe tener ya una cuenta en la tienda con ese correo verificado. No puedes invitarte a ti mismo."
         >
-          Revisar revocación
-        </button>
-      </form>
-      <div v-if="intent && !intent.attempted" class="space-y-3 rounded border p-3">
-        <p v-if="intent.action === 'create'" class="break-words">
-          Crear invitación para {{ intent.body.recipientEmail }} · rol {{ intent.body.roleCode }} ·
-          {{ intent.body.expiresInHours }} horas.
-        </p>
-        <p v-else>Revocar la invitación revisada en versión {{ intent.body.expectedVersion }}.</p>
-        <p class="break-words">{{ intent.body.reason }}</p>
-        <button
-          data-invitations-confirm
-          type="button"
-          :disabled="busy || pending"
-          class="rounded border px-3 py-2"
-          @click="send"
-        >
-          Confirmar {{ intent.action === 'create' ? 'invitación' : 'revocación' }}
-        </button>
-        <button type="button" :disabled="busy" @click="cancel">Cancelar revisión</button>
-      </div>
-      <button
-        v-if="intent?.attempted && phase === 'unknown'"
-        data-invitations-check
-        type="button"
-        :disabled="busy || pending"
-        class="rounded border px-3 py-2"
-        @click="check"
-      >
-        Consultar recibo y estado vigente
-      </button>
-      <p v-if="phase === 'confirmed'" data-invitations-confirmed role="status">{{ message }}</p>
-      <div v-if="deliverySecret" class="min-w-0 space-y-2 rounded border p-3">
-        <p>Guarda este enlace o secreto en un lugar seguro. Sólo está disponible en esta sesión de la pantalla.</p>
-        <a
-          v-if="deliverySecret.href"
-          :href="deliverySecret.href"
-          data-invitations-share-link
-          referrerpolicy="no-referrer"
-          class="block break-all"
-          >Enlace privado de aceptación</a
-        >
-        <p v-else>Origen público HTTPS no válido: comparte el secreto manualmente para la ruta /cuenta/invitacion.</p>
-        <code data-invitations-secret class="block break-all">{{ deliverySecret.token }}</code>
-        <button
-          data-invitations-copy
-          type="button"
-          :disabled="busy || pending"
-          class="rounded border px-3 py-2"
-          @click="copy"
-        >
-          Copiar para compartir manualmente
-        </button>
+          <form @submit.prevent="review">
+            <fieldset :disabled="busy || pending || !!intent" class="adm-stack">
+              <div class="adm-field">
+                <label :for="`${prefix}-email`" class="adm-label">Correo electrónico</label>
+                <input
+                  :id="`${prefix}-email`"
+                  v-model="recipientEmail"
+                  data-invitations-email
+                  type="email"
+                  maxlength="254"
+                  autocomplete="off"
+                  class="adm-input"
+                />
+              </div>
+              <div class="adm-field">
+                <label :for="`${prefix}-role`" class="adm-label">Perfil</label>
+                <select :id="`${prefix}-role`" v-model="roleCode" data-invitations-role class="adm-input">
+                  <option value="">Elige un perfil</option>
+                  <option v-for="role in snapshot.roles" :key="role.code" :value="role.code">
+                    {{ adminRoleLabel(role.code) }}
+                  </option>
+                </select>
+                <p v-if="selectedRole" class="adm-help break-words">
+                  Podrá: {{ selectedRole.permissions.map(permissionLabel).join(' · ') }}
+                </p>
+              </div>
+              <div class="adm-field">
+                <label :for="`${prefix}-hours`" class="adm-label">Válida durante (horas)</label>
+                <input
+                  :id="`${prefix}-hours`"
+                  v-model="expiresInHours"
+                  data-invitations-hours
+                  type="number"
+                  min="1"
+                  max="168"
+                  step="1"
+                  class="adm-input"
+                />
+                <p class="adm-help">Entre 1 y 168 horas (7 días).</p>
+              </div>
+              <div class="adm-field">
+                <label :for="`${prefix}-reason`" class="adm-label">Motivo</label>
+                <textarea
+                  :id="`${prefix}-reason`"
+                  v-model="reason"
+                  data-invitations-reason
+                  minlength="10"
+                  maxlength="500"
+                  class="adm-input"
+                />
+                <p class="adm-help">Queda guardado en el registro de actividad.</p>
+              </div>
+              <button data-invitations-review type="submit" class="adm-btn adm-btn--primary w-full justify-center">
+                Revisar invitación
+              </button>
+            </fieldset>
+          </form>
+        </AdminCard>
       </div>
     </template>
   </section>

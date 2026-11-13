@@ -2,11 +2,11 @@
 import AdminLearningCentre from '~/components/AdminLearningCentre.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Centro de aprendizaje · Admin', robots: 'noindex, nofollow, noarchive' })
+useSeoMeta({ title: 'Formación · Admin', robots: 'noindex, nofollow, noarchive' })
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminLearningCentre />
-  </div>
+  </AdminPage>
 </template>

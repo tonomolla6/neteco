@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 
 const requestFetch = useRequestFetch()
 
@@ -58,13 +58,26 @@ const overrideForm = ref({
 })
 
 const journeyLabels: Record<string, string> = {
-  storefront: 'Storefront (Web)',
-  checkout_orders: 'Checkout y Pedidos',
-  catalog_api: 'API Catálogo',
-  critical_mutations: 'Mutaciones Críticas',
-  payments_webhooks: 'Webhooks Redsys / Pagos',
-  jobs_queues: 'Colas y Procesos Asíncronos'
+  storefront: 'Tienda (web)',
+  checkout_orders: 'Compra y pedidos',
+  catalog_api: 'Catálogo',
+  critical_mutations: 'Cambios importantes',
+  payments_webhooks: 'Pagos (Redsys)',
+  jobs_queues: 'Procesos en segundo plano'
 }
+const releaseTypeLabels: Record<string, string> = {
+  feature: 'Novedad',
+  reliability_fix: 'Mejora de estabilidad',
+  hotfix: 'Arreglo urgente',
+  rollback: 'Vuelta a una versión anterior',
+  infrastructure: 'Cambio de infraestructura'
+}
+const overrideOpen = computed({
+  get: () => overrideForm.value.decisionId !== '',
+  set: (open: boolean) => {
+    if (!open) overrideForm.value.decisionId = ''
+  }
+})
 
 async function loadData() {
   loading.value = true
@@ -80,7 +93,8 @@ async function loadData() {
     }
     decisions.value = resDecisions?.decisions ?? []
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al cargar datos de error budget'
+    errorMessage.value =
+      err instanceof Error ? err.message : 'No se han podido cargar las mediciones. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -88,7 +102,7 @@ async function loadData() {
 
 async function handleEvaluate() {
   if (!evalForm.value.releaseVersion.trim() || !evalForm.value.commitHash.trim()) {
-    errorMessage.value = 'Versión de release y hash de commit son obligatorios'
+    errorMessage.value = 'Indica la versión y el identificador del cambio.'
     return
   }
   evaluating.value = true
@@ -107,13 +121,14 @@ async function handleEvaluate() {
     })) as { decision: ReleaseDecisionRecord }
 
     if (res.decision.status === 'approved') {
-      successMessage.value = `Release ${res.decision.releaseVersion} APROBADA. Fiabilidad dentro de objetivo.`
+      successMessage.value = `La versión ${res.decision.releaseVersion} se puede publicar: la estabilidad está dentro del objetivo.`
     } else {
-      errorMessage.value = `Release ${res.decision.releaseVersion} PAUSADA: Error budget agotado. Priorizar fiabilidad sobre nuevas features.`
+      errorMessage.value = `La versión ${res.decision.releaseVersion} queda en pausa: se ha agotado el margen de errores. Primero hay que recuperar la estabilidad.`
     }
     await loadData()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al evaluar decisión de release'
+    errorMessage.value =
+      err instanceof Error ? err.message : 'No se ha podido comprobar la versión. Vuelve a intentarlo.'
   } finally {
     evaluating.value = false
   }
@@ -121,7 +136,7 @@ async function handleEvaluate() {
 
 async function handleOverride() {
   if (!overrideForm.value.justification.trim() || overrideForm.value.justification.trim().length < 5) {
-    errorMessage.value = 'Se requiere una justificación formal de al menos 5 caracteres para bypass de emergencia'
+    errorMessage.value = 'Escribe un motivo de al menos 5 caracteres para autorizar la versión.'
     return
   }
   overriding.value = true
@@ -137,12 +152,13 @@ async function handleOverride() {
         justification: overrideForm.value.justification.trim()
       }
     })
-    successMessage.value = 'Bypass de emergencia registrado y auditado correctamente'
+    successMessage.value = 'Versión autorizada por urgencia. Ha quedado anotado en el registro de actividad.'
     overrideForm.value.decisionId = ''
     overrideForm.value.justification = ''
     await loadData()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al autorizar bypass de emergencia'
+    errorMessage.value =
+      err instanceof Error ? err.message : 'No se ha podido autorizar la versión. Vuelve a intentarlo.'
   } finally {
     overriding.value = false
   }
@@ -154,274 +170,228 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header & Freeze Status Alert -->
-    <div
+  <div class="adm-stack">
+    <UAlert
       v-if="overview?.featureFreezeActive"
       role="alert"
-      class="rounded-lg border border-red-300 bg-red-50 p-4 text-red-900"
-    >
-      <div class="flex items-center gap-2 font-semibold">
-        <span class="text-xl"></span>
-        <span>Feature Freeze Activo — Exceso de Fallos Pausa Nuevas Features</span>
-      </div>
-      <p class="mt-1 text-sm text-red-800">
-        El error budget se ha agotado en los journeys:
-        <strong>{{ overview.blockingJourneys.map((j) => journeyLabels[j] || j).join(', ') }}</strong
-        >. Solo se autorizan releases de tipo <em>fiabilidad, hotfix o rollback</em> hasta restablecer el margen de
-        estabilidad.
-      </p>
-    </div>
-
-    <div
+      color="error"
+      variant="subtle"
+      icon="i-lucide-octagon-pause"
+      title="Novedades en pausa: se ha superado el margen de errores"
+      :description="`Demasiados fallos en: ${overview.blockingJourneys.map((j) => journeyLabels[j] || adminHumanize(j)).join(', ')}. Hasta recuperar la estabilidad solo se pueden publicar correcciones, arreglos urgentes o vueltas a una versión anterior.`"
+    />
+    <UAlert
       v-else-if="overview && !overview.featureFreezeActive"
-      class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-emerald-900"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      title="Todo estable"
+      description="Todas las áreas cumplen su objetivo de servicio. Se pueden publicar versiones con normalidad."
+    />
+
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
+
+    <AdminSection
+      title="Margen de errores por área"
+      description="Cuántos fallos admite cada área de la tienda antes de pausar las novedades."
     >
-      <div class="flex items-center gap-2 font-semibold"><span>Estabilidad Nominal — Error Budget Saludable</span></div>
-      <p class="mt-1 text-sm text-emerald-800">
-        Todos los journeys operativos cumplen con sus SLOs objetivos. Decisiones de release estándar admitidas.
-      </p>
-    </div>
-
-    <!-- Feedback messages -->
-    <div v-if="errorMessage" role="alert" class="rounded bg-red-100 p-3 text-sm text-red-700">
-      {{ errorMessage }}
-    </div>
-    <div v-if="successMessage" role="status" class="rounded bg-emerald-100 p-3 text-sm text-emerald-700">
-      {{ successMessage }}
-    </div>
-
-    <!-- Journeys Error Budget Grid -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
-      <h3 class="text-base font-semibold text-neutral-900 mb-4">
-        Presupuesto de Error por Journey Operativo (SLO Rolling)
-      </h3>
-      <div v-if="loading" class="text-sm text-neutral-500 py-4 text-center">
-        Cargando métricas de observabilidad SRE...
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Actualizar</AdminButton>
+      </template>
+      <div v-if="loading && !overview" class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando…</span>
+        <div v-for="row in 3" :key="row"><i /><i /><i /></div>
       </div>
-      <div
-        v-else-if="overview && Object.keys(overview.journeys).length > 0"
-        class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        <div
-          v-for="(status, jKey) in overview.journeys"
-          :key="jKey"
-          class="rounded-md border p-4 transition-colors"
-          :class="status.isExhausted ? 'border-red-300 bg-red-50/50' : 'border-neutral-200 bg-neutral-50/50'"
-        >
-          <div class="flex items-start justify-between">
-            <span class="font-medium text-neutral-800 text-sm">{{ journeyLabels[jKey] || jKey }}</span>
-            <span
-              class="px-2 py-0.5 text-xs font-semibold rounded-full"
-              :class="status.isExhausted ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'"
-            >
-              {{ status.isExhausted ? 'Agotado' : 'OK' }}
-            </span>
+      <div v-else-if="overview && Object.keys(overview.journeys).length > 0" class="adm-grid">
+        <AdminCard v-for="(status, jKey) in overview.journeys" :key="jKey" as="article">
+          <div class="flex items-start justify-between gap-2">
+            <span class="font-semibold text-[var(--text-strong)]">{{
+              journeyLabels[jKey] || adminHumanize(jKey)
+            }}</span>
+            <AdminBadge :tone="status.isExhausted ? 'danger' : 'success'">
+              {{ status.isExhausted ? 'Agotado' : 'Correcto' }}
+            </AdminBadge>
           </div>
-
-          <div class="mt-3 space-y-1.5 text-xs text-neutral-600">
-            <div class="flex justify-between">
-              <span>SLO Objetivo:</span>
-              <span class="font-semibold">{{ (status.targetSloRatio * 100).toFixed(2) }}%</span>
+          <dl class="mt-3 space-y-1.5 text-sm">
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">Objetivo de servicio</dt>
+              <dd class="font-semibold tabular-nums">{{ (status.targetSloRatio * 100).toFixed(2) }} %</dd>
             </div>
-            <div class="flex justify-between">
-              <span>Eventos Totales:</span>
-              <span>{{ status.totalEvents.toLocaleString() }}</span>
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">Operaciones medidas</dt>
+              <dd class="tabular-nums">{{ status.totalEvents.toLocaleString('es-ES') }}</dd>
             </div>
-            <div class="flex justify-between">
-              <span>Fallos Reales / Permitidos:</span>
-              <span
-                ><strong>{{ status.failedEvents }}</strong> / {{ status.allowedErrorCount }}</span
-              >
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">Fallos / permitidos</dt>
+              <dd class="tabular-nums">
+                <strong>{{ status.failedEvents }}</strong> / {{ status.allowedErrorCount }}
+              </dd>
             </div>
-            <div class="flex justify-between">
-              <span>Burn Rate:</span>
-              <span :class="status.burnRate > 1.5 ? 'font-bold text-red-700' : ''">
-                {{ status.burnRate.toFixed(2) }}x
-              </span>
+            <div class="flex justify-between gap-3">
+              <dt class="text-[var(--text-muted)]">Ritmo de consumo</dt>
+              <dd class="tabular-nums" :class="status.burnRate > 1.5 ? 'font-semibold text-red-700' : ''">
+                {{ status.burnRate.toFixed(2) }}×
+              </dd>
             </div>
-          </div>
-
-          <!-- Progress Bar of Budget Remaining -->
+          </dl>
           <div class="mt-3">
-            <div class="flex justify-between text-xs text-neutral-500 mb-1">
-              <span>Presupuesto Restante</span>
-              <span
-                class="font-bold"
-                :class="status.remainingBudgetPercent <= 10 ? 'text-red-700' : 'text-emerald-700'"
-              >
-                {{ status.remainingBudgetPercent.toFixed(1) }}%
+            <div class="mb-1 flex justify-between text-xs text-[var(--text-muted)]">
+              <span>Margen restante</span>
+              <span class="font-semibold tabular-nums" :class="status.remainingBudgetPercent <= 10 && 'text-red-700'">
+                {{ status.remainingBudgetPercent.toFixed(1) }} %
               </span>
             </div>
-            <div class="h-2 w-full bg-neutral-200 rounded-full overflow-hidden">
+            <div class="h-2 w-full overflow-hidden rounded-full bg-[var(--surface-sunken)]">
               <div
-                class="h-full rounded-full transition-all duration-300"
-                :class="
-                  status.remainingBudgetPercent <= 10
-                    ? 'bg-red-600'
-                    : status.remainingBudgetPercent <= 30
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-600'
-                "
+                class="h-full rounded-full"
+                :class="status.remainingBudgetPercent <= 10 ? 'bg-red-600' : 'bg-neteco-600'"
                 :style="{ width: `${Math.max(0, Math.min(100, status.remainingBudgetPercent))}%` }"
               />
             </div>
           </div>
-        </div>
+        </AdminCard>
       </div>
-      <div v-else class="text-sm text-neutral-500 py-4 text-center">No se han registrado mediciones SLI aún.</div>
-    </div>
+      <AdminEmptyState
+        v-else-if="!overview && errorMessage"
+        variant="error"
+        title="No se han podido cargar las mediciones"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <AdminButton icon="i-lucide-rotate-cw" @click="loadData">Reintentar</AdminButton>
+      </AdminEmptyState>
+      <AdminEmptyState
+        v-else
+        title="Todavía no hay mediciones"
+        description="Aparecerán aquí en cuanto la tienda registre actividad."
+        icon="i-lucide-activity"
+      />
+    </AdminSection>
 
-    <!-- Release Decision Evaluator Form -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
-      <h3 class="text-base font-semibold text-neutral-900 mb-2">Evaluador de Release Gate</h3>
-      <p class="text-xs text-neutral-600 mb-4">
-        Comprueba automáticamente el estado del error budget antes de desplegar. Si hay exceso de fallos, las features
-        quedan bloqueadas y solo se permite priorizar la fiabilidad.
-      </p>
-
-      <form class="grid gap-4 sm:grid-cols-3" @submit.prevent="handleEvaluate">
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1" for="release-version">
-            Versión de Release
-          </label>
-          <input
-            id="release-version"
-            v-model="evalForm.releaseVersion"
-            type="text"
-            placeholder="v2026.10.30-feat"
-            class="w-full rounded border border-neutral-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-          />
+    <AdminCard
+      title="Comprobar si se puede publicar una versión"
+      description="Revisa el margen de errores antes de publicar. Si hay demasiados fallos, las novedades quedan bloqueadas y solo se admiten correcciones."
+    >
+      <form class="adm-form-grid" @submit.prevent="handleEvaluate">
+        <div class="adm-field">
+          <label class="adm-label" for="release-version">Versión</label>
+          <input id="release-version" v-model="evalForm.releaseVersion" type="text" placeholder="v2026.10.30" />
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1" for="release-type"> Tipo de Despliegue </label>
-          <select
-            id="release-type"
-            v-model="evalForm.releaseType"
-            class="w-full rounded border border-neutral-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="feature">Feature / Nueva Funcionalidad</option>
-            <option value="reliability_fix">Mejora de Fiabilidad / SRE</option>
-            <option value="hotfix">Hotfix Urgente</option>
-            <option value="rollback">Rollback a Versión Anterior</option>
-            <option value="infrastructure">Cambio de Infraestructura</option>
+        <div class="adm-field">
+          <label class="adm-label" for="release-type">Tipo de cambio</label>
+          <select id="release-type" v-model="evalForm.releaseType">
+            <option value="feature">Novedad</option>
+            <option value="reliability_fix">Mejora de estabilidad</option>
+            <option value="hotfix">Arreglo urgente</option>
+            <option value="rollback">Vuelta a una versión anterior</option>
+            <option value="infrastructure">Cambio de infraestructura</option>
           </select>
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1" for="commit-hash"> Git Commit Hash </label>
-          <input
-            id="commit-hash"
-            v-model="evalForm.commitHash"
-            type="text"
-            placeholder="abcdef123"
-            class="w-full rounded border border-neutral-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
-          />
+        <div class="adm-field">
+          <label class="adm-label" for="commit-hash">Identificador del cambio</label>
+          <input id="commit-hash" v-model="evalForm.commitHash" type="text" placeholder="abcdef123" />
         </div>
-
-        <div class="sm:col-span-3 flex justify-end">
-          <button
-            type="submit"
-            :disabled="evaluating"
-            class="rounded bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {{ evaluating ? 'Evaluando...' : 'Evaluar Decisión de Release' }}
+        <div class="flex items-end">
+          <button type="submit" :disabled="evaluating" class="adm-btn adm-btn--primary">
+            {{ evaluating ? 'Comprobando…' : 'Comprobar versión' }}
           </button>
         </div>
       </form>
-    </div>
+    </AdminCard>
 
-    <!-- Decisions History -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm">
-      <h3 class="text-base font-semibold text-neutral-900 mb-4">Histórico de Decisiones de Release</h3>
-      <div v-if="decisions.length === 0" class="text-sm text-neutral-500 text-center py-4">
-        No hay registros de decisiones de release aún.
-      </div>
-      <div v-else class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-neutral-200 text-left text-xs">
+    <AdminCard title="Historial de comprobaciones" flush>
+      <AdminEmptyState
+        v-if="decisions.length === 0"
+        compact
+        title="Todavía no se ha comprobado ninguna versión"
+        icon="i-lucide-history"
+      />
+      <div v-else class="adm-table-wrap">
+        <table class="adm-table">
           <thead>
-            <tr class="bg-neutral-50 text-neutral-600 font-medium">
-              <th class="px-3 py-2">Versión</th>
-              <th class="px-3 py-2">Tipo</th>
-              <th class="px-3 py-2">Estado Gate</th>
-              <th class="px-3 py-2">Commit</th>
-              <th class="px-3 py-2">Fecha</th>
-              <th class="px-3 py-2">Acción</th>
+            <tr>
+              <th scope="col">Versión</th>
+              <th scope="col">Tipo</th>
+              <th scope="col">Resultado</th>
+              <th scope="col">Cambio</th>
+              <th scope="col">Fecha</th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-neutral-100">
-            <tr v-for="d in decisions" :key="d.id" class="hover:bg-neutral-50/50">
-              <td class="px-3 py-2 font-mono font-medium">{{ d.releaseVersion }}</td>
-              <td class="px-3 py-2 capitalize">{{ d.releaseType.replace('_', ' ') }}</td>
-              <td class="px-3 py-2">
-                <span
-                  class="px-2 py-0.5 rounded font-semibold text-xs"
-                  :class="{
-                    'bg-emerald-100 text-emerald-800': d.status === 'approved',
-                    'bg-red-100 text-red-800': d.status === 'blocked_budget_exhausted',
-                    'bg-amber-100 text-amber-800': d.status === 'overridden_emergency'
-                  }"
+          <tbody>
+            <tr v-for="d in decisions" :key="d.id">
+              <td class="font-semibold text-[var(--text-strong)]">{{ d.releaseVersion }}</td>
+              <td>{{ releaseTypeLabels[d.releaseType] ?? adminHumanize(d.releaseType) }}</td>
+              <td>
+                <AdminBadge
+                  :tone="
+                    d.status === 'approved' ? 'success' : d.status === 'blocked_budget_exhausted' ? 'danger' : 'warning'
+                  "
                 >
                   {{
                     d.status === 'approved'
                       ? 'Aprobada'
                       : d.status === 'blocked_budget_exhausted'
-                        ? 'Bloqueada (Budget Agotado)'
-                        : 'Bypass de Emergencia'
+                        ? 'Bloqueada por exceso de fallos'
+                        : 'Autorizada por urgencia'
                   }}
-                </span>
+                </AdminBadge>
               </td>
-              <td class="px-3 py-2 font-mono text-neutral-600">{{ d.commitHash.slice(0, 8) }}</td>
-              <td class="px-3 py-2 text-neutral-500">{{ d.createdAt.slice(0, 19).replace('T', ' ') }}</td>
-              <td class="px-3 py-2">
+              <td class="tabular-nums">{{ d.commitHash.slice(0, 8) }}</td>
+              <td>{{ adminDate(d.createdAt, true) }}</td>
+              <td class="adm-table__actions">
                 <button
                   v-if="d.status === 'blocked_budget_exhausted'"
-                  class="text-xs text-amber-700 underline hover:text-amber-900"
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
                   @click="overrideForm.decisionId = d.id"
                 >
-                  Bypass Emergencia
+                  Autorizar por urgencia
                 </button>
-                <span v-else-if="d.justification" class="text-xs text-neutral-500 italic">
-                  "{{ d.justification.slice(0, 30) }}..."
+                <span v-else-if="d.justification" class="adm-help" :title="d.justification">
+                  «{{ d.justification.slice(0, 30) }}{{ d.justification.length > 30 ? '…' : '' }}»
                 </span>
-                <span v-else class="text-neutral-400">-</span>
+                <span v-else class="adm-help">—</span>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
+    </AdminCard>
 
-      <!-- Emergency Override Box if selected -->
-      <div v-if="overrideForm.decisionId" class="mt-4 p-4 rounded-lg border border-amber-300 bg-amber-50">
-        <h4 class="text-sm font-semibold text-amber-900 mb-1">
-          Autorizar Bypass de Emergencia para Decisión Bloqueada
-        </h4>
-        <p class="text-xs text-amber-800 mb-2">
-          Esta acción quedará registrada en el log de auditoría inmutable de SRE. Indique la causa justificada.
-        </p>
-        <div class="flex gap-2">
-          <input
-            v-model="overrideForm.justification"
-            type="text"
-            placeholder="Motivo formal del bypass de emergencia..."
-            class="flex-1 rounded border border-amber-400 px-3 py-1.5 text-xs bg-white focus:outline-none"
-          />
-          <button
-            :disabled="overriding"
-            class="rounded bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
-            @click="handleOverride"
-          >
-            {{ overriding ? 'Registrando...' : 'Confirmar Bypass' }}
-          </button>
-          <button
-            class="rounded border border-neutral-300 px-2 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100"
-            @click="overrideForm.decisionId = ''"
-          >
-            Cancelar
-          </button>
-        </div>
-      </div>
-    </div>
+    <AdminDrawer
+      v-model:open="overrideOpen"
+      title="Autorizar una versión bloqueada"
+      description="Solo para urgencias. Quedará anotado en el registro de actividad con tu nombre."
+    >
+      <AdminFormField
+        v-slot="{ id }"
+        label="Motivo"
+        help="Explica por qué no puede esperar (mínimo 5 caracteres)."
+        required
+      >
+        <textarea :id="id" v-model="overrideForm.justification" rows="4" class="w-full" />
+      </AdminFormField>
+      <template #footer>
+        <button type="button" class="adm-btn adm-btn--secondary" @click="overrideForm.decisionId = ''">Cancelar</button>
+        <button type="button" :disabled="overriding" class="adm-btn adm-btn--primary" @click="handleOverride">
+          {{ overriding ? 'Guardando…' : 'Autorizar versión' }}
+        </button>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

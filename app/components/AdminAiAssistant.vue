@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const requestFetch = useRequestFetch()
 
@@ -64,7 +64,7 @@ async function generateProposal() {
     proposal.value = res.interaction
     editableReply.value = res.interaction.proposedReply
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al generar propuesta con el copiloto'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido generar la propuesta'
   } finally {
     loading.value = false
   }
@@ -92,220 +92,182 @@ async function recordDecision(decision: 'approve' | 'reject' | 'modify_and_appro
 
     proposal.value = res.interaction
     if (res.interaction.approvalStatus === 'approved') {
-      statusMessage.value = 'Propuesta Aprobada por el administrador'
+      statusMessage.value = 'Propuesta aprobada'
     } else if (res.interaction.approvalStatus === 'modified_and_approved') {
-      statusMessage.value = 'Propuesta Aprobada con modificaciones'
+      statusMessage.value = 'Propuesta aprobada con tus cambios'
     } else {
-      statusMessage.value = 'Propuesta Rechazada'
+      statusMessage.value = 'Propuesta rechazada'
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al registrar la decisión humana'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido guardar tu decisión'
   } finally {
     deciding.value = false
   }
 }
+
+// ── Presentación ───────────────────────────────────────────────────────────
+const APPROVAL: Record<string, [string, 'warning' | 'success' | 'danger' | 'neutral']> = {
+  pending: ['Pendiente de tu decisión', 'warning'],
+  approved: ['Aprobada', 'success'],
+  modified_and_approved: ['Aprobada con cambios', 'success'],
+  rejected: ['Rechazada', 'danger']
+}
+const SOURCES: Record<string, string> = {
+  product: 'Producto',
+  catalog: 'Catálogo',
+  inventory: 'Inventario',
+  stock: 'Inventario',
+  order: 'Pedido',
+  customer: 'Cliente',
+  policy: 'Política de la tienda',
+  finance: 'Finanzas'
+}
+const sourceLabel = (code: string) => SOURCES[code.toLowerCase()] ?? adminHumanize(code)
+/** Los fallos de red llegan con textos técnicos en inglés: se enseña una frase legible. */
+const readableError = computed(() =>
+  /[áéíóúñ]| (el|la|no|se|al) /i.test(errorMessage.value)
+    ? errorMessage.value
+    : 'El asistente no ha respondido. Vuelve a intentarlo en unos minutos.'
+)
 </script>
 
 <template>
-  <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-    <div class="flex items-center justify-between border-b border-gray-100 pb-4 dark:border-gray-800">
-      <div>
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Asistente de Administración IA (ADM-032)</h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-          Copiloto bajo aprobación humana obligatoria. Cita datos verificados y nunca publica ni reembolsa
-          automáticamente.
-        </p>
-      </div>
-      <span
-        class="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-      >
-        Supervisión Humana Activa
-      </span>
-    </div>
-
-    <!-- Error Banner -->
-    <div
+  <div class="adm-stack">
+    <UAlert
       v-if="errorMessage"
-      class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"
       role="alert"
-    >
-      {{ errorMessage }}
-    </div>
-
-    <!-- Success Message -->
-    <div
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="readableError"
+    />
+    <UAlert
       v-if="statusMessage"
-      class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+      role="status"
+      :color="proposal?.approvalStatus === 'rejected' ? 'neutral' : 'success'"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="statusMessage"
+    />
+
+    <AdminCard
+      title="Pregunta al asistente"
+      description="El asistente propone y tú decides: nunca publica ni reembolsa por su cuenta."
     >
-      {{ statusMessage }}
-    </div>
-
-    <!-- Prompt Form -->
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      <div>
-        <label for="ai-cat" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Categoría</label>
-        <select
-          id="ai-cat"
-          v-model="category"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
-          <option value="catalog_review">Revisión de Catálogo</option>
-          <option value="order_ops">Operaciones de Pedidos</option>
-          <option value="customer_care">Atención al Cliente</option>
-          <option value="inventory_planning">Planificación de Inventario</option>
-          <option value="financial_inquiry">Consulta Financiera</option>
-          <option value="general_admin">Administración General</option>
-        </select>
-      </div>
-
-      <div class="sm:col-span-2">
-        <label for="ai-ctx" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >Contexto (ID Producto / Pedido)</label
-        >
-        <input
-          id="ai-ctx"
-          v-model="contextId"
-          type="text"
-          placeholder="Ej: prod-desengrasante-1 o ORD-1001"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-      </div>
-
-      <div class="sm:col-span-3">
-        <label for="ai-prompt" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >Instrucción o Consulta</label
-        >
-        <textarea
-          id="ai-prompt"
-          v-model="prompt"
-          data-test="assistant-prompt"
-          rows="3"
-          placeholder="Escribe tu consulta o instrucción para el asistente..."
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white p-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-      </div>
-
-      <div class="sm:col-span-3 flex justify-end">
-        <button
-          type="button"
-          data-test="generate-proposal-btn"
-          :disabled="loading || !prompt.trim()"
-          class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
-          @click="generateProposal"
-        >
-          <span v-if="loading">Analizando y Consultando D1...</span>
-          <span v-else>Consultar al Asistente IA</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Proposal Details -->
-    <div
-      v-if="proposal"
-      class="space-y-4 rounded-lg border border-blue-100 bg-blue-50/50 p-5 dark:border-blue-900/50 dark:bg-blue-950/20"
-    >
-      <div class="flex items-center justify-between">
-        <h3 class="font-semibold text-gray-900 dark:text-gray-100">
-          Propuesta de Copiloto (ID: {{ proposal.id.slice(0, 8) }}...)
-        </h3>
-        <span
-          class="rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider"
-          :class="{
-            'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300':
-              proposal.approvalStatus === 'pending',
-            'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300':
-              proposal.approvalStatus.includes('approved'),
-            'bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300': proposal.approvalStatus === 'rejected'
-          }"
-        >
-          Estado: {{ proposal.approvalStatus }}
-        </span>
-      </div>
-
-      <!-- Verified Citations -->
-      <div v-if="proposal.citations && proposal.citations.length" class="space-y-2">
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-          Citas de datos verificadas en base de datos
-        </h4>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <div
-            v-for="(cit, idx) in proposal.citations"
-            :key="cit.id"
-            class="flex items-start gap-2 rounded-md border border-gray-200 bg-white p-2.5 text-xs text-gray-700 shadow-sm dark:border-gray-800 dark:bg-gray-800/80 dark:text-gray-300"
-          >
-            <span
-              class="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900 dark:text-blue-200"
-            >
-              {{ idx + 1 }}
-            </span>
-            <div>
-              <span class="font-semibold text-gray-900 dark:text-gray-100">[{{ cit.sourceType }}]</span>
-              {{ cit.citationText }}
-            </div>
+      <div class="adm-stack">
+        <div class="adm-form-grid">
+          <div class="adm-field">
+            <label for="ai-cat" class="adm-label">Tema</label>
+            <select id="ai-cat" v-model="category" class="adm-input">
+              <option value="catalog_review">Revisión de catálogo</option>
+              <option value="order_ops">Pedidos</option>
+              <option value="customer_care">Atención al cliente</option>
+              <option value="inventory_planning">Planificación de inventario</option>
+              <option value="financial_inquiry">Consulta financiera</option>
+              <option value="general_admin">Administración general</option>
+            </select>
+          </div>
+          <div class="adm-field">
+            <label for="ai-ctx" class="adm-label">Producto o pedido (opcional)</label>
+            <input
+              id="ai-ctx"
+              v-model="contextId"
+              type="text"
+              class="adm-input"
+              placeholder="Referencia del producto o número de pedido"
+              aria-describedby="ai-ctx-help"
+            />
+            <p id="ai-ctx-help" class="adm-help">Si lo indicas, el asistente consultará sus datos.</p>
           </div>
         </div>
-      </div>
-
-      <!-- Action Proposal Notice -->
-      <div
-        v-if="proposal.actionType"
-        class="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
-      >
-        <span class="font-bold">Acción propuesta bajo revisión:</span> {{ proposal.proposedAction }}
-        <p class="mt-1 text-[11px] text-amber-700 dark:text-amber-400">
-          Protección activa: La publicación y los reembolsos automáticos están estrictamente bloqueados. Solo un humano
-          puede aprobar y ejecutar.
-        </p>
-      </div>
-
-      <!-- Proposed Content Editor -->
-      <div>
-        <label
-          for="ai-edit-reply"
-          class="block text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400"
-        >
-          Respuesta y propuesta para el back-office (editable antes de aprobar)
-        </label>
-        <textarea
-          id="ai-edit-reply"
-          v-model="editableReply"
-          rows="4"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white p-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-      </div>
-
-      <!-- Decision Actions -->
-      <div
-        v-if="proposal.approvalStatus === 'pending'"
-        class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4 dark:border-gray-800"
-      >
-        <input
-          v-model="decisionNotes"
-          type="text"
-          placeholder="Notas de revisión humana (opcional)..."
-          class="flex-1 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-900 shadow-sm dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-        <div class="flex items-center gap-2">
+        <div class="adm-field">
+          <label for="ai-prompt" class="adm-label">Tu consulta</label>
+          <textarea
+            id="ai-prompt"
+            v-model="prompt"
+            data-test="assistant-prompt"
+            rows="3"
+            class="adm-input"
+            placeholder="Por ejemplo: ¿qué productos de limpieza están a punto de agotarse?"
+          />
+        </div>
+        <div>
           <button
             type="button"
-            data-test="reject-proposal-btn"
-            :disabled="deciding"
-            class="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow-sm hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:bg-gray-800 dark:text-red-400 dark:hover:bg-red-950/40"
-            @click="recordDecision('reject')"
+            data-test="generate-proposal-btn"
+            :disabled="loading || !prompt.trim()"
+            class="adm-btn adm-btn--primary"
+            @click="generateProposal"
           >
-            Rechazar Propuesta
-          </button>
-          <button
-            type="button"
-            data-test="approve-proposal-btn"
-            :disabled="deciding"
-            class="rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-            @click="recordDecision('approve')"
-          >
-            Aprobar y Registrar
+            <span v-if="loading">Consultando los datos de la tienda…</span>
+            <span v-else>Consultar al asistente</span>
           </button>
         </div>
       </div>
-    </div>
+    </AdminCard>
+
+    <AdminCard v-if="proposal">
+      <template #title>Propuesta del asistente</template>
+      <template #actions>
+        <AdminBadge :tone="APPROVAL[proposal.approvalStatus]?.[1] ?? 'neutral'">
+          {{ APPROVAL[proposal.approvalStatus]?.[0] ?? adminStatusLabel(proposal.approvalStatus) }}
+        </AdminBadge>
+      </template>
+      <div class="adm-stack">
+        <div v-if="proposal.citations && proposal.citations.length">
+          <h4>Datos en los que se basa</h4>
+          <ol class="adm-list mt-2">
+            <li v-for="(cit, idx) in proposal.citations" :key="cit.id">
+              <span class="adm-list__index">{{ idx + 1 }}</span>
+              <div class="min-w-0 flex-1">
+                <p>{{ cit.citationText }}</p>
+                <p class="adm-help">{{ sourceLabel(cit.sourceType) }}</p>
+              </div>
+              <AdminBadge v-if="cit.verified" tone="success" plain>Comprobado</AdminBadge>
+            </li>
+          </ol>
+        </div>
+
+        <UAlert
+          v-if="proposal.actionType"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-hand"
+          :title="`Acción que propone: ${proposal.proposedAction ?? ''}`"
+          description="No se aplicará sola. Las publicaciones y los reembolsos siempre los ejecuta una persona."
+        />
+
+        <div class="adm-field">
+          <label for="ai-edit-reply" class="adm-label">Respuesta propuesta</label>
+          <textarea id="ai-edit-reply" v-model="editableReply" rows="5" class="adm-input" />
+          <p class="adm-help">Puedes corregir el texto antes de aprobarlo.</p>
+        </div>
+
+        <div v-if="proposal.approvalStatus === 'pending'" class="adm-field">
+          <label for="ai-decision-notes" class="adm-label">Notas de revisión (opcional)</label>
+          <input id="ai-decision-notes" v-model="decisionNotes" type="text" class="adm-input" />
+        </div>
+      </div>
+      <template v-if="proposal.approvalStatus === 'pending'" #footer>
+        <button
+          type="button"
+          data-test="reject-proposal-btn"
+          :disabled="deciding"
+          class="adm-btn adm-btn--danger-soft"
+          @click="recordDecision('reject')"
+        >
+          Rechazar
+        </button>
+        <button
+          type="button"
+          data-test="approve-proposal-btn"
+          :disabled="deciding"
+          class="adm-btn adm-btn--secondary"
+          @click="recordDecision('approve')"
+        >
+          Aprobar y guardar
+        </button>
+      </template>
+    </AdminCard>
   </div>
 </template>

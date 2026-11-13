@@ -40,7 +40,8 @@ async function loadData() {
       metrics.value = metricsRes.metrics
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al cargar el motor de recomendaciones'
+    errorMessage.value =
+      err instanceof Error ? err.message : 'No se han podido cargar las recomendaciones. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -75,7 +76,8 @@ async function savePolicy() {
         'Configuración del motor de recomendaciones guardada con éxito (v' + res.policy.version + ')'
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al guardar la política'
+    errorMessage.value =
+      err instanceof Error ? err.message : 'No se han podido guardar los cambios. Vuelve a intentarlo.'
   } finally {
     saving.value = false
   }
@@ -87,201 +89,183 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-lg font-bold text-neutral-900">Motor de Recomendaciones por Reglas (MKT-020)</h2>
-        <p class="text-xs text-neutral-500">
-          Ponderación multicriterio (compatibilidad química, sector profesional, co-compra y margen), diversidad por
-          categoría y fallback manual.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="rounded-md bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-200"
-        :disabled="loading"
-        @click="loadData"
-      >
-        Recargar
-      </button>
-    </div>
+  <div class="adm-stack">
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+      :actions="[{ label: 'Reintentar', color: 'neutral', variant: 'outline', onClick: () => void loadData() }]"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
 
-    <!-- Messages -->
-    <div v-if="loading" role="status" class="rounded-lg bg-neutral-100 p-4 text-sm text-neutral-600">
-      Cargando motor de recomendaciones y métricas...
-    </div>
-
-    <div v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-800">
-      {{ errorMessage }}
-    </div>
-
-    <div v-if="successMessage" role="status" class="rounded-lg bg-green-50 p-4 text-sm text-green-800">
-      {{ successMessage }}
-    </div>
-
-    <!-- Policy Weights Form -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm space-y-4">
-      <h3 class="text-sm font-semibold text-neutral-900">Ponderaciones de Señales (0 a 100)</h3>
-
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Compatibilidad de Catálogo </label>
-          <input
-            v-model.number="policy.weightCompatibility"
-            type="number"
-            min="0"
-            max="100"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="weight-compatibility-input"
-          />
+    <AdminSection v-if="metrics" :title="`Resultados de los últimos ${metrics.periodDays} días`">
+      <div class="adm-grid">
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Veces mostradas</p>
+          <p class="adm-stat__value" data-testid="metric-impressions">{{ metrics.impressions }}</p>
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Afinidad por Sector </label>
-          <input
-            v-model.number="policy.weightSector"
-            type="number"
-            min="0"
-            max="100"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="weight-sector-input"
-          />
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Clics</p>
+          <p class="adm-stat__value" data-testid="metric-clicks">
+            {{ metrics.clicks }}
+            <span class="text-xs font-normal text-[var(--text-muted)]"
+              >({{ (metrics.clickThroughRate * 100).toFixed(2) }}%)</span
+            >
+          </p>
+          <p class="adm-stat__foot">
+            <span
+              >{{ metrics.byOrigin.rule.clicks }} automáticas · {{ metrics.byOrigin.manualFallback.clicks }} de
+              reserva</span
+            >
+          </p>
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Matriz de Co-compra </label>
-          <input
-            v-model.number="policy.weightCopurchase"
-            type="number"
-            min="0"
-            max="100"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="weight-copurchase-input"
-          />
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Compras</p>
+          <p class="adm-stat__value" data-testid="metric-conversions">
+            {{ metrics.conversions }}
+            <span class="text-xs font-normal text-[var(--text-muted)]"
+              >({{ (metrics.conversionRate * 100).toFixed(2) }}%)</span
+            >
+          </p>
+          <p class="adm-stat__foot">
+            <span
+              >{{ metrics.byOrigin.rule.conversions }} automáticas ·
+              {{ metrics.byOrigin.manualFallback.conversions }} de reserva</span
+            >
+          </p>
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Margen Bruto </label>
-          <input
-            v-model.number="policy.weightMargin"
-            type="number"
-            min="0"
-            max="100"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
-            data-testid="weight-margin-input"
-          />
+        <div class="adm-card adm-stat">
+          <p class="adm-stat__label">Ventas atribuidas</p>
+          <p class="adm-stat__value" data-testid="metric-revenue">
+            {{ adminMoney(metrics.attributedRevenueGrossCents) }}
+          </p>
         </div>
       </div>
+    </AdminSection>
 
-      <h3 class="text-sm font-semibold text-neutral-900 pt-2">Gobernanza y Diversidad</h3>
+    <AdminCard
+      title="Qué pesa más al recomendar"
+      description="Reparte la importancia de cada criterio de 0 a 100. Cuanto más alto, más influye en los productos sugeridos."
+    >
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Recargar</AdminButton>
+      </template>
+      <div class="adm-stack">
+        <div class="adm-form-grid">
+          <AdminFormField v-slot="{ id }" label="Productos compatibles" help="Que se puedan usar juntos.">
+            <input
+              :id="id"
+              v-model.number="policy.weightCompatibility"
+              type="number"
+              min="0"
+              max="100"
+              data-testid="weight-compatibility-input"
+            />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Sector del cliente" help="Lo habitual en su tipo de negocio.">
+            <input
+              :id="id"
+              v-model.number="policy.weightSector"
+              type="number"
+              min="0"
+              max="100"
+              data-testid="weight-sector-input"
+            />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Se compran juntos"
+            help="Lo que otros clientes añaden al mismo pedido."
+          >
+            <input
+              :id="id"
+              v-model.number="policy.weightCopurchase"
+              type="number"
+              min="0"
+              max="100"
+              data-testid="weight-copurchase-input"
+            />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Margen" help="Productos que dejan más beneficio.">
+            <input
+              :id="id"
+              v-model.number="policy.weightMargin"
+              type="number"
+              min="0"
+              max="100"
+              data-testid="weight-margin-input"
+            />
+          </AdminFormField>
+        </div>
+      </div>
+    </AdminCard>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1">
-            Suelo de Margen Bruto (bps, ej: 1500 = 15%)
-          </label>
+    <AdminCard title="Límites y variedad">
+      <div class="adm-form-grid">
+        <AdminFormField
+          v-slot="{ id }"
+          label="Margen mínimo"
+          help="En centésimas de punto: 1500 equivale al 15 %. Los productos por debajo no se recomiendan."
+        >
           <input
+            :id="id"
             v-model.number="policy.marginFloorBasisPoints"
             type="number"
             min="0"
             max="5000"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
             data-testid="margin-floor-input"
           />
-          <span class="text-xs text-neutral-500">Productos con margen inferior son excluidos.</span>
-        </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-600 mb-1"> Máximo por categoría (Diversidad) </label>
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          label="Máximo de productos por categoría"
+          help="Evita que todas las sugerencias sean del mismo tipo."
+        >
           <input
+            :id="id"
             v-model.number="policy.maxPerCategory"
             type="number"
             min="1"
             max="10"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
             data-testid="max-per-category-input"
           />
-          <span class="text-xs text-neutral-500">Garantiza variedad de soluciones en las sugerencias.</span>
-        </div>
-
-        <div class="md:col-span-2">
-          <label class="block text-xs font-medium text-neutral-600 mb-1">
-            Productos de fallback manual (IDs separados por coma)
-          </label>
+        </AdminFormField>
+        <AdminFormField
+          v-slot="{ id }"
+          class="sm:col-span-full"
+          label="Productos de reserva"
+          help="Identificadores separados por comas. Se usan, en este orden, cuando no hay suficientes recomendaciones automáticas."
+        >
           <input
+            :id="id"
             v-model="manualFallbackText"
             type="text"
-            class="w-full rounded-md border border-neutral-300 px-3 py-1.5 text-sm"
             placeholder="prod-bayetas, prod-guantes"
             data-testid="manual-fallback-input"
           />
-          <span class="text-xs text-neutral-500"
-            >Se usan ordenadamente cuando las reglas generan menos recomendaciones del límite solicitado.</span
-          >
-        </div>
-
-        <div class="md:col-span-2 flex justify-end">
-          <button
-            type="button"
-            class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            :disabled="saving"
-            data-testid="save-recommendation-policy-button"
-            @click="savePolicy"
-          >
-            {{ saving ? 'Guardando...' : 'Guardar Configuración' }}
-          </button>
-        </div>
+        </AdminFormField>
       </div>
-    </div>
-
-    <!-- Metrics Card -->
-    <div v-if="metrics" class="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm space-y-4">
-      <h3 class="text-sm font-semibold text-neutral-900">
-        Rendimiento y Medición (Últimos {{ metrics.periodDays }} días)
-      </h3>
-
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Impresiones</p>
-          <p class="text-xl font-bold text-neutral-900" data-testid="metric-impressions">{{ metrics.impressions }}</p>
-        </div>
-
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Clics (CTR)</p>
-          <p class="text-xl font-bold text-neutral-900" data-testid="metric-clicks">
-            {{ metrics.clicks }}
-            <span class="text-xs font-normal text-neutral-500"
-              >({{ (metrics.clickThroughRate * 100).toFixed(2) }}%)</span
-            >
-          </p>
-        </div>
-
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Conversiones (CVR)</p>
-          <p class="text-xl font-bold text-neutral-900" data-testid="metric-conversions">
-            {{ metrics.conversions }}
-            <span class="text-xs font-normal text-neutral-500">({{ (metrics.conversionRate * 100).toFixed(2) }}%)</span>
-          </p>
-        </div>
-
-        <div class="rounded-md border border-neutral-100 bg-neutral-50 p-4">
-          <p class="text-xs font-medium text-neutral-500">Ingresos Atribuidos</p>
-          <p class="text-xl font-bold text-neutral-900" data-testid="metric-revenue">
-            {{ (metrics.attributedRevenueGrossCents / 100).toFixed(2) }} €
-          </p>
-        </div>
-      </div>
-
-      <div class="rounded-md border border-neutral-200 p-4 text-xs text-neutral-600 flex justify-around">
-        <div>
-          <span class="font-semibold text-neutral-800">Por Reglas:</span>
-          {{ metrics.byOrigin.rule.clicks }} clics · {{ metrics.byOrigin.rule.conversions }} ventas
-        </div>
-        <div>
-          <span class="font-semibold text-neutral-800">Por Fallback Manual:</span>
-          {{ metrics.byOrigin.manualFallback.clicks }} clics · {{ metrics.byOrigin.manualFallback.conversions }} ventas
-        </div>
-      </div>
-    </div>
+      <template #footer>
+        <button
+          type="button"
+          class="adm-btn adm-btn--primary"
+          :disabled="saving"
+          data-testid="save-recommendation-policy-button"
+          @click="savePolicy"
+        >
+          {{ saving ? 'Guardando…' : 'Guardar cambios' }}
+        </button>
+      </template>
+    </AdminCard>
   </div>
 </template>

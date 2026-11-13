@@ -3,11 +3,13 @@ import AdminPreviewVisualComparison from '../../components/AdminPreviewVisualCom
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({
-  title: 'Comparación visual de preview y regresión · Admin',
+  title: 'Comparar cambios · Admin',
   robots: 'noindex, nofollow, noarchive'
 })
 </script>
 
 <template>
-  <AdminPreviewVisualComparison />
+  <AdminPage>
+    <AdminPreviewVisualComparison />
+  </AdminPage>
 </template>

@@ -3,11 +3,13 @@ import AdminModelEvaluationGate from '../../components/AdminModelEvaluationGate.
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
 useSeoMeta({
-  title: 'Evaluación de Modelos e IA Quality Gate · Admin',
+  title: 'Evaluación de modelos de IA · Admin',
   robots: 'noindex, nofollow, noarchive'
 })
 </script>
 
 <template>
-  <AdminModelEvaluationGate />
+  <AdminPage>
+    <AdminModelEvaluationGate />
+  </AdminPage>
 </template>

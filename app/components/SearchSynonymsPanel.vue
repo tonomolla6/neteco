@@ -198,12 +198,12 @@ async function prepare() {
   if (!actor.value || !alive || locked.value || preparing.value || !mode.value) return
   const parsedDraft = draft()
   if (!parsedDraft.success) {
-    message.value = 'Revisa los términos (máximo 8, distintos) y el motivo.'
+    message.value = 'Revisa las palabras (máximo 8, distintas) y el motivo.'
     return
   }
   const input = searchSynonymPreviewInputSchema.safeParse({ draft: parsedDraft.data, query: query.value })
   if (!input.success) {
-    message.value = 'Escribe una consulta válida para la simulación.'
+    message.value = 'Escribe una búsqueda de prueba válida para la simulación.'
     return
   }
   const owner = actor.value,
@@ -288,13 +288,13 @@ async function confirmed(raw: unknown, command: Intent, generation: number) {
   unknown.value = false
   retryReady.value = false
   clearForm()
-  message.value = 'Recibo confirmado. Consultando el estado actual…'
+  message.value = 'Recibo confirmado. Actualizando la lista…'
   await load()
   if (live(command.owner, generation))
     message.value =
       readStatus.value === 'success'
-        ? 'Recibo confirmado y estado actual leído.'
-        : 'Recibo confirmado; no se ha podido confirmar el estado actual. Reintenta la lectura, no el cambio.'
+        ? 'Recibo confirmado: el cambio se ha guardado.'
+        : 'Recibo confirmado: el cambio se ha guardado, pero no se ha podido actualizar la lista. Recarga la lista; no repitas el cambio.'
 }
 async function send(command: Intent) {
   if (!alive || actor.value !== command.owner || working.value || looking.value) return
@@ -317,11 +317,12 @@ async function send(command: Intent) {
       intent = null
       unknown.value = false
       preview.value = null
-      message.value = 'Cambio rechazado sin recibo confirmado. Lee el estado actual y prepara otra simulación.'
+      message.value = 'Cambio rechazado: no se ha guardado nada. Revisa la lista y vuelve a simular.'
       await load()
     } else {
       unknown.value = true
-      message.value = 'Resultado desconocido. Consulta el recibo antes de volver a enviar; no prepares otra simulación.'
+      message.value =
+        'Resultado desconocido: no sabemos si el cambio se ha guardado. Compruébalo antes de volver a enviarlo.'
     }
   } finally {
     if (live(command.owner, generation)) working.value = false
@@ -365,11 +366,10 @@ async function lookup() {
     const failure = failureCode(error)
     if (failure.status === 404 && failure.code === 'not_found') {
       retryReady.value = true
-      message.value =
-        'Recibo no encontrado. Puedes reenviar explícitamente el mismo comando; conserva su clave y simulación original.'
+      message.value = 'El cambio no llegó a guardarse. Puedes volver a enviarlo tal cual.'
     } else
       message.value =
-        'No se ha podido confirmar el recibo. El resultado sigue desconocido; no se reenvía automáticamente.'
+        'No se ha podido comprobar. El resultado sigue desconocido; vuelve a comprobarlo en unos segundos.'
   } finally {
     if (live(command.owner, generation)) looking.value = false
   }
@@ -377,230 +377,348 @@ async function lookup() {
 async function retry() {
   if (intent && retryReady.value && unknown.value) await send(intent)
 }
+const formTitle = computed(() =>
+  mode.value === 'retire' ? 'Retirar sinónimo' : target.value ? 'Editar sinónimo' : 'Nuevo sinónimo'
+)
 </script>
 
 <template>
-  <section aria-label="Sinónimos de búsqueda" class="min-w-0 space-y-5 break-words">
-    <h1 class="text-xl font-semibold">Relevancia de búsqueda</h1>
-    <p>
-      Conecta las palabras del cliente con el catálogo. Cada cambio exige motivo, simulación y confirmación; no modifica
-      productos.
-    </p>
-    <p v-if="!actor" role="alert">
-      Necesitas el permiso vigente de catálogo, correo verificado y MFA para consultar y cambiar sinónimos.
-    </p>
+  <section aria-label="Sinónimos de búsqueda" class="adm-stack min-w-0">
+    <UAlert
+      v-if="!actor"
+      role="alert"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="No puedes gestionar los sinónimos con esta sesión"
+      description="Necesitas permiso de catálogo, el correo verificado y la verificación en dos pasos (MFA) activa."
+    />
     <template v-else>
-      <form data-synonym-search-form class="flex flex-wrap gap-2" @submit.prevent="filter">
-        <label :for="prefix + '-search'">Buscar sinónimos</label>
-        <input
-          :id="prefix + '-search'"
-          v-model="search"
-          data-synonym-search
-          maxlength="160"
-          :disabled="locked"
-          class="min-w-0 rounded border p-2"
-        />
-        <button type="submit" :disabled="locked" class="rounded border px-3 py-2">Buscar</button>
-      </form>
-      <p v-if="readStatus === 'pending'" role="status">Consultando sinónimos…</p>
-      <div v-else-if="readStatus === 'error'" role="alert">
-        <p>No se ha podido confirmar la lista. Un error no significa que esté vacía.</p>
-        <button
-          data-synonym-read-retry
-          type="button"
-          :disabled="working || looking"
-          class="rounded border p-2"
-          @click="load"
-        >
-          Reintentar lectura
-        </button>
-      </div>
-      <div v-else-if="readStatus === 'success' && list">
-        <button
-          data-synonym-create
-          type="button"
-          :disabled="locked || preparing"
-          class="rounded border p-2"
-          @click="begin('create')"
-        >
-          Añadir sinónimo
-        </button>
-        <p v-if="!list.items.length">No hay sinónimos que coincidan con esta búsqueda.</p>
-        <ul data-synonym-list class="min-w-0 divide-y break-words">
-          <li v-for="item in list.items" :key="item.id" class="flex min-w-0 flex-wrap items-center gap-3 py-3">
-            <div class="min-w-0 flex-1">
-              <p>{{ item.sourceTerm }} → {{ item.replacements.join(', ') }}</p>
-              <p>Versión {{ item.version }} · {{ item.retired ? 'Retirado' : item.active ? 'Activo' : 'Pausado' }}</p>
-            </div>
-            <div v-if="!item.retired" class="flex flex-wrap gap-2">
-              <button
-                data-synonym-edit
-                type="button"
-                :disabled="locked || preparing"
-                class="rounded border p-2"
-                @click="begin('edit', item)"
-              >
-                Editar {{ item.sourceTerm }}
-              </button>
-              <button
-                data-synonym-pause
-                type="button"
-                :disabled="locked || preparing"
-                class="rounded border p-2"
-                @click="begin('pause', item)"
-              >
-                {{ item.active ? 'Pausar' : 'Activar' }} {{ item.sourceTerm }}
-              </button>
-              <button
-                data-synonym-retire
-                type="button"
-                :disabled="locked || preparing"
-                class="rounded border p-2"
-                @click="begin('retire', item)"
-              >
-                Retirar {{ item.sourceTerm }}
-              </button>
-            </div>
-          </li>
-        </ul>
-        <nav aria-label="Páginas de sinónimos" class="flex flex-wrap items-center gap-3">
-          <button type="button" :disabled="locked || list.page <= 1" class="rounded border p-2" @click="move(-1)">
-            Anterior
-          </button>
-          <span>Página {{ list.page }} · {{ list.total }} sinónimos</span>
+      <UAlert
+        v-if="message"
+        role="status"
+        aria-live="polite"
+        color="neutral"
+        variant="subtle"
+        icon="i-lucide-info"
+        :title="message"
+      />
+      <div v-if="unknown" class="adm-card">
+        <div class="adm-card__body flex flex-wrap items-center gap-2">
+          <p class="min-w-0 flex-1 basis-64 text-[var(--text)]">
+            Antes de repetir el cambio, comprueba si llegó a guardarse.
+          </p>
           <button
-            data-synonym-next
+            data-synonym-lookup
             type="button"
-            :disabled="locked || list.page * list.perPage >= list.total"
-            class="rounded border p-2"
-            @click="move(1)"
+            :disabled="working || looking"
+            class="adm-btn adm-btn--secondary"
+            @click="lookup"
           >
-            Siguiente
+            Comprobar si se guardó
           </button>
-        </nav>
+          <button
+            v-if="retryReady"
+            data-synonym-command-retry
+            type="button"
+            :disabled="working || looking"
+            class="adm-btn adm-btn--primary"
+            @click="retry"
+          >
+            Volver a enviar el mismo cambio
+          </button>
+        </div>
       </div>
-      <form v-if="mode" data-synonym-form class="space-y-3 rounded border p-4" @submit.prevent="prepare">
-        <h2 class="font-semibold">
-          {{ mode === 'retire' ? 'Retirar sinónimo' : target ? 'Editar sinónimo' : 'Nuevo sinónimo' }}
-        </h2>
-        <p v-if="mode === 'retire'">
-          Retirar conserva el historial. La simulación muestra el efecto antes de confirmar.
-        </p>
-        <div>
-          <label :for="prefix + '-source'">Término del cliente</label
-          ><input
-            :id="prefix + '-source'"
-            v-model="sourceTerm"
-            data-synonym-source
-            maxlength="160"
-            required
-            :disabled="locked || mode === 'retire'"
-            class="block w-full min-w-0 rounded border p-2"
-          />
-        </div>
-        <div>
-          <label :for="prefix + '-replacements'">Términos adicionales (máximo 8, separados por comas)</label
-          ><input
-            :id="prefix + '-replacements'"
-            v-model="replacements"
-            data-synonym-replacements
-            required
-            :disabled="locked || mode === 'retire'"
-            class="block w-full min-w-0 rounded border p-2"
-          />
-        </div>
-        <label class="flex gap-2"
-          ><input v-model="active" type="checkbox" :disabled="locked || mode === 'retire'" />Activo</label
-        >
-        <div>
-          <label :for="prefix + '-reason'">Motivo del cambio</label
-          ><textarea
-            :id="prefix + '-reason'"
-            v-model="reason"
-            data-synonym-reason
-            required
-            maxlength="500"
-            :disabled="locked"
-            class="block w-full min-w-0 rounded border p-2"
-          />
-        </div>
-        <div>
-          <label :for="prefix + '-query'">Consulta para comparar resultados</label
-          ><input
-            :id="prefix + '-query'"
-            v-model="query"
-            data-synonym-query
-            required
-            maxlength="160"
-            :disabled="locked"
-            class="block w-full min-w-0 rounded border p-2"
-          />
-        </div>
-        <button type="submit" :disabled="locked || preparing" class="rounded border p-2">
-          {{ preparing ? 'Simulando…' : 'Simular antes y después' }}
-        </button>
-        <button type="button" :disabled="locked || preparing" class="ml-2 rounded border p-2" @click="clearForm">
-          Cancelar
-        </button>
-      </form>
-      <div v-if="preview" class="space-y-3 rounded border p-4">
-        <h2 class="font-semibold">Simulación confirmada por el servidor</h2>
-        <p>Resultados orientativos del catálogo actual, hasta 8 por lado. La simulación no guarda el cambio.</p>
-        <div class="grid min-w-0 gap-4 sm:grid-cols-2">
-          <div>
-            <h3>Antes</h3>
-            <p>{{ preview.beforeTerms.join(', ') }}</p>
-            <ul>
-              <li v-for="result in preview.before" :key="result.slug">{{ result.name }}</li>
-            </ul>
-            <p v-if="!preview.before.length">Sin resultados</p>
+      <UAlert
+        v-if="receipt"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        :title="`Último cambio guardado: «${receipt.item.sourceTerm}» ${receipt.action === 'retire' ? 'retirado' : '→ ' + receipt.item.replacements.join(', ')}`"
+        :description="`Referencia #${receipt.commandId.slice(0, 8).toUpperCase()}`"
+        class="[overflow-wrap:anywhere]"
+      />
+
+      <div class="grid min-w-0 items-start gap-5" :class="mode && 'xl:grid-cols-[minmax(0,1fr)_26rem]'">
+        <div class="adm-card adm-tablecard min-w-0">
+          <div class="adm-tablecard__bar">
+            <div class="adm-toolbar">
+              <form data-synonym-search-form class="contents" role="search" @submit.prevent="filter">
+                <label class="adm-toolbar__search" :for="prefix + '-search'">
+                  <span class="sr-only">Buscar sinónimos</span>
+                  <UIcon name="i-lucide-search" class="size-4" />
+                  <input
+                    :id="prefix + '-search'"
+                    v-model="search"
+                    data-synonym-search
+                    data-slot="adm-search"
+                    type="search"
+                    placeholder="Buscar una palabra…"
+                    maxlength="160"
+                    :disabled="locked"
+                  />
+                </label>
+                <button type="submit" :disabled="locked" class="adm-btn adm-btn--secondary">Buscar</button>
+              </form>
+              <div v-if="readStatus === 'success' && list" class="adm-toolbar__end">
+                <button
+                  data-synonym-create
+                  type="button"
+                  :disabled="locked || preparing"
+                  class="adm-btn adm-btn--primary"
+                  @click="begin('create')"
+                >
+                  <UIcon name="i-lucide-plus" class="size-4 shrink-0" />Añadir sinónimo
+                </button>
+              </div>
+            </div>
           </div>
-          <div>
-            <h3>Después</h3>
-            <p>{{ preview.afterTerms.join(', ') }}</p>
-            <ul>
-              <li v-for="result in preview.after" :key="result.slug">{{ result.name }}</li>
-            </ul>
-            <p v-if="!preview.after.length">Sin resultados</p>
+
+          <div v-if="readStatus === 'pending'" class="adm-table-skeleton" role="status" aria-busy="true">
+            <span class="sr-only">Cargando sinónimos…</span>
+            <div v-for="row in 5" :key="row"><i /><i /><i /><i /></div>
           </div>
+          <div v-else-if="readStatus === 'error'" role="alert">
+            <AdminEmptyState
+              variant="error"
+              title="No se ha podido confirmar la lista de sinónimos"
+              description="Es un fallo de carga: no significa que la lista esté vacía."
+            >
+              <button
+                data-synonym-read-retry
+                type="button"
+                :disabled="working || looking"
+                class="adm-btn adm-btn--secondary"
+                @click="load"
+              >
+                <UIcon name="i-lucide-rotate-cw" class="size-4 shrink-0" />Reintentar
+              </button>
+            </AdminEmptyState>
+          </div>
+          <template v-else-if="readStatus === 'success' && list">
+            <AdminEmptyState
+              v-if="!list.items.length"
+              :variant="appliedSearch ? 'filtered' : 'empty'"
+              icon="i-lucide-search-check"
+              :title="appliedSearch ? 'Ningún sinónimo coincide con la búsqueda' : 'Todavía no has creado sinónimos'"
+              :description="
+                appliedSearch
+                  ? 'Prueba con otra palabra.'
+                  : 'Si un cliente busca «lejía» y el catálogo la llama «hipoclorito», un sinónimo hace que la encuentre.'
+              "
+            />
+            <div v-else class="adm-table-wrap">
+              <table data-synonym-list class="adm-table min-w-0 break-words">
+                <thead>
+                  <tr>
+                    <th scope="col">Lo que escribe el cliente</th>
+                    <th scope="col">También se busca</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in list.items" :key="item.id">
+                    <td class="font-semibold text-[var(--text-strong)]">{{ item.sourceTerm }}</td>
+                    <td>{{ item.replacements.join(', ') }}</td>
+                    <td>
+                      <AdminBadge :tone="item.retired ? 'neutral' : item.active ? 'success' : 'warning'">
+                        {{ item.retired ? 'Retirado' : item.active ? 'Activo' : 'En pausa' }}
+                      </AdminBadge>
+                    </td>
+                    <td data-numeric class="adm-table__actions">
+                      <div v-if="!item.retired" class="flex flex-wrap justify-end gap-1.5">
+                        <button
+                          data-synonym-edit
+                          type="button"
+                          :disabled="locked || preparing"
+                          :aria-label="`Editar ${item.sourceTerm}`"
+                          class="adm-btn adm-btn--secondary adm-btn--sm"
+                          @click="begin('edit', item)"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          data-synonym-pause
+                          type="button"
+                          :disabled="locked || preparing"
+                          :aria-label="`${item.active ? 'Pausar' : 'Activar'} ${item.sourceTerm}`"
+                          class="adm-btn adm-btn--secondary adm-btn--sm"
+                          @click="begin('pause', item)"
+                        >
+                          {{ item.active ? 'Pausar' : 'Activar' }}
+                        </button>
+                        <button
+                          data-synonym-retire
+                          type="button"
+                          :disabled="locked || preparing"
+                          :aria-label="`Retirar ${item.sourceTerm}`"
+                          class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                          @click="begin('retire', item)"
+                        >
+                          Retirar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <nav aria-label="Páginas de sinónimos" class="adm-pagination">
+              <p>{{ list.total }} {{ list.total === 1 ? 'sinónimo' : 'sinónimos' }}</p>
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  :disabled="locked || list.page <= 1"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="move(-1)"
+                >
+                  Anterior
+                </button>
+                <span class="tabular-nums">Página {{ list.page }}</span>
+                <button
+                  data-synonym-next
+                  type="button"
+                  :disabled="locked || list.page * list.perPage >= list.total"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  @click="move(1)"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </nav>
+          </template>
         </div>
-        <p>Caduca: {{ preview.expiresAt }} · Motivo: {{ preview.draft.reason }}</p>
-        <button
-          data-synonym-confirm
-          type="button"
-          :disabled="locked || preparing"
-          class="rounded border p-2"
-          @click="submit"
-        >
-          Confirmar {{ preview.draft.action === 'retire' ? 'retirada' : 'cambio' }}
-        </button>
-      </div>
-      <div v-if="unknown" class="space-y-2 rounded border p-4">
-        <button
-          data-synonym-lookup
-          type="button"
-          :disabled="working || looking"
-          class="rounded border p-2"
-          @click="lookup"
-        >
-          Consultar recibo del comando
-        </button>
-        <button
-          v-if="retryReady"
-          data-synonym-command-retry
-          type="button"
-          :disabled="working || looking"
-          class="rounded border p-2"
-          @click="retry"
-        >
-          Reenviar exactamente el mismo comando
-        </button>
-      </div>
-      <p v-if="message" role="status" aria-live="polite">{{ message }}</p>
-      <div v-if="receipt" class="min-w-0 rounded border p-3 [overflow-wrap:anywhere]">
-        <h2>Recibo confirmado</h2>
-        <p>Comando: {{ receipt.commandId }} · Simulación: {{ receipt.previewId }}</p>
-        <p>{{ receipt.item.sourceTerm }} · versión {{ receipt.item.version }} · {{ receipt.action }}</p>
+
+        <div v-if="mode" class="adm-stack min-w-0">
+          <AdminCard
+            :title="formTitle"
+            :description="
+              mode === 'retire'
+                ? 'El sinónimo deja de aplicarse, pero se conserva su historial.'
+                : 'Antes de guardar verás cómo cambian los resultados.'
+            "
+          >
+            <form data-synonym-form class="adm-stack" @submit.prevent="prepare">
+              <div class="adm-field">
+                <label :for="prefix + '-source'" class="adm-label">Lo que escribe el cliente</label>
+                <input
+                  :id="prefix + '-source'"
+                  v-model="sourceTerm"
+                  data-synonym-source
+                  maxlength="160"
+                  required
+                  :disabled="locked || mode === 'retire'"
+                  class="w-full min-w-0"
+                />
+              </div>
+              <div class="adm-field">
+                <label :for="prefix + '-replacements'" class="adm-label">También se busca</label>
+                <input
+                  :id="prefix + '-replacements'"
+                  v-model="replacements"
+                  data-synonym-replacements
+                  required
+                  :aria-describedby="prefix + '-replacements-help'"
+                  :disabled="locked || mode === 'retire'"
+                  class="w-full min-w-0"
+                />
+                <p :id="prefix + '-replacements-help'" class="adm-help">Hasta 8 palabras, separadas por comas.</p>
+              </div>
+              <label class="adm-check">
+                <input v-model="active" type="checkbox" :disabled="locked || mode === 'retire'" />Activo
+              </label>
+              <div class="adm-field">
+                <label :for="prefix + '-reason'" class="adm-label">Motivo del cambio</label>
+                <textarea
+                  :id="prefix + '-reason'"
+                  v-model="reason"
+                  data-synonym-reason
+                  required
+                  maxlength="500"
+                  :disabled="locked"
+                  class="w-full min-w-0"
+                />
+              </div>
+              <div class="adm-field">
+                <label :for="prefix + '-query'" class="adm-label">Búsqueda de prueba</label>
+                <input
+                  :id="prefix + '-query'"
+                  v-model="query"
+                  data-synonym-query
+                  required
+                  maxlength="160"
+                  :aria-describedby="prefix + '-query-help'"
+                  :disabled="locked"
+                  class="w-full min-w-0"
+                />
+                <p :id="prefix + '-query-help'" class="adm-help">
+                  Se usa para comparar los resultados de antes y de después.
+                </p>
+              </div>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  :disabled="locked || preparing"
+                  class="adm-btn adm-btn--secondary"
+                  @click="clearForm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  :disabled="locked || preparing"
+                  class="adm-btn"
+                  :class="preview ? 'adm-btn--secondary' : 'adm-btn--primary'"
+                >
+                  {{ preparing ? 'Simulando…' : 'Simular el cambio' }}
+                </button>
+              </div>
+            </form>
+          </AdminCard>
+
+          <AdminCard
+            v-if="preview"
+            title="Así cambian los resultados"
+            description="Hasta 8 productos por lado, con el catálogo actual. Todavía no se ha guardado nada."
+          >
+            <div class="adm-stack">
+              <div class="grid min-w-0 gap-4 sm:grid-cols-2">
+                <div class="min-w-0">
+                  <h3>Antes</h3>
+                  <p class="adm-help">{{ preview.beforeTerms.join(', ') }}</p>
+                  <ul class="mt-2 space-y-1">
+                    <li v-for="result in preview.before" :key="result.slug">{{ result.name }}</li>
+                  </ul>
+                  <p v-if="!preview.before.length" class="adm-help mt-2">Sin resultados</p>
+                </div>
+                <div class="min-w-0">
+                  <h3>Después</h3>
+                  <p class="adm-help">{{ preview.afterTerms.join(', ') }}</p>
+                  <ul class="mt-2 space-y-1">
+                    <li v-for="result in preview.after" :key="result.slug">{{ result.name }}</li>
+                  </ul>
+                  <p v-if="!preview.after.length" class="adm-help mt-2">Sin resultados</p>
+                </div>
+              </div>
+              <p class="adm-help">
+                Motivo: {{ preview.draft.reason }} · La simulación caduca el {{ adminDate(preview.expiresAt, true) }}.
+              </p>
+            </div>
+            <template #footer>
+              <button
+                data-synonym-confirm
+                type="button"
+                :disabled="locked || preparing"
+                class="adm-btn"
+                :class="preview.draft.action === 'retire' ? 'adm-btn--danger' : 'adm-btn--primary'"
+                @click="submit"
+              >
+                Confirmar {{ preview.draft.action === 'retire' ? 'retirada' : 'cambio' }}
+              </button>
+            </template>
+          </AdminCard>
+        </div>
       </div>
     </template>
   </section>

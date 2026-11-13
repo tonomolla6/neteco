@@ -198,6 +198,19 @@ function denied(cause: unknown, actor: string) {
   message.value = 'La autorización ha cambiado. Los datos privados se han borrado.'
   return true
 }
+const dispositionLabels = { reviewed: 'Revisado', follow_up: 'Requiere seguimiento' }
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function shortId(value: string | null) {
+  if (value === null) return display(null)
+  return UUID.test(value) ? `#${value.slice(0, 8).toUpperCase()}` : value
+}
+function setDay(key: 'from' | 'to', event: Event) {
+  const day = (event.target as HTMLInputElement).value
+  filters[key] = day ? `${day}T${key === 'from' ? '00:00:00' : '23:59:59'}Z` : ''
+}
+function size(bytes: number) {
+  return bytes < 1024 ? `${bytes} bytes` : `${(bytes / 1024).toLocaleString('es-ES', { maximumFractionDigits: 1 })} KB`
+}
 function utc(value: string) {
   return `${value.slice(0, 10)} ${value.slice(11, 19)} UTC`
 }
@@ -223,7 +236,7 @@ async function load(cursor?: string) {
   try {
     selected = cursor ? adminAuditFiltersSchema.parse(appliedFilters.value) : draftFilters()
   } catch {
-    message.value = 'Revisa filtros, identificadores y fechas UTC completas (AAAA-MM-DDTHH:mm:ssZ).'
+    message.value = 'Revisa los filtros: el identificador de usuario o las fechas no son válidos.'
     return
   }
   const query = adminAuditQuerySchema.safeParse({ ...selected, limit: 25, ...(cursor ? { cursor } : {}) })
@@ -661,267 +674,384 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section aria-label="Auditoría administrativa" class="min-w-0 max-w-full space-y-4 rounded-xl border bg-white p-4">
-    <h2 class="text-lg font-semibold">Auditoría administrativa</h2>
-    <p class="text-sm">
-      Consulta privada de registros normalizados. La revisión se añade sin alterar el evento original. Motivos y datos
-      sensibles permanecen redactados.
-    </p>
-    <p v-if="!allowed" role="status">Se requiere sesión vigente, correo verificado, MFA y permiso de administración.</p>
+  <section aria-label="Auditoría administrativa" class="adm-stack min-w-0 max-w-full">
+    <UAlert
+      v-if="!allowed"
+      role="status"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-lock"
+      title="No puedes consultar el registro de actividad ahora mismo"
+      description="Hace falta una sesión activa, el correo verificado, la verificación en dos pasos y permiso de administración."
+    />
     <template v-else>
-      <p
+      <UAlert
         v-if="message"
         :data-audit-confirmed="phase === 'confirmed' ? '' : undefined"
         :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'"
-      >
-        {{ message }}
-      </p>
-      <fieldset :disabled="busy || pending || !!intent" class="grid gap-3 sm:grid-cols-2">
-        <label :for="`${prefix}-family`"
-          >Fuente<select
-            :id="`${prefix}-family`"
-            v-model="filters.family"
-            data-audit-family
-            class="block w-full rounded border p-2"
+        :color="phase === 'unknown' || phase === 'error' ? 'error' : phase === 'confirmed' ? 'success' : 'neutral'"
+        variant="subtle"
+        :icon="
+          phase === 'unknown' || phase === 'error'
+            ? 'i-lucide-triangle-alert'
+            : phase === 'confirmed'
+              ? 'i-lucide-circle-check'
+              : 'i-lucide-info'
+        "
+        :title="message"
+      />
+
+      <AdminCard v-if="intent && !intent.attempted" title="Revisa antes de confirmar">
+        <p v-if="intent.action === 'review'">
+          Vas a marcar el registro {{ shortId(intent.targetId) }} como
+          <strong>«{{ dispositionLabels[intent.body.disposition] }}»</strong>. El registro original no cambia.
+        </p>
+        <p v-else>
+          Vas a preparar un archivo con todos los registros que cumplen los filtros aplicados. Todavía no se descarga
+          nada.
+        </p>
+        <p class="adm-help mt-2 break-words">Motivo: {{ intent.body.reason }}</p>
+        <template #footer>
+          <button type="button" class="adm-btn adm-btn--secondary" :disabled="busy" @click="cancel">Cancelar</button>
+          <button
+            data-audit-confirm
+            type="button"
+            :disabled="busy || pending"
+            class="adm-btn adm-btn--primary"
+            @click="send"
           >
-            <option value="">Todas las fuentes incluidas</option>
-            <option v-for="family in ADMIN_AUDIT_FAMILIES" :key="family" :value="family">
-              {{ familyLabels[family] }}
-            </option>
-          </select></label
-        >
-        <label :for="`${prefix}-actor`"
-          >Identificador de actor (UUID)<input
-            :id="`${prefix}-actor`"
-            v-model="filters.actorId"
-            data-audit-actor
-            autocomplete="off"
-            maxlength="36"
-            class="block w-full rounded border p-2"
-        /></label>
-        <label :for="`${prefix}-resource`"
-          >Identificador de recurso<input
-            :id="`${prefix}-resource`"
-            v-model="filters.resourceId"
-            data-audit-resource
-            autocomplete="off"
-            maxlength="160"
-            class="block w-full rounded border p-2"
-        /></label>
-        <label :for="`${prefix}-from`"
-          >Desde (UTC)<input
-            :id="`${prefix}-from`"
-            v-model="filters.from"
-            data-audit-from
-            placeholder="2026-10-09T00:00:00Z"
-            maxlength="20"
-            class="block w-full rounded border p-2"
-        /></label>
-        <label :for="`${prefix}-to`"
-          >Hasta (UTC)<input
-            :id="`${prefix}-to`"
-            v-model="filters.to"
-            data-audit-to
-            placeholder="2026-10-09T23:59:59Z"
-            maxlength="20"
-            class="block w-full rounded border p-2"
-        /></label>
-        <button data-audit-load type="button" class="rounded border px-3 py-2" @click="load()">
-          Aplicar filtros y leer auditoría
-        </button>
-      </fieldset>
-      <template v-if="snapshot">
-        <p class="break-words text-sm">
-          Fuentes incluidas: {{ snapshot.coverage.families.map((family) => familyLabels[family]).join(', ') }}. IP y
-          sesión históricas sólo cuando se registraron; su ausencia no se reconstruye.
-        </p>
-        <p class="text-sm">
-          No incluye autoservicio de clientes, eventos automáticos de proveedores ni logs de aplicación. Filtros
-          aplicados: {{ appliedFilters?.family ? familyLabels[appliedFilters.family] : 'Todas las fuentes' }} ·
-          {{ appliedFilters?.resourceId || 'Todos los recursos' }}.
-        </p>
-        <ol data-audit-list class="min-w-0 space-y-3">
-          <li v-for="item in snapshot.items" :key="item.id" class="min-w-0 break-words rounded border p-3">
-            <p>{{ familyLabels[item.family] }} · {{ item.action }} · recurso {{ item.resourceId }}</p>
-            <time :datetime="item.createdAt">{{ utc(item.createdAt) }}</time>
-            <p>
-              Actor: {{ display(item.actorId) }} · revisión {{ item.reviewVersion }} ·
-              {{ item.disposition || 'Sin revisar' }}
-            </p>
-            <button
-              :data-audit-open="item.id"
-              type="button"
-              :disabled="busy || pending || !!intent"
-              class="rounded border px-3 py-2"
-              @click="open(item)"
-            >
-              Ver detalle redactado
-            </button>
-          </li>
-        </ol>
-        <p v-if="!snapshot.items.length" role="status">Sin registros para los filtros aplicados y tu acceso vigente.</p>
+            Confirmar {{ intent.action === 'review' ? 'revisión' : 'exportación' }}
+          </button>
+        </template>
+      </AdminCard>
+
+      <div v-if="intent?.attempted && phase === 'unknown'">
         <button
-          v-if="snapshot.nextCursor"
-          data-audit-next
+          data-audit-check
           type="button"
-          :disabled="busy || pending || !!intent"
-          class="rounded border px-3 py-2"
-          @click="load(snapshot.nextCursor)"
+          :disabled="busy || pending"
+          class="adm-btn adm-btn--secondary"
+          @click="check"
         >
-          Página siguiente (máximo 25 registros)
+          Comprobar si se ha guardado
         </button>
-        <form class="space-y-3 rounded border p-3" @submit.prevent="reviewExport">
-          <p>
-            Exportar los filtros aplicados, no sólo esta página: máximo 1000 filas y 2 MB; no se truncan resultados. CSV
-            de metadatos redactados, no detalle completo. Caduca a las 24 horas.
-          </p>
-          <label :for="`${prefix}-export-reason`"
-            >Motivo privado de exportación<textarea
+      </div>
+
+      <AdminCard v-if="exportReceipt" title="Archivo listo para descargar">
+        <p>
+          {{ exportReceipt.rows }} registros · {{ size(exportReceipt.bytes) }}. Disponible hasta el
+          {{ adminDate(exportReceipt.expiresAt, true) }}.
+        </p>
+        <p class="adm-help mt-1 break-words">
+          Contiene: {{ exportFilters?.family ? familyLabels[exportFilters.family] : 'todas las áreas' }} ·
+          {{ exportFilters?.resourceId || 'todas las referencias' }}.
+        </p>
+        <template #footer>
+          <button
+            data-audit-download
+            type="button"
+            :disabled="busy || pending || !!intent"
+            class="adm-btn adm-btn--primary"
+            @click="download"
+          >
+            <UIcon name="i-lucide-download" class="size-4" />Descargar CSV
+          </button>
+        </template>
+      </AdminCard>
+      <UAlert
+        v-if="downloadStatus === 'error'"
+        data-audit-download-error
+        role="alert"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se ha podido descargar el archivo"
+        description="Puede que haya caducado o que ya no tengas acceso. Vuelve a prepararlo."
+      />
+      <UAlert
+        v-if="downloadStatus === 'done'"
+        role="status"
+        color="success"
+        variant="subtle"
+        icon="i-lucide-circle-check"
+        title="Archivo descargado"
+      />
+
+      <div class="grid items-start gap-5" :class="detail && 'lg:grid-cols-[minmax(0,1fr)_24rem]'">
+        <div class="adm-card adm-tablecard min-w-0">
+          <div class="adm-tablecard__bar">
+            <fieldset :disabled="busy || pending || !!intent" class="adm-toolbar m-0 min-w-0 border-0 p-0">
+              <label :for="`${prefix}-family`" class="sr-only">Área</label>
+              <select :id="`${prefix}-family`" v-model="filters.family" data-audit-family class="adm-input">
+                <option value="">Todas las áreas</option>
+                <option v-for="family in ADMIN_AUDIT_FAMILIES" :key="family" :value="family">
+                  {{ familyLabels[family] }}
+                </option>
+              </select>
+              <label :for="`${prefix}-from`" class="adm-help">Desde</label>
+              <input
+                :id="`${prefix}-from`"
+                :value="filters.from.slice(0, 10)"
+                data-audit-from
+                type="date"
+                class="adm-input"
+                @input="setDay('from', $event)"
+              />
+              <label :for="`${prefix}-to`" class="adm-help">Hasta</label>
+              <input
+                :id="`${prefix}-to`"
+                :value="filters.to.slice(0, 10)"
+                data-audit-to
+                type="date"
+                class="adm-input"
+                @input="setDay('to', $event)"
+              />
+              <label :for="`${prefix}-resource`" class="sr-only">Referencia del elemento</label>
+              <input
+                :id="`${prefix}-resource`"
+                v-model="filters.resourceId"
+                data-audit-resource
+                autocomplete="off"
+                maxlength="160"
+                placeholder="Referencia (producto, pedido…)"
+                class="adm-input w-56"
+              />
+              <label :for="`${prefix}-actor`" class="sr-only">Identificador del usuario</label>
+              <input
+                :id="`${prefix}-actor`"
+                v-model="filters.actorId"
+                data-audit-actor
+                autocomplete="off"
+                maxlength="36"
+                placeholder="Identificador del usuario"
+                class="adm-input w-56"
+              />
+              <div class="adm-toolbar__end">
+                <button data-audit-load type="button" class="adm-btn adm-btn--primary" @click="load()">
+                  <UIcon name="i-lucide-search" class="size-4" />{{ snapshot ? 'Aplicar' : 'Ver actividad' }}
+                </button>
+              </div>
+            </fieldset>
+          </div>
+
+          <AdminEmptyState
+            v-if="!snapshot"
+            :variant="phase === 'error' ? 'error' : 'empty'"
+            icon="i-lucide-history"
+            :title="phase === 'error' ? 'No se ha podido cargar la actividad' : 'Consulta quién hizo qué y cuándo'"
+            :description="
+              phase === 'error'
+                ? 'Vuelve a intentarlo con el botón de arriba.'
+                : 'Elige un área o unas fechas y pulsa «Ver actividad». Las fechas se interpretan en hora UTC.'
+            "
+          />
+          <template v-else>
+            <div class="adm-table-wrap">
+              <table class="adm-table">
+                <caption class="sr-only">
+                  Registro de actividad
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Fecha</th>
+                    <th scope="col">Área</th>
+                    <th scope="col">Acción</th>
+                    <th scope="col">Referencia</th>
+                    <th scope="col">Usuario</th>
+                    <th scope="col">Revisión</th>
+                    <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </thead>
+                <tbody data-audit-list>
+                  <tr v-for="item in snapshot.items" :key="item.id">
+                    <td class="whitespace-nowrap">
+                      <time :datetime="item.createdAt" :title="utc(item.createdAt)">{{
+                        adminDate(item.createdAt, true)
+                      }}</time>
+                    </td>
+                    <td>{{ familyLabels[item.family] }}</td>
+                    <td>{{ adminHumanize(item.action) }}</td>
+                    <td class="break-all" :title="item.resourceId">{{ shortId(item.resourceId) }}</td>
+                    <td :title="item.actorId ?? undefined">{{ shortId(item.actorId) }}</td>
+                    <td>
+                      <AdminBadge
+                        :tone="
+                          item.disposition === 'reviewed'
+                            ? 'success'
+                            : item.disposition === 'follow_up'
+                              ? 'warning'
+                              : 'neutral'
+                        "
+                      >
+                        {{ item.disposition ? dispositionLabels[item.disposition] : 'Sin revisar' }}
+                      </AdminBadge>
+                    </td>
+                    <td data-numeric class="adm-table__actions">
+                      <button
+                        :data-audit-open="item.id"
+                        type="button"
+                        :disabled="busy || pending || !!intent"
+                        class="adm-btn adm-btn--secondary adm-btn--sm"
+                        @click="open(item)"
+                      >
+                        Ver detalle
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <AdminEmptyState
+              v-if="!snapshot.items.length"
+              role="status"
+              variant="filtered"
+              compact
+              title="No hay actividad con estos filtros"
+              description="Prueba con otra área o amplía las fechas."
+            />
+            <div class="adm-pagination">
+              <details class="min-w-0">
+                <summary class="cursor-pointer">Qué incluye este registro</summary>
+                <p class="mt-2 break-words">
+                  Fuentes incluidas:
+                  {{ snapshot.coverage.families.map((family) => familyLabels[family]).join(', ') }}. No incluye lo que
+                  hacen los clientes desde su cuenta ni los procesos automáticos. Las horas exactas se guardan en UTC.
+                </p>
+                <p class="mt-1 break-words">
+                  Filtros aplicados:
+                  {{ appliedFilters?.family ? familyLabels[appliedFilters.family] : 'todas las áreas' }} ·
+                  {{ appliedFilters?.resourceId || 'todas las referencias' }}.
+                </p>
+              </details>
+              <button
+                v-if="snapshot.nextCursor"
+                data-audit-next
+                type="button"
+                :disabled="busy || pending || !!intent"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                @click="load(snapshot.nextCursor)"
+              >
+                Siguientes 25<UIcon name="i-lucide-chevron-right" class="size-4" />
+              </button>
+            </div>
+          </template>
+        </div>
+
+        <AdminCard v-if="detail" data-audit-detail :title="familyLabels[detail.item.family]" class="min-w-0">
+          <template #actions>
+            <AdminButton variant="ghost" size="sm" icon="i-lucide-x" label="Cerrar detalle" @click="detail = null" />
+          </template>
+          <div class="adm-stack [overflow-wrap:anywhere]">
+            <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5">
+              <dt class="adm-help">Referencia</dt>
+              <dd>{{ detail.item.resourceId }}</dd>
+              <dt class="adm-help">Usuario</dt>
+              <dd :title="detail.item.actorId ?? undefined">{{ shortId(detail.item.actorId) }}</dd>
+              <dt class="adm-help">Operación</dt>
+              <dd :title="detail.item.commandId ?? undefined">{{ shortId(detail.item.commandId) }}</dd>
+              <dt class="adm-help">Sesión</dt>
+              <dd :title="detail.item.sessionId ?? undefined">{{ shortId(detail.item.sessionId) }}</dd>
+              <dt class="adm-help">Huella de conexión</dt>
+              <dd class="break-all">{{ display(detail.item.ipHash) }}</dd>
+              <dt class="adm-help">Motivo original</dt>
+              <dd>{{ redaction(detail.item.reason) }}</dd>
+              <dt class="adm-help">Datos anteriores</dt>
+              <dd>{{ redaction(detail.item.before) }}</dd>
+              <dt class="adm-help">Datos nuevos</dt>
+              <dd>{{ redaction(detail.item.after) }}</dd>
+            </dl>
+            <div>
+              <h3>Cambios</h3>
+              <ul v-if="detail.changesAvailability === 'recorded'" class="mt-1 space-y-1">
+                <li v-for="(change, index) in detail.changes" :key="index">
+                  {{ fieldLabels[change.field] }}: {{ display(change.before) }} → {{ display(change.after) }}
+                </li>
+              </ul>
+              <p v-else class="adm-help mt-1">
+                {{
+                  detail.changesAvailability === 'redacted'
+                    ? 'Los cambios están ocultos por privacidad.'
+                    : 'No se guardó el detalle de los cambios.'
+                }}
+              </p>
+            </div>
+            <div v-if="detail.reviews.length">
+              <h3>Revisiones anteriores</h3>
+              <ol class="mt-1 space-y-1">
+                <li v-for="row in detail.reviews" :key="row.commandId">
+                  {{ dispositionLabels[row.disposition] }} · {{ adminDate(row.recordedAt, true) }}
+                </li>
+              </ol>
+            </div>
+            <form class="adm-stack border-t border-[var(--border)] pt-4" @submit.prevent="review">
+              <div class="adm-field">
+                <label :for="`${prefix}-disposition`" class="adm-label">Marcar como</label>
+                <select
+                  :id="`${prefix}-disposition`"
+                  v-model="disposition"
+                  data-audit-disposition
+                  :disabled="busy || pending || !!intent"
+                  class="adm-input"
+                >
+                  <option value="reviewed">Revisado</option>
+                  <option value="follow_up">Requiere seguimiento</option>
+                </select>
+              </div>
+              <div class="adm-field">
+                <label :for="`${prefix}-review-reason`" class="adm-label">Motivo</label>
+                <textarea
+                  :id="`${prefix}-review-reason`"
+                  v-model="reviewReason"
+                  data-audit-review-reason
+                  :disabled="busy || pending || !!intent"
+                  minlength="10"
+                  maxlength="500"
+                  class="adm-input"
+                />
+                <p class="adm-help">Entre 10 y 500 caracteres. Solo lo ven los administradores.</p>
+              </div>
+              <button
+                data-audit-review
+                type="submit"
+                :disabled="busy || pending || !!intent"
+                class="adm-btn adm-btn--primary justify-center"
+              >
+                Guardar revisión
+              </button>
+            </form>
+          </div>
+        </AdminCard>
+      </div>
+
+      <AdminCard
+        v-if="snapshot"
+        title="Exportar a CSV"
+        description="Incluye todos los registros de los filtros aplicados (hasta 1.000), no solo esta página. El archivo caduca a las 24 horas."
+      >
+        <form class="flex flex-wrap items-end gap-3" @submit.prevent="reviewExport">
+          <div class="adm-field min-w-0 flex-1 basis-64">
+            <label :for="`${prefix}-export-reason`" class="adm-label">Motivo de la exportación</label>
+            <textarea
               :id="`${prefix}-export-reason`"
               v-model="exportReason"
               data-audit-export-reason
               :disabled="busy || pending || !!intent"
               minlength="10"
               maxlength="500"
-              class="block w-full rounded border p-2"
+              rows="2"
+              class="adm-input"
             />
-          </label>
+          </div>
           <button
             data-audit-export-review
             type="submit"
             :disabled="busy || pending || !!intent"
-            class="rounded border px-3 py-2"
+            class="adm-btn adm-btn--secondary"
           >
-            Revisar exportación privada
+            <UIcon name="i-lucide-file-down" class="size-4" />Preparar exportación
           </button>
         </form>
-      </template>
-      <div v-if="detail" data-audit-detail class="min-w-0 space-y-3 rounded border p-3 [overflow-wrap:anywhere]">
-        <h3 class="font-semibold">Detalle redactado · {{ familyLabels[detail.item.family] }}</h3>
-        <dl class="space-y-1">
-          <dt>Recurso</dt>
-          <dd>{{ detail.item.resourceId }}</dd>
-          <dt>Actor</dt>
-          <dd>{{ display(detail.item.actorId) }}</dd>
-          <dt>Comando</dt>
-          <dd>{{ display(detail.item.commandId) }}</dd>
-          <dt>Sesión</dt>
-          <dd>{{ display(detail.item.sessionId) }}</dd>
-          <dt>Hash de IP (no dirección IP)</dt>
-          <dd>{{ display(detail.item.ipHash) }}</dd>
-          <dt>Motivo original</dt>
-          <dd>{{ redaction(detail.item.reason) }}</dd>
-          <dt>Antes / después sensibles</dt>
-          <dd>{{ redaction(detail.item.before) }} / {{ redaction(detail.item.after) }}</dd>
-        </dl>
-        <template v-if="detail.changesAvailability === 'recorded'">
-          <h4>Cambios permitidos registrados</h4>
-          <ul>
-            <li v-for="(change, index) in detail.changes" :key="index">
-              {{ fieldLabels[change.field] }}: {{ display(change.before) }} → {{ display(change.after) }}
-            </li>
-          </ul>
-        </template>
-        <p v-else>
-          {{
-            detail.changesAvailability === 'redacted'
-              ? 'Cambios redactados.'
-              : 'Cambios no registrados o no disponibles; no se reconstruyen.'
-          }}
-        </p>
-        <ol>
-          <li v-for="row in detail.reviews" :key="row.commandId">
-            Revisión {{ row.version }} · {{ row.disposition }} · {{ utc(row.recordedAt) }} · motivo redactado.
-          </li>
-        </ol>
-        <form class="space-y-3" @submit.prevent="review">
-          <label :for="`${prefix}-disposition`"
-            >Decisión<select
-              :id="`${prefix}-disposition`"
-              v-model="disposition"
-              data-audit-disposition
-              :disabled="busy || pending || !!intent"
-              class="block w-full rounded border p-2"
-            >
-              <option value="reviewed">Revisado</option>
-              <option value="follow_up">Requiere seguimiento</option>
-            </select></label
-          >
-          <label :for="`${prefix}-review-reason`"
-            >Motivo privado de revisión<textarea
-              :id="`${prefix}-review-reason`"
-              v-model="reviewReason"
-              data-audit-review-reason
-              :disabled="busy || pending || !!intent"
-              minlength="10"
-              maxlength="500"
-              class="block w-full rounded border p-2"
-            />
-          </label>
-          <button
-            data-audit-review
-            type="submit"
-            :disabled="busy || pending || !!intent"
-            class="rounded border px-3 py-2"
-          >
-            Revisar decisión
-          </button>
-        </form>
-      </div>
-      <div v-if="intent && !intent.attempted" class="space-y-3 rounded border p-3">
-        <p v-if="intent.action === 'review'">
-          Añadir revisión {{ intent.body.disposition }} a {{ intent.targetId }} en versión
-          {{ intent.body.expectedVersion }}.
-        </p>
-        <p v-else>Crear una exportación privada de los filtros aplicados revisados. No se descargarán datos todavía.</p>
-        <p class="break-words">{{ intent.body.reason }}</p>
-        <button
-          data-audit-confirm
-          type="button"
-          :disabled="busy || pending"
-          class="rounded border px-3 py-2"
-          @click="send"
-        >
-          Confirmar {{ intent.action === 'review' ? 'revisión' : 'exportación' }}
-        </button>
-        <button type="button" :disabled="busy" @click="cancel">Cancelar revisión local</button>
-      </div>
-      <button
-        v-if="intent?.attempted && phase === 'unknown'"
-        data-audit-check
-        type="button"
-        :disabled="busy || pending"
-        class="rounded border px-3 py-2"
-        @click="check"
-      >
-        Consultar recibo y verificar resultado
-      </button>
-      <div v-if="exportReceipt" class="space-y-2 rounded border p-3">
-        <p>
-          CSV confirmado: {{ exportReceipt.rows }} filas · {{ exportReceipt.bytes }} bytes. Caduca
-          {{ utc(exportReceipt.expiresAt) }}.
-        </p>
-        <p>
-          Filtros congelados del archivo:
-          {{ exportFilters?.family ? familyLabels[exportFilters.family] : 'Todas las fuentes' }} ·
-          {{ exportFilters?.resourceId || 'Todos los recursos' }}.
-        </p>
-        <button
-          data-audit-download
-          type="button"
-          :disabled="busy || pending || !!intent"
-          class="rounded border px-3 py-2"
-          @click="download"
-        >
-          Descargar CSV verificado
-        </button>
-      </div>
-      <p v-if="downloadStatus === 'error'" data-audit-download-error role="alert">
-        No se pudo validar o autorizar el CSV; no se ha descargado ningún archivo. Comprueba acceso y caducidad.
-      </p>
-      <p v-if="downloadStatus === 'done'" role="status">
-        CSV verificado y preparado para descarga. No se conserva una copia en esta pantalla.
-      </p>
+      </AdminCard>
     </template>
   </section>
 </template>

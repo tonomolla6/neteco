@@ -129,16 +129,86 @@ const CONTENT_TYPE_LABELS: Record<string, string> = {
   pricing: 'Precios y ofertas'
 }
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  draft: { label: 'Borrador', color: 'bg-slate-100 text-slate-700 border-slate-300' },
-  in_review: { label: 'En revisión', color: 'bg-amber-50 text-amber-800 border-amber-300' },
-  approved: { label: 'Aprobado', color: 'bg-emerald-50 text-emerald-800 border-emerald-300' },
-  published: { label: 'Publicado', color: 'bg-sky-50 text-sky-800 border-sky-300' },
-  rejected: { label: 'Rechazado', color: 'bg-rose-50 text-rose-800 border-rose-300' },
-  withdrawn: { label: 'Retirado', color: 'bg-slate-100 text-slate-500 border-slate-300' }
+type StatusTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info'
+const STATUS_LABELS: Record<string, { label: string; tone: StatusTone }> = {
+  draft: { label: 'Borrador', tone: 'neutral' },
+  in_review: { label: 'En revisión', tone: 'warning' },
+  approved: { label: 'Aprobado', tone: 'success' },
+  published: { label: 'Publicado', tone: 'info' },
+  rejected: { label: 'Rechazado', tone: 'danger' },
+  withdrawn: { label: 'Retirado', tone: 'neutral' }
 }
 
-const DEFAULT_STATUS_LABEL = { label: 'Borrador', color: 'bg-slate-100 text-slate-700 border-slate-300' }
+const DEFAULT_STATUS_LABEL: { label: string; tone: StatusTone } = { label: 'Borrador', tone: 'neutral' }
+const STATUS_FILTERS = [
+  { value: 'all', label: 'Todos los estados' },
+  { value: 'in_review', label: 'En revisión' },
+  { value: 'approved', label: 'Aprobados' },
+  { value: 'published', label: 'Publicados' },
+  { value: 'rejected', label: 'Rechazados' },
+  { value: 'withdrawn', label: 'Retirados' },
+  { value: 'draft', label: 'Borradores' }
+]
+const BLOCK_NAMES: Record<string, string> = {
+  heading: 'Encabezado',
+  paragraph: 'Párrafo',
+  list: 'Lista',
+  image: 'Imagen',
+  callout: 'Aviso destacado',
+  cta: 'Enlace'
+}
+/** Los errores del servidor llegan a veces como código interno: se muestra un texto legible en su lugar. */
+function friendly(err: unknown, fallback: string) {
+  const text = err instanceof Error ? err.message : String(err)
+  return /^[a-z0-9_]+$/.test(text) ? fallback : text
+}
+const shortId = (id: string | null | undefined) => (id ? `#${id.slice(0, 8).toUpperCase()}` : '')
+function blockSummary(block: Record<string, unknown>): string {
+  const text = (key: string) => (typeof block[key] === 'string' ? (block[key] as string) : '')
+  switch (block.type) {
+    case 'cta':
+      return `${text('label')} → ${text('href')}`
+    case 'image':
+      return text('alt') || text('caption')
+    case 'list':
+      return Array.isArray(block.items) ? block.items.join(' · ') : ''
+    case 'callout':
+      return [text('title'), text('text')].filter(Boolean).join(': ')
+    default:
+      return text('text')
+  }
+}
+/** Convierte una versión de la página en filas legibles (título, buscadores y bloques). */
+function documentRows(document: Record<string, unknown> | null): Array<{ label: string; text: string }> {
+  if (!document) return []
+  const rows: Array<{ label: string; text: string }> = []
+  const add = (label: string, value: unknown) => {
+    if (typeof value === 'string' && value.trim()) rows.push({ label, text: value })
+  }
+  add('Título', document.title)
+  if (typeof document.slug === 'string') add('Dirección', `/${document.slug}`)
+  const seo = document.seo
+  if (seo && typeof seo === 'object') {
+    add('Título en buscadores', (seo as Record<string, unknown>).title)
+    add('Descripción en buscadores', (seo as Record<string, unknown>).description)
+  }
+  if (Array.isArray(document.blocks))
+    for (const block of document.blocks as unknown[])
+      if (block && typeof block === 'object') {
+        const entry = block as Record<string, unknown>
+        add(BLOCK_NAMES[String(entry.type)] ?? 'Bloque', blockSummary(entry))
+      }
+  add('Resumen del cambio', document.changeSummary)
+  return rows
+}
+const publishedRows = computed(() => documentRows(selectedReview.value?.diff.publishedDocument ?? null))
+const proposedRows = computed(() => {
+  const known = new Set(publishedRows.value.map((row) => `${row.label}\n${row.text}`))
+  return documentRows(selectedReview.value?.diff.proposedDocument ?? null).map((row) => ({
+    ...row,
+    changed: publishedRows.value.length > 0 && !known.has(`${row.label}\n${row.text}`)
+  }))
+})
 function getStatusLabel(status: string) {
   return STATUS_LABELS[status] ?? DEFAULT_STATUS_LABEL
 }
@@ -188,7 +258,7 @@ async function fetchReviews() {
       selectedReview.value = null
     }
   } catch {
-    errorMessage.value = 'No se ha podido cargar la cola editorial.'
+    errorMessage.value = 'No se han podido cargar las revisiones.'
   } finally {
     loading.value = false
   }
@@ -202,7 +272,7 @@ async function selectReview(id: string) {
     if (!res.ok) throw new Error('error_loading_detail')
     selectedReview.value = (await res.json()) as ReviewDetail
   } catch {
-    errorMessage.value = 'Error al cargar el detalle de la revisión.'
+    errorMessage.value = 'No se ha podido cargar el detalle de la revisión.'
   } finally {
     loading.value = false
   }
@@ -232,8 +302,7 @@ async function toggleChecklistItem(item: ChecklistItem) {
     }
     selectedReview.value = (await res.json()) as ReviewDetail
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    errorMessage.value = `Error al actualizar checklist: ${msg}`
+    errorMessage.value = friendly(err, 'No se ha podido actualizar la lista de comprobación. Vuelve a intentarlo.')
   } finally {
     actionLoading.value = false
   }
@@ -257,8 +326,7 @@ async function addComment() {
     selectedReview.value.comments.push(added)
     newComment.value = ''
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    errorMessage.value = `Error al guardar comentario: ${msg}`
+    errorMessage.value = friendly(err, 'No se ha podido guardar el comentario. Vuelve a intentarlo.')
   } finally {
     actionLoading.value = false
   }
@@ -286,10 +354,10 @@ async function approveReview() {
         throw new Error('Separación de funciones: no puedes autoaprobar tu propio cambio crítico.')
       }
       if (err?.error?.code === 'checklist_incomplete') {
-        throw new Error('Checklist incompleto: debes completar todos los puntos requeridos.')
+        throw new Error('La lista de comprobación está incompleta: marca todos los puntos antes de aprobar.')
       }
       if (err?.error?.code === 'mfa_expired') {
-        throw new Error('MFA caducado: se requiere verificación MFA reciente para aprobar cambios críticos.')
+        throw new Error('Tu verificación en dos pasos ha caducado: vuelve a verificarte para aprobar cambios críticos.')
       }
       throw new Error(err?.error?.code || 'error_approving')
     }
@@ -299,7 +367,10 @@ async function approveReview() {
     successMessage.value = 'Revisión aprobada correctamente.'
     await fetchReviews()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : String(err)
+    errorMessage.value = friendly(
+      err,
+      'No se ha podido completar la operación. Actualiza la revisión y vuelve a intentarlo.'
+    )
   } finally {
     actionLoading.value = false
   }
@@ -331,7 +402,10 @@ async function rejectReview() {
     successMessage.value = 'Revisión rechazada con motivo.'
     await fetchReviews()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : String(err)
+    errorMessage.value = friendly(
+      err,
+      'No se ha podido completar la operación. Actualiza la revisión y vuelve a intentarlo.'
+    )
   } finally {
     actionLoading.value = false
   }
@@ -363,7 +437,10 @@ async function withdrawReview() {
     successMessage.value = 'Revisión retirada.'
     await fetchReviews()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : String(err)
+    errorMessage.value = friendly(
+      err,
+      'No se ha podido completar la operación. Actualiza la revisión y vuelve a intentarlo.'
+    )
   } finally {
     actionLoading.value = false
   }
@@ -395,7 +472,10 @@ async function assignReviewer() {
     successMessage.value = 'Revisor asignado con éxito.'
     await fetchReviews()
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : String(err)
+    errorMessage.value = friendly(
+      err,
+      'No se ha podido completar la operación. Actualiza la revisión y vuelve a intentarlo.'
+    )
   } finally {
     actionLoading.value = false
   }
@@ -411,478 +491,375 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-    <div class="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
-      <div>
-        <h2 class="text-xl font-bold text-slate-900">Workflow editorial de aprobación</h2>
-        <p class="text-xs text-slate-500">
-          Supervisión de cambios, checklist de verificación técnica/legal y separación de funciones.
-        </p>
-      </div>
+  <div class="adm-stack">
+    <UAlert
+      v-if="errorMessage && (reviews.length || selectedReview)"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
 
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
-          :class="queueTab === 'mine' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
-          @click="queueTab = 'mine'"
-        >
+    <div class="adm-toolbar">
+      <div class="adm-segments" role="group" aria-label="Qué revisiones ver">
+        <button type="button" class="adm-segment" :aria-pressed="queueTab === 'mine'" @click="queueTab = 'mine'">
           Pendientes de mi revisión
         </button>
-        <button
-          type="button"
-          class="rounded-lg px-3 py-1.5 text-xs font-semibold transition"
-          :class="queueTab === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
-          @click="queueTab = 'all'"
-        >
+        <button type="button" class="adm-segment" :aria-pressed="queueTab === 'all'" @click="queueTab = 'all'">
           Todas las revisiones
         </button>
       </div>
+      <select v-model="statusFilter" class="adm-input" aria-label="Filtrar por estado" :disabled="queueTab === 'mine'">
+        <option v-for="option in STATUS_FILTERS" :key="option.value" :value="option.value">{{ option.label }}</option>
+      </select>
+      <div class="adm-toolbar__end">
+        <button type="button" class="adm-btn adm-btn--secondary" :disabled="loading" @click="fetchReviews">
+          Actualizar
+        </button>
+      </div>
     </div>
 
-    <!-- Feedback messages -->
-    <div
-      v-if="errorMessage"
-      class="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"
-    >
-      {{ errorMessage }}
-    </div>
-    <div
-      v-if="successMessage"
-      class="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-medium text-emerald-800"
-    >
-      {{ successMessage }}
-    </div>
-
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-[18rem_1fr]">
-      <!-- Queue Sidebar -->
-      <aside class="h-fit rounded-xl border border-slate-200 bg-slate-50 p-3">
-        <div class="mb-3 flex items-center justify-between text-xs font-bold text-slate-700">
-          <span>Cola de revisiones</span>
-          <span class="rounded bg-slate-200 px-1.5 py-0.5 text-[11px]">{{ reviews.length }}</span>
+    <div class="grid grid-cols-1 items-start gap-5 lg:grid-cols-[19rem_minmax(0,1fr)]">
+      <AdminCard flush>
+        <template #title>
+          Revisiones <span class="adm-segment__count">{{ reviews.length }}</span>
+        </template>
+        <div v-if="loading && !reviews.length" class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only">Cargando revisiones…</span>
+          <div v-for="row in 4" :key="row"><i /><i /></div>
         </div>
-
-        <div v-if="loading && !reviews.length" class="py-6 text-center text-xs text-slate-500">Cargando cola...</div>
-
-        <div v-else-if="!reviews.length" class="py-6 text-center text-xs text-slate-500">
-          No hay revisiones en esta cola.
-        </div>
-
-        <div v-else class="space-y-1.5">
-          <button
-            v-for="rev in reviews"
-            :key="rev.id"
-            type="button"
-            class="w-full rounded-lg border p-2.5 text-left transition"
-            :class="
-              selectedReview?.id === rev.id
-                ? 'border-indigo-400 bg-indigo-50/50 shadow-sm'
-                : 'border-slate-200 bg-white hover:border-slate-300'
-            "
-            @click="selectReview(rev.id)"
-          >
-            <div class="flex items-center justify-between gap-1">
-              <span class="truncate font-semibold text-slate-900 text-xs">{{ rev.pageTitle }}</span>
-              <span
-                class="rounded-full border px-1.5 py-0.5 text-[10px] font-medium"
-                :class="getStatusLabel(rev.status).color"
-              >
-                {{ getStatusLabel(rev.status).label }}
-              </span>
-            </div>
-
-            <div class="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500 font-mono">
-              <span>/{{ rev.pageSlug }}</span>
-              <span>· v{{ rev.versionNumber }}</span>
-            </div>
-
-            <div class="mt-2 flex flex-wrap items-center gap-1">
-              <span v-if="rev.isCritical" class="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-800">
-                Crítico
-              </span>
-              <span v-else class="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600"> Estándar </span>
-              <span class="rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] text-indigo-700">
-                {{ CONTENT_TYPE_LABELS[rev.contentType] || rev.contentType }}
-              </span>
-            </div>
-
-            <div class="mt-2 text-[11px] text-slate-500">
-              Checklist: {{ rev.checklistCompletedCount }} / {{ rev.checklistTotalCount }}
-            </div>
-          </button>
-        </div>
-      </aside>
-
-      <!-- Review Detail Section -->
-      <section v-if="selectedReview" class="space-y-6">
-        <!-- Review Header Card -->
-        <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div class="flex items-center gap-2">
-                <h3 class="text-lg font-bold text-slate-900">{{ selectedReview.pageTitle }}</h3>
-                <span
-                  class="rounded-full border px-2 py-0.5 text-xs font-semibold"
-                  :class="getStatusLabel(selectedReview.status).color"
-                >
-                  {{ getStatusLabel(selectedReview.status).label }}
-                </span>
-                <span
-                  v-if="selectedReview.isCritical"
-                  class="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-bold text-rose-800 border border-rose-300"
-                >
-                  Crítico
-                </span>
-              </div>
-              <div class="mt-1 text-xs text-slate-500 font-mono">
-                Ruta: /{{ selectedReview.pageSlug }} · Versión propuesta: v{{ selectedReview.versionNumber }} · Tipo:
-                {{ CONTENT_TYPE_LABELS[selectedReview.contentType] || selectedReview.contentType }}
-              </div>
-            </div>
-
-            <!-- Actions Bar -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-if="selectedReview.status === 'in_review'"
-                data-test="approve-btn"
-                type="button"
-                class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="!canApproveSelected || actionLoading"
-                @click="showApproveModal = true"
-              >
-                Aprobar
-              </button>
-
-              <button
-                v-if="selectedReview.status === 'in_review'"
-                type="button"
-                class="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-50 disabled:opacity-50"
-                :disabled="actionLoading"
-                @click="showRejectModal = true"
-              >
-                Rechazar
-              </button>
-
-              <button
-                v-if="selectedReview.status !== 'withdrawn' && selectedReview.status !== 'published'"
-                type="button"
-                class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                :disabled="actionLoading"
-                @click="showWithdrawModal = true"
-              >
-                Retirar
-              </button>
-
-              <button
-                v-if="selectedReview.status === 'in_review'"
-                type="button"
-                class="rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-50"
-                :disabled="actionLoading"
-                @click="showAssignModal = true"
-              >
-                Asignar revisor
-              </button>
-            </div>
-          </div>
-
-          <!-- Separation of duties critical alert -->
-          <div
-            v-if="selectedReview.isCritical"
-            class="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-900"
-          >
-            <div class="font-bold flex items-center gap-1.5">
-              <span>Separación de funciones</span>
-            </div>
-            <p class="mt-1 text-slate-700">
-              Para cambios críticos (datos regulatorios/seguridad química, contenido legal o precios), quien escribe
-              <strong>no puede autoaprobar ni autopublicar</strong> su propio cambio. Se exige un revisor con permiso de
-              publicador (<code>catalog.publish</code>) e inicio de sesión con MFA reciente.
-            </p>
-            <p v-if="isAuthorOfSelected" class="mt-1 font-semibold text-rose-700">
-              Eres el autor de este borrador. Debes esperar la revisión y aprobación de otro operador.
-            </p>
-          </div>
-
-          <!-- Metadata info -->
-          <div class="mt-3 grid grid-cols-1 gap-2 text-xs text-slate-600 sm:grid-cols-3">
-            <div>
-              <span class="font-semibold">Autor:</span> {{ selectedReview.authorEmail || selectedReview.authorId }}
-            </div>
-            <div>
-              <span class="font-semibold">Revisor asignado:</span>
-              {{ selectedReview.assignedReviewerEmail || selectedReview.assignedReviewerId || 'Sin asignar' }}
-            </div>
-            <div>
-              <span class="font-semibold">Checklist:</span> {{ selectedReview.checklistCompletedCount }} /
-              {{ selectedReview.checklistTotalCount }} completados
-            </div>
-          </div>
-        </div>
-
-        <!-- Checklist Section -->
-        <div class="rounded-xl border border-slate-200 bg-white p-4">
-          <div class="flex items-center justify-between">
-            <h4 class="font-bold text-slate-900 text-sm">Checklist de verificación editorial</h4>
-            <span
-              class="rounded-full px-2 py-0.5 text-xs font-semibold"
-              :class="checklistIsComplete ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'"
-            >
-              {{ selectedReview.checklistCompletedCount }} / {{ selectedReview.checklistTotalCount }} completados
-            </span>
-          </div>
-
-          <p class="mt-1 text-xs text-slate-500">
-            Todos los puntos deben verificarse y marcarse como completados antes de permitir la aprobación.
-          </p>
-
-          <div class="mt-3 divide-y divide-slate-100">
-            <div v-for="item in selectedReview.checklist" :key="item.id" class="flex items-start gap-3 py-2.5">
-              <input
-                :id="`check-${item.id}`"
-                type="checkbox"
-                class="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                :checked="item.completed"
-                :disabled="selectedReview.status !== 'in_review' || actionLoading"
-                @change="toggleChecklistItem(item)"
-              />
-              <label :for="`check-${item.id}`" class="cursor-pointer text-xs text-slate-800">
-                <span class="font-medium" :class="item.completed ? 'line-through text-slate-400' : ''">
-                  {{ item.title }}
-                </span>
-                <span v-if="item.completed" class="ml-2 text-[11px] text-emerald-600"> (Completado) </span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Diff Section -->
-        <div class="rounded-xl border border-slate-200 bg-white p-4">
-          <h4 class="font-bold text-slate-900 text-sm">Diff entre versión publicada y propuesta</h4>
-          <p class="mt-1 text-xs text-slate-500">
-            Compara el contenido actualmente público con el borrador pendiente de aprobación.
-          </p>
-
-          <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <!-- Published version -->
-            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div class="font-bold text-xs text-slate-700">Versión actualmente publicada</div>
-              <div v-if="!selectedReview.diff.publishedDocument" class="mt-3 text-xs text-slate-400 italic">
-                No hay versión previa publicada (este borrador será la primera publicación).
-              </div>
-              <pre
-                v-else
-                class="mt-2 max-h-64 overflow-auto rounded bg-white p-2 font-mono text-[11px] text-slate-800 border"
-                >{{ JSON.stringify(selectedReview.diff.publishedDocument, null, 2) }}</pre>
-            </div>
-
-            <!-- Proposed version -->
-            <div class="rounded-lg border border-indigo-200 bg-indigo-50/30 p-3">
-              <div class="font-bold text-xs text-indigo-900">
-                Versión propuesta (v{{ selectedReview.versionNumber }})
-              </div>
-              <pre
-                class="mt-2 max-h-64 overflow-auto rounded bg-white p-2 font-mono text-[11px] text-slate-800 border"
-                >{{ JSON.stringify(selectedReview.diff.proposedDocument, null, 2) }}</pre>
-            </div>
-          </div>
-        </div>
-
-        <!-- Append-only Comments Thread -->
-        <div class="rounded-xl border border-slate-200 bg-white p-4">
-          <h4 class="font-bold text-slate-900 text-sm">Comentarios de revisión (historial inmutable)</h4>
-          <p class="text-xs text-slate-500">
-            Observaciones registradas de forma inmutable para auditoría y trazabilidad editorial.
-          </p>
-
-          <div class="mt-3 space-y-2">
-            <div
-              v-for="c in selectedReview.comments"
-              :key="c.id"
-              class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs"
-            >
-              <div class="flex items-center justify-between text-slate-500 text-[11px]">
-                <span class="font-semibold text-slate-700">{{ c.authorEmail || c.authorId }}</span>
-                <span>{{ new Date(c.createdAt).toLocaleString('es-ES') }}</span>
-              </div>
-              <p class="mt-1 text-slate-800 whitespace-pre-wrap">{{ c.comment }}</p>
-            </div>
-          </div>
-
-          <!-- Add comment input -->
-          <div class="mt-4 flex gap-2">
-            <textarea
-              v-model="newComment"
-              data-test="new-comment"
-              rows="2"
-              class="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-indigo-500 focus:outline-none"
-              placeholder="Escribe un comentario para la revisión..."
-            />
+        <AdminEmptyState
+          v-else-if="!reviews.length && errorMessage"
+          variant="error"
+          compact
+          title="No se han podido cargar las revisiones"
+          :description="errorMessage"
+        >
+          <button type="button" class="adm-btn adm-btn--secondary" @click="fetchReviews">Reintentar</button>
+        </AdminEmptyState>
+        <AdminEmptyState
+          v-else-if="!reviews.length"
+          compact
+          icon="i-lucide-clipboard-check"
+          title="No hay revisiones"
+          :description="
+            queueTab === 'mine'
+              ? 'No tienes ninguna revisión asignada.'
+              : 'Ningún cambio espera revisión con este filtro.'
+          "
+        />
+        <ul v-else class="divide-y divide-[var(--border)]">
+          <li v-for="rev in reviews" :key="rev.id">
             <button
-              data-test="send-comment"
               type="button"
-              class="h-fit rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-indigo-700 disabled:opacity-50"
-              :disabled="!newComment.trim() || actionLoading"
-              @click="addComment"
+              class="block w-full px-4 py-3 text-left transition-colors hover:bg-[var(--canvas)]"
+              :class="selectedReview?.id === rev.id && 'bg-neteco-50'"
+              :aria-current="selectedReview?.id === rev.id ? 'true' : undefined"
+              @click="selectReview(rev.id)"
             >
-              Comentar
+              <span class="flex items-start justify-between gap-2">
+                <span class="min-w-0 truncate font-semibold text-[var(--text-strong)]">{{ rev.pageTitle }}</span>
+                <AdminBadge :tone="getStatusLabel(rev.status).tone">{{ getStatusLabel(rev.status).label }}</AdminBadge>
+              </span>
+              <span class="adm-help mt-0.5 block truncate">/{{ rev.pageSlug }} · versión {{ rev.versionNumber }}</span>
+              <span class="mt-1.5 flex flex-wrap items-center gap-1.5">
+                <AdminBadge v-if="rev.isCritical" tone="danger" plain>Crítico</AdminBadge>
+                <AdminBadge plain>{{ CONTENT_TYPE_LABELS[rev.contentType] || 'General' }}</AdminBadge>
+                <span class="adm-help">
+                  {{ rev.checklistCompletedCount }} de {{ rev.checklistTotalCount }} comprobaciones
+                </span>
+              </span>
             </button>
+          </li>
+        </ul>
+      </AdminCard>
+
+      <section v-if="selectedReview" class="adm-stack min-w-0">
+        <AdminCard>
+          <div class="adm-stack">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <h3 class="adm-section__title">{{ selectedReview.pageTitle }}</h3>
+                  <AdminBadge :tone="getStatusLabel(selectedReview.status).tone">
+                    {{ getStatusLabel(selectedReview.status).label }}
+                  </AdminBadge>
+                  <AdminBadge v-if="selectedReview.isCritical" tone="danger">Crítico</AdminBadge>
+                </div>
+                <p class="adm-help mt-1 break-all">
+                  /{{ selectedReview.pageSlug }} · versión propuesta {{ selectedReview.versionNumber }} ·
+                  {{ CONTENT_TYPE_LABELS[selectedReview.contentType] || 'General' }}
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-if="selectedReview.status === 'in_review'"
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :disabled="actionLoading"
+                  @click="showAssignModal = true"
+                >
+                  Asignar revisor
+                </button>
+                <button
+                  v-if="selectedReview.status !== 'withdrawn' && selectedReview.status !== 'published'"
+                  type="button"
+                  class="adm-btn adm-btn--secondary adm-btn--sm"
+                  :disabled="actionLoading"
+                  @click="showWithdrawModal = true"
+                >
+                  Retirar
+                </button>
+                <button
+                  v-if="selectedReview.status === 'in_review'"
+                  type="button"
+                  class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                  :disabled="actionLoading"
+                  @click="showRejectModal = true"
+                >
+                  Rechazar
+                </button>
+                <button
+                  v-if="selectedReview.status === 'in_review'"
+                  data-test="approve-btn"
+                  type="button"
+                  class="adm-btn adm-btn--primary adm-btn--sm"
+                  :disabled="!canApproveSelected || actionLoading"
+                  @click="showApproveModal = true"
+                >
+                  Aprobar
+                </button>
+              </div>
+            </div>
+
+            <UAlert
+              v-if="selectedReview.isCritical"
+              color="warning"
+              variant="subtle"
+              icon="i-lucide-shield-alert"
+              title="Separación de funciones"
+            >
+              <template #description>
+                <p>
+                  En los cambios críticos (seguridad química, contenido legal o precios), quien escribe
+                  <strong>no puede autoaprobar ni autopublicar</strong> su propio cambio. Hace falta otra persona con
+                  permiso para publicar y con la verificación en dos pasos reciente.
+                </p>
+                <p v-if="isAuthorOfSelected" class="mt-1 font-semibold">
+                  Este borrador es tuyo: tiene que revisarlo y aprobarlo otra persona.
+                </p>
+              </template>
+            </UAlert>
+
+            <dl class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <dt class="adm-help">Autor</dt>
+                <dd class="break-all">{{ selectedReview.authorEmail || shortId(selectedReview.authorId) }}</dd>
+              </div>
+              <div>
+                <dt class="adm-help">Revisor asignado</dt>
+                <dd class="break-all">
+                  {{
+                    selectedReview.assignedReviewerEmail || shortId(selectedReview.assignedReviewerId) || 'Sin asignar'
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt class="adm-help">Lista de comprobación</dt>
+                <dd>
+                  {{ selectedReview.checklistCompletedCount }} / {{ selectedReview.checklistTotalCount }} completados
+                </dd>
+              </div>
+            </dl>
           </div>
-        </div>
+        </AdminCard>
+
+        <AdminCard
+          title="Lista de comprobación"
+          description="Hay que marcar todos los puntos antes de poder aprobar."
+          flush
+        >
+          <template #actions>
+            <AdminBadge :tone="checklistIsComplete ? 'success' : 'warning'">
+              {{ selectedReview.checklistCompletedCount }} / {{ selectedReview.checklistTotalCount }} completados
+            </AdminBadge>
+          </template>
+          <ul class="divide-y divide-[var(--border)]">
+            <li v-for="item in selectedReview.checklist" :key="item.id" class="px-5 py-2.5">
+              <label :for="`check-${item.id}`" class="adm-check">
+                <input
+                  :id="`check-${item.id}`"
+                  type="checkbox"
+                  :checked="item.completed"
+                  :disabled="selectedReview.status !== 'in_review' || actionLoading"
+                  @change="toggleChecklistItem(item)"
+                />
+                <span :class="item.completed && 'text-[var(--text-muted)] line-through'">{{ item.title }}</span>
+              </label>
+            </li>
+          </ul>
+        </AdminCard>
+
+        <AdminCard
+          title="Cambios entre la versión publicada y la propuesta"
+          description="Compara lo que hoy ven los clientes con el borrador pendiente de aprobar."
+        >
+          <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div class="min-w-0">
+              <h4 class="mb-2">Publicada ahora</h4>
+              <p v-if="!selectedReview.diff.publishedDocument" class="adm-help">
+                Todavía no hay nada publicado: este borrador sería la primera publicación.
+              </p>
+              <ul v-else class="space-y-2">
+                <li v-for="(row, index) in publishedRows" :key="index">
+                  <p class="adm-help">{{ row.label }}</p>
+                  <p class="whitespace-pre-wrap break-words">{{ row.text }}</p>
+                </li>
+              </ul>
+            </div>
+            <div class="min-w-0">
+              <h4 class="mb-2">Propuesta (versión {{ selectedReview.versionNumber }})</h4>
+              <ul class="space-y-2">
+                <li v-for="(row, index) in proposedRows" :key="index">
+                  <p class="adm-help">
+                    {{ row.label }} <AdminBadge v-if="row.changed" tone="info" plain>Cambia</AdminBadge>
+                  </p>
+                  <p class="whitespace-pre-wrap break-words">{{ row.text }}</p>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </AdminCard>
+
+        <AdminCard title="Comentarios" description="Quedan guardados y no se pueden editar ni borrar.">
+          <div class="adm-stack">
+            <p v-if="!selectedReview.comments.length" class="adm-help">Todavía no hay comentarios.</p>
+            <ul v-else class="space-y-3">
+              <li v-for="c in selectedReview.comments" :key="c.id">
+                <p class="adm-help">
+                  <span class="font-semibold text-[var(--text-strong)]">{{
+                    c.authorEmail || shortId(c.authorId)
+                  }}</span>
+                  · {{ adminDate(c.createdAt, true) }}
+                </p>
+                <p class="whitespace-pre-wrap break-words">{{ c.comment }}</p>
+              </li>
+            </ul>
+            <div class="flex flex-wrap items-end gap-2">
+              <textarea
+                v-model="newComment"
+                data-test="new-comment"
+                rows="2"
+                class="adm-input min-w-0 flex-1"
+                aria-label="Nuevo comentario"
+                placeholder="Escribe un comentario para la revisión…"
+              />
+              <button
+                data-test="send-comment"
+                type="button"
+                class="adm-btn adm-btn--secondary"
+                :disabled="!newComment.trim() || actionLoading"
+                @click="addComment"
+              >
+                Comentar
+              </button>
+            </div>
+          </div>
+        </AdminCard>
       </section>
 
-      <div v-else class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">
-        Selecciona una revisión de la cola para ver su checklist, diff y opciones de aprobación.
-      </div>
+      <AdminCard v-else>
+        <AdminEmptyState
+          icon="i-lucide-mouse-pointer-click"
+          title="Elige una revisión"
+          description="Verás su lista de comprobación, los cambios propuestos y las opciones para aprobarla o rechazarla."
+        />
+      </AdminCard>
     </div>
 
-    <!-- Approve Modal -->
-    <div v-if="showApproveModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h3 class="text-base font-bold text-slate-900">Aprobar revisión editorial</h3>
-        <p class="mt-1 text-xs text-slate-500">
-          Confirmas que todos los puntos de la checklist han sido revisados y autorizas la publicación.
-        </p>
+    <AdminConfirm
+      v-model:open="showApproveModal"
+      title="Aprobar la revisión"
+      description="Confirmas que has revisado todos los puntos de la lista y autorizas la publicación."
+      confirm-label="Aprobar"
+      :loading="actionLoading"
+      @confirm="approveReview"
+    >
+      <label class="adm-label" for="review-approve-note">Nota de aprobación (opcional)</label>
+      <input
+        id="review-approve-note"
+        v-model="approveNote"
+        type="text"
+        class="adm-input mt-1 w-full"
+        placeholder="Observaciones de la aprobación…"
+      />
+    </AdminConfirm>
 
-        <div class="mt-4">
-          <label class="block text-xs font-semibold text-slate-700">Nota de aprobación (opcional)</label>
-          <input
-            v-model="approveNote"
-            type="text"
-            class="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs"
-            placeholder="Observaciones de la aprobación..."
-          />
-        </div>
+    <AdminConfirm
+      v-model:open="showRejectModal"
+      title="Rechazar la revisión"
+      description="Indica el motivo para que el autor pueda corregir el contenido."
+      confirm-label="Rechazar"
+      danger
+      :loading="actionLoading"
+      @confirm="rejectReason.trim().length >= 3 && rejectReview()"
+    >
+      <label class="adm-label" for="review-reject-reason">Motivo del rechazo (obligatorio, mínimo 3 caracteres)</label>
+      <textarea
+        id="review-reject-reason"
+        v-model="rejectReason"
+        rows="3"
+        class="adm-input mt-1 w-full"
+        placeholder="Describe qué hay que corregir…"
+      />
+    </AdminConfirm>
 
-        <div class="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-lg border px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            @click="showApproveModal = false"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700"
-            :disabled="actionLoading"
-            @click="approveReview"
-          >
-            Confirmar aprobación
-          </button>
-        </div>
-      </div>
-    </div>
+    <AdminConfirm
+      v-model:open="showWithdrawModal"
+      title="Retirar la revisión"
+      description="Se cancela la revisión y se retira la propuesta."
+      confirm-label="Retirar"
+      danger
+      :loading="actionLoading"
+      @confirm="withdrawReason.trim().length >= 3 && withdrawReview()"
+    >
+      <label class="adm-label" for="review-withdraw-reason"
+        >Motivo de la retirada (obligatorio, mínimo 3 caracteres)</label
+      >
+      <textarea
+        id="review-withdraw-reason"
+        v-model="withdrawReason"
+        rows="3"
+        class="adm-input mt-1 w-full"
+        placeholder="Por qué se retira…"
+      />
+    </AdminConfirm>
 
-    <!-- Reject Modal -->
-    <div v-if="showRejectModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h3 class="text-base font-bold text-slate-900">Rechazar revisión editorial</h3>
-        <p class="mt-1 text-xs text-slate-500">
-          Indica el motivo del rechazo para que el autor pueda corregir el contenido.
-        </p>
-
-        <div class="mt-4">
-          <label class="block text-xs font-semibold text-slate-700"
-            >Motivo del rechazo (obligatorio, mín. 3 caracteres)</label
-          >
-          <textarea
-            v-model="rejectReason"
-            rows="3"
-            class="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs"
-            placeholder="Describe qué requiere corrección..."
-          />
-        </div>
-
-        <div class="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-lg border px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            @click="showRejectModal = false"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            class="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 disabled:opacity-50"
-            :disabled="rejectReason.trim().length < 3 || actionLoading"
-            @click="rejectReview"
-          >
-            Confirmar rechazo
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Withdraw Modal -->
-    <div v-if="showWithdrawModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h3 class="text-base font-bold text-slate-900">Retirar revisión editorial</h3>
-        <p class="mt-1 text-xs text-slate-500">Cancela el proceso de revisión y retira la propuesta.</p>
-
-        <div class="mt-4">
-          <label class="block text-xs font-semibold text-slate-700">Motivo de retirada (obligatorio)</label>
-          <textarea
-            v-model="withdrawReason"
-            rows="3"
-            class="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs"
-            placeholder="Motivo por el que se retira..."
-          />
-        </div>
-
-        <div class="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-lg border px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            @click="showWithdrawModal = false"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            class="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-bold text-white hover:bg-slate-900 disabled:opacity-50"
-            :disabled="withdrawReason.trim().length < 3 || actionLoading"
-            @click="withdrawReview"
-          >
-            Confirmar retirada
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Assign Modal -->
-    <div v-if="showAssignModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <h3 class="text-base font-bold text-slate-900">Asignar revisor</h3>
-        <p class="mt-1 text-xs text-slate-500">Especifica el UUID de la identidad del revisor técnico o legal.</p>
-
-        <div class="mt-4">
-          <label class="block text-xs font-semibold text-slate-700">ID del revisor (UUID)</label>
-          <input
-            v-model="assignReviewerId"
-            type="text"
-            class="mt-1 w-full rounded-lg border border-slate-300 p-2 text-xs font-mono"
-            placeholder="00000000-0000-4000-8000-000000000000"
-          />
-        </div>
-
-        <div class="mt-6 flex justify-end gap-2">
-          <button
-            type="button"
-            class="rounded-lg border px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            @click="showAssignModal = false"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            class="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
-            :disabled="!assignReviewerId.trim() || actionLoading"
-            @click="assignReviewer"
-          >
-            Asignar
-          </button>
-        </div>
-      </div>
-    </div>
+    <AdminConfirm
+      v-model:open="showAssignModal"
+      title="Asignar revisor"
+      description="Indica el identificador de la persona que hará la revisión técnica o legal."
+      confirm-label="Asignar"
+      :loading="actionLoading"
+      @confirm="assignReviewerId.trim() && assignReviewer()"
+    >
+      <label class="adm-label" for="review-assign-id">Identificador del revisor</label>
+      <input
+        id="review-assign-id"
+        v-model="assignReviewerId"
+        type="text"
+        class="adm-input mt-1 w-full font-mono"
+        placeholder="00000000-0000-4000-8000-000000000000"
+      />
+    </AdminConfirm>
   </div>
 </template>

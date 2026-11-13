@@ -29,17 +29,27 @@ const scopeKey = computed(() =>
 )
 </script>
 <template>
-  <div class="space-y-6">
-    <header>
-      <h1 class="text-2xl font-semibold">Auditoría administrativa</h1>
-      <p class="mt-2 text-muted">Revisa acciones sensibles y exporta únicamente su proyección segura y trazable.</p>
-    </header>
-    <p v-if="runtime.public.serverRuntime !== 'cloudflare'" role="status">
-      La auditoría está disponible en Cloudflare. No se consultan registros del entorno Node.
-    </p>
-    <AdminAuditPanel :enabled="enabled" :scope-key="scopeKey" :pending="false" @pending="pending = $event" />
-    <p v-if="pending" role="status" aria-live="polite">
-      Hay una operación sin confirmar. Consulta su recibo antes de crear otra revisión o exportación.
-    </p>
-  </div>
+  <AdminPage>
+    <div class="adm-stack">
+      <UAlert
+        v-if="runtime.public.serverRuntime !== 'cloudflare'"
+        role="status"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-info"
+        title="El registro de actividad no está disponible en esta instalación"
+      />
+      <UAlert
+        v-if="pending"
+        role="status"
+        aria-live="polite"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-hourglass"
+        title="Hay una operación a medio confirmar"
+        description="Comprueba su resultado antes de pedir otra revisión o exportación."
+      />
+      <AdminAuditPanel :enabled="enabled" :scope-key="scopeKey" :pending="false" @pending="pending = $event" />
+    </div>
+  </AdminPage>
 </template>

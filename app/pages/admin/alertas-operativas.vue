@@ -6,7 +6,7 @@ useSeoMeta({ title: 'Alertas operativas · Admin', robots: 'noindex, nofollow, n
 </script>
 
 <template>
-  <div class="space-y-6">
+  <AdminPage>
     <AdminOperationalAlertsPanel />
-  </div>
+  </AdminPage>
 </template>

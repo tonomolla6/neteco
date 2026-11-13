@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type {
   AiEvaluationRun,
   ExplainabilityReport,
@@ -52,7 +52,7 @@ async function loadModels() {
       await selectModel(models.value[0])
     }
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al cargar modelos de IA')
+    errorMessage.value = errorText(error, 'No se han podido cargar los modelos de IA')
   } finally {
     loading.value = false
   }
@@ -96,13 +96,13 @@ async function handleRunGoldenSet() {
     latestEvaluationRun.value = res?.run
     if (res?.run?.gateVerdict === 'passed') {
       successMessage.value =
-        'Evaluación completada: El modelo ha SUPERADO el gate de calidad de producción (100% seguridad química, factualidad &ge; 95%, latencia &le; 150ms).'
+        'Evaluación completada: el modelo ha superado el control de calidad y puede usarse en la tienda.'
       selectedModel.value.status = 'gate_passed'
     } else {
-      errorMessage.value = `El modelo ha sido RECHAZADO por el gate de calidad: ${res?.run?.gateReasons?.join(', ')}`
+      errorMessage.value = `El modelo no ha superado el control de calidad: ${res?.run?.gateReasons?.join(', ')}`
     }
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al ejecutar suite Golden Set')
+    errorMessage.value = errorText(error, 'No se ha podido ejecutar la evaluación')
   } finally {
     runningGoldenSet.value = false
   }
@@ -129,7 +129,7 @@ async function handleRequestExplainability() {
 
     explainabilityReport.value = res?.report
   } catch (error) {
-    errorMessage.value = errorText(error, 'Error al calcular explicabilidad')
+    errorMessage.value = errorText(error, 'No se ha podido calcular la explicación')
   } finally {
     loadingExplainability.value = false
   }
@@ -138,282 +138,261 @@ async function handleRequestExplainability() {
 onMounted(() => {
   loadModels()
 })
+
+// ── Presentación ───────────────────────────────────────────────────────────
+const MODEL_STATUS: Record<string, [string, 'success' | 'warning' | 'danger' | 'neutral']> = {
+  candidate: ['Pendiente de evaluar', 'warning'],
+  gate_passed: ['Control superado', 'success'],
+  active: ['En uso', 'success'],
+  deprecated: ['Retirado', 'neutral'],
+  rejected: ['Rechazado', 'danger']
+}
+const MODEL_TYPES: Record<string, string> = {
+  repurchase_propensity: 'Predice quién volverá a comprar',
+  margin_recommendation: 'Recomienda productos por margen',
+  catalog_copilot_assistant: 'Asistente de catálogo',
+  churn_propensity: 'Predice clientes en riesgo de irse'
+}
+const FALLBACKS: Record<string, string> = {
+  static_bestsellers: 'los más vendidos',
+  category_margin_top: 'los de mayor margen de la categoría',
+  rules_safety_default: 'las reglas de seguridad predeterminadas'
+}
+const modelStatusLabel = (code: string) => MODEL_STATUS[code]?.[0] ?? adminStatusLabel(code)
+const modelStatusTone = (code: string) => MODEL_STATUS[code]?.[1] ?? 'neutral'
+const HEALTH: Record<string, [string, 'success' | 'warning' | 'danger' | 'neutral']> = {
+  healthy: ['Correcto', 'success'],
+  degraded: ['Con incidencias', 'warning'],
+  drift_detected: ['Se está desviando', 'warning'],
+  bias_detected: ['Trato desequilibrado', 'danger']
+}
+/** Quita el código interno que acompaña a algunos errores. */
+const readableError = computed(() => errorMessage.value.replace(/\s*\([A-Za-z0-9_.:-]+\)$/, ''))
 </script>
 
 <template>
-  <div class="p-6 max-w-7xl mx-auto space-y-8" role="region" aria-label="Evaluación de Modelos e IA Quality Gate">
-    <!-- Header -->
-    <header class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b pb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-          <span>Evaluación Continua de IA y Modelos ML</span>
-          <span
-            class="text-xs font-semibold px-2.5 py-0.5 rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-          >
-            DAT-023 / TST-044
-          </span>
-        </h1>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
-          Modelos de propensión optimizados a margen y retención, detección de deriva/sesgo (PSI) y Golden Set con gate
-          de seguridad química.
-        </p>
-      </div>
-      <div v-if="selectedModel" class="flex gap-2">
-        <button
-          data-test="run-golden-set-btn"
-          :disabled="runningGoldenSet"
-          class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-          @click="handleRunGoldenSet"
-        >
-          {{ runningGoldenSet ? 'Evaluando Golden Set...' : 'Ejecutar Quality Gate' }}
-        </button>
-      </div>
-    </header>
+  <div class="adm-stack" role="region" aria-label="Evaluación de modelos de IA">
+    <AdminPageActions>
+      <button
+        v-if="selectedModel"
+        type="button"
+        data-test="run-golden-set-btn"
+        :disabled="runningGoldenSet"
+        class="adm-btn adm-btn--primary"
+        @click="handleRunGoldenSet"
+      >
+        {{ runningGoldenSet ? 'Evaluando…' : 'Evaluar modelo' }}
+      </button>
+    </AdminPageActions>
 
-    <!-- Alerts -->
-    <div v-if="errorMessage" data-test="error-alert" class="p-4 bg-red-50 border border-red-400 text-red-700 text-sm">
-      {{ errorMessage }}
-    </div>
-    <div
+    <UAlert
+      v-if="errorMessage"
+      data-test="error-alert"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="readableError"
+    />
+    <UAlert
       v-if="successMessage"
       data-test="success-alert"
-      class="p-4 bg-emerald-50 border border-emerald-400 text-emerald-700 text-sm flex justify-between items-center"
-    >
-      <span>{{ successMessage }}</span>
-      <button class="text-emerald-700 hover:underline text-xs" @click="successMessage = ''">Cerrar</button>
-    </div>
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+      :close="true"
+      @update:open="successMessage = ''"
+    />
 
-    <!-- Loading State -->
-    <div v-if="loading" data-test="loading-state" class="py-12 text-center text-gray-500">
-      <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-      <p>Cargando registro de modelos y métricas de evaluación...</p>
+    <div v-if="loading" data-test="loading-state" class="adm-card" role="status">
+      <div class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando modelos y resultados…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /></div>
+      </div>
     </div>
 
     <template v-else>
-      <!-- Model Selector & Summary -->
-      <section aria-labelledby="models-heading" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Models List -->
-        <div class="bg-white dark:bg-gray-800 rounded-lg border shadow-sm p-4 space-y-3">
-          <h2 id="models-heading" class="text-base font-semibold text-gray-800 dark:text-gray-200">
-            Modelos Registrados
-          </h2>
-          <div v-if="models.length === 0" data-test="empty-models" class="text-sm text-gray-500 py-4 text-center">
-            No hay modelos registrados todavía.
-          </div>
-          <div v-else class="space-y-2">
-            <button
-              v-for="m in models"
-              :key="m.id"
-              :data-test="'select-model-' + m.id"
-              :class="[
-                'w-full text-left p-3 rounded border text-sm transition',
-                selectedModel?.id === m.id
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-900 dark:text-blue-100 font-semibold'
-                  : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750 text-gray-700 dark:text-gray-300'
-              ]"
-              @click="selectModel(m)"
+      <section aria-labelledby="models-heading" class="grid gap-5 lg:grid-cols-3">
+        <AdminCard flush>
+          <template #title><span id="models-heading">Modelos</span></template>
+          <div v-if="models.length === 0" data-test="empty-models">
+            <AdminEmptyState
+              compact
+              icon="i-lucide-brain"
+              title="No hay modelos registrados todavía"
+              description="Cuando se registre un modelo de recomendaciones aparecerá aquí."
             >
-              <div class="flex justify-between items-center">
-                <span>{{ m.modelName }}</span>
-                <span class="text-xs px-2 py-0.5 rounded font-mono font-normal bg-gray-100 dark:bg-gray-700">
-                  v{{ m.modelVersion }}
-                </span>
-              </div>
-              <div class="text-xs text-gray-500 mt-1 flex justify-between">
-                <span>{{ m.modelType }}</span>
-                <span :class="m.status === 'gate_passed' ? 'text-emerald-600 font-bold' : 'text-amber-600'">
-                  {{ m.status }}
-                </span>
-              </div>
-            </button>
+              <button v-if="errorMessage" type="button" class="adm-btn adm-btn--secondary" @click="loadModels">
+                Reintentar
+              </button>
+            </AdminEmptyState>
           </div>
-        </div>
+          <ul v-else class="adm-list">
+            <li v-for="m in models" :key="m.id" class="!p-0">
+              <button
+                type="button"
+                :data-test="'select-model-' + m.id"
+                :aria-pressed="selectedModel?.id === m.id"
+                class="flex w-full flex-col gap-1 px-4 py-3 text-left"
+                :class="selectedModel?.id === m.id && 'bg-[var(--surface-sunken)]'"
+                @click="selectModel(m)"
+              >
+                <span class="adm-list__title">{{ m.modelName }}</span>
+                <span class="flex flex-wrap items-center gap-2">
+                  <span class="adm-help">Versión {{ m.modelVersion }}</span>
+                  <AdminBadge :tone="modelStatusTone(m.status)" plain>{{ modelStatusLabel(m.status) }}</AdminBadge>
+                </span>
+              </button>
+            </li>
+          </ul>
+        </AdminCard>
 
-        <!-- Model Details & Multi-Objective Weights -->
-        <div v-if="selectedModel" class="lg:col-span-2 space-y-4">
-          <div class="bg-white dark:bg-gray-800 rounded-lg border shadow-sm p-5 space-y-4">
-            <div class="flex justify-between items-start">
+        <div v-if="selectedModel" class="adm-stack lg:col-span-2">
+          <AdminCard>
+            <template #title>{{ selectedModel.modelName }}</template>
+            <template #actions>
+              <AdminBadge :tone="modelStatusTone(selectedModel.status)">
+                {{ modelStatusLabel(selectedModel.status) }}
+              </AdminBadge>
+            </template>
+            <div class="adm-stack">
+              <p class="adm-help">
+                {{ MODEL_TYPES[selectedModel.modelType] ?? adminHumanize(selectedModel.modelType) }} · si falla, se
+                recomiendan
+                {{ FALLBACKS[selectedModel.fallbackStrategy] ?? adminHumanize(selectedModel.fallbackStrategy) }}
+              </p>
+
               <div>
-                <h3 class="text-lg font-bold text-gray-900 dark:text-gray-100">{{ selectedModel.modelName }}</h3>
-                <p class="text-xs text-gray-500 font-mono mt-0.5">
-                  {{ selectedModel.id }} · Fallback: {{ selectedModel.fallbackStrategy }}
-                </p>
+                <h4>Qué prioriza al recomendar</h4>
+                <div class="mt-2">
+                  <AdminBreakdown
+                    :items="[
+                      { label: 'Margen comercial', value: Math.round(selectedModel.weights.margin * 100) },
+                      {
+                        label: 'Que el cliente vuelva a comprar',
+                        value: Math.round(selectedModel.weights.retention * 100)
+                      },
+                      { label: 'Popularidad (clics)', value: Math.round(selectedModel.weights.clicks * 100) }
+                    ]"
+                    :format="(value: number) => `${value}%`"
+                  />
+                </div>
               </div>
-              <span
-                :class="[
-                  'px-2.5 py-1 text-xs font-bold rounded',
-                  selectedModel.status === 'gate_passed'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-amber-100 text-amber-800'
-                ]"
+
+              <div class="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <h4>Con datos históricos</h4>
+                  <dl class="mt-1 space-y-1">
+                    <div class="flex justify-between gap-3">
+                      <dt class="adm-help">Capacidad de acierto (de 0 a 1)</dt>
+                      <dd class="tabular-nums">{{ getMetric(modelSummary?.offline, 'rocAuc', '—') }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-3">
+                      <dt class="adm-help">Aciertos entre las primeras recomendaciones</dt>
+                      <dd class="tabular-nums">{{ getMetric(modelSummary?.offline, 'precisionAtK', '—') }}</dd>
+                    </div>
+                  </dl>
+                </div>
+                <div>
+                  <h4>En la tienda</h4>
+                  <dl class="mt-1 space-y-1">
+                    <div class="flex justify-between gap-3">
+                      <dt class="adm-help">Desviación respecto al entrenamiento (máx. 0,20)</dt>
+                      <dd class="tabular-nums">{{ modelSummary?.online?.driftPsi ?? '—' }}</dd>
+                    </div>
+                    <div class="flex justify-between gap-3">
+                      <dt class="adm-help">Trato equilibrado entre clientes (entre 0,80 y 1,25)</dt>
+                      <dd class="tabular-nums">{{ modelSummary?.online?.biasDisparateImpact ?? '—' }}</dd>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                      <dt class="adm-help">Estado</dt>
+                      <dd>
+                        <AdminBadge
+                          v-if="modelSummary?.online?.status"
+                          :tone="HEALTH[String(modelSummary.online.status).toLowerCase()]?.[1] ?? 'neutral'"
+                        >
+                          {{
+                            HEALTH[String(modelSummary.online.status).toLowerCase()]?.[0] ??
+                            adminStatusLabel(String(modelSummary.online.status))
+                          }}
+                        </AdminBadge>
+                        <template v-else>—</template>
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </div>
+          </AdminCard>
+
+          <AdminCard
+            title="Por qué recomienda lo que recomienda"
+            description="Ejemplo con un cliente y un producto de muestra."
+          >
+            <template #actions>
+              <button
+                type="button"
+                data-test="explainability-btn"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="loadingExplainability"
+                @click="handleRequestExplainability"
               >
-                {{ selectedModel.status.toUpperCase() }}
-              </span>
-            </div>
-
-            <!-- Objective Breakdown (DAT-023: Margen y Retención, no solo clicks) -->
-            <div class="border-t pt-3">
-              <span class="text-xs font-semibold uppercase text-gray-500">Ponderación Multi-Objetivo</span>
-              <div class="grid grid-cols-3 gap-3 mt-2 text-center text-xs">
-                <div class="p-2 bg-emerald-50 dark:bg-emerald-950/30 rounded border border-emerald-200">
-                  <div class="font-bold text-emerald-800 dark:text-emerald-300">
-                    {{ Math.round(selectedModel.weights.margin * 100) }}%
-                  </div>
-                  <div class="text-gray-500 text-[10px] mt-0.5">Margen Comercial</div>
-                </div>
-                <div class="p-2 bg-indigo-50 dark:bg-indigo-950/30 rounded border border-indigo-200">
-                  <div class="font-bold text-indigo-800 dark:text-indigo-300">
-                    {{ Math.round(selectedModel.weights.retention * 100) }}%
-                  </div>
-                  <div class="text-gray-500 text-[10px] mt-0.5">Retención / Reposición</div>
-                </div>
-                <div class="p-2 bg-gray-50 dark:bg-gray-700/50 rounded border border-gray-200">
-                  <div class="font-bold text-gray-700 dark:text-gray-300">
-                    {{ Math.round(selectedModel.weights.clicks * 100) }}%
-                  </div>
-                  <div class="text-gray-500 text-[10px] mt-0.5">Clicks / Popularidad</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Offline & Online Performance Monitors -->
-            <div class="border-t pt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              <div class="p-3 bg-gray-50 dark:bg-gray-700/40 rounded space-y-1">
-                <span class="font-bold text-gray-700 dark:text-gray-300">Evaluación Offline (Histórico)</span>
-                <div class="text-gray-600 dark:text-gray-400">
-                  ROC-AUC:
-                  <span class="font-mono font-semibold">{{ getMetric(modelSummary?.offline, 'rocAuc', '0.88') }}</span>
-                </div>
-                <div class="text-gray-600 dark:text-gray-400">
-                  Precision@K:
-                  <span class="font-mono font-semibold">{{
-                    getMetric(modelSummary?.offline, 'precisionAtK', '0.82')
-                  }}</span>
-                </div>
-                <div class="text-gray-600 dark:text-gray-400">
-                  Lift Margen Simulado: <span class="font-mono font-semibold text-emerald-600">+14.5%</span>
-                </div>
-              </div>
-
-              <div class="p-3 bg-gray-50 dark:bg-gray-700/40 rounded space-y-1">
-                <span class="font-bold text-gray-700 dark:text-gray-300">Evaluación Online (Producción)</span>
-                <div class="text-gray-600 dark:text-gray-400">
-                  Drift PSI:
-                  <span class="font-mono font-semibold text-blue-600">{{
-                    modelSummary?.online?.driftPsi ?? '0.05'
-                  }}</span>
-                  (&le; 0.20 estricto)
-                </div>
-                <div class="text-gray-600 dark:text-gray-400">
-                  Paridad de Sesgo:
-                  <span class="font-mono font-semibold text-blue-600">{{
-                    modelSummary?.online?.biasDisparateImpact ?? '0.94'
-                  }}</span>
-                  (0.80 - 1.25)
-                </div>
-                <div class="text-gray-600 dark:text-gray-400">
-                  Salud del Modelo:
-                  <span class="font-bold text-emerald-600 uppercase">{{
-                    modelSummary?.online?.status ?? 'HEALTHY'
-                  }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Explainability Inspector -->
-            <div class="border-t pt-3 space-y-2">
-              <div class="flex justify-between items-center">
-                <span class="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">
-                  Explainability & Factores Clave
-                </span>
-                <button
-                  data-test="explainability-btn"
-                  class="text-xs text-blue-600 hover:underline"
-                  @click="handleRequestExplainability"
+                {{ loadingExplainability ? 'Calculando…' : 'Ver explicación' }}
+              </button>
+            </template>
+            <div v-if="explainabilityReport" data-test="explainability-report" class="adm-stack">
+              <p class="font-semibold text-[var(--text-strong)]">{{ explainabilityReport.recommendedAction }}</p>
+              <ul class="space-y-1">
+                <li
+                  v-for="(f, i) in explainabilityReport.topContributingFactors"
+                  :key="i"
+                  class="flex justify-between gap-3"
                 >
-                  {{ loadingExplainability ? 'Calculando...' : 'Inspeccionar Explicabilidad' }}
-                </button>
-              </div>
-
-              <div
-                v-if="explainabilityReport"
-                data-test="explainability-report"
-                class="p-3 bg-blue-50/50 dark:bg-blue-950/20 rounded border border-blue-100 text-xs space-y-2"
-              >
-                <div class="font-medium text-blue-900 dark:text-blue-200">
-                  {{ explainabilityReport.recommendedAction }}
-                </div>
-                <ul class="space-y-1">
-                  <li
-                    v-for="(f, i) in explainabilityReport.topContributingFactors"
-                    :key="i"
-                    class="text-gray-700 dark:text-gray-300 flex justify-between"
-                  >
-                    <span>{{ f.factor }}</span>
-                    <span class="font-mono font-bold">{{ f.impactScore }}</span>
-                  </li>
-                </ul>
-              </div>
+                  <span>{{ f.factor }}</span>
+                  <span class="tabular-nums font-semibold">{{ f.impactScore }}</span>
+                </li>
+              </ul>
             </div>
-          </div>
+            <p v-else class="adm-help">Pulsa «Ver explicación» para ver los factores que más pesan.</p>
+          </AdminCard>
         </div>
       </section>
 
-      <!-- Latest Quality Gate Verdict (TST-044) -->
       <section
         v-if="latestEvaluationRun"
         data-test="quality-gate-results"
         aria-labelledby="gate-heading"
-        class="bg-white dark:bg-gray-800 rounded-lg border shadow-sm p-5 space-y-4"
+        class="adm-section"
       >
-        <div class="flex items-center justify-between">
-          <h2 id="gate-heading" class="text-lg font-bold text-gray-900 dark:text-gray-100">
-            Resultado del control de calidad continuo
-          </h2>
-          <span
-            :class="[
-              'px-3 py-1 text-sm font-black rounded uppercase',
-              latestEvaluationRun.gateVerdict === 'passed'
-                ? 'bg-emerald-100 text-emerald-800'
-                : 'bg-red-100 text-red-800'
-            ]"
-          >
-            VEREDICTO: {{ latestEvaluationRun.gateVerdict.toUpperCase() }}
-          </span>
+        <div class="adm-section__head">
+          <h2 id="gate-heading" class="adm-section__title">Resultado de la última evaluación</h2>
+          <AdminBadge :tone="latestEvaluationRun.gateVerdict === 'passed' ? 'success' : 'danger'">
+            {{ latestEvaluationRun.gateVerdict === 'passed' ? 'Superada' : 'No superada' }}
+          </AdminBadge>
         </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-          <div class="p-3 border rounded">
-            <span class="text-gray-500 uppercase">Seguridad Química</span>
-            <div class="text-lg font-bold text-emerald-600 mt-1">
-              {{ (latestEvaluationRun.safetyScore * 100).toFixed(0) }}% (0 Violaciones)
-            </div>
-            <p class="text-[10px] text-gray-400 mt-0.5">Prohíbe cloro+ácido y cloro+amoniaco</p>
-          </div>
-
-          <div class="p-3 border rounded">
-            <span class="text-gray-500 uppercase">Factualidad Catálogo</span>
-            <div class="text-lg font-bold text-blue-600 mt-1">
-              {{ (latestEvaluationRun.factualityScore * 100).toFixed(1) }}%
-            </div>
-            <p class="text-[10px] text-gray-400 mt-0.5">FDS, pH y dosificaciones verificadas</p>
-          </div>
-
-          <div class="p-3 border rounded">
-            <span class="text-gray-500 uppercase">Latencia Inferencia p95</span>
-            <div class="text-lg font-bold text-gray-800 dark:text-gray-200 mt-1">
-              {{ latestEvaluationRun.latencyP95Ms }} ms
-            </div>
-            <p class="text-[10px] text-gray-400 mt-0.5">SLA estricto &le; 150 ms</p>
-          </div>
-
-          <div class="p-3 border rounded">
-            <span class="text-gray-500 uppercase">Fallback Resiliente</span>
-            <div class="text-lg font-bold text-emerald-600 mt-1">
-              {{ latestEvaluationRun.fallbackPassed ? 'VERIFICADO' : 'FALLIDO' }}
-            </div>
-            <p class="text-[10px] text-gray-400 mt-0.5">Degradación graceful comprobada</p>
-          </div>
+        <div class="adm-grid">
+          <AdminStat
+            label="Seguridad química"
+            :value="`${(latestEvaluationRun.safetyScore * 100).toFixed(0)}%`"
+            hint="Nunca recomienda mezclas peligrosas (lejía con ácidos o amoniaco)"
+          />
+          <AdminStat
+            label="Datos correctos"
+            :value="`${(latestEvaluationRun.factualityScore * 100).toFixed(1)}%`"
+            hint="Fichas de seguridad, pH y dosis comprobados"
+          />
+          <AdminStat
+            label="Tiempo de respuesta"
+            :value="`${latestEvaluationRun.latencyP95Ms} ms`"
+            hint="Objetivo: 150 ms como máximo"
+          />
+          <AdminStat
+            label="Alternativa si falla"
+            :value="latestEvaluationRun.fallbackPassed ? 'Comprobada' : 'Ha fallado'"
+            hint="La tienda sigue recomendando aunque el modelo no responda"
+          />
         </div>
       </section>
     </template>

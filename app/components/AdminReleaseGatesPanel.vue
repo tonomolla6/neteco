@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { AlphaBetaPromotionRecord } from '~~/shared/alpha-beta-promotion'
 import type { ProgressiveRolloutRecord } from '~~/shared/progressive-rollout'
 import type { CloudflarePolicyAuditRecord } from '~~/shared/cloudflare-policy'
@@ -38,10 +38,47 @@ async function loadData() {
     policies.value = Array.isArray(policyRes) ? policyRes : []
     campaigns.value = Array.isArray(campaignRes) ? campaignRes : []
   } catch (err: unknown) {
-    loadError.value = err instanceof Error ? err.message : 'Error al cargar los paneles de release'
+    loadError.value = err instanceof Error ? err.message : 'No se han podido cargar los controles de versión'
   } finally {
     loading.value = false
   }
+}
+
+const tabs = computed<Array<{ value: ActiveTab; label: string; count: number }>>(() => [
+  { value: 'promotions', label: 'Paso a pruebas con clientes', count: promotions.value.length },
+  { value: 'rollouts', label: 'Activaciones graduales', count: rollouts.value.length },
+  { value: 'policies', label: 'Revisiones de configuración', count: policies.value.length },
+  { value: 'campaigns', label: 'Campañas', count: campaigns.value.length }
+])
+const STATUS_LABELS: Record<string, string> = {
+  promoted: 'Abierta a clientes',
+  tripped: 'Detenida automáticamente',
+  rolled_back: 'Retirada',
+  ramping: 'Ampliándose',
+  completed: 'Completada'
+}
+const STATUS_TONES: Record<string, 'success' | 'danger'> = {
+  promoted: 'success',
+  tripped: 'danger',
+  rolled_back: 'danger'
+}
+const statusLabel = (status: string) => STATUS_LABELS[status] ?? adminStatusLabel(status)
+const statusTone = (status: string) => STATUS_TONES[status] ?? adminStatusTone(status)
+const environmentLabels: Record<string, string> = {
+  production: 'Tienda real',
+  staging: 'Entorno previo',
+  preview: 'Vista previa'
+}
+function promotionChecks(promo: AlphaBetaPromotionRecord) {
+  const summary = promo.checklistSummary
+  return [
+    { label: 'Objetivo de servicio', ok: Boolean(summary?.sloVerified), done: 'cumplido' },
+    { label: 'Avisos automáticos', ok: Boolean(summary?.alertsConfigured), done: 'activos' },
+    { label: 'Procedimientos', ok: Boolean(summary?.runbooksPublished), done: 'publicados' },
+    { label: 'Recuperación de copias', ok: Boolean(summary?.restoreRehearsed), done: 'ensayada' },
+    { label: 'Revisión de seguridad', ok: Boolean(summary?.pentestCleared), done: 'superada' },
+    { label: 'Pruebas de usuarios', ok: Boolean(summary?.uatPassed), done: 'aprobadas' }
+  ]
 }
 
 onMounted(() => {
@@ -50,386 +87,190 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="release-gates-panel" role="region" aria-label="Panel de Release Gates y Despliegues">
-    <header class="panel-header">
-      <h1 class="panel-title">Controles de Release y Despliegue Progresivo</h1>
-      <p class="panel-subtitle">
-        CIC-028 Alpha→Beta · CIC-029 Rollout &amp; Guardrails · CIC-030 Cloudflare Policy-as-Code · CIC-031 Pipeline
-        Campañas
-      </p>
-    </header>
+  <div class="adm-stack" role="region" aria-label="Controles de versión y publicación">
+    <AdminTabs v-model="activeTab" :tabs="tabs" label="Secciones de control de publicación" />
 
-    <!-- Navegación de pestañas accesible -->
-    <nav class="tabs-nav" role="tablist" aria-label="Secciones de control de lanzamiento">
-      <button
-        id="tab-promo"
-        role="tab"
-        :aria-selected="activeTab === 'promotions'"
-        aria-controls="panel-promo"
-        :class="['tab-button', { active: activeTab === 'promotions' }]"
-        @click="activeTab = 'promotions'"
-      >
-        Alpha→Beta ({{ promotions.length }})
-      </button>
-      <button
-        id="tab-rollout"
-        role="tab"
-        :aria-selected="activeTab === 'rollouts'"
-        aria-controls="panel-rollout"
-        :class="['tab-button', { active: activeTab === 'rollouts' }]"
-        @click="activeTab = 'rollouts'"
-      >
-        Rollouts ({{ rollouts.length }})
-      </button>
-      <button
-        id="tab-policy"
-        role="tab"
-        :aria-selected="activeTab === 'policies'"
-        aria-controls="panel-policy"
-        :class="['tab-button', { active: activeTab === 'policies' }]"
-        @click="activeTab = 'policies'"
-      >
-        Cloudflare Policies ({{ policies.length }})
-      </button>
-      <button
-        id="tab-campaign"
-        role="tab"
-        :aria-selected="activeTab === 'campaigns'"
-        aria-controls="panel-campaign"
-        :class="['tab-button', { active: activeTab === 'campaigns' }]"
-        @click="activeTab = 'campaigns'"
-      >
-        Campañas ({{ campaigns.length }})
-      </button>
-    </nav>
-
-    <!-- Estado de Carga -->
-    <div v-if="loading" class="state-loading" role="status" aria-live="polite">
-      <span class="spinner" aria-hidden="true" />
-      <span>Cargando controles de release y despliegue...</span>
+    <div v-if="loading" class="adm-table-skeleton" role="status" aria-live="polite" aria-busy="true">
+      <span class="sr-only">Cargando los controles de versión…</span>
+      <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
     </div>
 
-    <!-- Estado de Error -->
-    <div v-else-if="loadError" class="state-error" role="alert">
-      <p class="error-text">{{ loadError }}</p>
-      <button class="btn-retry" @click="loadData">Reintentar carga</button>
+    <div v-else-if="loadError" role="alert">
+      <AdminEmptyState
+        variant="error"
+        title="No se han podido cargar los controles de versión"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <AdminButton icon="i-lucide-rotate-cw" @click="loadData">Reintentar</AdminButton>
+      </AdminEmptyState>
     </div>
 
-    <!-- Contenido de Paneles -->
-    <div v-else class="panels-container">
-      <!-- Mensaje de acción -->
-      <div v-if="actionMessage" :class="['action-message', actionType]" role="status">
-        {{ actionMessage }}
-      </div>
+    <template v-else>
+      <UAlert
+        v-if="actionMessage"
+        role="status"
+        :color="actionType === 'error' ? 'error' : 'success'"
+        variant="subtle"
+        :title="actionMessage"
+      />
 
-      <!-- Tab 1: Promociones Alpha->Beta -->
       <section
         v-if="activeTab === 'promotions'"
         id="panel-promo"
         role="tabpanel"
-        aria-labelledby="tab-promo"
-        class="tab-content"
+        aria-label="Paso de pruebas internas a pruebas con clientes"
+        class="adm-stack"
       >
-        <div v-if="promotions.length === 0" class="empty-state">
-          <p>No hay promociones Alpha→Beta registradas en el sistema.</p>
-        </div>
-        <div v-else class="items-list">
-          <article v-for="promo in promotions" :key="promo.id" class="card promo-card">
-            <header class="card-header">
-              <h2>Versión {{ promo.releaseVersion }}</h2>
-              <span :class="['badge', `status-${promo.status}`]">{{ promo.status }}</span>
-            </header>
-            <div class="card-body">
-              <div class="defects-row">
-                <span :class="['defect-chip', { danger: promo.p0DefectsCount > 0 }]">
-                  P0: {{ promo.p0DefectsCount }}
-                </span>
-                <span :class="['defect-chip', { danger: promo.p1DefectsCount > 0 }]">
-                  P1: {{ promo.p1DefectsCount }}
-                </span>
-              </div>
-              <div class="checklist-grid">
-                <span :class="['check-item', { ok: promo.checklistSummary?.sloVerified }]">
-                  SLO: {{ promo.checklistSummary?.sloVerified ? 'Conforme' : 'Pendiente' }}
-                </span>
-                <span :class="['check-item', { ok: promo.checklistSummary?.alertsConfigured }]">
-                  Alertas: {{ promo.checklistSummary?.alertsConfigured ? 'Activas' : 'Pendiente' }}
-                </span>
-                <span :class="['check-item', { ok: promo.checklistSummary?.runbooksPublished }]">
-                  Runbooks: {{ promo.checklistSummary?.runbooksPublished ? 'Publicados' : 'Pendiente' }}
-                </span>
-                <span :class="['check-item', { ok: promo.checklistSummary?.restoreRehearsed }]">
-                  Restore DR: {{ promo.checklistSummary?.restoreRehearsed ? 'Ensayado' : 'Pendiente' }}
-                </span>
-                <span :class="['check-item', { ok: promo.checklistSummary?.pentestCleared }]">
-                  Pentest: {{ promo.checklistSummary?.pentestCleared ? 'Superado' : 'Pendiente' }}
-                </span>
-                <span :class="['check-item', { ok: promo.checklistSummary?.uatPassed }]">
-                  UAT: {{ promo.checklistSummary?.uatPassed ? 'Aprobado' : 'Pendiente' }}
-                </span>
-              </div>
-              <footer class="card-footer">
-                <small class="evidence-hash">Evidencia SHA256: {{ promo.evidenceHash?.slice(0, 16) }}...</small>
-              </footer>
-            </div>
-          </article>
-        </div>
+        <AdminEmptyState
+          v-if="promotions.length === 0"
+          title="Ninguna versión ha pasado a pruebas con clientes"
+          description="Aquí verás qué requisitos cumple cada versión antes de abrirla a más gente."
+          icon="i-lucide-flask-conical"
+        />
+        <AdminCard v-for="promo in promotions" v-else :key="promo.id" as="article">
+          <template #title>Versión {{ promo.releaseVersion }}</template>
+          <template #actions>
+            <AdminBadge :tone="statusTone(promo.status)">{{ statusLabel(promo.status) }}</AdminBadge>
+          </template>
+          <div class="flex flex-wrap gap-2">
+            <AdminBadge :tone="promo.p0DefectsCount > 0 ? 'danger' : 'neutral'">
+              Fallos graves: {{ promo.p0DefectsCount }}
+            </AdminBadge>
+            <AdminBadge :tone="promo.p1DefectsCount > 0 ? 'danger' : 'neutral'">
+              Fallos importantes: {{ promo.p1DefectsCount }}
+            </AdminBadge>
+          </div>
+          <ul class="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            <li v-for="check in promotionChecks(promo)" :key="check.label" class="flex items-center gap-2">
+              <UIcon
+                :name="check.ok ? 'i-lucide-circle-check' : 'i-lucide-circle-dashed'"
+                class="size-4 shrink-0"
+                :class="check.ok ? 'text-neteco-700' : 'text-[var(--text-muted)]'"
+              />
+              <span>{{ check.label }}: {{ check.ok ? check.done : 'pendiente' }}</span>
+            </li>
+          </ul>
+          <template v-if="promo.evidenceHash" #footer>
+            <span class="adm-help mr-auto">Justificante #{{ promo.evidenceHash.slice(0, 8).toUpperCase() }}</span>
+          </template>
+        </AdminCard>
       </section>
 
-      <!-- Tab 2: Rollouts Progresivos -->
       <section
         v-if="activeTab === 'rollouts'"
         id="panel-rollout"
         role="tabpanel"
-        aria-labelledby="tab-rollout"
-        class="tab-content"
+        aria-label="Activaciones graduales"
+        class="adm-stack"
       >
-        <div v-if="rollouts.length === 0" class="empty-state">
-          <p>No hay despliegues progresivos activos ni configurados.</p>
-        </div>
-        <div v-else class="items-list">
-          <article v-for="ro in rollouts" :key="ro.id" class="card rollout-card">
-            <header class="card-header">
-              <h2>
-                {{ ro.name }} (<code>{{ ro.featureKey }}</code
-                >)
-              </h2>
-              <span :class="['badge', `status-${ro.status}`]">{{ ro.status }}</span>
-            </header>
-            <div class="card-body">
-              <p>
-                Tráfico asignado: <strong>{{ ro.trafficPercentage }}%</strong>
-              </p>
-              <div v-if="ro.cohorts && ro.cohorts.length > 0">
-                Cohortes: <span v-for="c in ro.cohorts" :key="c" class="tag">{{ c }}</span>
-              </div>
-              <div v-if="ro.zones && ro.zones.length > 0">
-                Zonas: <span v-for="z in ro.zones" :key="z" class="tag">{{ z }}</span>
-              </div>
-              <div v-if="ro.betaScopeNotice" class="beta-notice-preview">
-                <strong>Aviso Beta:</strong> {{ ro.betaScopeNotice.title }} - {{ ro.betaScopeNotice.summary }}
-              </div>
-              <div v-if="ro.tripReason" class="trip-alert" role="alert">Disparo Guardrail: {{ ro.tripReason }}</div>
-            </div>
-          </article>
-        </div>
+        <AdminEmptyState
+          v-if="rollouts.length === 0"
+          title="No hay ninguna activación gradual"
+          description="Cuando una novedad se abra poco a poco a los clientes, su avance aparecerá aquí."
+          icon="i-lucide-sliders-horizontal"
+        />
+        <AdminCard v-for="ro in rollouts" v-else :key="ro.id" as="article" :title="ro.name">
+          <template #actions>
+            <AdminBadge :tone="statusTone(ro.status)">{{ statusLabel(ro.status) }}</AdminBadge>
+          </template>
+          <div class="adm-stack text-sm">
+            <p>
+              Visitas que ya la ven: <strong>{{ ro.trafficPercentage }} %</strong>
+            </p>
+            <p v-if="ro.cohorts && ro.cohorts.length > 0" class="flex flex-wrap items-center gap-1.5">
+              Grupos de clientes:
+              <AdminBadge v-for="c in ro.cohorts" :key="c" plain>{{ adminHumanize(c) }}</AdminBadge>
+            </p>
+            <p v-if="ro.zones && ro.zones.length > 0" class="flex flex-wrap items-center gap-1.5">
+              Zonas:
+              <AdminBadge v-for="z in ro.zones" :key="z" plain>{{ adminHumanize(z) }}</AdminBadge>
+            </p>
+            <p v-if="ro.betaScopeNotice">
+              <strong>Aviso a los clientes:</strong> {{ ro.betaScopeNotice.title }} — {{ ro.betaScopeNotice.summary }}
+            </p>
+            <UAlert
+              v-if="ro.tripReason"
+              role="alert"
+              color="error"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="Se detuvo automáticamente"
+              :description="ro.tripReason"
+            />
+          </div>
+        </AdminCard>
       </section>
 
-      <!-- Tab 3: Cloudflare Policies -->
       <section
         v-if="activeTab === 'policies'"
         id="panel-policy"
         role="tabpanel"
-        aria-labelledby="tab-policy"
-        class="tab-content"
+        aria-label="Revisiones de configuración"
+        class="adm-stack"
       >
-        <div v-if="policies.length === 0" class="empty-state">
-          <p>No se han ejecutado auditorías de política de Cloudflare aún.</p>
-        </div>
-        <div v-else class="items-list">
-          <article v-for="pol in policies" :key="pol.id" class="card policy-card">
-            <header class="card-header">
-              <h2>Entorno: {{ pol.targetEnvironment }} · Política {{ pol.policyVersion }}</h2>
-              <span :class="['badge', pol.passed ? 'status-promoted' : 'status-rejected']">
-                {{ pol.passed ? 'PASSED' : 'BLOCKED' }}
-              </span>
-            </header>
-            <div class="card-body">
-              <p>
-                Bloqueadores: <strong>{{ pol.blockersCount }}</strong> | Advertencias: {{ pol.warningsCount }}
-              </p>
-              <p v-if="pol.hasCriticalDrift" class="drift-alert" role="alert">
-                ¡Drift crítico detectado en la infraestructura live!
-              </p>
-              <ul v-if="pol.violations && pol.violations.length > 0" class="violations-list">
-                <li v-for="(v, i) in pol.violations" :key="i" :class="v.severity">
-                  [{{ v.ruleId }}] {{ v.message }} ({{ v.resource }})
-                </li>
-              </ul>
-            </div>
-          </article>
-        </div>
+        <AdminEmptyState
+          v-if="policies.length === 0"
+          title="Todavía no se ha revisado la configuración"
+          description="Cada revisión comprueba que la configuración del servidor cumple las normas antes de publicar."
+          icon="i-lucide-shield-check"
+        />
+        <AdminCard v-for="pol in policies" v-else :key="pol.id" as="article">
+          <template #title>
+            {{ environmentLabels[pol.targetEnvironment] ?? adminHumanize(pol.targetEnvironment) }} · normas
+            {{ pol.policyVersion }}
+          </template>
+          <template #actions>
+            <AdminBadge :tone="pol.passed ? 'success' : 'danger'">{{
+              pol.passed ? 'Superada' : 'Bloqueada'
+            }}</AdminBadge>
+          </template>
+          <div class="adm-stack text-sm">
+            <p>
+              Problemas que bloquean: <strong>{{ pol.blockersCount }}</strong> · avisos: {{ pol.warningsCount }}
+            </p>
+            <UAlert
+              v-if="pol.hasCriticalDrift"
+              role="alert"
+              color="error"
+              variant="subtle"
+              icon="i-lucide-triangle-alert"
+              title="La configuración real no coincide con la aprobada"
+            />
+            <ul v-if="pol.violations && pol.violations.length > 0" class="list-disc space-y-1 pl-5">
+              <li v-for="(v, i) in pol.violations" :key="i">
+                {{ v.message }} <span class="adm-help">({{ v.resource }})</span>
+              </li>
+            </ul>
+          </div>
+        </AdminCard>
       </section>
 
-      <!-- Tab 4: Campañas y Contenido -->
       <section
         v-if="activeTab === 'campaigns'"
         id="panel-campaign"
         role="tabpanel"
-        aria-labelledby="tab-campaign"
-        class="tab-content"
+        aria-label="Campañas"
+        class="adm-stack"
       >
-        <div v-if="campaigns.length === 0" class="empty-state">
-          <p>No hay campañas en el pipeline editorial independiente.</p>
-        </div>
-        <div v-else class="items-list">
-          <article v-for="cmp in campaigns" :key="cmp.id" class="card campaign-card">
-            <header class="card-header">
-              <h2>
-                {{ cmp.title }} (<code>{{ cmp.campaignSlug }}</code
-                >)
-              </h2>
-              <span :class="['badge', `status-${cmp.status}`]">{{ cmp.status }}</span>
-            </header>
-            <div class="card-body">
-              <p>
-                Versión en borrador: {{ cmp.currentVersion }} | Versión en producción:
-                {{ cmp.publishedVersion ?? 'Ninguna' }}
-              </p>
-              <p v-if="cmp.publishAt">Programada para: {{ cmp.publishAt }}</p>
-            </div>
-          </article>
-        </div>
+        <AdminEmptyState
+          v-if="campaigns.length === 0"
+          title="No hay campañas en preparación"
+          description="Las campañas de contenido pendientes de publicar aparecerán aquí."
+          icon="i-lucide-megaphone"
+        />
+        <AdminCard v-for="cmp in campaigns" v-else :key="cmp.id" as="article" :title="cmp.title">
+          <template #actions>
+            <AdminBadge :tone="statusTone(cmp.status)">{{ statusLabel(cmp.status) }}</AdminBadge>
+          </template>
+          <div class="space-y-1 text-sm">
+            <p>
+              Versión en borrador: {{ cmp.currentVersion }} · versión publicada:
+              {{ cmp.publishedVersion ?? 'ninguna' }}
+            </p>
+            <p v-if="cmp.publishAt">Programada para el {{ adminDate(cmp.publishAt, true) }}</p>
+          </div>
+        </AdminCard>
       </section>
-    </div>
+    </template>
   </div>
 </template>
-
-<style scoped>
-.release-gates-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  padding: 1rem;
-}
-.panel-header {
-  border-bottom: 1px solid #e2e8f0;
-  padding-bottom: 0.75rem;
-}
-.panel-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #0f172a;
-}
-.panel-subtitle {
-  font-size: 0.875rem;
-  color: #64748b;
-}
-.tabs-nav {
-  display: flex;
-  gap: 0.5rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-.tab-button {
-  padding: 0.5rem 1rem;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-weight: 600;
-  color: #64748b;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-}
-.tab-button.active {
-  color: #0284c7;
-  border-bottom-color: #0284c7;
-}
-.state-loading,
-.state-error,
-.empty-state {
-  padding: 2rem;
-  text-align: center;
-  background: #f8fafc;
-  border-radius: 0.5rem;
-  border: 1px dashed #cbd5e1;
-}
-.btn-retry {
-  margin-top: 1rem;
-  padding: 0.5rem 1rem;
-  background: #0284c7;
-  color: white;
-  border: none;
-  border-radius: 0.375rem;
-  cursor: pointer;
-}
-.card {
-  background: white;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
-.badge {
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.status-draft {
-  background: #f1f5f9;
-  color: #475569;
-}
-.status-in_review {
-  background: #fef3c7;
-  color: #b45309;
-}
-.status-approved,
-.status-promoted,
-.status-active {
-  background: #dcfce7;
-  color: #15803d;
-}
-.status-tripped,
-.status-rejected,
-.status-rolled_back {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-.defects-row {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-.defect-chip {
-  padding: 0.2rem 0.5rem;
-  background: #f1f5f9;
-  border-radius: 0.25rem;
-  font-size: 0.8rem;
-}
-.defect-chip.danger {
-  background: #fee2e2;
-  color: #b91c1c;
-  font-weight: bold;
-}
-.checklist-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.5rem;
-  margin: 0.75rem 0;
-}
-.check-item {
-  font-size: 0.75rem;
-  padding: 0.25rem;
-  background: #f8fafc;
-  border-radius: 0.25rem;
-}
-.check-item.ok {
-  color: #166534;
-  font-weight: 600;
-}
-.tag {
-  display: inline-block;
-  background: #e0f2fe;
-  color: #0369a1;
-  padding: 0.1rem 0.4rem;
-  border-radius: 0.25rem;
-  margin-right: 0.25rem;
-  font-size: 0.75rem;
-}
-.drift-alert,
-.trip-alert {
-  background: #fee2e2;
-  color: #991b1b;
-  padding: 0.5rem;
-  border-radius: 0.25rem;
-  margin-top: 0.5rem;
-  font-weight: 600;
-}
-</style>

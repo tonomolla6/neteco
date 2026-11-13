@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const requestFetch = useRequestFetch()
 
@@ -82,7 +82,7 @@ async function generateContent() {
 
     generation.value = res.generation
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al generar contenido asistido'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido generar el contenido'
   } finally {
     loading.value = false
   }
@@ -104,12 +104,12 @@ async function reviewContent(decision: 'approve' | 'reject') {
 
     generation.value = res.generation
     if (res.generation.approvalStatus === 'approved') {
-      statusMessage.value = 'Revisión Aprobada por el administrador'
+      statusMessage.value = 'Revisión aprobada. Ya puedes aplicar el contenido al producto.'
     } else {
-      statusMessage.value = 'Contenido Rechazado'
+      statusMessage.value = 'Contenido rechazado'
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al revisar el contenido'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido guardar la revisión'
   } finally {
     reviewing.value = false
   }
@@ -127,202 +127,202 @@ async function applyContent() {
         targetProductId: targetProductId.value || 'prod-desengrasante-1'
       }
     })
-    statusMessage.value = 'Contenido Aplicado al Catálogo con marcado de autoría IA y trazabilidad'
+    statusMessage.value = 'Contenido aplicado al catálogo. Queda marcado como generado con IA.'
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al aplicar contenido al catálogo'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido aplicar el contenido al catálogo'
   } finally {
     applying.value = false
   }
 }
+
+// ── Presentación ───────────────────────────────────────────────────────────
+const APPROVAL: Record<string, [string, 'warning' | 'success' | 'danger' | 'neutral']> = {
+  pending_review: ['Pendiente de revisión', 'warning'],
+  approved: ['Aprobado', 'success'],
+  rejected: ['Rechazado', 'danger'],
+  applied: ['Aplicado al catálogo', 'success']
+}
+const RISK: Record<string, [string, 'success' | 'warning' | 'danger']> = {
+  none: ['Sin parecidos', 'success'],
+  low: ['Parecido bajo', 'success'],
+  medium: ['Parecido medio', 'warning'],
+  high: ['Muy parecido a otro producto', 'danger']
+}
+/** Los fallos de red llegan con textos técnicos: se enseña una frase legible. */
+const readableError = computed(() =>
+  /[áéíóúñ]| (el|la|no|se|al) /i.test(errorMessage.value)
+    ? errorMessage.value
+    : 'El servicio no ha respondido. Vuelve a intentarlo en unos minutos.'
+)
 </script>
 
 <template>
-  <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-    <div class="border-b border-gray-100 pb-4 dark:border-gray-800">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Generación Asistida de Catálogo (ADM-033)</h2>
-      <p class="text-sm text-gray-500 dark:text-gray-400">
-        Descripciones y atributos respaldados por fuentes verificadas (FDS/SDS), detección de duplicados y revisión
-        humana obligatoria.
-      </p>
-    </div>
-
-    <!-- Error Banner -->
-    <div
+  <div class="adm-stack">
+    <UAlert
       v-if="errorMessage"
-      class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"
       role="alert"
-    >
-      {{ errorMessage }}
-    </div>
-
-    <!-- Status Message -->
-    <div
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="readableError"
+    />
+    <UAlert
       v-if="statusMessage"
-      class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+      role="status"
+      :color="generation?.approvalStatus === 'rejected' ? 'neutral' : 'success'"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="statusMessage"
+    />
+
+    <AdminCard
+      title="Generar textos de un producto"
+      description="La IA redacta a partir de la ficha técnica o de seguridad. Nada se publica sin que lo revises."
     >
-      {{ statusMessage }}
-    </div>
-
-    <!-- Form -->
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <div>
-        <label for="cat-name" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >Nombre del Producto</label
-        >
-        <input
-          id="cat-name"
-          v-model="productName"
-          data-test="product-name-input"
-          type="text"
-          placeholder="Ej: Desengrasante Alcalino Extra Fuerte"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-      </div>
-
-      <div>
-        <label for="cat-scope" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >Alcance de Generación</label
-        >
-        <select
-          id="cat-scope"
-          v-model="targetScope"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
-          <option value="full_editorial">Editorial Completo (Descripción, Uso, Atributos)</option>
-          <option value="description">Solo Descripciones</option>
-          <option value="attributes">Solo Atributos Técnicos</option>
-        </select>
-      </div>
-
-      <div class="sm:col-span-2">
-        <label for="cat-claims" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >Claims Verificables en FDS / Especificaciones (separados por comas)</label
-        >
-        <input
-          id="cat-claims"
-          v-model="sourceClaims"
-          type="text"
-          placeholder="Ej: Biodegradable OECD 301, pH 7.0, Exento de fosfatos"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-      </div>
-
-      <div class="sm:col-span-2 flex justify-end">
-        <button
-          type="button"
-          data-test="generate-content-btn"
-          :disabled="loading || !productName.trim()"
-          class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
-          @click="generateContent"
-        >
-          <span v-if="loading">Verificando Claims y Analizando Duplicados...</span>
-          <span v-else>Generar Contenido Asistido</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Generation Output -->
-    <div
-      v-if="generation"
-      class="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-800/40"
-    >
-      <div class="flex items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
-        <div class="flex items-center gap-2">
-          <span
-            class="inline-flex items-center rounded bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-800 dark:bg-purple-900/50 dark:text-purple-300"
-          >
-            Contenido Generado por IA
-          </span>
-          <span class="text-xs text-gray-500 dark:text-gray-400">Modelo: {{ generation.aiModelName }}</span>
+      <div class="adm-stack">
+        <div class="adm-form-grid">
+          <div class="adm-field">
+            <label for="cat-name" class="adm-label">Nombre del producto</label>
+            <input
+              id="cat-name"
+              v-model="productName"
+              data-test="product-name-input"
+              type="text"
+              class="adm-input"
+              placeholder="Por ejemplo: desengrasante alcalino extra fuerte"
+            />
+          </div>
+          <div class="adm-field">
+            <label for="cat-scope" class="adm-label">Qué quieres generar</label>
+            <select id="cat-scope" v-model="targetScope" class="adm-input">
+              <option value="full_editorial">Todo (descripción, modo de empleo y características)</option>
+              <option value="description">Solo descripciones</option>
+              <option value="attributes">Solo características técnicas</option>
+            </select>
+          </div>
         </div>
-        <span class="text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300">
-          Estado: {{ generation.approvalStatus }}
-        </span>
-      </div>
-
-      <!-- Verifiable Claims -->
-      <div v-if="generation.verifiableClaims && generation.verifiableClaims.length">
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-          Claims técnicos verificados
-        </h4>
-        <div class="mt-2 flex flex-wrap gap-2">
-          <span
-            v-for="claim in generation.verifiableClaims"
-            :key="claim.claimText"
-            class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
-          >
-            ✓ {{ claim.claimText }}
-          </span>
-        </div>
-      </div>
-
-      <!-- Duplicate Check -->
-      <div class="rounded-md border border-gray-200 bg-white p-3 text-xs dark:border-gray-700 dark:bg-gray-900">
-        <div class="flex items-center justify-between">
-          <span class="font-semibold text-gray-700 dark:text-gray-300">Control de Duplicados en Catálogo:</span>
-          <span
-            class="font-bold uppercase"
-            :class="{
-              'text-emerald-600 dark:text-emerald-400':
-                generation.duplicateCheck.duplicateRisk === 'none' || generation.duplicateCheck.duplicateRisk === 'low',
-              'text-amber-600 dark:text-amber-400': generation.duplicateCheck.duplicateRisk === 'medium',
-              'text-red-600 dark:text-red-400': generation.duplicateCheck.duplicateRisk === 'high'
-            }"
-          >
-            Riesgo: {{ generation.duplicateCheck.duplicateRisk }} (Similitud:
-            {{ Math.round(generation.duplicateCheck.maxSimilarityScore * 100) }}%)
-          </span>
-        </div>
-      </div>
-
-      <!-- Content Preview -->
-      <div class="space-y-2 text-xs">
-        <div>
-          <span class="font-semibold text-gray-700 dark:text-gray-300">Título Sugerido:</span>
-          <p class="mt-0.5 text-gray-900 dark:text-gray-100">{{ generation.generatedTitle }}</p>
+        <div class="adm-field">
+          <label for="cat-claims" class="adm-label">Datos comprobados de la ficha técnica</label>
+          <input
+            id="cat-claims"
+            v-model="sourceClaims"
+            type="text"
+            class="adm-input"
+            placeholder="Por ejemplo: biodegradable, pH 7.0, sin fosfatos"
+            aria-describedby="cat-claims-help"
+          />
+          <p id="cat-claims-help" class="adm-help">
+            Sepáralos con comas. La IA solo podrá afirmar lo que aparezca aquí.
+          </p>
         </div>
         <div>
-          <span class="font-semibold text-gray-700 dark:text-gray-300">Descripción:</span>
-          <p class="mt-0.5 text-gray-900 dark:text-gray-100">{{ generation.generatedDescription }}</p>
-        </div>
-        <div>
-          <span class="font-semibold text-gray-700 dark:text-gray-300">Modo de Empleo:</span>
-          <p class="mt-0.5 text-gray-900 dark:text-gray-100">{{ generation.generatedUsage }}</p>
+          <button
+            type="button"
+            data-test="generate-content-btn"
+            :disabled="loading || !productName.trim()"
+            class="adm-btn adm-btn--primary"
+            @click="generateContent"
+          >
+            <span v-if="loading">Comprobando datos y buscando duplicados…</span>
+            <span v-else>Generar textos</span>
+          </button>
         </div>
       </div>
+    </AdminCard>
 
-      <!-- Actions -->
-      <div class="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
-        <div v-if="generation.approvalStatus === 'pending_review'" class="flex gap-2">
+    <AdminCard v-if="generation">
+      <template #title>Contenido generado por IA</template>
+      <template #actions>
+        <AdminBadge :tone="APPROVAL[generation.approvalStatus]?.[1] ?? 'neutral'">
+          {{ APPROVAL[generation.approvalStatus]?.[0] ?? adminStatusLabel(generation.approvalStatus) }}
+        </AdminBadge>
+      </template>
+      <div class="adm-stack">
+        <div v-if="generation.verifiableClaims && generation.verifiableClaims.length">
+          <h4>Datos técnicos comprobados</h4>
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            <AdminBadge v-for="claim in generation.verifiableClaims" :key="claim.claimText" tone="success" plain>
+              {{ claim.claimText }}
+            </AdminBadge>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <h4>Parecido con otros productos del catálogo</h4>
+          <AdminBadge :tone="RISK[generation.duplicateCheck.duplicateRisk]?.[1] ?? 'neutral'">
+            {{
+              RISK[generation.duplicateCheck.duplicateRisk]?.[0] ??
+              adminHumanize(generation.duplicateCheck.duplicateRisk)
+            }}
+            · {{ Math.round(generation.duplicateCheck.maxSimilarityScore * 100) }} %
+          </AdminBadge>
+        </div>
+        <ul v-if="generation.duplicateCheck.matchedProducts?.length" class="adm-help list-disc pl-5">
+          <li v-for="match in generation.duplicateCheck.matchedProducts" :key="match.productId">
+            {{ match.name }} ({{ Math.round(match.similarityScore * 100) }} %)
+          </li>
+        </ul>
+
+        <dl class="space-y-3">
+          <div v-if="generation.generatedTitle">
+            <dt class="adm-label">Título sugerido</dt>
+            <dd>{{ generation.generatedTitle }}</dd>
+          </div>
+          <div v-if="generation.generatedDescription">
+            <dt class="adm-label">Descripción</dt>
+            <dd>{{ generation.generatedDescription }}</dd>
+          </div>
+          <div v-if="generation.generatedUsage">
+            <dt class="adm-label">Modo de empleo</dt>
+            <dd>{{ generation.generatedUsage }}</dd>
+          </div>
+        </dl>
+
+        <div v-if="generation.approvalStatus.includes('approved')" class="adm-field">
+          <label for="cat-target-product" class="adm-label">Producto al que se aplica</label>
+          <input
+            id="cat-target-product"
+            v-model="targetProductId"
+            type="text"
+            class="adm-input"
+            placeholder="Referencia del producto"
+          />
+        </div>
+      </div>
+      <template
+        v-if="generation.approvalStatus === 'pending_review' || generation.approvalStatus.includes('approved')"
+        #footer
+      >
+        <template v-if="generation.approvalStatus === 'pending_review'">
+          <button
+            type="button"
+            :disabled="reviewing"
+            class="adm-btn adm-btn--danger-soft"
+            @click="reviewContent('reject')"
+          >
+            Rechazar
+          </button>
           <button
             type="button"
             data-test="approve-content-btn"
             :disabled="reviewing"
-            class="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500"
+            class="adm-btn adm-btn--secondary"
             @click="reviewContent('approve')"
           >
-            Aprobar Revisión Humana
+            Dar por revisado
           </button>
-        </div>
-
-        <div v-if="generation.approvalStatus.includes('approved')" class="flex items-center gap-3">
-          <input
-            v-model="targetProductId"
-            type="text"
-            placeholder="ID de producto destino"
-            class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-          />
-          <button
-            type="button"
-            data-test="apply-content-btn"
-            :disabled="applying"
-            class="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500"
-            @click="applyContent"
-          >
-            Aplicar Contenido al Catálogo
-          </button>
-        </div>
-      </div>
-    </div>
+        </template>
+        <button
+          v-if="generation.approvalStatus.includes('approved')"
+          type="button"
+          data-test="apply-content-btn"
+          :disabled="applying"
+          class="adm-btn adm-btn--secondary"
+          @click="applyContent"
+        >
+          Aplicar al producto
+        </button>
+      </template>
+    </AdminCard>
   </div>
 </template>

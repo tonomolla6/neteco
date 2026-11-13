@@ -152,7 +152,7 @@ async function loadProductConfigs() {
       }
     }
   } catch {
-    error.value = 'Error al cargar las configuraciones de mercado del producto.'
+    error.value = 'No se ha podido cargar la ficha del producto en los mercados. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
@@ -184,7 +184,7 @@ async function loadShippingPolicy() {
 async function saveMarketConfig() {
   const pid = productId.value.trim()
   if (!pid) {
-    error.value = 'Indique un ID de producto válido.'
+    error.value = 'Escribe una referencia de producto válida.'
     return
   }
   loading.value = true
@@ -214,13 +214,27 @@ async function saveMarketConfig() {
         complianceNotes: form.value.complianceNotes || undefined
       }
     })
-    successMessage.value = `Configuración guardada para mercado ${selectedMarket.value}.`
+    successMessage.value = `Ficha guardada para el mercado ${selectedMarket.value}.`
     await loadProductConfigs()
   } catch {
-    error.value = 'Error al guardar la configuración de mercado.'
+    error.value = 'No se ha podido guardar la ficha del mercado. Vuelve a intentarlo.'
   } finally {
     loading.value = false
   }
+}
+
+const TABS = [
+  { value: 'catalog', label: 'Ficha por mercado' },
+  { value: 'shipping', label: 'Envío internacional' }
+]
+function setTab(value: string) {
+  activeTab.value = value === 'shipping' ? 'shipping' : 'catalog'
+  if (activeTab.value === 'shipping') loadShippingPolicy()
+}
+const DUTY_LABELS: Record<ShippingPolicy['dutyCollectionType'], string> = {
+  exempt: 'Sin aranceles',
+  ddp: 'Aranceles incluidos: los paga la tienda',
+  dap: 'Aranceles a cargo del cliente en la entrega'
 }
 
 onMounted(() => {
@@ -229,291 +243,182 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="admin-market-catalog">
-    <header class="header">
-      <h2>Catálogo por Mercado y Cumplimiento Químico</h2>
-      <p class="subtitle">
-        Configure disponibilidad, contenido localizado y cumplimiento químico por país/mercado sin clonar productos.
-      </p>
-    </header>
+  <div class="adm-stack">
+    <UAlert v-if="error" role="alert" color="error" variant="subtle" icon="i-lucide-triangle-alert" :title="error" />
+    <UAlert
+      v-if="successMessage"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
 
-    <div v-if="error" class="alert alert-error" role="alert">
-      {{ error }}
-    </div>
-
-    <div v-if="successMessage" class="alert alert-success" role="status">
-      {{ successMessage }}
-    </div>
-
-    <div class="controls-bar">
-      <div class="field-group">
-        <label for="marketCode">Mercado de destino:</label>
-        <select id="marketCode" v-model="selectedMarket" name="marketCode" @change="loadProductConfigs">
-          <option v-for="m in markets" :key="m.code" :value="m.code">
-            {{ m.name }} ({{ m.code }} - {{ m.defaultLocale }})
-          </option>
+    <AdminCard>
+      <div class="adm-toolbar">
+        <label for="marketCode" class="adm-label">Mercado</label>
+        <select
+          id="marketCode"
+          v-model="selectedMarket"
+          name="marketCode"
+          class="adm-input"
+          @change="loadProductConfigs"
+        >
+          <option v-for="m in markets" :key="m.code" :value="m.code">{{ m.name }} ({{ m.code }})</option>
         </select>
+        <label for="productId" class="adm-label">Producto</label>
+        <input
+          id="productId"
+          v-model="productId"
+          name="productId"
+          type="text"
+          class="adm-input w-48"
+          placeholder="Referencia del producto"
+        />
+        <button
+          type="button"
+          class="adm-btn adm-btn--secondary"
+          data-action="load-product"
+          :disabled="loading || !productId"
+          @click="loadProductConfigs"
+        >
+          Cargar
+        </button>
       </div>
+    </AdminCard>
 
-      <div class="field-group">
-        <label for="productId">ID de Producto:</label>
-        <div class="input-with-button">
-          <input id="productId" v-model="productId" name="productId" type="text" placeholder="ej. p-1" />
-          <button
-            type="button"
-            data-action="load-product"
-            :disabled="loading || !productId"
-            @click="loadProductConfigs"
-          >
-            Cargar
-          </button>
-        </div>
-      </div>
-    </div>
+    <AdminTabs :model-value="activeTab" :tabs="TABS" label="Apartados del mercado" @update:model-value="setTab" />
 
-    <div class="tabs">
-      <button type="button" :class="{ active: activeTab === 'catalog' }" @click="activeTab = 'catalog'">
-        Catálogo Localizado
-      </button>
-      <button
-        type="button"
-        :class="{ active: activeTab === 'shipping' }"
-        @click="
-          () => {
-            activeTab = 'shipping'
-            loadShippingPolicy()
-          }
-        "
-      >
-        Política de Envío Internacional
-      </button>
-    </div>
+    <!-- Ficha por mercado -->
+    <template v-if="activeTab === 'catalog'">
+      <AdminCard v-if="!productId" flush>
+        <AdminEmptyState
+          icon="i-lucide-globe"
+          title="Elige un producto"
+          description="Escribe la referencia de un producto y pulsa «Cargar» para ver y editar cómo se vende en cada mercado."
+        />
+      </AdminCard>
 
-    <!-- Tab 1: Catálogo y Cumplimiento -->
-    <section v-if="activeTab === 'catalog'" class="tab-content">
-      <div v-if="!productId" class="empty-state">
-        <p>Seleccione o introduzca un ID de producto para ver y editar su adaptación por mercado.</p>
-      </div>
-
-      <div v-else>
-        <div v-if="configs.length > 0" class="configs-overview mb-4">
-          <h3>Mercados configurados</h3>
-          <div class="config-cards">
-            <div
+      <template v-else>
+        <AdminCard v-if="configs.length > 0" title="Mercados configurados">
+          <div class="flex flex-wrap gap-2">
+            <button
               v-for="c in configs"
               :key="c.marketCode"
-              class="config-card"
-              :class="{ selected: c.marketCode === selectedMarket }"
+              type="button"
+              class="adm-chip"
+              :aria-pressed="c.marketCode === selectedMarket"
               @click="selectMarketAndLoad(c.marketCode)"
             >
-              <strong class="config-market">{{ c.marketCode }}:</strong>
-              <span class="config-title">{{ c.title }}</span>
-              <span v-if="c.ufiCode" class="config-ufi"> (UFI: {{ c.ufiCode }})</span>
-              <span class="config-status badge"> - {{ c.isAvailable ? 'Disponible' : 'No disponible' }}</span>
-            </div>
+              <strong>{{ c.marketCode }}</strong>
+              <span>{{ c.title }}</span>
+              <span v-if="c.ufiCode" class="adm-help">(UFI: {{ c.ufiCode }})</span>
+              <AdminBadge :tone="c.isAvailable ? 'success' : 'neutral'" plain>
+                {{ c.isAvailable ? 'Disponible' : 'No disponible' }}
+              </AdminBadge>
+            </button>
           </div>
-        </div>
+        </AdminCard>
 
-        <form class="market-form" @submit.prevent="saveMarketConfig">
-          <fieldset class="section-box">
-            <legend>1. Disponibilidad en Mercado ({{ selectedMarket }})</legend>
-            <div class="grid-2">
-              <label class="checkbox-label">
+        <form class="adm-stack" @submit.prevent="saveMarketConfig">
+          <AdminCard :title="`Disponibilidad en ${selectedMarket}`">
+            <div class="adm-stack">
+              <label class="adm-check">
                 <input v-model="form.isAvailable" type="checkbox" name="isAvailable" />
-                Disponible para venta en este mercado
+                Disponible para la venta en este mercado
               </label>
-              <div>
-                <label for="availabilityStatus">Estado de catálogo:</label>
-                <select id="availabilityStatus" v-model="form.availabilityStatus">
-                  <option value="available">Disponible</option>
-                  <option value="preorder">Preventa</option>
-                  <option value="restricted">Distribución restringida</option>
-                  <option value="b2b_only">Exclusivo B2B</option>
-                  <option value="discontinued">Descatalogado</option>
-                </select>
-              </div>
-              <div>
-                <label for="minOrderQuantity">Cantidad mínima de pedido:</label>
-                <input id="minOrderQuantity" v-model.number="form.minOrderQuantity" type="number" min="1" />
-              </div>
-            </div>
-          </fieldset>
-
-          <fieldset class="section-box">
-            <legend>2. Contenido Localizado (Sin clonar producto)</legend>
-            <div class="grid-2">
-              <div>
-                <label for="locale">Idioma / Locale:</label>
-                <input id="locale" v-model="form.locale" type="text" />
-              </div>
-              <div>
-                <label for="slug">Slug / URL amigable:</label>
-                <input id="slug" v-model="form.slug" type="text" />
-              </div>
-              <div class="full-width">
-                <label for="title">Título localizado:</label>
-                <input id="title" v-model="form.title" type="text" />
-              </div>
-              <div class="full-width">
-                <label for="description">Descripción detallada:</label>
-                <textarea id="description" v-model="form.description" rows="3"></textarea>
+              <div class="adm-form-grid">
+                <AdminFormField v-slot="{ id }" label="Estado en el catálogo" for="availabilityStatus">
+                  <select :id="id" v-model="form.availabilityStatus">
+                    <option value="available">Disponible</option>
+                    <option value="preorder">Preventa</option>
+                    <option value="restricted">Distribución restringida</option>
+                    <option value="b2b_only">Solo empresas</option>
+                    <option value="discontinued">Descatalogado</option>
+                  </select>
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Cantidad mínima por pedido" for="minOrderQuantity">
+                  <input :id="id" v-model.number="form.minOrderQuantity" type="number" min="1" />
+                </AdminFormField>
               </div>
             </div>
-          </fieldset>
+          </AdminCard>
 
-          <fieldset class="section-box">
-            <legend>3. Cumplimiento Químico y Regulatorio</legend>
-            <div class="grid-2">
-              <label class="checkbox-label">
+          <AdminCard title="Textos en el idioma del mercado" description="Se adapta la ficha sin duplicar el producto.">
+            <div class="adm-stack">
+              <div class="adm-form-grid">
+                <AdminFormField v-slot="{ id }" label="Idioma" help="Por ejemplo es-ES o fr-FR." for="locale">
+                  <input :id="id" v-model="form.locale" type="text" />
+                </AdminFormField>
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Dirección web"
+                  help="Texto de la dirección de la ficha, en minúsculas y con guiones."
+                  for="slug"
+                >
+                  <input :id="id" v-model="form.slug" type="text" />
+                </AdminFormField>
+              </div>
+              <AdminFormField v-slot="{ id }" label="Título" for="title">
+                <input :id="id" v-model="form.title" type="text" />
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="Descripción" for="description">
+                <textarea :id="id" v-model="form.description" rows="3"></textarea>
+              </AdminFormField>
+            </div>
+          </AdminCard>
+
+          <AdminCard title="Normativa química del país">
+            <div class="adm-stack">
+              <label class="adm-check">
                 <input v-model="form.isCompliant" type="checkbox" name="isCompliant" />
-                Homologado / Conforme a normativa del país
+                Cumple la normativa del país
               </label>
-              <div>
-                <label for="ufiCode">Código UFI (Centro Toxicológico):</label>
-                <input id="ufiCode" v-model="form.ufiCode" type="text" placeholder="UFI-XXXX-XXXX" />
-              </div>
-              <div>
-                <label for="registrationNumber">Nº Registro Biocidas / REACH:</label>
-                <input id="registrationNumber" v-model="form.registrationNumber" type="text" />
-              </div>
-              <div>
-                <label for="sdsUrl">Ficha de Seguridad (FDS en idioma local):</label>
-                <input id="sdsUrl" v-model="form.sdsUrl" type="url" placeholder="https://..." />
+              <div class="adm-form-grid">
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Código UFI"
+                  help="Identificador de la fórmula para el centro de toxicología."
+                  for="ufiCode"
+                >
+                  <input :id="id" v-model="form.ufiCode" type="text" placeholder="UFI-XXXX-XXXX" />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="N.º de registro (biocidas o REACH)" for="registrationNumber">
+                  <input :id="id" v-model="form.registrationNumber" type="text" />
+                </AdminFormField>
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Ficha de datos de seguridad"
+                  help="Enlace a la ficha en el idioma del mercado."
+                  for="sdsUrl"
+                >
+                  <input :id="id" v-model="form.sdsUrl" type="url" placeholder="https://..." />
+                </AdminFormField>
               </div>
             </div>
-          </fieldset>
+          </AdminCard>
 
-          <div class="actions">
-            <button type="submit" data-action="save-market-config" :disabled="loading" class="primary-btn">
-              {{ loading ? 'Guardando...' : 'Guardar Configuración de Mercado' }}
+          <div class="flex justify-end">
+            <button type="submit" data-action="save-market-config" :disabled="loading" class="adm-btn adm-btn--primary">
+              {{ loading ? 'Guardando…' : 'Guardar ficha del mercado' }}
             </button>
           </div>
         </form>
-      </div>
-    </section>
+      </template>
+    </template>
 
-    <!-- Tab 2: Política de Envíos Internacionales -->
-    <section v-if="activeTab === 'shipping'" class="tab-content">
-      <div class="section-box">
-        <h3>Reglas Aduaneras, ADR y Devoluciones para {{ selectedMarket }}</h3>
-        <p v-if="shippingPolicy">
-          Versión de política: {{ shippingPolicy.version }} | Incoterm:
-          {{ shippingPolicy.dutyCollectionType.toUpperCase() }}
-        </p>
-        <p v-else class="muted">
-          No hay política aduanera específica configurada para este mercado (se aplican normas generales UE).
-        </p>
-      </div>
-    </section>
+    <!-- Envío internacional -->
+    <AdminCard
+      v-if="activeTab === 'shipping'"
+      :title="`Aduanas, mercancías peligrosas y devoluciones en ${selectedMarket}`"
+    >
+      <p v-if="shippingPolicy">
+        {{ DUTY_LABELS[shippingPolicy.dutyCollectionType] ?? 'Aranceles sin definir' }} · configuración n.º
+        {{ shippingPolicy.version }}
+      </p>
+      <p v-else class="adm-help">
+        Este mercado no tiene reglas de aduana propias: se aplican las normas generales de la Unión Europea.
+      </p>
+    </AdminCard>
   </div>
 </template>
-
-<style scoped>
-.admin-market-catalog {
-  padding: 1.5rem;
-  font-family: inherit;
-}
-.header {
-  margin-bottom: 1.5rem;
-}
-.subtitle {
-  color: #64748b;
-  font-size: 0.95rem;
-}
-.alert {
-  padding: 0.75rem 1rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-}
-.alert-error {
-  background-color: #fee2e2;
-  color: #991b1b;
-  border: 1px solid #f87171;
-}
-.alert-success {
-  background-color: #dcfce7;
-  color: #166534;
-  border: 1px solid #86efac;
-}
-.controls-bar {
-  display: flex;
-  gap: 1.5rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-.field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-.input-with-button {
-  display: flex;
-  gap: 0.5rem;
-}
-.tabs {
-  display: flex;
-  gap: 0.5rem;
-  border-bottom: 2px solid #e2e8f0;
-  margin-bottom: 1.5rem;
-}
-.tabs button {
-  background: none;
-  border: none;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  font-weight: 500;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-}
-.tabs button.active {
-  border-bottom-color: #2563eb;
-  color: #2563eb;
-}
-.section-box {
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 1rem;
-  margin-bottom: 1.5rem;
-}
-.section-box legend {
-  font-weight: 600;
-  padding: 0 0.5rem;
-}
-.grid-2 {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1rem;
-}
-.full-width {
-  grid-column: 1 / -1;
-}
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-.empty-state {
-  padding: 3rem;
-  text-align: center;
-  background-color: #f8fafc;
-  border-radius: 6px;
-  color: #64748b;
-}
-.actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.primary-btn {
-  background-color: #2563eb;
-  color: white;
-  padding: 0.6rem 1.2rem;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: 500;
-}
-.primary-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-</style>

@@ -192,189 +192,183 @@ function audience(flag: ApiFlag) {
 </script>
 
 <template>
-  <div class="mx-auto max-w-5xl">
-    <UiPageHeader
-      title="Feature flags"
-      :count="flags.length"
-      :count-label="flags.length === 1 ? 'flag' : 'flags'"
-      description="Cada flag tiene responsable y caducidad. Una flag activa no se puede eliminar: primero se apaga."
-    >
-      <template #actions>
-        <UButton icon="i-lucide-plus" @click="startCreate">Nueva flag</UButton>
-      </template>
-    </UiPageHeader>
+  <AdminPage :count="flags.length" :count-label="flags.length === 1 ? 'flag' : 'flags'">
+    <template #actions>
+      <UButton icon="i-lucide-plus" @click="startCreate">Nueva flag</UButton>
+    </template>
+    <div class="mx-auto max-w-5xl">
+      <UAlert
+        v-if="expiredCount"
+        class="mb-4"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-calendar-x"
+        :title="`${expiredCount} ${expiredCount === 1 ? 'flag ha caducado' : 'flags han caducado'}`"
+        description="Una flag caducada es deuda técnica: o se convierte en comportamiento fijo o se retira."
+      />
 
-    <UAlert
-      v-if="expiredCount"
-      class="mb-4"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-calendar-x"
-      :title="`${expiredCount} ${expiredCount === 1 ? 'flag ha caducado' : 'flags han caducado'}`"
-      description="Una flag caducada es deuda técnica: o se convierte en comportamiento fijo o se retira."
-    />
+      <p v-if="flags.length" class="mb-3 text-sm text-[var(--text-muted)]">
+        {{ activeCount }} {{ activeCount === 1 ? 'activa' : 'activas' }} de {{ flags.length }}.
+      </p>
 
-    <p v-if="flags.length" class="mb-3 text-sm text-[var(--text-muted)]">
-      {{ activeCount }} {{ activeCount === 1 ? 'activa' : 'activas' }} de {{ flags.length }}.
-    </p>
-
-    <UiSurface padding="none">
-      <div v-if="fetchStatus === 'pending'" class="divide-y divide-[var(--border)]">
-        <div v-for="n in 3" :key="n" class="px-4 py-5">
-          <div class="h-4 w-1/3 animate-pulse rounded bg-[var(--surface-sunken)]" />
+      <UiSurface padding="none">
+        <div v-if="fetchStatus === 'pending'" class="divide-y divide-[var(--border)]">
+          <div v-for="n in 3" :key="n" class="px-4 py-5">
+            <div class="h-4 w-1/3 animate-pulse rounded bg-[var(--surface-sunken)]" />
+          </div>
         </div>
-      </div>
 
-      <UiEmptyState
-        v-else-if="!flags.length"
-        icon="i-lucide-toggle-right"
-        title="No hay ninguna feature flag"
-        description="Sirven para publicar código sin activarlo y encenderlo cuando toque, o para probar algo con una parte del tráfico. Se crean siempre desactivadas."
-      >
-        <UButton icon="i-lucide-plus" @click="startCreate">Crear la primera</UButton>
-      </UiEmptyState>
+        <UiEmptyState
+          v-else-if="!flags.length"
+          icon="i-lucide-toggle-right"
+          title="No hay ninguna feature flag"
+          description="Sirven para publicar código sin activarlo y encenderlo cuando toque, o para probar algo con una parte del tráfico. Se crean siempre desactivadas."
+        >
+          <UButton icon="i-lucide-plus" @click="startCreate">Crear la primera</UButton>
+        </UiEmptyState>
 
-      <ul v-else class="divide-y divide-[var(--border)]">
-        <li v-for="flag in flags" :key="flag.key" class="flex flex-wrap items-start gap-x-4 gap-y-3 px-4 py-4">
-          <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <code class="font-mono text-sm font-semibold text-[var(--text-strong)]">{{ flag.key }}</code>
-              <UBadge :color="flag.enabled ? 'success' : 'neutral'" variant="subtle">
-                {{ flag.enabled ? 'Activa' : 'Desactivada' }}
-              </UBadge>
-              <UBadge v-if="isExpired(flag)" color="warning" variant="subtle">Caducada</UBadge>
+        <ul v-else class="divide-y divide-[var(--border)]">
+          <li v-for="flag in flags" :key="flag.key" class="flex flex-wrap items-start gap-x-4 gap-y-3 px-4 py-4">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <code class="font-mono text-sm font-semibold text-[var(--text-strong)]">{{ flag.key }}</code>
+                <UBadge :color="flag.enabled ? 'success' : 'neutral'" variant="subtle">
+                  {{ flag.enabled ? 'Activa' : 'Desactivada' }}
+                </UBadge>
+                <UBadge v-if="isExpired(flag)" color="warning" variant="subtle">Caducada</UBadge>
+              </div>
+              <p class="mt-1 text-sm text-[var(--text)]">{{ flag.description || 'Sin descripción' }}</p>
+              <p class="mt-0.5 text-xs text-[var(--text-muted)]">
+                {{ flag.owner || 'Sin responsable' }} · {{ audience(flag) }}
+                <template v-if="flag.targeting.environments.length">
+                  · {{ flag.targeting.environments.join(', ') }}
+                </template>
+                <template v-if="flag.expiresAt">
+                  · caduca el {{ new Date(flag.expiresAt).toLocaleDateString('es-ES') }}
+                </template>
+              </p>
             </div>
-            <p class="mt-1 text-sm text-[var(--text)]">{{ flag.description || 'Sin descripción' }}</p>
-            <p class="mt-0.5 text-xs text-[var(--text-muted)]">
-              {{ flag.owner || 'Sin responsable' }} · {{ audience(flag) }}
-              <template v-if="flag.targeting.environments.length">
-                · {{ flag.targeting.environments.join(', ') }}
-              </template>
-              <template v-if="flag.expiresAt">
-                · caduca el {{ new Date(flag.expiresAt).toLocaleDateString('es-ES') }}
-              </template>
-            </p>
-          </div>
 
-          <div class="flex shrink-0 items-center gap-2">
-            <USwitch
-              :model-value="flag.enabled"
-              :disabled="saving"
-              :aria-label="`${flag.enabled ? 'Desactivar' : 'Activar'} ${flag.key}`"
-              @update:model-value="quickToggle(flag)"
-            />
-            <UButton
-              size="xs"
-              color="neutral"
-              variant="outline"
-              icon="i-lucide-pencil"
-              :aria-label="`Editar ${flag.key}`"
-              @click="startEdit(flag)"
-            />
-            <UButton
-              size="xs"
-              color="error"
-              variant="ghost"
-              icon="i-lucide-trash-2"
-              :disabled="flag.enabled"
-              :title="flag.enabled ? 'Desactívala antes de eliminarla' : undefined"
-              :aria-label="`Eliminar ${flag.key}`"
-              @click="removing = flag"
-            />
-          </div>
-        </li>
-      </ul>
-    </UiSurface>
-
-    <UModal v-model:open="dialogOpen" :title="editingKey ? `Editar ${editingKey}` : 'Nueva feature flag'">
-      <template #body>
-        <form id="flag-form" class="space-y-4" @submit.prevent="save">
-          <UFormField
-            v-if="!editingKey"
-            label="Clave"
-            required
-            hint="En minúsculas y por puntos: checkout.nuevo-resumen"
-          >
-            <UInput v-model="draft.key" class="w-full font-mono" placeholder="checkout.nuevo-resumen" />
-          </UFormField>
-
-          <UFormField label="Qué hace" required>
-            <UInput v-model="draft.description" class="w-full" placeholder="Resumen de pedido nuevo en el checkout" />
-          </UFormField>
-
-          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Responsable" required hint="Quién decide si se queda o se retira">
-              <UInput v-model="draft.owner" class="w-full" />
-            </UFormField>
-            <UFormField label="Caduca el" required>
-              <UInput v-model="draft.expiresAt" type="datetime-local" class="w-full" />
-            </UFormField>
-          </div>
-
-          <UFormField label="Entornos" hint="Dónde puede estar activa">
-            <div class="flex flex-wrap gap-3 pt-1">
-              <UCheckbox
-                v-for="environment in ENVIRONMENTS"
-                :key="environment"
-                :model-value="draft.environments.includes(environment)"
-                :label="environment"
-                @update:model-value="
-                  (checked) =>
-                    (draft.environments = checked
-                      ? [...draft.environments, environment]
-                      : draft.environments.filter((item) => item !== environment))
-                "
+            <div class="flex shrink-0 items-center gap-2">
+              <USwitch
+                :model-value="flag.enabled"
+                :disabled="saving"
+                :aria-label="`${flag.enabled ? 'Desactivar' : 'Activar'} ${flag.key}`"
+                @update:model-value="quickToggle(flag)"
+              />
+              <UButton
+                size="xs"
+                color="neutral"
+                variant="outline"
+                icon="i-lucide-pencil"
+                :aria-label="`Editar ${flag.key}`"
+                @click="startEdit(flag)"
+              />
+              <UButton
+                size="xs"
+                color="error"
+                variant="ghost"
+                icon="i-lucide-trash-2"
+                :disabled="flag.enabled"
+                :title="flag.enabled ? 'Desactívala antes de eliminarla' : undefined"
+                :aria-label="`Eliminar ${flag.key}`"
+                @click="removing = flag"
               />
             </div>
-          </UFormField>
+          </li>
+        </ul>
+      </UiSurface>
 
-          <UFormField :label="`Despliegue: ${draft.percentage} % del tráfico`">
-            <input v-model.number="draft.percentage" type="range" min="0" max="100" class="w-full" />
-          </UFormField>
+      <UModal v-model:open="dialogOpen" :title="editingKey ? `Editar ${editingKey}` : 'Nueva feature flag'">
+        <template #body>
+          <form id="flag-form" class="space-y-4" @submit.prevent="save">
+            <UFormField
+              v-if="!editingKey"
+              label="Clave"
+              required
+              hint="En minúsculas y por puntos: checkout.nuevo-resumen"
+            >
+              <UInput v-model="draft.key" class="w-full font-mono" placeholder="checkout.nuevo-resumen" />
+            </UFormField>
 
-          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            <UFormField label="Solo estos roles" hint="Separados por comas. Vacío = todos.">
-              <UInput v-model="draft.rolesText" class="w-full" placeholder="admin, staff" />
+            <UFormField label="Qué hace" required>
+              <UInput v-model="draft.description" class="w-full" placeholder="Resumen de pedido nuevo en el checkout" />
             </UFormField>
-            <UFormField label="Solo estos clientes" hint="UUID separados por comas">
-              <UInput v-model="draft.customerIdsText" class="w-full font-mono text-xs" />
+
+            <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
+              <UFormField label="Responsable" required hint="Quién decide si se queda o se retira">
+                <UInput v-model="draft.owner" class="w-full" />
+              </UFormField>
+              <UFormField label="Caduca el" required>
+                <UInput v-model="draft.expiresAt" type="datetime-local" class="w-full" />
+              </UFormField>
+            </div>
+
+            <UFormField label="Entornos" hint="Dónde puede estar activa">
+              <div class="flex flex-wrap gap-3 pt-1">
+                <UCheckbox
+                  v-for="environment in ENVIRONMENTS"
+                  :key="environment"
+                  :model-value="draft.environments.includes(environment)"
+                  :label="environment"
+                  @update:model-value="
+                    (checked) =>
+                      (draft.environments = checked
+                        ? [...draft.environments, environment]
+                        : draft.environments.filter((item) => item !== environment))
+                  "
+                />
+              </div>
             </UFormField>
+
+            <UFormField :label="`Despliegue: ${draft.percentage} % del tráfico`">
+              <input v-model.number="draft.percentage" type="range" min="0" max="100" class="w-full" />
+            </UFormField>
+
+            <div class="grid gap-4 grid-cols-1 sm:grid-cols-2">
+              <UFormField label="Solo estos roles" hint="Separados por comas. Vacío = todos.">
+                <UInput v-model="draft.rolesText" class="w-full" placeholder="admin, staff" />
+              </UFormField>
+              <UFormField label="Solo estos clientes" hint="UUID separados por comas">
+                <UInput v-model="draft.customerIdsText" class="w-full font-mono text-xs" />
+              </UFormField>
+            </div>
+
+            <UCheckbox
+              v-if="editingKey"
+              v-model="draft.enabled"
+              label="Activa"
+              :description="'Con la flag activa, el comportamiento nuevo se aplica según el targeting de arriba.'"
+            />
+            <p v-else class="text-sm text-[var(--text-muted)]">
+              La flag se crea desactivada. La enciendes cuando el código esté listo.
+            </p>
+          </form>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="ghost" @click="dialogOpen = false">Cancelar</UButton>
+            <UButton type="submit" form="flag-form" :loading="saving">
+              {{ editingKey ? 'Guardar cambios' : 'Crear flag' }}
+            </UButton>
           </div>
+        </template>
+      </UModal>
 
-          <UCheckbox
-            v-if="editingKey"
-            v-model="draft.enabled"
-            label="Activa"
-            :description="'Con la flag activa, el comportamiento nuevo se aplica según el targeting de arriba.'"
-          />
-          <p v-else class="text-sm text-[var(--text-muted)]">
-            La flag se crea desactivada. La enciendes cuando el código esté listo.
+      <UModal :open="Boolean(removing)" title="Eliminar flag" @update:open="(value) => !value && (removing = null)">
+        <template #body>
+          <p class="text-[var(--text)]">
+            Se eliminará <code class="font-mono">{{ removing?.key }}</code
+            >. El código que la consulte pasará a usar su valor por defecto.
           </p>
-        </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="dialogOpen = false">Cancelar</UButton>
-          <UButton type="submit" form="flag-form" :loading="saving">
-            {{ editingKey ? 'Guardar cambios' : 'Crear flag' }}
-          </UButton>
-        </div>
-      </template>
-    </UModal>
-
-    <UModal :open="Boolean(removing)" title="Eliminar flag" @update:open="(value) => !value && (removing = null)">
-      <template #body>
-        <p class="text-[var(--text)]">
-          Se eliminará <code class="font-mono">{{ removing?.key }}</code
-          >. El código que la consulte pasará a usar su valor por defecto.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="removing = null">Cancelar</UButton>
-          <UButton color="error" :loading="saving" @click="confirmRemove">Eliminar flag</UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+        </template>
+        <template #footer>
+          <div class="flex w-full justify-end gap-2">
+            <UButton color="neutral" variant="ghost" @click="removing = null">Cancelar</UButton>
+            <UButton color="error" :loading="saving" @click="confirmRemove">Eliminar flag</UButton>
+          </div>
+        </template>
+      </UModal>
+    </div>
+  </AdminPage>
 </template>

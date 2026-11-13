@@ -80,6 +80,11 @@ const phase = ref<'idle' | 'ready' | 'review' | 'unknown' | 'confirmed' | 'error
 const weekdays = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 const methods = ['pickup', 'own_delivery', 'parcel'] as const,
   profiles = ['parcel', 'pallet', 'adr'] as const
+const profileLabels: Record<(typeof profiles)[number], string> = {
+  parcel: 'Paquetería',
+  pallet: 'Palés',
+  adr: 'Mercancía peligrosa'
+}
 const endpoint = '/api/admin/shipping/calendars'
 let alive = true,
   epoch = 0,
@@ -336,7 +341,7 @@ async function send() {
         setLocalPending(false)
       } else {
         phase.value = 'unknown'
-        message.value = 'Resultado sin confirmar. Consulta el recibo; no vuelvas a crear otra revisión.'
+        message.value = 'Resultado sin confirmar. Comprueba si se guardó; no vuelvas a crear otra revisión.'
       }
     }
   } finally {
@@ -404,218 +409,267 @@ onBeforeUnmount(() => {
 })
 </script>
 <template>
-  <section
-    aria-label="Calendarios operativos de envío"
-    class="space-y-4 rounded-xl border border-slate-200 bg-white p-4"
-  >
-    <h2 class="text-lg font-semibold">Calendarios operativos de envío</h2>
-    <p class="text-sm text-slate-600">
-      Preparación y tránsito en Europe/Madrid. Las fechas son estimadas, no garantizadas. No se consultan ni activan
-      servicios de transportistas.
+  <section aria-label="Calendarios operativos de envío" class="adm-stack min-w-0">
+    <p class="adm-help max-w-3xl">
+      Días de preparación y de reparto con los que se calcula la fecha estimada de entrega (hora peninsular). Las fechas
+      son estimadas, no garantizadas, y no se consulta a ningún transportista.
     </p>
-    <p v-if="!allowed" role="status">Se requiere una sesión vigente, MFA y permiso de administración.</p>
+    <AdminCard v-if="!allowed" flush>
+      <AdminEmptyState
+        role="status"
+        compact
+        icon="i-lucide-lock"
+        title="Calendario no disponible"
+        :description="
+          message || 'Hace falta una sesión vigente con verificación en dos pasos y permiso de administración.'
+        "
+      />
+    </AdminCard>
     <template v-else>
-      <p v-if="message" :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'">{{ message }}</p>
-      <button
-        v-if="!snapshot && !intent"
-        type="button"
-        data-calendar-load
-        :disabled="busy || pending"
-        class="rounded border px-3 py-2"
-        @click="load"
-      >
-        Leer calendario vigente
-      </button>
-      <template v-if="snapshot">
-        <p v-if="snapshot.version === 0">Sin calendario configurado: ETA pendiente, sin fecha prometida.</p>
-        <p v-else>Revisión {{ snapshot.version }} · última actualización {{ snapshot.updatedAt }}</p>
-        <fieldset :disabled="busy || pending || !!intent" class="space-y-4">
-          <div class="grid gap-3 sm:grid-cols-2">
-            <label :for="`${prefix}-preparation`"
-              >Días operativos de preparación<input
-                :id="`${prefix}-preparation`"
-                v-model="preparation"
-                data-calendar-preparation
-                type="number"
-                min="0"
-                max="60"
-                step="1"
-                class="block w-full rounded border p-2"
-            /></label>
-            <label :for="`${prefix}-cutoff`"
-              >Hora de corte (Madrid)<input
-                :id="`${prefix}-cutoff`"
-                v-model="cutoff"
-                data-calendar-cutoff
-                type="time"
-                class="block w-full rounded border p-2"
-            /></label>
-          </div>
-          <fieldset
-            v-for="(calendar, index) in calendars"
-            :key="calendar.code"
-            class="min-w-0 space-y-3 rounded border p-3"
-          >
-            <legend>Calendario {{ index + 1 }}</legend>
-            <label :for="`${prefix}-name-${index}`"
-              >Nombre<input
-                :id="`${prefix}-name-${index}`"
-                v-model="calendar.name"
-                :data-calendar-name="index"
-                maxlength="100"
-                class="block w-full rounded border p-2"
-            /></label>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <label :for="`${prefix}-scope-${index}`"
-                >Ámbito<select
-                  :id="`${prefix}-scope-${index}`"
-                  v-model="calendar.scope"
-                  class="block w-full rounded border p-2"
-                  @change="scopeChanged(calendar)"
-                >
-                  <option value="national">Nacional</option>
-                  <option value="local">Local / destino</option>
-                  <option value="carrier">Ruta / transportista configurado</option>
-                </select></label
-              >
-              <label :for="`${prefix}-stage-${index}`"
-                >Se aplica a<select
-                  :id="`${prefix}-stage-${index}`"
-                  v-model="calendar.stage"
-                  class="block w-full rounded border p-2"
-                >
-                  <option value="both">Preparación y tránsito</option>
-                  <option value="preparation">Preparación</option>
-                  <option value="transit">Tránsito</option>
-                </select></label
-              >
-            </div>
-            <fieldset>
-              <legend>Días operativos explícitos</legend>
-              <div class="flex flex-wrap gap-3">
-                <label v-for="(day, offset) in weekdays" :key="day"
-                  ><input
-                    v-model="calendar.days"
-                    :data-calendar-weekday="`${index}-${offset + 1}`"
-                    type="checkbox"
-                    :value="offset + 1"
-                  />
-                  {{ day }}</label
-                >
-              </div>
-            </fieldset>
-            <label :for="`${prefix}-dates-${index}`"
-              >Festivos / cierres (AAAA-MM-DD, uno por línea)<textarea
-                :id="`${prefix}-dates-${index}`"
-                v-model="calendar.dates"
-                :data-calendar-dates="index"
-                rows="4"
-                class="block w-full rounded border p-2"
-              />
-            </label>
-            <label v-if="calendar.scope !== 'national'" :for="`${prefix}-prefix-${index}`"
-              >Prefijos postales separados por comas<input
-                :id="`${prefix}-prefix-${index}`"
-                v-model="calendar.postalPrefixes"
-                class="block w-full rounded border p-2"
-            /></label>
-            <template v-if="calendar.scope !== 'national'">
-              <fieldset>
-                <legend>Métodos (vacío: todos; obligatorio para transportista)</legend>
-                <div class="flex flex-wrap gap-3">
-                  <label v-for="method in methods" :key="method"
-                    ><input v-model="calendar.methodCodes" type="checkbox" :value="method" />
-                    {{
-                      method === 'pickup' ? 'Recogida' : method === 'own_delivery' ? 'Reparto propio' : 'Paquetería'
-                    }}</label
-                  >
-                </div>
-              </fieldset>
-              <fieldset>
-                <legend>Perfiles (vacío: todos)</legend>
-                <div class="flex flex-wrap gap-3">
-                  <label v-for="profile in profiles" :key="profile"
-                    ><input v-model="calendar.serviceProfiles" type="checkbox" :value="profile" /> {{ profile }}</label
-                  >
-                </div>
-              </fieldset>
-              <label :for="`${prefix}-zones-${index}`"
-                >Códigos de zona configurados (comas; vacío: todas)<input
-                  :id="`${prefix}-zones-${index}`"
-                  v-model="calendar.zoneCodes"
-                  class="block w-full rounded border p-2"
-              /></label>
-            </template>
-            <button type="button" class="rounded border px-3 py-2" @click="calendars.splice(index, 1)">
-              Quitar este calendario
-            </button>
-          </fieldset>
+      <UAlert
+        v-if="message"
+        :role="phase === 'unknown' || phase === 'error' ? 'alert' : 'status'"
+        :color="
+          phase === 'error' ? 'error' : phase === 'unknown' ? 'warning' : phase === 'confirmed' ? 'success' : 'info'
+        "
+        variant="subtle"
+        :icon="
+          phase === 'error' || phase === 'unknown'
+            ? 'i-lucide-triangle-alert'
+            : phase === 'confirmed'
+              ? 'i-lucide-circle-check'
+              : 'i-lucide-info'
+        "
+        :title="message"
+      />
+      <AdminCard v-if="!snapshot && !intent" flush>
+        <AdminEmptyState
+          compact
+          icon="i-lucide-calendar-clock"
+          :variant="phase === 'error' ? 'error' : 'empty'"
+          :title="busy ? 'Leyendo el calendario…' : 'El calendario no está cargado'"
+          description="Vuelve a leerlo para ver y cambiar la configuración vigente."
+        >
           <button
             type="button"
-            data-calendar-add
-            :disabled="calendars.length >= 20"
-            class="rounded border px-3 py-2"
-            @click="add"
+            data-calendar-load
+            :disabled="busy || pending"
+            class="adm-btn adm-btn--secondary"
+            @click="load"
           >
-            Añadir calendario
+            Leer calendario vigente
           </button>
-          <label :for="`${prefix}-reason`" class="block"
-            >Motivo de la revisión<textarea
-              :id="`${prefix}-reason`"
-              v-model="reason"
-              data-calendar-reason
-              maxlength="500"
-              class="block w-full rounded border p-2"
-            />
-          </label>
-          <label :for="`${prefix}-reference`" class="block"
-            >Referencia de comprobación<input
-              :id="`${prefix}-reference`"
-              v-model="reference"
-              data-calendar-reference
-              maxlength="200"
-              class="block w-full rounded border p-2"
-          /></label>
-          <button type="button" data-calendar-review class="rounded border px-3 py-2" @click="review">
-            Revisar cambios
-          </button>
+        </AdminEmptyState>
+      </AdminCard>
+      <template v-if="snapshot">
+        <p v-if="snapshot.version === 0" class="adm-help">
+          Sin calendario configurado: la tienda todavía no muestra fecha estimada de entrega.
+        </p>
+        <p v-else class="adm-help">
+          Revisión {{ snapshot.version }} · última actualización {{ adminDate(snapshot.updatedAt, true) }}
+        </p>
+        <fieldset :disabled="busy || pending || !!intent" class="adm-stack min-w-0">
+          <AdminCard title="Plazos generales">
+            <div class="adm-form-grid">
+              <AdminFormField
+                v-slot="{ id }"
+                label="Días laborables de preparación"
+                help="Días que tarda el almacén en preparar un pedido."
+                :for="`${prefix}-preparation`"
+              >
+                <input
+                  :id="id"
+                  v-model="preparation"
+                  data-calendar-preparation
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="1"
+                />
+              </AdminFormField>
+              <AdminFormField
+                v-slot="{ id }"
+                label="Hora de corte"
+                help="Los pedidos posteriores cuentan desde el día siguiente."
+                :for="`${prefix}-cutoff`"
+              >
+                <input :id="id" v-model="cutoff" data-calendar-cutoff type="time" />
+              </AdminFormField>
+            </div>
+          </AdminCard>
+
+          <AdminCard
+            v-for="(calendar, index) in calendars"
+            :key="calendar.code"
+            :title="calendar.name ? `Calendario ${index + 1}: ${calendar.name}` : `Calendario ${index + 1}`"
+          >
+            <template #actions>
+              <button
+                type="button"
+                class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                @click="calendars.splice(index, 1)"
+              >
+                Quitar este calendario
+              </button>
+            </template>
+            <div class="adm-stack">
+              <div class="adm-form-grid">
+                <AdminFormField v-slot="{ id }" label="Nombre" :for="`${prefix}-name-${index}`">
+                  <input :id="id" v-model="calendar.name" :data-calendar-name="index" maxlength="100" />
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Ámbito" :for="`${prefix}-scope-${index}`">
+                  <select :id="id" v-model="calendar.scope" @change="scopeChanged(calendar)">
+                    <option value="national">Nacional</option>
+                    <option value="local">Local o por destino</option>
+                    <option value="carrier">Ruta o transportista</option>
+                  </select>
+                </AdminFormField>
+                <AdminFormField v-slot="{ id }" label="Se aplica a" :for="`${prefix}-stage-${index}`">
+                  <select :id="id" v-model="calendar.stage">
+                    <option value="both">Preparación y reparto</option>
+                    <option value="preparation">Preparación</option>
+                    <option value="transit">Reparto</option>
+                  </select>
+                </AdminFormField>
+              </div>
+              <fieldset class="adm-field">
+                <legend class="adm-label">Días en los que se trabaja</legend>
+                <div class="flex flex-wrap gap-x-4 gap-y-2">
+                  <label v-for="(day, offset) in weekdays" :key="day" class="adm-check"
+                    ><input
+                      v-model="calendar.days"
+                      :data-calendar-weekday="`${index}-${offset + 1}`"
+                      type="checkbox"
+                      :value="offset + 1"
+                    />
+                    {{ day }}</label
+                  >
+                </div>
+              </fieldset>
+              <AdminFormField
+                v-slot="{ id }"
+                label="Festivos y cierres"
+                help="Una fecha por línea, con formato AAAA-MM-DD."
+                :for="`${prefix}-dates-${index}`"
+              >
+                <textarea :id="id" v-model="calendar.dates" :data-calendar-dates="index" rows="4" />
+              </AdminFormField>
+              <template v-if="calendar.scope !== 'national'">
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Códigos postales"
+                  help="Primeras cifras del código postal, separadas por comas."
+                  :for="`${prefix}-prefix-${index}`"
+                >
+                  <input :id="id" v-model="calendar.postalPrefixes" />
+                </AdminFormField>
+                <fieldset class="adm-field">
+                  <legend class="adm-label">Formas de entrega</legend>
+                  <div class="flex flex-wrap gap-x-4 gap-y-2">
+                    <label v-for="method in methods" :key="method" class="adm-check"
+                      ><input v-model="calendar.methodCodes" type="checkbox" :value="method" />
+                      {{
+                        method === 'pickup' ? 'Recogida' : method === 'own_delivery' ? 'Reparto propio' : 'Paquetería'
+                      }}</label
+                    >
+                  </div>
+                  <p class="adm-help">
+                    Sin marcar ninguna se aplica a todas. Obligatorio si el ámbito es transportista.
+                  </p>
+                </fieldset>
+                <fieldset class="adm-field">
+                  <legend class="adm-label">Tipos de envío</legend>
+                  <div class="flex flex-wrap gap-x-4 gap-y-2">
+                    <label v-for="profile in profiles" :key="profile" class="adm-check"
+                      ><input v-model="calendar.serviceProfiles" type="checkbox" :value="profile" />
+                      {{ profileLabels[profile] }}</label
+                    >
+                  </div>
+                  <p class="adm-help">Sin marcar ninguno se aplica a todos.</p>
+                </fieldset>
+                <AdminFormField
+                  v-slot="{ id }"
+                  label="Zonas de envío"
+                  help="Códigos de zona separados por comas. Vacío: todas."
+                  :for="`${prefix}-zones-${index}`"
+                >
+                  <input :id="id" v-model="calendar.zoneCodes" />
+                </AdminFormField>
+              </template>
+            </div>
+          </AdminCard>
+
+          <div>
+            <button
+              type="button"
+              data-calendar-add
+              :disabled="calendars.length >= 20"
+              class="adm-btn adm-btn--secondary"
+              @click="add"
+            >
+              Añadir calendario
+            </button>
+          </div>
+
+          <AdminCard title="Guardar cambios" description="Antes de guardar verás un resumen para confirmarlo.">
+            <div class="adm-stack">
+              <AdminFormField v-slot="{ id }" label="Motivo del cambio" :for="`${prefix}-reason`">
+                <textarea :id="id" v-model="reason" data-calendar-reason maxlength="500" />
+              </AdminFormField>
+              <AdminFormField
+                v-slot="{ id }"
+                label="Referencia de comprobación"
+                help="Dónde se ha verificado el cambio (por ejemplo, el calendario laboral oficial)."
+                :for="`${prefix}-reference`"
+              >
+                <input :id="id" v-model="reference" data-calendar-reference maxlength="200" />
+              </AdminFormField>
+            </div>
+            <template #footer>
+              <button type="button" data-calendar-review class="adm-btn adm-btn--primary" @click="review">
+                Revisar cambios
+              </button>
+            </template>
+          </AdminCard>
         </fieldset>
       </template>
-      <div v-if="phase === 'review' && intent" class="space-y-2 rounded border p-3">
+      <AdminCard v-if="phase === 'review' && intent" title="Confirma el nuevo calendario">
         <p>
           Aplicar {{ intent.body.configuration.calendars.length }} calendarios, preparación
-          {{ intent.body.configuration.preparationBusinessDays }} días operativos y corte
-          {{ intent.body.configuration.cutoffLocalTime }}. Sustituye la configuración completa, no los pedidos
-          históricos.
+          {{ intent.body.configuration.preparationBusinessDays }} días laborables y corte a las
+          {{ intent.body.configuration.cutoffLocalTime }}. Sustituye la configuración completa; los pedidos ya hechos no
+          cambian.
         </p>
-        <button
-          type="button"
-          data-calendar-confirm
-          :disabled="busy || pending"
-          class="rounded border px-3 py-2"
-          @click="send"
-        >
-          Confirmar revisión
-        </button>
-        <button type="button" :disabled="busy" class="rounded border px-3 py-2" @click="cancel">
-          Volver a editar sin guardar
-        </button>
-      </div>
-      <div v-if="phase === 'unknown' && intent" class="flex flex-wrap gap-3">
+        <template #footer>
+          <button type="button" :disabled="busy" class="adm-btn adm-btn--secondary" @click="cancel">
+            Volver a editar sin guardar
+          </button>
+          <button
+            type="button"
+            data-calendar-confirm
+            :disabled="busy || pending"
+            class="adm-btn adm-btn--primary"
+            @click="send"
+          >
+            Confirmar revisión
+          </button>
+        </template>
+      </AdminCard>
+      <div v-if="phase === 'unknown' && intent" class="flex flex-wrap gap-2">
         <button
           type="button"
           data-calendar-check
           :disabled="busy || pending"
-          class="rounded border px-3 py-2"
+          class="adm-btn adm-btn--primary"
           @click="check"
         >
-          Consultar recibo y calendario
+          Comprobar si se guardó
         </button>
         <button
           type="button"
           data-calendar-replay
           :disabled="busy || pending"
-          class="rounded border px-3 py-2"
+          class="adm-btn adm-btn--secondary"
           @click="send"
         >
           Reenviar exactamente la misma revisión

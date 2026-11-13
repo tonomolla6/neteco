@@ -48,21 +48,37 @@ const editEnabled = ref<boolean>(true)
 
 function errorText(error: unknown, fallback: string): string {
   const code = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return code ? `${fallback} (${code})` : fallback
+  return code ? `${fallback}. Vuelve a intentarlo.` : fallback
 }
 
-function severityClass(sev: AnomalySeverity): string {
-  if (sev === 'critical') return 'bg-red-100 text-red-800 border-red-200'
-  if (sev === 'warning') return 'bg-amber-100 text-amber-800 border-amber-200'
-  return 'bg-blue-100 text-blue-800 border-blue-200'
+const dimensionLabels: Record<string, string> = {
+  conversion: 'Ventas',
+  payment: 'Pagos',
+  stock: 'Stock',
+  tracking: 'Medición de visitas',
+  data: 'Sincronización de datos'
+}
+const severityLabels: Record<string, string> = { critical: 'Crítica', warning: 'Aviso', info: 'Informativa' }
+const statusLabels: Record<string, string> = {
+  open: 'Abierta',
+  acknowledged: 'Vista',
+  under_investigation: 'En investigación',
+  resolved: 'Resuelta',
+  dismissed_false_positive: 'Descartada (falsa alarma)'
 }
 
-function statusClass(status: AnomalyStatus): string {
-  if (status === 'open') return 'bg-rose-100 text-rose-800'
-  if (status === 'acknowledged') return 'bg-blue-100 text-blue-800'
-  if (status === 'under_investigation') return 'bg-purple-100 text-purple-800'
-  if (status === 'resolved') return 'bg-emerald-100 text-emerald-800'
-  return 'bg-neutral-100 text-neutral-700'
+function severityTone(sev: AnomalySeverity): 'danger' | 'warning' | 'info' {
+  if (sev === 'critical') return 'danger'
+  if (sev === 'warning') return 'warning'
+  return 'info'
+}
+
+function statusTone(status: AnomalyStatus): 'danger' | 'info' | 'warning' | 'success' | 'neutral' {
+  if (status === 'open') return 'danger'
+  if (status === 'acknowledged') return 'info'
+  if (status === 'under_investigation') return 'warning'
+  if (status === 'resolved') return 'success'
+  return 'neutral'
 }
 
 async function loadData() {
@@ -90,7 +106,7 @@ async function loadData() {
 
     syncPolicyForm()
   } catch (err: unknown) {
-    errorMessage.value = errorText(err, 'Error al cargar alertas de anomalías y políticas')
+    errorMessage.value = errorText(err, 'No se han podido cargar las anomalías')
   } finally {
     loading.value = false
   }
@@ -124,7 +140,7 @@ async function openAlertDetail(alert: AnomalyAlert) {
     reviewAction.value = 'acknowledge'
     showDetailModal.value = true
   } catch (err: unknown) {
-    errorMessage.value = errorText(err, 'Error al cargar detalle de la alerta')
+    errorMessage.value = errorText(err, 'No se ha podido abrir la anomalía')
   } finally {
     busy.value = false
   }
@@ -148,11 +164,11 @@ async function submitReview() {
       body
     })) as { alert: AnomalyAlert }
 
-    notice.value = `Alerta ${activeAlert.value.id} actualizada a estado: ${res.alert.status}`
+    notice.value = `Anomalía actualizada: ${statusLabels[res.alert.status] ?? adminHumanize(res.alert.status)}.`
     showDetailModal.value = false
     await loadData()
   } catch (err: unknown) {
-    errorMessage.value = errorText(err, 'Error al procesar la revisión de la alerta')
+    errorMessage.value = errorText(err, 'No se ha podido guardar la revisión')
   } finally {
     busy.value = false
   }
@@ -181,10 +197,10 @@ async function saveThresholdPolicy() {
       body
     })
 
-    notice.value = `Umbrales anti-ruido de ${selectedPolicyDimension.value} actualizados con éxito.`
+    notice.value = `Avisos de «${dimensionLabels[selectedPolicyDimension.value] ?? selectedPolicyDimension.value}» actualizados.`
     await loadData()
   } catch (err: unknown) {
-    errorMessage.value = errorText(err, 'Error al guardar política de umbrales')
+    errorMessage.value = errorText(err, 'No se han podido guardar los cambios')
   } finally {
     busy.value = false
   }
@@ -196,391 +212,264 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div>
-        <h2 class="text-xl font-bold tracking-tight text-neutral-900">
-          Detección de Anomalías y Revisión Operativa (DAT-024)
-        </h2>
-        <p class="text-sm text-neutral-600 mt-1">
-          Monitorización de caídas en conversión, pagos, stock, tracking o datos con umbrales anti-ruido y runbooks
-          asociados.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="inline-flex items-center gap-2 rounded-md bg-neutral-900 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-neutral-800 disabled:opacity-50"
-        :disabled="loading || busy"
-        @click="loadData"
-      >
-        <span v-if="loading">Actualizando...</span>
-        <span v-else>Recargar alertas</span>
-      </button>
-    </div>
+  <div class="adm-stack">
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+    />
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
 
-    <!-- Alerts messages -->
-    <div v-if="errorMessage" role="alert" class="rounded-lg bg-red-50 p-4 text-sm text-red-800 border border-red-200">
-      {{ errorMessage }}
-    </div>
-    <div
-      v-if="notice"
-      role="status"
-      class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 border border-emerald-200"
-    >
-      {{ notice }}
-    </div>
-
-    <!-- Filters row -->
-    <div class="flex flex-wrap gap-4 rounded-lg bg-neutral-50 p-4 border border-neutral-200">
-      <div>
-        <label class="block text-xs font-medium text-neutral-700 mb-1">Dimensión</label>
-        <select
-          v-model="filterDimension"
-          class="rounded-md border-neutral-300 text-xs shadow-sm focus:border-neutral-900 focus:ring-neutral-900"
-          @change="loadData"
-        >
-          <option value="">Todas las dimensiones</option>
-          <option value="conversion">Conversión (checkout/funnel)</option>
-          <option value="payment">Pagos (pasarela/denegación)</option>
-          <option value="stock">Stock (rotura/descuadre)</option>
-          <option value="tracking">Tracking (telemetría/eventos)</option>
-          <option value="data">Datos (sincronización/lag)</option>
-        </select>
-      </div>
-
-      <div>
-        <label class="block text-xs font-medium text-neutral-700 mb-1">Severidad</label>
-        <select
-          v-model="filterSeverity"
-          class="rounded-md border-neutral-300 text-xs shadow-sm focus:border-neutral-900 focus:ring-neutral-900"
-          @change="loadData"
-        >
-          <option value="">Todas las severidades</option>
-          <option value="critical">Crítica</option>
-          <option value="warning">Advertencia</option>
-          <option value="info">Informativa</option>
-        </select>
-      </div>
-
-      <div>
-        <label class="block text-xs font-medium text-neutral-700 mb-1">Estado</label>
-        <select
-          v-model="filterStatus"
-          class="rounded-md border-neutral-300 text-xs shadow-sm focus:border-neutral-900 focus:ring-neutral-900"
-          @change="loadData"
-        >
-          <option value="">Todos los estados</option>
-          <option value="open">Abierta</option>
-          <option value="acknowledged">Reconocida</option>
-          <option value="under_investigation">En investigación</option>
-          <option value="resolved">Resuelta</option>
-          <option value="dismissed_false_positive">Descartada (falso positivo)</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Alerts Table -->
-    <div
-      v-if="!loading && alerts.length === 0"
-      class="rounded-lg border border-neutral-200 bg-neutral-50 p-8 text-center text-neutral-600"
-    >
-      No se detectaron alertas de anomalías con los filtros seleccionados.
-    </div>
-
-    <div v-if="alerts.length > 0" class="overflow-x-auto rounded-lg border border-neutral-200 shadow-sm bg-white">
-      <table class="min-w-full divide-y divide-neutral-200 text-left text-sm">
-        <thead class="bg-neutral-50 font-semibold text-neutral-900">
-          <tr>
-            <th class="px-4 py-3">Dimensión</th>
-            <th class="px-4 py-3">Métrica / Resumen</th>
-            <th class="px-4 py-3">Severidad</th>
-            <th class="px-4 py-3">Desviación</th>
-            <th class="px-4 py-3">Runbook</th>
-            <th class="px-4 py-3">Estado</th>
-            <th class="px-4 py-3 text-right">Acción</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-neutral-200">
-          <tr v-for="a in alerts" :key="a.id" class="hover:bg-neutral-50">
-            <td class="px-4 py-3 font-semibold uppercase text-xs tracking-wider text-neutral-700">
-              {{ a.dimension }}
-            </td>
-            <td class="px-4 py-3">
-              <div class="font-medium text-neutral-900">{{ a.metricName }}</div>
-              <div class="text-xs text-neutral-500">{{ a.summary }}</div>
-            </td>
-            <td class="px-4 py-3">
-              <span
-                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border"
-                :class="severityClass(a.severity)"
-              >
-                {{ a.severity }}
-              </span>
-            </td>
-            <td class="px-4 py-3 text-neutral-700">
-              <div class="font-semibold text-red-700">-{{ a.deviationPercent }}%</div>
-              <div class="text-xs text-neutral-500">Base: {{ a.baselineValue }} | Obs: {{ a.observedValue }}</div>
-            </td>
-            <td class="px-4 py-3">
-              <span class="font-mono text-xs text-neutral-700 bg-neutral-100 px-2 py-0.5 rounded">
-                {{ a.runbookId }}
-              </span>
-            </td>
-            <td class="px-4 py-3">
-              <span
-                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="statusClass(a.status)"
-              >
-                {{ a.status }}
-              </span>
-            </td>
-            <td class="px-4 py-3 text-right">
-              <button
-                type="button"
-                class="rounded bg-neutral-100 hover:bg-neutral-200 px-2.5 py-1 text-xs font-semibold text-neutral-800 transition"
-                @click="openAlertDetail(a)"
-              >
-                Revisar / Runbook
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Threshold Noise Avoidance Editor -->
-    <div class="rounded-lg border border-neutral-200 bg-white p-5 shadow-sm space-y-4">
-      <h3 class="text-base font-semibold text-neutral-900">Configuración de Umbrales Anti-Ruido por Dimensión</h3>
-      <p class="text-xs text-neutral-600">
-        Evita falsos positivos mediante tamaño de muestra mínimo y ventana de cooldown para que no se generen alertas
-        repetitivas.
-      </p>
-
-      <div class="grid grid-cols-1 sm:grid-cols-5 gap-4">
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Dimensión</label>
-          <select
-            v-model="selectedPolicyDimension"
-            class="w-full rounded-md border-neutral-300 text-sm shadow-sm focus:border-neutral-900 focus:ring-neutral-900"
-            @change="syncPolicyForm"
-          >
-            <option value="conversion">Conversión</option>
+    <div class="adm-card adm-tablecard">
+      <div class="adm-tablecard__bar">
+        <AdminToolbar :searchable="false">
+          <label class="sr-only" for="anomaly-filter-dimension">Área</label>
+          <select id="anomaly-filter-dimension" v-model="filterDimension" @change="loadData">
+            <option value="">Todas las áreas</option>
+            <option value="conversion">Ventas</option>
             <option value="payment">Pagos</option>
             <option value="stock">Stock</option>
-            <option value="tracking">Tracking</option>
-            <option value="data">Datos</option>
+            <option value="tracking">Medición de visitas</option>
+            <option value="data">Sincronización de datos</option>
+          </select>
+          <label class="sr-only" for="anomaly-filter-severity">Gravedad</label>
+          <select id="anomaly-filter-severity" v-model="filterSeverity" @change="loadData">
+            <option value="">Cualquier gravedad</option>
+            <option value="critical">Crítica</option>
+            <option value="warning">Aviso</option>
+            <option value="info">Informativa</option>
+          </select>
+          <label class="sr-only" for="anomaly-filter-status">Estado</label>
+          <select id="anomaly-filter-status" v-model="filterStatus" @change="loadData">
+            <option value="">Todos los estados</option>
+            <option value="open">Abierta</option>
+            <option value="acknowledged">Vista</option>
+            <option value="under_investigation">En investigación</option>
+            <option value="resolved">Resuelta</option>
+            <option value="dismissed_false_positive">Descartada (falsa alarma)</option>
+          </select>
+          <template #actions>
+            <AdminButton size="sm" icon="i-lucide-rotate-cw" :loading="loading" :disabled="busy" @click="loadData">
+              Actualizar
+            </AdminButton>
+          </template>
+        </AdminToolbar>
+      </div>
+
+      <div v-if="loading && alerts.length === 0" class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
+      </div>
+      <AdminEmptyState
+        v-else-if="alerts.length === 0 && errorMessage"
+        variant="error"
+        title="No se han podido cargar las anomalías"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <AdminButton icon="i-lucide-rotate-cw" @click="loadData">Reintentar</AdminButton>
+      </AdminEmptyState>
+      <AdminEmptyState
+        v-else-if="alerts.length === 0"
+        :variant="filterDimension || filterSeverity || filterStatus ? 'filtered' : 'empty'"
+        :title="
+          filterDimension || filterSeverity || filterStatus
+            ? 'Ninguna anomalía con estos filtros'
+            : 'No se ha detectado ninguna anomalía'
+        "
+        description="Avisaremos aquí si caen de golpe las ventas, los pagos, el stock o los datos."
+        icon="i-lucide-shield-check"
+      />
+      <template v-else>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th scope="col">Área</th>
+                <th scope="col">Qué ha pasado</th>
+                <th scope="col">Gravedad</th>
+                <th scope="col" data-numeric>Caída</th>
+                <th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="a in alerts" :key="a.id">
+                <td>{{ dimensionLabels[a.dimension] ?? adminHumanize(a.dimension) }}</td>
+                <td>
+                  <div class="font-semibold text-[var(--text-strong)]">{{ adminHumanize(a.metricName) }}</div>
+                  <div class="adm-help">{{ a.summary }}</div>
+                </td>
+                <td>
+                  <AdminBadge :tone="severityTone(a.severity)">
+                    {{ severityLabels[a.severity] ?? adminHumanize(a.severity) }}
+                  </AdminBadge>
+                </td>
+                <td data-numeric>
+                  <div class="font-semibold text-red-700">−{{ a.deviationPercent }} %</div>
+                  <div class="adm-help">Habitual {{ a.baselineValue }} · ahora {{ a.observedValue }}</div>
+                </td>
+                <td>
+                  <AdminBadge :tone="statusTone(a.status)">
+                    {{ statusLabels[a.status] ?? adminHumanize(a.status) }}
+                  </AdminBadge>
+                </td>
+                <td class="adm-table__actions">
+                  <button
+                    type="button"
+                    class="adm-btn adm-btn--secondary adm-btn--sm"
+                    :disabled="busy"
+                    @click="openAlertDetail(a)"
+                  >
+                    Revisar
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="adm-pagination">
+          <p>{{ totalAlerts }} {{ totalAlerts === 1 ? 'anomalía' : 'anomalías' }}</p>
+        </div>
+      </template>
+    </div>
+
+    <AdminCard
+      title="Cuándo avisar"
+      description="Ajusta la sensibilidad de cada área para no recibir avisos repetidos ni falsas alarmas."
+    >
+      <div class="adm-form-grid">
+        <div class="adm-field">
+          <label class="adm-label" for="anomaly-policy-dimension">Área</label>
+          <select id="anomaly-policy-dimension" v-model="selectedPolicyDimension" @change="syncPolicyForm">
+            <option value="conversion">Ventas</option>
+            <option value="payment">Pagos</option>
+            <option value="stock">Stock</option>
+            <option value="tracking">Medición de visitas</option>
+            <option value="data">Sincronización de datos</option>
           </select>
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Caída Aviso (%)</label>
-          <input
-            v-model.number="editWarningDrop"
-            type="number"
-            min="1"
-            max="100"
-            class="w-full rounded-md border-neutral-300 text-sm shadow-sm"
-          />
+        <div class="adm-field">
+          <label class="adm-label" for="anomaly-policy-warning">Caída para avisar (%)</label>
+          <input id="anomaly-policy-warning" v-model.number="editWarningDrop" type="number" min="1" max="100" />
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Caída Crítica (%)</label>
-          <input
-            v-model.number="editCriticalDrop"
-            type="number"
-            min="1"
-            max="100"
-            class="w-full rounded-md border-neutral-300 text-sm shadow-sm"
-          />
+        <div class="adm-field">
+          <label class="adm-label" for="anomaly-policy-critical">Caída crítica (%)</label>
+          <input id="anomaly-policy-critical" v-model.number="editCriticalDrop" type="number" min="1" max="100" />
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Muestra Mínima</label>
-          <input
-            v-model.number="editMinSampleSize"
-            type="number"
-            min="1"
-            class="w-full rounded-md border-neutral-300 text-sm shadow-sm"
-          />
+        <div class="adm-field">
+          <label class="adm-label" for="anomaly-policy-sample">Mínimo de operaciones</label>
+          <input id="anomaly-policy-sample" v-model.number="editMinSampleSize" type="number" min="1" />
+          <p class="adm-help">Con menos actividad no se avisa.</p>
         </div>
-
-        <div>
-          <label class="block text-xs font-medium text-neutral-700 mb-1">Cooldown (min)</label>
-          <input
-            v-model.number="editCooldownMinutes"
-            type="number"
-            min="0"
-            class="w-full rounded-md border-neutral-300 text-sm shadow-sm"
-          />
+        <div class="adm-field">
+          <label class="adm-label" for="anomaly-policy-cooldown">Espera entre avisos (min)</label>
+          <input id="anomaly-policy-cooldown" v-model.number="editCooldownMinutes" type="number" min="0" />
         </div>
       </div>
-
-      <div class="flex items-center justify-between pt-2">
-        <label class="inline-flex items-center gap-2 text-sm text-neutral-700">
-          <input v-model="editEnabled" type="checkbox" class="rounded border-neutral-300 text-neutral-900" />
-          <span>Detección activada en esta dimensión</span>
+      <template #footer>
+        <label class="adm-check mr-auto">
+          <input v-model="editEnabled" type="checkbox" />
+          <span>Vigilar esta área</span>
         </label>
-
-        <button
-          type="button"
-          class="rounded-md bg-neutral-900 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-neutral-800 disabled:opacity-50"
-          :disabled="busy"
-          @click="saveThresholdPolicy"
-        >
-          Guardar umbrales anti-ruido
+        <button type="button" class="adm-btn adm-btn--primary" :disabled="busy" @click="saveThresholdPolicy">
+          Guardar cambios
         </button>
-      </div>
-    </div>
+      </template>
+    </AdminCard>
 
-    <!-- Modal Detail & Review Panel -->
-    <div
-      v-if="showDetailModal && activeAlert && activeRunbook"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4"
-    >
-      <div class="max-w-2xl w-full bg-white rounded-xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
-        <!-- Modal Header -->
-        <div class="border-b border-neutral-200 px-6 py-4 flex items-center justify-between bg-neutral-50">
-          <div>
-            <h3 class="font-bold text-neutral-900 text-lg">
-              {{ activeRunbook.title }}
-            </h3>
-            <span class="text-xs text-neutral-500 font-mono">{{ activeAlert.id }}</span>
-          </div>
-          <button
-            type="button"
-            class="text-neutral-400 hover:text-neutral-600 font-bold text-lg"
-            @click="showDetailModal = false"
-          >
-            ✕
-          </button>
+    <AdminDrawer v-model:open="showDetailModal" :title="activeRunbook?.title ?? 'Revisar anomalía'" wide>
+      <div v-if="activeAlert && activeRunbook" class="adm-stack">
+        <div>
+          <p class="font-semibold text-[var(--text-strong)]">{{ activeAlert.summary }}</p>
+          <p class="adm-help mt-1 flex flex-wrap items-center gap-2">
+            Detectada el {{ adminDate(activeAlert.detectedAt, true) }}
+            <AdminBadge :tone="severityTone(activeAlert.severity)">
+              {{ severityLabels[activeAlert.severity] ?? adminHumanize(activeAlert.severity) }}
+            </AdminBadge>
+            <AdminBadge :tone="statusTone(activeAlert.status)">
+              {{ statusLabels[activeAlert.status] ?? adminHumanize(activeAlert.status) }}
+            </AdminBadge>
+          </p>
         </div>
 
-        <!-- Modal Body -->
-        <div class="p-6 overflow-y-auto space-y-6 text-sm">
-          <!-- Summary info -->
-          <div class="rounded-lg bg-neutral-50 p-4 border border-neutral-200 space-y-1">
-            <div class="font-semibold text-neutral-900">{{ activeAlert.summary }}</div>
-            <div class="text-xs text-neutral-600">
-              Detectada: {{ activeAlert.detectedAt }} | Severidad:
-              <span class="font-semibold uppercase">{{ activeAlert.severity }}</span> | Estado:
-              <span class="font-semibold uppercase">{{ activeAlert.status }}</span>
-            </div>
-          </div>
+        <section>
+          <h3>Qué hacer ahora</h3>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-sm">
+            <li v-for="(act, idx) in activeRunbook.immediateActions" :key="idx">{{ act }}</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Qué comprobar</h3>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-sm">
+            <li v-for="(step, idx) in activeRunbook.diagnosticSteps" :key="idx">{{ step }}</li>
+          </ul>
+        </section>
+        <section>
+          <h3>Cómo reducir el daño y a quién avisar</h3>
+          <ul class="mt-1 list-disc space-y-1 pl-5 text-sm">
+            <li v-for="(mit, idx) in activeRunbook.mitigationSteps" :key="idx">{{ mit }}</li>
+          </ul>
+          <p class="adm-help mt-2">
+            Persona de guardia: <strong>{{ activeRunbook.escalationContact }}</strong>
+          </p>
+        </section>
 
-          <!-- Runbook Guidance -->
-          <div class="space-y-3">
-            <h4 class="font-bold text-neutral-900 text-xs uppercase tracking-wider text-emerald-800">
-              Instrucciones Inmediatas del Runbook ({{ activeRunbook.runbookId }})
-            </h4>
-            <ul class="list-disc pl-5 space-y-1 text-xs text-neutral-700">
-              <li v-for="(act, idx) in activeRunbook.immediateActions" :key="idx">
-                {{ act }}
-              </li>
-            </ul>
-
-            <h4 class="font-bold text-neutral-900 text-xs uppercase tracking-wider text-purple-800 pt-2">
-              Verificaciones de Diagnóstico
-            </h4>
-            <ul class="list-disc pl-5 space-y-1 text-xs text-neutral-700">
-              <li v-for="(step, idx) in activeRunbook.diagnosticSteps" :key="idx">
-                {{ step }}
-              </li>
-            </ul>
-
-            <h4 class="font-bold text-neutral-900 text-xs uppercase tracking-wider text-blue-800 pt-2">
-              Protocolo de Mitigación y Escalado
-            </h4>
-            <ul class="list-disc pl-5 space-y-1 text-xs text-neutral-700">
-              <li v-for="(mit, idx) in activeRunbook.mitigationSteps" :key="idx">
-                {{ mit }}
-              </li>
-            </ul>
-            <div class="text-xs text-neutral-500 pt-1">
-              Contacto de guardia: <span class="font-mono text-neutral-800">{{ activeRunbook.escalationContact }}</span>
-            </div>
-          </div>
-
-          <!-- Review History -->
-          <div v-if="activeReviews.length > 0" class="space-y-2 border-t border-neutral-200 pt-4">
-            <h4 class="font-bold text-xs uppercase tracking-wider text-neutral-700">
-              Historial de Revisiones Realizadas
-            </h4>
-            <div class="space-y-2">
-              <div
-                v-for="rev in activeReviews"
-                :key="rev.id"
-                class="rounded bg-neutral-50 p-2.5 text-xs border border-neutral-200 space-y-1"
-              >
-                <div class="flex justify-between font-semibold text-neutral-800">
-                  <span>Acción: {{ rev.action }} ({{ rev.previousStatus }} → {{ rev.newStatus }})</span>
-                  <span class="text-neutral-500 font-mono">{{ rev.reviewedAt }}</span>
-                </div>
-                <div class="text-neutral-700">{{ rev.notes }}</div>
-                <div v-if="rev.resolutionAction" class="text-emerald-700 font-medium">
-                  Acción técnica: {{ rev.resolutionAction }}
-                </div>
+        <section v-if="activeReviews.length > 0">
+          <h3>Revisiones anteriores</h3>
+          <ul class="adm-list mt-2">
+            <li v-for="rev in activeReviews" :key="rev.id">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">
+                  {{ statusLabels[rev.previousStatus] ?? adminHumanize(rev.previousStatus) }} →
+                  {{ statusLabels[rev.newStatus] ?? adminHumanize(rev.newStatus) }}
+                </p>
+                <p class="text-sm">{{ rev.notes }}</p>
+                <p v-if="rev.resolutionAction" class="adm-help">Solución aplicada: {{ rev.resolutionAction }}</p>
               </div>
-            </div>
-          </div>
+              <span class="adm-help shrink-0">{{ adminDate(rev.reviewedAt, true) }}</span>
+            </li>
+          </ul>
+        </section>
 
-          <!-- Operator Review Action Form -->
-          <div class="border-t border-neutral-200 pt-4 space-y-3">
-            <h4 class="font-bold text-xs uppercase tracking-wider text-neutral-900">
-              Registrar Acción de Revisión Operativa
-            </h4>
-
-            <div>
-              <label class="block text-xs font-medium text-neutral-700 mb-1">Acción</label>
-              <select v-model="reviewAction" class="w-full rounded-md border-neutral-300 text-sm shadow-sm">
-                <option value="acknowledge">Reconocer alerta (Acknowledge)</option>
-                <option value="investigate">Poner en investigación (Investigate)</option>
-                <option value="resolve">Resolver incidencia (Resolve)</option>
-                <option value="dismiss">Descartar como falso positivo (Dismiss)</option>
-              </select>
-            </div>
-
-            <div>
-              <label class="block text-xs font-medium text-neutral-700 mb-1">Notas de la Revisión *</label>
-              <textarea
-                v-model="reviewNotes"
-                rows="3"
-                placeholder="Explica las comprobaciones realizadas, causa raíz o motivo del descarte..."
-                class="w-full rounded-md border-neutral-300 text-sm shadow-sm"
-              ></textarea>
-            </div>
-
-            <div v-if="reviewAction === 'resolve'">
-              <label class="block text-xs font-medium text-neutral-700 mb-1">Acción Técnica de Resolución</label>
-              <input
-                v-model="resolutionAction"
-                type="text"
-                placeholder="ej: failover_gateway_activated, cache_flushed, etc."
-                class="w-full rounded-md border-neutral-300 text-sm shadow-sm"
-              />
-            </div>
-          </div>
-        </div>
-
-        <!-- Modal Footer -->
-        <div class="border-t border-neutral-200 px-6 py-4 flex justify-end gap-3 bg-neutral-50">
-          <button
-            type="button"
-            class="rounded-md border border-neutral-300 bg-white px-4 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
-            @click="showDetailModal = false"
-          >
-            Cerrar
-          </button>
-          <button
-            type="button"
-            class="rounded-md bg-neutral-900 px-4 py-2 text-xs font-semibold text-white hover:bg-neutral-800 disabled:opacity-50"
-            :disabled="busy || !reviewNotes"
-            @click="submitReview"
-          >
-            Guardar revisión
-          </button>
-        </div>
+        <section class="adm-stack">
+          <h3>Anotar tu revisión</h3>
+          <AdminFormField v-slot="{ id }" label="Qué quieres hacer">
+            <select :id="id" v-model="reviewAction" class="w-full">
+              <option value="acknowledge">Marcar como vista</option>
+              <option value="investigate">Pasar a investigación</option>
+              <option value="resolve">Dar por resuelta</option>
+              <option value="dismiss">Descartar como falsa alarma</option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Notas" required>
+            <textarea
+              :id="id"
+              v-model="reviewNotes"
+              rows="3"
+              placeholder="Qué has comprobado, cuál era la causa o por qué la descartas"
+              class="w-full"
+            ></textarea>
+          </AdminFormField>
+          <AdminFormField v-if="reviewAction === 'resolve'" v-slot="{ id }" label="Solución aplicada">
+            <input
+              :id="id"
+              v-model="resolutionAction"
+              type="text"
+              placeholder="Por ejemplo: se cambió a la pasarela de reserva"
+              class="w-full"
+            />
+          </AdminFormField>
+        </section>
       </div>
-    </div>
+      <template #footer>
+        <button type="button" class="adm-btn adm-btn--secondary" @click="showDetailModal = false">Cancelar</button>
+        <button type="button" class="adm-btn adm-btn--primary" :disabled="busy || !reviewNotes" @click="submitReview">
+          Guardar revisión
+        </button>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

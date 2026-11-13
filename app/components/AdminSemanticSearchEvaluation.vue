@@ -60,7 +60,7 @@ async function performTestSearch() {
       selectedProductId.value = res.items[0]?.uuid ?? ''
     }
   } catch {
-    searchError.value = 'Error al ejecutar la búsqueda semántica de prueba.'
+    searchError.value = 'No se ha podido hacer la búsqueda de prueba. Vuelve a intentarlo.'
     testResults.value = []
   } finally {
     searching.value = false
@@ -89,11 +89,11 @@ async function submitJudgment() {
         notes: notes.value.trim() || null
       }
     })
-    successMessage.value = 'Evaluación de relevancia guardada correctamente.'
+    successMessage.value = 'Valoración guardada.'
     notes.value = ''
     await loadData()
   } catch {
-    error.value = 'No se ha podido guardar la evaluación de relevancia.'
+    error.value = 'No se ha podido guardar la valoración. Vuelve a intentarlo.'
   } finally {
     saving.value = false
   }
@@ -102,263 +102,173 @@ async function submitJudgment() {
 onMounted(() => {
   void loadData()
 })
+
+const SCORE_LABELS = ['No tiene nada que ver', 'Poco que ver', 'Relacionado', 'Muy adecuado', 'Justo lo que buscaba']
+const percent = (value: number) => (value * 100).toFixed(1) + '%'
 </script>
 
 <template>
-  <div class="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-    <div class="mb-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 class="text-xl font-bold text-slate-900 dark:text-slate-100">
-          Evaluación humana de búsqueda semántica (SEA-019)
-        </h2>
-        <p class="text-sm text-slate-500 dark:text-slate-400">
-          Supervisión de calidad basada en juicios humanos (ground truth), nDCG@5, Precision@5 y fallback léxico
-          garantizado.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
-        :disabled="loading"
-        @click="loadData"
-      >
-        <span v-if="loading">Actualizando…</span>
-        <span v-else>Actualizar</span>
-      </button>
-    </div>
-
-    <!-- Error Alert -->
-    <div
+  <div class="adm-stack">
+    <UAlert
       v-if="error"
       role="alert"
-      class="mb-6 rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-400"
-    >
-      {{ error }}
-    </div>
-
-    <!-- Success Alert -->
-    <div
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="error"
+      :actions="[{ label: 'Reintentar', color: 'neutral', variant: 'outline', onClick: () => void loadData() }]"
+    />
+    <UAlert
       v-if="successMessage"
       role="status"
-      class="mb-6 rounded-lg bg-emerald-50 p-4 text-sm text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="successMessage"
+    />
+
+    <div class="adm-grid">
+      <AdminStat
+        label="Calidad del orden"
+        :value="benchmark ? percent(benchmark.ndcgAt5) : null"
+        hint="Lo bien ordenados que salen los 5 primeros resultados"
+      />
+      <AdminStat
+        label="Aciertos entre los 5 primeros"
+        :value="benchmark ? percent(benchmark.precisionAt5) : null"
+        hint="Resultados útiles entre los 5 primeros"
+      />
+      <AdminStat
+        label="Posición del primer acierto"
+        :value="benchmark ? benchmark.mrr.toFixed(3) : null"
+        hint="1,000 = el mejor resultado sale siempre el primero"
+      />
+      <AdminStat
+        label="Valoraciones"
+        :value="benchmark ? benchmark.totalJudgments : 0"
+        :hint="`${benchmark ? benchmark.totalQueries : 0} búsquedas distintas`"
+      />
+    </div>
+
+    <AdminCard
+      title="Probar una búsqueda"
+      description="Escribe lo que pondría un cliente, mira qué productos salen y valora si el resultado es bueno."
     >
-      {{ successMessage }}
-    </div>
-
-    <!-- Benchmark Cards -->
-    <div class="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-      <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-800/60">
-        <div class="text-xs font-medium text-slate-500 dark:text-slate-400">nDCG @ 5</div>
-        <div class="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
-          {{ benchmark ? (benchmark.ndcgAt5 * 100).toFixed(1) + '%' : '—' }}
-        </div>
-        <div class="mt-1 text-xs text-slate-400">Ganancia acumulada descontada</div>
-      </div>
-
-      <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-800/60">
-        <div class="text-xs font-medium text-slate-500 dark:text-slate-400">Precision @ 5</div>
-        <div class="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
-          {{ benchmark ? (benchmark.precisionAt5 * 100).toFixed(1) + '%' : '—' }}
-        </div>
-        <div class="mt-1 text-xs text-slate-400">Aciertos relevantes top 5</div>
-      </div>
-
-      <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-800/60">
-        <div class="text-xs font-medium text-slate-500 dark:text-slate-400">MRR</div>
-        <div class="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
-          {{ benchmark ? benchmark.mrr.toFixed(3) : '—' }}
-        </div>
-        <div class="mt-1 text-xs text-slate-400">Rango recíproco medio</div>
-      </div>
-
-      <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-800/60">
-        <div class="text-xs font-medium text-slate-500 dark:text-slate-400">Juicios evaluados</div>
-        <div class="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
-          {{ benchmark ? benchmark.totalJudgments : 0 }}
-        </div>
-        <div class="mt-1 text-xs text-slate-400">{{ benchmark ? benchmark.totalQueries : 0 }} consultas únicas</div>
-      </div>
-    </div>
-
-    <!-- Evaluation Workbench Section -->
-    <div class="mb-8 rounded-lg border border-slate-200 p-5 dark:border-slate-800">
-      <h3 class="mb-3 text-base font-semibold text-slate-900 dark:text-slate-100">
-        Banco de pruebas y calificación humana
-      </h3>
-      <p class="mb-4 text-xs text-slate-500 dark:text-slate-400">
-        Introduce una consulta natural o técnica, examina los resultados emparejados por el modelo semántico y emite un
-        juicio de relevancia (0 a 4).
-      </p>
-
-      <form class="flex flex-col gap-3 sm:flex-row" @submit.prevent="performTestSearch">
-        <input
-          v-model="testQuery"
-          type="text"
-          placeholder="Ej: quitar grasa quemada campana cocina..."
-          class="flex-1 rounded-lg border border-slate-300 px-3.5 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-          aria-label="Consulta para prueba de búsqueda semántica"
+      <div class="adm-stack">
+        <form class="adm-toolbar" @submit.prevent="performTestSearch">
+          <input
+            v-model="testQuery"
+            type="text"
+            placeholder="Por ejemplo: quitar grasa quemada de la campana"
+            class="min-w-0 flex-1 basis-64"
+            aria-label="Consulta para prueba de búsqueda semántica"
+          />
+          <AdminButton type="submit" :loading="searching" :disabled="!testQuery.trim()">Probar búsqueda</AdminButton>
+        </form>
+        <UAlert
+          v-if="searchError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="searchError"
         />
-        <button
-          type="submit"
-          class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200"
-          :disabled="searching || !testQuery.trim()"
-        >
-          <span v-if="searching">Buscando…</span>
-          <span v-else>Probar búsqueda</span>
-        </button>
-      </form>
 
-      <!-- Search Results Area -->
-      <div v-if="testResults.length > 0" class="mt-6 space-y-4">
-        <div class="text-xs font-medium uppercase tracking-wider text-slate-500">
-          Resultados devueltos (anclados al catálogo)
-        </div>
-
-        <div class="space-y-2">
-          <label
-            v-for="item in testResults"
-            :key="item.uuid"
-            class="flex cursor-pointer items-center justify-between rounded-lg border p-3 text-sm transition"
-            :class="
-              selectedProductId === item.uuid
-                ? 'border-primary-500 bg-primary-50/30 dark:border-primary-400 dark:bg-primary-950/20'
-                : 'border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40'
-            "
-          >
-            <div class="flex items-center gap-3">
-              <input
-                v-model="selectedProductId"
-                type="radio"
-                :value="item.uuid"
-                name="evaluated-product"
-                class="text-primary-600 focus:ring-primary-500"
-              />
-              <div>
-                <div class="font-medium text-slate-900 dark:text-slate-100">{{ item.name }}</div>
-                <div class="text-xs text-slate-500">
-                  SKU: {{ item.sku || 'N/A' }} | {{ (item.minPrice / 100).toFixed(2) }}€ |
-                  <span :class="item.inStock ? 'text-emerald-600 font-medium' : 'text-amber-600 font-medium'">
-                    {{ item.inStock ? 'En stock' : 'Sin stock' }}
+        <template v-if="testResults.length > 0">
+          <fieldset class="adm-field">
+            <legend class="adm-label">Elige el producto que quieres valorar</legend>
+            <ul class="adm-list rounded-[var(--radius-surface)] border border-[var(--border)]">
+              <li v-for="item in testResults" :key="item.uuid">
+                <label class="adm-check min-w-0 flex-1">
+                  <input v-model="selectedProductId" type="radio" :value="item.uuid" name="evaluated-product" />
+                  <span class="min-w-0">
+                    <span class="block font-semibold text-[var(--text-strong)]">{{ item.name }}</span>
+                    <span class="adm-help block">
+                      <template v-if="item.sku">Ref. {{ item.sku }} · </template>{{ adminMoney(item.minPrice) }}
+                    </span>
                   </span>
-                </div>
-              </div>
-            </div>
-            <div class="text-right">
-              <span
-                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
-                :class="
-                  item.isSemanticMatch
-                    ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300'
-                    : 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
-                "
+                </label>
+                <AdminBadge :tone="item.inStock ? 'success' : 'warning'" plain>
+                  {{ item.inStock ? 'En stock' : 'Sin stock' }}
+                </AdminBadge>
+                <AdminBadge :tone="item.isSemanticMatch ? 'info' : 'neutral'">
+                  {{ item.isSemanticMatch ? 'Encontrado por significado' : 'Encontrado por palabras' }}
+                </AdminBadge>
+              </li>
+            </ul>
+          </fieldset>
+
+          <fieldset class="adm-field">
+            <legend class="adm-label">¿Es un buen resultado para esa búsqueda?</legend>
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="score in [0, 1, 2, 3, 4]"
+                :key="score"
+                type="button"
+                class="adm-chip"
+                :aria-pressed="selectedScore === score"
+                @click="selectedScore = score"
               >
-                {{ item.isSemanticMatch ? `Semántico (${item.semanticScore})` : 'Fallback léxico' }}
-              </span>
+                {{ score }} · {{ SCORE_LABELS[score] }}
+              </button>
             </div>
-          </label>
-        </div>
+          </fieldset>
 
-        <!-- Judgment form -->
-        <div class="mt-4 rounded-lg bg-slate-50 p-4 dark:bg-slate-800/50">
-          <div class="text-sm font-semibold text-slate-900 dark:text-slate-100">Emitir juicio de relevancia</div>
-          <div class="mt-2 flex flex-wrap gap-2">
-            <button
-              v-for="score in [0, 1, 2, 3, 4]"
-              :key="score"
-              type="button"
-              class="rounded-lg px-3 py-1.5 text-xs font-medium transition"
-              :class="
-                selectedScore === score
-                  ? 'bg-primary-600 text-white shadow-sm'
-                  : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
-              "
-              @click="selectedScore = score"
-            >
-              {{ score }} -
-              {{
-                ['0: Irrelevante', '1: Apenas relevante', '2: Relevante', '3: Muy relevante', '4: Coincidencia exacta'][
-                  score
-                ]
-              }}
-            </button>
-          </div>
+          <AdminFormField v-slot="{ id }" label="Notas (opcional)">
+            <input :id="id" v-model="notes" type="text" placeholder="Por qué lo valoras así" />
+          </AdminFormField>
 
-          <div class="mt-3">
-            <input
-              v-model="notes"
-              type="text"
-              placeholder="Notas de justificación para auditoría (opcional)..."
-              class="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-            />
+          <div class="flex justify-end">
+            <AdminButton variant="primary" :loading="saving" :disabled="!selectedProductId" @click="submitJudgment">
+              Guardar valoración
+            </AdminButton>
           </div>
-
-          <div class="mt-3 flex justify-end">
-            <button
-              type="button"
-              class="rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
-              :disabled="saving || !selectedProductId"
-              @click="submitJudgment"
-            >
-              <span v-if="saving">Guardando juicio…</span>
-              <span v-else>Registrar juicio de evaluación</span>
-            </button>
-          </div>
-        </div>
+        </template>
       </div>
-    </div>
+    </AdminCard>
 
-    <!-- Existing Human Judgments Table -->
-    <div>
-      <h3 class="mb-3 text-base font-semibold text-slate-900 dark:text-slate-100">
-        Historial de juicios humanos activos
-      </h3>
-
-      <div v-if="loading && evaluations.length === 0" class="py-8 text-center text-sm text-slate-400">
-        Cargando evaluaciones…
+    <AdminCard title="Valoraciones guardadas" flush>
+      <template #actions>
+        <AdminButton size="sm" icon="i-lucide-rotate-cw" :loading="loading" @click="loadData">Actualizar</AdminButton>
+      </template>
+      <div v-if="loading && evaluations.length === 0" class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando valoraciones…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
       </div>
 
-      <div
+      <AdminEmptyState
         v-else-if="evaluations.length === 0"
-        class="rounded-lg border border-dashed border-slate-300 py-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400"
-      >
-        No hay evaluaciones humanas registradas todavía. Prueba una consulta arriba y califica los resultados.
-      </div>
+        icon="i-lucide-clipboard-check"
+        title="No hay evaluaciones humanas registradas todavía"
+        description="Prueba una búsqueda arriba y valora los resultados."
+      />
 
-      <div v-else class="overflow-x-auto">
-        <table class="w-full text-left text-sm text-slate-600 dark:text-slate-300">
-          <thead class="border-b border-slate-200 text-xs uppercase text-slate-400 dark:border-slate-800">
+      <div v-else class="adm-table-wrap">
+        <table class="adm-table">
+          <thead>
             <tr>
-              <th scope="col" class="py-2.5">Consulta</th>
-              <th scope="col" class="py-2.5">Producto ID</th>
-              <th scope="col" class="py-2.5">Puntuación</th>
-              <th scope="col" class="py-2.5">Notas</th>
-              <th scope="col" class="py-2.5">Versión</th>
+              <th scope="col">Búsqueda</th>
+              <th scope="col">Producto</th>
+              <th scope="col">Valoración</th>
+              <th scope="col">Notas</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+          <tbody>
             <tr v-for="item in evaluations" :key="item.id">
-              <td class="py-3 font-medium text-slate-900 dark:text-slate-100">{{ item.queryNormalized }}</td>
-              <td class="py-3 font-mono text-xs text-slate-500">{{ item.productId.slice(0, 8) }}…</td>
-              <td class="py-3">
-                <span
-                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold"
-                  :class="
-                    item.relevanceScore >= 3
-                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                      : item.relevanceScore >= 2
-                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-                  "
+              <td class="font-semibold text-[var(--text-strong)]">{{ item.queryNormalized }}</td>
+              <td>#{{ item.productId.slice(0, 8).toUpperCase() }}</td>
+              <td>
+                <AdminBadge
+                  :tone="item.relevanceScore >= 3 ? 'success' : item.relevanceScore >= 2 ? 'info' : 'warning'"
                 >
                   {{ item.relevanceScore }} / 4
-                </span>
+                </AdminBadge>
               </td>
-              <td class="py-3 text-xs text-slate-500">{{ item.notes || '—' }}</td>
-              <td class="py-3 font-mono text-xs text-slate-400">v{{ item.version }}</td>
+              <td>{{ item.notes || '—' }}</td>
             </tr>
           </tbody>
         </table>
       </div>
-    </div>
+    </AdminCard>
   </div>
 </template>

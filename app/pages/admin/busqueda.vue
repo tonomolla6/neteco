@@ -89,6 +89,21 @@ async function toggle(item: SynonymItem) {
 }
 
 const removing = ref<SynonymItem | null>(null)
+const confirmingRemove = computed({
+  get: () => removing.value !== null,
+  set: (open: boolean) => {
+    if (!open) removing.value = null
+  }
+})
+
+/** Apartados de la pantalla: cada uno conserva su estado aunque se cambie de pestaña. */
+const TABS = [
+  { value: 'sinonimos', label: 'Sinónimos' },
+  { value: 'reglas', label: 'Reglas de resultados' },
+  { value: 'calidad', label: 'Calidad de resultados' },
+  { value: 'personalizacion', label: 'Orden personalizado' }
+]
+const activeTab = ref('sinonimos')
 
 async function confirmRemove() {
   const item = removing.value
@@ -108,125 +123,110 @@ async function confirmRemove() {
 </script>
 
 <template>
-  <div v-if="runtime === 'cloudflare'" class="space-y-8">
-    <SearchSynonymsPanel :runtime="runtime" />
-    <AdminSearchMerchandisingRules :runtime="runtime" />
-    <AdminSemanticSearchEvaluation :runtime="runtime" />
-    <AdminPersonalizedRerankUplift :runtime="runtime" />
-  </div>
-  <div v-else-if="runtime === 'node'" class="mx-auto max-w-4xl">
-    <UiPageHeader
-      title="Relevancia de búsqueda"
-      :count="items.length"
-      :count-label="items.length === 1 ? 'sinónimo' : 'sinónimos'"
-      description="Cuando un cliente busca con sus palabras y el catálogo usa otras, esto las conecta. No cambia el catálogo: solo amplía la consulta."
-    >
-      <template #actions>
-        <UButton icon="i-lucide-plus" @click="creating = true">Añadir sinónimo</UButton>
-      </template>
-    </UiPageHeader>
-
-    <UiSurface padding="none">
-      <div v-if="fetchStatus === 'pending'" class="divide-y divide-[var(--border)]">
-        <div v-for="n in 3" :key="n" class="px-4 py-4">
-          <div class="h-4 w-1/2 animate-pulse rounded bg-[var(--surface-sunken)]" />
+  <AdminPage
+    :count="runtime === 'node' ? items.length : undefined"
+    :count-label="items.length === 1 ? 'sinónimo' : 'sinónimos'"
+  >
+    <template v-if="runtime === 'node'" #actions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="creating = true">Añadir sinónimo</AdminButton>
+    </template>
+    <div v-if="runtime === 'cloudflare'" class="adm-stack">
+      <AdminTabs v-model="activeTab" :tabs="TABS" label="Apartados de búsqueda" />
+      <SearchSynonymsPanel v-show="activeTab === 'sinonimos'" :runtime="runtime" />
+      <AdminSearchMerchandisingRules v-show="activeTab === 'reglas'" :runtime="runtime" />
+      <AdminSemanticSearchEvaluation v-show="activeTab === 'calidad'" :runtime="runtime" />
+      <AdminPersonalizedRerankUplift v-show="activeTab === 'personalizacion'" :runtime="runtime" />
+    </div>
+    <div v-else-if="runtime === 'node'" class="adm-stack">
+      <AdminCard flush>
+        <div v-if="fetchStatus === 'pending'" class="adm-table-skeleton" aria-busy="true">
+          <span class="sr-only">Cargando…</span>
+          <div v-for="n in 3" :key="n"><i /><i /><i /></div>
         </div>
-      </div>
 
-      <div v-else-if="!items.length" class="px-6 py-12 text-center">
-        <div class="mx-auto flex size-12 items-center justify-center rounded-full bg-[var(--surface-sunken)]">
-          <UIcon name="i-lucide-search-check" class="size-6 text-[var(--text-muted)]" />
-        </div>
-        <p class="mt-4 font-semibold text-[var(--text-strong)]">Todavía no hay sinónimos</p>
-        <p class="mx-auto mt-1.5 max-w-lg text-sm text-[var(--text-muted)]">
-          Un cliente busca «lejía» y el catálogo la llama «hipoclorito»: sin un sinónimo, no encuentra nada y se va.
-          Empieza por los términos que la gente usa de verdad al pedir por teléfono.
-        </p>
-        <div class="mt-5 flex flex-wrap justify-center gap-2">
-          <UButton
-            v-for="ejemplo in EJEMPLOS"
-            :key="ejemplo.term"
-            size="sm"
-            color="neutral"
-            variant="outline"
-            @click="usarEjemplo(ejemplo)"
-          >
+        <AdminEmptyState
+          v-else-if="fetchStatus === 'error'"
+          variant="error"
+          title="No se han podido cargar los sinónimos"
+          description="Puede ser un fallo puntual de conexión. Vuelve a intentarlo."
+        >
+          <AdminButton icon="i-lucide-rotate-cw" @click="refresh()">Reintentar</AdminButton>
+        </AdminEmptyState>
+
+        <AdminEmptyState
+          v-else-if="!items.length"
+          icon="i-lucide-search-check"
+          title="Todavía no hay sinónimos"
+          description="Un cliente busca «lejía» y el catálogo la llama «hipoclorito»: sin un sinónimo, no encuentra nada y se va. Empieza por las palabras que la gente usa de verdad al pedir por teléfono."
+        >
+          <AdminButton v-for="ejemplo in EJEMPLOS" :key="ejemplo.term" size="sm" @click="usarEjemplo(ejemplo)">
             {{ ejemplo.term }} → {{ ejemplo.to }}
-          </UButton>
-        </div>
-      </div>
+          </AdminButton>
+        </AdminEmptyState>
 
-      <ul v-else class="divide-y divide-[var(--border)]">
-        <li v-for="item in items" :key="item.id" class="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-          <div class="min-w-0 flex-1">
-            <p class="font-medium text-[var(--text-strong)]">
-              {{ item.sourceTerm }}
-              <UIcon name="i-lucide-arrow-right" class="mx-1 size-3.5 align-middle text-[var(--text-muted)]" />
-              <span class="font-normal text-[var(--text)]">{{ item.replacements.join(', ') }}</span>
-            </p>
-            <p class="mt-0.5 text-xs text-[var(--text-muted)]">
-              Actualizado el {{ new Date(item.updatedAt).toLocaleDateString('es-ES') }}
-            </p>
-          </div>
-          <UBadge :color="item.active ? 'success' : 'neutral'" variant="subtle">
-            {{ item.active ? 'Activo' : 'Pausado' }}
-          </UBadge>
-          <div class="flex gap-1">
-            <UButton size="xs" color="neutral" variant="outline" @click="toggle(item)">
-              {{ item.active ? 'Pausar' : 'Activar' }}
-            </UButton>
-            <UButton
-              size="xs"
-              color="error"
-              variant="ghost"
+        <ul v-else class="adm-list">
+          <li v-for="item in items" :key="item.id">
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                {{ item.sourceTerm }}
+                <UIcon name="i-lucide-arrow-right" class="mx-1 size-3.5 align-middle text-[var(--text-muted)]" />
+                <span class="font-normal text-[var(--text)]">{{ item.replacements.join(', ') }}</span>
+              </p>
+              <p class="adm-help">Actualizado el {{ adminDate(item.updatedAt) }}</p>
+            </div>
+            <AdminBadge :tone="item.active ? 'success' : 'neutral'">
+              {{ item.active ? 'Activo' : 'En pausa' }}
+            </AdminBadge>
+            <AdminButton size="sm" @click="toggle(item)">{{ item.active ? 'Pausar' : 'Activar' }}</AdminButton>
+            <AdminButton
+              size="sm"
+              variant="danger-soft"
               icon="i-lucide-trash-2"
-              :aria-label="`Eliminar ${item.sourceTerm}`"
+              :label="`Eliminar ${item.sourceTerm}`"
               @click="removing = item"
             />
-          </div>
-        </li>
-      </ul>
-    </UiSurface>
+          </li>
+        </ul>
+      </AdminCard>
 
-    <UModal v-model:open="creating" title="Añadir sinónimo">
-      <template #body>
-        <form id="synonym-form" class="space-y-4" @submit.prevent="create">
-          <UFormField label="Lo que escribe el cliente" required>
-            <UInput v-model="sourceTerm" class="w-full" placeholder="lejía" />
-          </UFormField>
-          <UFormField label="Con qué se busca además" required hint="Separa los términos con comas">
-            <UInput v-model="replacements" class="w-full" placeholder="hipoclorito, cloro" />
-          </UFormField>
-          <p class="text-sm text-[var(--text-muted)]">
-            Al buscar el primer término, la tienda buscará también los demás. No modifica los nombres del catálogo.
+      <AdminDrawer v-model:open="creating" title="Añadir sinónimo">
+        <form id="synonym-form" class="adm-stack" @submit.prevent="create">
+          <AdminFormField v-slot="{ id }" label="Lo que escribe el cliente" required>
+            <input :id="id" v-model="sourceTerm" type="text" placeholder="lejía" />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Con qué se busca además"
+            help="Separa las palabras con comas."
+            required
+          >
+            <input :id="id" v-model="replacements" type="text" placeholder="hipoclorito, cloro" />
+          </AdminFormField>
+          <p class="adm-help">
+            Al buscar la primera palabra, la tienda buscará también las demás. No cambia los nombres del catálogo.
           </p>
         </form>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="creating = false">Cancelar</UButton>
-          <UButton type="submit" form="synonym-form" :loading="saving">Añadir</UButton>
-        </div>
-      </template>
-    </UModal>
+        <template #footer>
+          <AdminButton @click="creating = false">Cancelar</AdminButton>
+          <AdminButton variant="primary" type="submit" form="synonym-form" :loading="saving">Añadir</AdminButton>
+        </template>
+      </AdminDrawer>
 
-    <UModal :open="Boolean(removing)" title="Eliminar sinónimo" @update:open="(value) => !value && (removing = null)">
-      <template #body>
-        <p class="text-[var(--text)]">
+      <AdminConfirm
+        v-model:open="confirmingRemove"
+        title="Eliminar sinónimo"
+        confirm-label="Eliminar"
+        danger
+        :loading="saving"
+        @confirm="confirmRemove"
+      >
+        <p>
           Quien busque <strong>{{ removing?.sourceTerm }}</strong> dejará de encontrar los resultados de
           <strong>{{ removing?.replacements.join(', ') }}</strong
           >.
         </p>
-        <p class="mt-3 text-sm text-[var(--text-muted)]">
-          Si solo quieres probar sin perderlo, púsalo en lugar de eliminarlo.
-        </p>
-      </template>
-      <template #footer>
-        <div class="flex w-full justify-end gap-2">
-          <UButton color="neutral" variant="ghost" @click="removing = null">Cancelar</UButton>
-          <UButton color="error" :loading="saving" @click="confirmRemove">Eliminar</UButton>
-        </div>
-      </template>
-    </UModal>
-  </div>
+        <p class="adm-help mt-3">Si solo quieres probar sin perderlo, ponlo en pausa en lugar de eliminarlo.</p>
+      </AdminConfirm>
+    </div>
+  </AdminPage>
 </template>

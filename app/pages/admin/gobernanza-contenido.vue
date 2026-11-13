@@ -1,10 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Gobierno de contenido · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Revisión de contenidos · Admin', robots: 'noindex, nofollow' })
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminContentGovernancePanel />
-  </div>
+  </AdminPage>
 </template>

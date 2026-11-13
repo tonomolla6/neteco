@@ -1,10 +1,10 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Contenido Editorial Profesional · Admin' })
+useSeoMeta({ title: 'Contenido editorial · Admin' })
 </script>
 
 <template>
-  <div class="p-6">
+  <AdminPage>
     <AdminEditorialContentEditor />
-  </div>
+  </AdminPage>
 </template>

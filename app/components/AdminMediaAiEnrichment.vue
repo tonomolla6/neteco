@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps<{
   assetId?: string
@@ -84,7 +84,7 @@ async function proposeEnrichment() {
 
     enrichment.value = res.enrichment
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al proponer enriquecimiento visual'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido generar la propuesta'
   } finally {
     loading.value = false
   }
@@ -109,12 +109,12 @@ async function recordDecision(decision: 'approve' | 'reject') {
 
     enrichment.value = res.enrichment
     if (res.enrichment.approvalStatus === 'approved') {
-      statusMessage.value = 'Enriquecimiento Aprobado por el administrador'
+      statusMessage.value = 'Propuesta aprobada. Ya puedes aplicarla a la imagen.'
     } else {
-      statusMessage.value = 'Enriquecimiento Rechazado'
+      statusMessage.value = 'Propuesta rechazada'
     }
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al registrar la decisión humana'
+    errorMessage.value = err instanceof Error ? err.message : 'No se ha podido guardar tu decisión'
   } finally {
     deciding.value = false
   }
@@ -132,175 +132,189 @@ async function applyEnrichment() {
         targetAssetId: enrichment.value.assetId
       }
     })
-    statusMessage.value = 'Aplicado al activo multimedia en la biblioteca central de medios'
+    statusMessage.value = 'Cambios aplicados a la imagen en la biblioteca de medios'
   } catch (err: unknown) {
-    errorMessage.value = err instanceof Error ? err.message : 'Error al aplicar el enriquecimiento al activo'
+    errorMessage.value = err instanceof Error ? err.message : 'No se han podido aplicar los cambios a la imagen'
   } finally {
     applying.value = false
   }
 }
+
+// ── Presentación ───────────────────────────────────────────────────────────
+const APPROVAL: Record<string, [string, 'warning' | 'success' | 'danger' | 'neutral']> = {
+  pending_approval: ['Pendiente de tu decisión', 'warning'],
+  approved: ['Aprobada', 'success'],
+  rejected: ['Rechazada', 'danger'],
+  applied: ['Aplicada', 'success']
+}
+const PURPOSES: Record<string, string> = {
+  thumbnail: 'Miniatura',
+  listing: 'Listado',
+  card: 'Tarjeta de producto',
+  detail: 'Ficha de producto',
+  hero: 'Cabecera',
+  banner: 'Cabecera',
+  social: 'Redes sociales',
+  zoom: 'Ampliación'
+}
+const purposeLabel = (code: string) => PURPOSES[code.toLowerCase()] ?? adminHumanize(code)
+/** Los fallos de red llegan con textos técnicos: se enseña una frase legible. */
+const readableError = computed(() =>
+  /[áéíóúñ]| (el|la|no|se|al) /i.test(errorMessage.value)
+    ? errorMessage.value
+    : 'El servicio no ha respondido. Vuelve a intentarlo en unos minutos.'
+)
 </script>
 
 <template>
-  <div class="space-y-6 rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-    <div class="border-b border-gray-100 pb-4 dark:border-gray-800">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Enriquecimiento visual asistido (MED-023)</h2>
-      <p class="text-sm text-gray-500 dark:text-gray-400">
-        Eliminación de fondo y propuesta de recortes o metadatos accesibles. Prohibida la invención de envases, claims o
-        usos. Aprobación humana obligatoria.
-      </p>
-    </div>
-
-    <!-- Error Banner -->
-    <div
+  <div class="adm-stack">
+    <UAlert
       v-if="errorMessage"
-      class="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/50 dark:text-red-300"
       role="alert"
-    >
-      {{ errorMessage }}
-    </div>
-
-    <!-- Status Message -->
-    <div
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="readableError"
+    />
+    <UAlert
       v-if="statusMessage"
-      class="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
+      role="status"
+      :color="enrichment?.approvalStatus === 'rejected' ? 'neutral' : 'success'"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="statusMessage"
+    />
+
+    <AdminCard
+      title="Mejorar una imagen"
+      description="La IA quita el fondo, propone recortes y redacta el texto alternativo. No añade envases, sellos ni usos que no existan, y nada se aplica sin tu aprobación."
     >
-      {{ statusMessage }}
-    </div>
-
-    <!-- Form -->
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <div>
-        <label for="med-asset-id" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >ID del Activo Multimedia</label
-        >
-        <input
-          id="med-asset-id"
-          v-model="targetAssetId"
-          type="text"
-          placeholder="UUID del asset en media_assets"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        />
-      </div>
-
-      <div>
-        <label for="med-type" class="block text-xs font-medium text-gray-700 dark:text-gray-300"
-          >Tipo de Operación Permitida</label
-        >
-        <select
-          id="med-type"
-          v-model="enrichmentType"
-          class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100"
-        >
-          <option value="full_visual_enrichment">Completo (Fondo + Recortes + Metadatos)</option>
-          <option value="remove_background">Eliminación de Fondo</option>
-          <option value="propose_crops">Propuesta de Recortes (Crops)</option>
-          <option value="propose_metadata">Propuesta de Metadatos y Alt-Text</option>
-        </select>
-      </div>
-
-      <div class="sm:col-span-2 flex justify-end">
-        <button
-          type="button"
-          data-test="propose-enrichment-btn"
-          :disabled="loading || !targetAssetId.trim()"
-          class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
-          @click="proposeEnrichment"
-        >
-          <span v-if="loading">Generando Propuesta Visual...</span>
-          <span v-else>Generar Propuesta de Enriquecimiento</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Output Preview -->
-    <div
-      v-if="enrichment"
-      class="space-y-4 rounded-lg border border-gray-200 bg-gray-50/70 p-5 dark:border-gray-800 dark:bg-gray-800/40"
-    >
-      <div class="flex items-center justify-between border-b border-gray-200 pb-3 dark:border-gray-700">
-        <h3 class="font-semibold text-gray-900 dark:text-gray-100">Propuesta de Enriquecimiento Visual</h3>
-        <span
-          class="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800 dark:bg-blue-900/60 dark:text-blue-200"
-        >
-          Estado: {{ enrichment.approvalStatus }}
-        </span>
-      </div>
-
-      <!-- Prohibited Invention Guardrail Badge -->
-      <div
-        class="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200"
-      >
-        <span class="font-bold">✓ Control de integridad visual estricto:</span>
-        Sin invención de envases ni claims comerciales. Solo optimización técnica de fondo, recorte y accesibilidad.
-      </div>
-
-      <!-- Background Removal Proposal -->
-      <div
-        v-if="enrichment.backgroundRemoval"
-        class="rounded-md border border-gray-200 bg-white p-3 text-xs dark:border-gray-700 dark:bg-gray-900"
-      >
-        <h4 class="font-bold text-gray-800 dark:text-gray-200">Eliminación de fondo propuesta:</h4>
-        <p class="mt-1 text-gray-600 dark:text-gray-400">{{ enrichment.backgroundRemoval.maskDescription }}</p>
-        <p class="mt-0.5 font-mono text-[11px] text-gray-500 dark:text-gray-400">
-          Recorte Alpha: {{ enrichment.backgroundRemoval.alphaCutoutStorageKey }} (Precisión borde:
-          {{ Math.round(enrichment.backgroundRemoval.edgeAccuracyScore * 100) }}%)
-        </p>
-      </div>
-
-      <!-- Crops Proposal -->
-      <div v-if="enrichment.proposedCrops && enrichment.proposedCrops.length" class="space-y-2">
-        <h4 class="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-400">
-          Recortes propuestos (Crops)
-        </h4>
-        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <div
-            v-for="crop in enrichment.proposedCrops"
-            :key="crop.ratio + crop.purpose"
-            class="rounded-md border border-gray-200 bg-white p-2.5 text-xs dark:border-gray-700 dark:bg-gray-900"
-          >
-            <div class="font-bold text-gray-900 dark:text-gray-100">{{ crop.ratio }} ({{ crop.purpose }})</div>
-            <div class="mt-1 text-gray-500 dark:text-gray-400">{{ crop.width }}x{{ crop.height }} px</div>
+      <div class="adm-stack">
+        <div class="adm-form-grid">
+          <div class="adm-field">
+            <label for="med-asset-id" class="adm-label">Imagen</label>
+            <input
+              id="med-asset-id"
+              v-model="targetAssetId"
+              type="text"
+              class="adm-input"
+              placeholder="Referencia de la imagen"
+              aria-describedby="med-asset-help"
+            />
+            <p id="med-asset-help" class="adm-help">Cópiala desde la biblioteca de medios.</p>
+          </div>
+          <div class="adm-field">
+            <label for="med-type" class="adm-label">Qué quieres hacer</label>
+            <select id="med-type" v-model="enrichmentType" class="adm-input">
+              <option value="full_visual_enrichment">Todo (fondo, recortes y texto alternativo)</option>
+              <option value="remove_background">Quitar el fondo</option>
+              <option value="propose_crops">Proponer recortes</option>
+              <option value="propose_metadata">Proponer texto alternativo</option>
+            </select>
           </div>
         </div>
+        <div>
+          <button
+            type="button"
+            data-test="propose-enrichment-btn"
+            :disabled="loading || !targetAssetId.trim()"
+            class="adm-btn adm-btn--primary"
+            @click="proposeEnrichment"
+          >
+            <span v-if="loading">Generando propuesta…</span>
+            <span v-else>Generar propuesta</span>
+          </button>
+        </div>
       </div>
+    </AdminCard>
 
-      <!-- Metadata Proposal -->
-      <div v-if="enrichment.proposedMetadata" class="space-y-1 text-xs">
-        <h4 class="font-semibold text-gray-700 dark:text-gray-300">Texto alternativo accesible propuesto:</h4>
-        <p
-          class="rounded-md border border-gray-200 bg-white p-2.5 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-        >
-          {{ enrichment.proposedMetadata.suggestedAltText }}
-        </p>
+    <AdminCard v-if="enrichment">
+      <template #title>Propuesta para la imagen</template>
+      <template #actions>
+        <AdminBadge :tone="APPROVAL[enrichment.approvalStatus]?.[1] ?? 'neutral'">
+          {{ APPROVAL[enrichment.approvalStatus]?.[0] ?? adminStatusLabel(enrichment.approvalStatus) }}
+        </AdminBadge>
+      </template>
+      <div class="adm-stack">
+        <UAlert
+          v-if="enrichment.prohibitedInventionCheck?.passed !== false"
+          color="success"
+          variant="subtle"
+          icon="i-lucide-shield-check"
+          title="Sin elementos inventados"
+          description="La propuesta solo ajusta fondo, recorte y accesibilidad: no añade envases, sellos ni mensajes comerciales."
+        />
+        <UAlert
+          v-else
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="Revisa la propuesta con cuidado"
+          description="Puede contener elementos que no están en la imagen original."
+        />
+
+        <div v-if="enrichment.backgroundRemoval">
+          <h4>Fondo eliminado</h4>
+          <p class="mt-1">{{ enrichment.backgroundRemoval.maskDescription }}</p>
+          <p class="adm-help">
+            Precisión del contorno: {{ Math.round(enrichment.backgroundRemoval.edgeAccuracyScore * 100) }} %
+          </p>
+        </div>
+
+        <div v-if="enrichment.proposedCrops && enrichment.proposedCrops.length">
+          <h4>Recortes propuestos</h4>
+          <ul class="mt-2 grid gap-2 sm:grid-cols-3">
+            <li
+              v-for="crop in enrichment.proposedCrops"
+              :key="crop.ratio + crop.purpose"
+              class="rounded-[var(--radius-control)] border border-[var(--border)] p-3"
+            >
+              <p class="font-semibold text-[var(--text-strong)]">{{ purposeLabel(crop.purpose) }}</p>
+              <p class="adm-help">Proporción {{ crop.ratio }} · {{ crop.width }} × {{ crop.height }} px</p>
+            </li>
+          </ul>
+        </div>
+
+        <div v-if="enrichment.proposedMetadata">
+          <h4>Texto alternativo propuesto</h4>
+          <p class="mt-1">{{ enrichment.proposedMetadata.suggestedAltText }}</p>
+          <p class="adm-help">Es lo que leen los lectores de pantalla y los buscadores.</p>
+        </div>
       </div>
-
-      <!-- Actions -->
-      <div class="flex items-center justify-between border-t border-gray-200 pt-4 dark:border-gray-700">
-        <div v-if="enrichment.approvalStatus === 'pending_approval'">
+      <template
+        v-if="enrichment.approvalStatus === 'pending_approval' || enrichment.approvalStatus.includes('approved')"
+        #footer
+      >
+        <template v-if="enrichment.approvalStatus === 'pending_approval'">
+          <button
+            type="button"
+            :disabled="deciding"
+            class="adm-btn adm-btn--danger-soft"
+            @click="recordDecision('reject')"
+          >
+            Rechazar
+          </button>
           <button
             type="button"
             data-test="approve-enrichment-btn"
             :disabled="deciding"
-            class="rounded-md bg-emerald-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 dark:bg-emerald-500"
+            class="adm-btn adm-btn--secondary"
             @click="recordDecision('approve')"
           >
-            Aprobar Enriquecimiento Visual
+            Aprobar propuesta
           </button>
-        </div>
-
-        <div v-if="enrichment.approvalStatus.includes('approved')">
-          <button
-            type="button"
-            data-test="apply-enrichment-btn"
-            :disabled="applying"
-            class="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500"
-            @click="applyEnrichment"
-          >
-            Aplicar al Activo Multimedia
-          </button>
-        </div>
-      </div>
-    </div>
+        </template>
+        <button
+          v-if="enrichment.approvalStatus.includes('approved')"
+          type="button"
+          data-test="apply-enrichment-btn"
+          :disabled="applying"
+          class="adm-btn adm-btn--secondary"
+          @click="applyEnrichment"
+        >
+          Aplicar a la imagen
+        </button>
+      </template>
+    </AdminCard>
   </div>
 </template>

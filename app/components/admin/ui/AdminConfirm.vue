@@ -8,8 +8,17 @@ withDefaults(
     cancelLabel?: string
     danger?: boolean
     loading?: boolean
+    /** Desactiva el botón de confirmar (p. ej. mientras falta un motivo obligatorio). */
+    confirmDisabled?: boolean
   }>(),
-  { description: undefined, confirmLabel: 'Confirmar', cancelLabel: 'Cancelar', danger: false, loading: false }
+  {
+    description: undefined,
+    confirmLabel: 'Confirmar',
+    cancelLabel: 'Cancelar',
+    danger: false,
+    loading: false,
+    confirmDisabled: false
+  }
 )
 const open = defineModel<boolean>('open', { required: true })
 defineEmits<{ confirm: [] }>()
@@ -24,7 +33,12 @@ defineEmits<{ confirm: [] }>()
     </template>
     <template #footer>
       <AdminButton @click="open = false">{{ cancelLabel }}</AdminButton>
-      <AdminButton :variant="danger ? 'danger' : 'primary'" :loading="loading" @click="$emit('confirm')">
+      <AdminButton
+        :variant="danger ? 'danger' : 'primary'"
+        :loading="loading"
+        :disabled="confirmDisabled"
+        @click="$emit('confirm')"
+      >
         {{ confirmLabel }}
       </AdminButton>
     </template>

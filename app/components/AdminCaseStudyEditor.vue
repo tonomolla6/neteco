@@ -43,6 +43,48 @@ const adminCases = computed<AdminCaseItem[]>(() => rawAdminCases.value.filter(is
 const view = ref<'list' | 'create' | 'review'>('list')
 const selectedCase = ref<AdminCaseItem | null>(null)
 const notice = ref<string | null>(null)
+const actionError = ref('')
+
+// Estado de interfaz: paneles laterales, confirmación y etiquetas legibles.
+const createOpen = computed({
+  get: () => view.value === 'create',
+  set: (open: boolean) => {
+    view.value = open ? 'create' : 'list'
+  }
+})
+const reviewOpen = computed({
+  get: () => view.value === 'review' && selectedCase.value !== null,
+  set: (open: boolean) => {
+    if (!open) view.value = 'list'
+  }
+})
+function openCreate() {
+  actionError.value = ''
+  view.value = 'create'
+}
+const caseToPublish = ref<AdminCaseItem | null>(null)
+const confirmPublish = computed({
+  get: () => caseToPublish.value !== null,
+  set: (open: boolean) => {
+    if (!open) caseToPublish.value = null
+  }
+})
+async function confirmPublishCase() {
+  const item = caseToPublish.value
+  caseToPublish.value = null
+  if (item) await handlePublish(item)
+}
+const REVIEW: Record<string, [string, 'success' | 'warning' | 'danger']> = {
+  current: ['Al día', 'success'],
+  due_soon: ['Vence pronto', 'warning'],
+  overdue: ['Vencida', 'danger']
+}
+const columns = [
+  { key: 'title', label: 'Caso', sortable: true },
+  { key: 'company', label: 'Cliente', value: (row: AdminCaseItem) => row.signedPermission.companyName },
+  { key: 'publicationStatus', label: 'Publicación' },
+  { key: 'reviewStatus', label: 'Revisión', hideOnMobile: true }
+]
 
 // Form fields
 const title = ref('')
@@ -87,6 +129,7 @@ onMounted(() => {
 
 const handleCreate = async () => {
   notice.value = null
+  actionError.value = ''
   try {
     const netecoProducts = netecoProductsInput.value
       .split(',')
@@ -141,27 +184,28 @@ const handleCreate = async () => {
     })
     createCommandId.value = crypto.randomUUID()
 
-    notice.value = 'Borrador de caso de estudio creado exitosamente.'
+    notice.value = 'Caso guardado como borrador.'
     view.value = 'list'
     await fetchAdminCases()
-  } catch (e: unknown) {
-    alert('Error al crear el caso: ' + (e instanceof Error ? e.message : 'error desconocido'))
+  } catch {
+    actionError.value = 'No se ha podido crear el caso. Revisa los datos y vuelve a intentarlo.'
   }
 }
 
 const handlePublish = async (c: AdminCaseItem) => {
-  if (!confirm(`¿Publicar caso "${c.title}" en la tienda online?`)) return
   notice.value = null
+  actionError.value = ''
   try {
     await publishCase(c.id, c.version)
-    notice.value = `Caso "${c.title}" publicado con éxito.`
+    notice.value = `«${c.title}» ya está publicado.`
     await fetchAdminCases()
-  } catch (e: unknown) {
-    alert('No se pudo publicar: ' + (e instanceof Error ? e.message : 'error desconocido'))
+  } catch {
+    actionError.value = 'No se ha podido publicar el caso. Vuelve a intentarlo.'
   }
 }
 
 const openReviewModal = (c: AdminCaseItem) => {
+  actionError.value = ''
   selectedCase.value = c
   view.value = 'review'
 }
@@ -169,6 +213,7 @@ const openReviewModal = (c: AdminCaseItem) => {
 const handleExecuteReview = async () => {
   if (!selectedCase.value || !confirmedPermissionValid.value) return
   notice.value = null
+  actionError.value = ''
   try {
     await performReview({
       caseId: selectedCase.value.id,
@@ -179,471 +224,343 @@ const handleExecuteReview = async () => {
       commandId: reviewCommandId.value
     })
     reviewCommandId.value = crypto.randomUUID()
-    notice.value = `Revisión periódica completada para "${selectedCase.value.title}". Vigencia renovada.`
+    notice.value = `Revisión renovada para «${selectedCase.value.title}».`
     view.value = 'list'
     selectedCase.value = null
     await fetchAdminCases()
-  } catch (e: unknown) {
-    alert('Error al registrar revisión: ' + (e instanceof Error ? e.message : 'error desconocido'))
+  } catch {
+    actionError.value = 'No se ha podido registrar la revisión. Vuelve a intentarlo.'
   }
 }
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-4 dark:border-gray-800">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
-          Gestión de casos de éxito de clientes (MED-020 & MKT-031)
-        </h1>
-        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Permisos firmados, contexto operativo, dosificación, resultados auditables y revisión periódica de vigencia.
-        </p>
-      </div>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="openCreate">Nuevo caso de cliente</AdminButton>
+    </AdminPageActions>
 
-      <div class="flex gap-2">
-        <button
-          v-if="view !== 'list'"
-          type="button"
-          class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-          @click="view = 'list'"
-        >
-          Volver a la lista
-        </button>
-        <button
-          v-if="view === 'list'"
-          type="button"
-          class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-700"
-          @click="view = 'create'"
-        >
-          + Nuevo caso de cliente
-        </button>
-      </div>
-    </div>
-
-    <div
-      v-if="notice"
-      role="status"
-      class="rounded-lg bg-emerald-50 p-4 text-sm font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-    >
-      {{ notice }}
-    </div>
-    <div
-      v-if="error"
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
+    <UAlert
+      v-if="actionError && view === 'list'"
       role="alert"
-      class="rounded-lg bg-rose-50 p-4 text-sm font-medium text-rose-800 dark:bg-rose-950/40 dark:text-rose-300"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="actionError"
+    />
+
+    <AdminTable
+      :rows="adminCases"
+      :columns="columns"
+      :row-key="(row) => row.id"
+      :status="loading ? 'pending' : error && !adminCases.length ? 'error' : 'success'"
+      empty-title="Todavía no hay casos de cliente"
+      empty-description="Cuenta cómo ha ayudado NETECO a un cliente, con su permiso firmado y resultados comprobables."
+      empty-icon="i-lucide-award"
+      caption="Casos de cliente"
+      @retry="fetchAdminCases"
     >
-      {{ error }}
-    </div>
+      <template #cell-title="{ row }">
+        <p class="font-semibold text-[var(--text-strong)]">{{ row.title }}</p>
+        <p class="adm-help">/{{ row.slug }}</p>
+      </template>
+      <template #cell-company="{ row }">
+        <p>{{ row.signedPermission.companyName }}</p>
+        <p class="adm-help">
+          CIF {{ row.signedPermission.companyCif }} · firmado por {{ row.signedPermission.signerName }}
+        </p>
+      </template>
+      <template #cell-publicationStatus="{ row }">
+        <AdminBadge :status="row.publicationStatus ?? 'draft'" />
+      </template>
+      <template #cell-reviewStatus="{ row }">
+        <AdminBadge :tone="REVIEW[row.reviewStatus ?? '']?.[1] ?? 'neutral'">
+          {{ REVIEW[row.reviewStatus ?? '']?.[0] ?? adminHumanize(row.reviewStatus ?? 'sin revisar') }}
+        </AdminBadge>
+        <span class="adm-help ml-1">hasta el {{ adminDate(row.nextReviewDueAt) }}</span>
+      </template>
+      <template #actions="{ row }">
+        <AdminButton v-if="row.publicationStatus === 'draft'" size="sm" @click="caseToPublish = row">
+          Publicar
+        </AdminButton>
+        <AdminButton variant="ghost" size="sm" @click="openReviewModal(row)">Renovar revisión</AdminButton>
+      </template>
+      <template #empty-action>
+        <AdminButton icon="i-lucide-plus" @click="openCreate">Nuevo caso de cliente</AdminButton>
+      </template>
+    </AdminTable>
 
-    <!-- VISTA LISTA -->
-    <div v-if="view === 'list'" class="space-y-4">
-      <div v-if="loading" role="status" class="py-12 text-center text-sm text-gray-500">Cargando casos…</div>
-
-      <div
-        v-else-if="adminCases.length === 0"
-        class="rounded-xl border border-dashed border-gray-300 py-12 text-center dark:border-gray-800"
-      >
-        <p class="text-sm font-medium text-gray-600 dark:text-gray-400">No hay casos de cliente registrados.</p>
-      </div>
-
-      <div
-        v-else
-        class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900"
-      >
-        <table class="w-full text-left text-sm">
-          <thead class="border-b bg-gray-50 text-xs font-semibold uppercase text-gray-500 dark:bg-gray-800">
-            <tr>
-              <th class="p-4">Título / Slug</th>
-              <th class="p-4">Empresa / CIF</th>
-              <th class="p-4">Estado Publicación</th>
-              <th class="p-4">Revisión Periódica</th>
-              <th class="p-4 text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-            <tr v-for="c in adminCases" :key="c.id" class="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
-              <td class="p-4">
-                <div class="font-bold text-gray-900 dark:text-gray-100">{{ c.title }}</div>
-                <div class="text-xs text-gray-500 font-mono">{{ c.slug }}</div>
-              </td>
-              <td class="p-4">
-                <div class="font-medium">{{ c.signedPermission.companyName }}</div>
-                <div class="text-xs text-gray-500">
-                  CIF: {{ c.signedPermission.companyCif }} &bull; Firmado: {{ c.signedPermission.signerName }}
-                </div>
-              </td>
-              <td class="p-4">
-                <span
-                  class="rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize"
-                  :class="{
-                    'bg-yellow-100 text-yellow-800': c.publicationStatus === 'draft',
-                    'bg-emerald-100 text-emerald-800': c.publicationStatus === 'published',
-                    'bg-gray-100 text-gray-800': c.publicationStatus === 'archived'
-                  }"
-                >
-                  {{ c.publicationStatus }}
-                </span>
-              </td>
-              <td class="p-4">
-                <span
-                  class="rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                  :class="{
-                    'bg-emerald-100 text-emerald-800': c.reviewStatus === 'current',
-                    'bg-yellow-100 text-yellow-800': c.reviewStatus === 'due_soon',
-                    'bg-rose-100 text-rose-800': c.reviewStatus === 'overdue'
-                  }"
-                >
-                  {{ c.reviewStatus }}
-                </span>
-                <div class="mt-1 text-[11px] text-gray-500">Vence: {{ c.nextReviewDueAt.split('T')[0] }}</div>
-              </td>
-              <td class="p-4 text-right space-x-2">
-                <button
-                  v-if="c.publicationStatus === 'draft'"
-                  type="button"
-                  class="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-emerald-700"
-                  @click="handlePublish(c)"
-                >
-                  Publicar
-                </button>
-                <button
-                  type="button"
-                  class="rounded border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300"
-                  @click="openReviewModal(c)"
-                >
-                  Revisión periódica
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- VISTA FORMULARIO CREAR -->
-    <div
-      v-else-if="view === 'create'"
-      class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
-    >
-      <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">Crear caso de cliente con evidencia</h2>
-      <form class="mt-6 space-y-6" @submit.prevent="handleCreate">
-        <fieldset class="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-          <legend class="px-2 text-xs font-bold uppercase text-gray-600 dark:text-gray-400">
-            1. Datos Editoriales
-          </legend>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Título</label>
+    <!-- Crear caso -->
+    <AdminDrawer v-model:open="createOpen" title="Nuevo caso de cliente" wide>
+      <form id="case-study-create-form" class="adm-stack" @submit.prevent="handleCreate">
+        <UAlert
+          v-if="actionError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="actionError"
+        />
+        <fieldset class="adm-stack">
+          <legend class="adm-section__title">1. Título y dirección</legend>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Título" required>
               <input
+                :id="id"
                 v-model="title"
                 data-field="title"
                 type="text"
                 required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-                placeholder="Ej: Reducción del 35% de costes en Lavanderías Turia"
+                placeholder="Ej.: un 35 % menos de costes en Lavanderías Turia"
               />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Slug (URL amigable)</label>
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Dirección de la página"
+              help="Solo minúsculas, números y guiones."
+              required
+            >
               <input
+                :id="id"
                 v-model="slug"
                 data-field="slug"
                 type="text"
                 required
                 pattern="[a-z0-9-]+"
-                class="mt-1 block w-full rounded border p-2 text-sm font-mono"
-                placeholder="ej: reduccion-costes-lavanderias-turia"
+                placeholder="reduccion-costes-lavanderias-turia"
               />
-            </div>
+            </AdminFormField>
           </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Subtítulo</label>
-            <input
-              v-model="subtitle"
-              type="text"
-              class="mt-1 block w-full rounded border p-2 text-sm"
-              placeholder="Resumen del reto y tecnología"
-            />
-          </div>
+          <AdminFormField v-slot="{ id }" label="Subtítulo">
+            <input :id="id" v-model="subtitle" type="text" placeholder="Resumen del reto y de la solución" />
+          </AdminFormField>
         </fieldset>
 
-        <fieldset class="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-          <legend class="px-2 text-xs font-bold uppercase text-gray-600 dark:text-gray-400">
-            2. Permiso Firmado por el Cliente (MED-020)
-          </legend>
-          <div class="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Empresa Cliente</label>
+        <fieldset class="adm-stack">
+          <legend class="adm-section__title">2. Permiso firmado por el cliente</legend>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Empresa cliente" required>
               <input
+                :id="id"
                 v-model="companyName"
                 data-field="companyName"
                 type="text"
                 required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-                placeholder="Ej: Lavanderías Industriales Turia S.L."
+                placeholder="Ej.: Lavanderías Industriales Turia S.L."
               />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">CIF Cliente</label>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="CIF del cliente" required>
               <input
+                :id="id"
                 v-model="companyCif"
                 data-field="companyCif"
                 type="text"
                 required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-                placeholder="Ej: B98765432"
+                placeholder="Ej.: B98765432"
               />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Firmante Autorizado</label>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Persona que firma" required>
               <input
+                :id="id"
                 v-model="signerName"
                 data-field="signerName"
                 type="text"
                 required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-                placeholder="Ej: Elena Gómez"
+                placeholder="Ej.: Elena Gómez"
               />
-            </div>
-          </div>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Cargo del Firmante</label>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Cargo de quien firma" required>
               <input
+                :id="id"
                 v-model="signerRole"
                 data-field="signerRole"
                 type="text"
                 required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-                placeholder="Ej: Directora de Operaciones"
+                placeholder="Ej.: directora de operaciones"
               />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Referencia Documental</label>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Referencia del documento" required>
               <input
+                :id="id"
                 v-model="documentRef"
                 data-field="documentRef"
                 type="text"
                 required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-                placeholder="Ej: DOC-AUTH-TURIA-2026-01"
+                placeholder="Ej.: autorización Turia 2026-01"
               />
-            </div>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Fecha de firma" required>
+              <input :id="id" v-model="signedDate" data-field="signedDate" type="date" required />
+            </AdminFormField>
           </div>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Fecha de firma</label>
-              <input
-                v-model="signedDate"
-                data-field="signedDate"
-                type="date"
-                required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">SHA-256 del documento</label>
-              <input
-                v-model="documentSha256"
-                data-field="documentSha256"
-                type="text"
-                required
-                pattern="[0-9a-fA-F]{64}"
-                class="mt-1 block w-full rounded border p-2 font-mono text-sm"
-              />
-            </div>
-          </div>
-          <label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+          <AdminFormField
+            v-slot="{ id }"
+            label="Huella digital del documento"
+            help="Código de 64 caracteres que identifica el fichero firmado."
+            required
+          >
             <input
-              v-model="publishAuthorized"
-              data-field="publishAuthorized"
-              type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-emerald-600"
+              :id="id"
+              v-model="documentSha256"
+              data-field="documentSha256"
+              type="text"
+              required
+              pattern="[0-9a-fA-F]{64}"
+              class="w-full font-mono"
             />
-            El cliente ha autorizado expresamente la publicación del caso y los resultados técnicos (MKT-031).
+          </AdminFormField>
+          <label class="adm-check">
+            <input v-model="publishAuthorized" data-field="publishAuthorized" type="checkbox" />
+            El cliente ha autorizado expresamente publicar el caso y sus resultados.
           </label>
         </fieldset>
 
-        <fieldset class="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-          <legend class="px-2 text-xs font-bold uppercase text-gray-600 dark:text-gray-400">
-            3. Contexto, Solución y Métricas Verificables
-          </legend>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Sector Industrial</label>
-              <input v-model="sector" type="text" required class="mt-1 block w-full rounded border p-2 text-sm" />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300"
-                >Descripción de la instalación</label
-              >
+        <fieldset class="adm-stack">
+          <legend class="adm-section__title">3. Situación, solución y resultados</legend>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Sector" required>
+              <input :id="id" v-model="sector" type="text" required />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Descripción de la instalación" required>
               <input
+                :id="id"
                 v-model="facilityDescription"
                 data-field="facilityDescription"
                 type="text"
                 required
                 minlength="5"
-                class="mt-1 block w-full rounded border p-2 text-sm"
               />
-            </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300"
-                >Productos Neteco (separados por coma)</label
-              >
-              <input
-                v-model="netecoProductsInput"
-                type="text"
-                required
-                class="mt-1 block w-full rounded border p-2 text-sm"
-              />
-            </div>
+            </AdminFormField>
           </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Situación inicial</label>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Productos NETECO utilizados"
+            help="Referencias separadas por comas."
+            required
+          >
+            <input :id="id" v-model="netecoProductsInput" type="text" required class="w-full" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Situación inicial" required>
             <textarea
+              :id="id"
               v-model="initialSituation"
               data-field="initialSituation"
               required
               rows="2"
-              class="mt-1 block w-full rounded border p-2 text-sm"
+              class="w-full"
             ></textarea>
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300"
-              >Protocolo de dosificación</label
-            >
-            <input
-              v-model="dosageProtocol"
-              data-field="dosageProtocol"
-              type="text"
-              required
-              class="mt-1 block w-full rounded border p-2 text-sm"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Resumen de la solución</label>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Cómo se dosifica" required>
+            <input :id="id" v-model="dosageProtocol" data-field="dosageProtocol" type="text" required class="w-full" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Resumen de la solución" required>
             <textarea
+              :id="id"
               v-model="solutionSummary"
               data-field="solutionSummary"
               required
               rows="2"
-              class="mt-1 block w-full rounded border p-2 text-sm"
+              class="w-full"
             ></textarea>
-          </div>
-
-          <div class="border-t pt-3 space-y-3">
-            <h4 class="text-xs font-bold text-gray-700 dark:text-gray-300">Métrica clave verificable</h4>
-            <div class="grid gap-3 sm:grid-cols-5">
-              <input v-model="outcomeMetricName" placeholder="Métrica" class="rounded border p-2 text-xs" />
-              <input v-model="outcomeBefore" placeholder="Antes" class="rounded border p-2 text-xs" />
-              <input v-model="outcomeAfter" placeholder="Después" class="rounded border p-2 text-xs" />
-              <input v-model="outcomeUnit" placeholder="Unidad" class="rounded border p-2 text-xs" />
-              <input
-                v-model.number="outcomeImprovement"
-                type="number"
-                placeholder="Mejora %"
-                class="rounded border p-2 text-xs"
-              />
-            </div>
-            <div class="grid gap-3 sm:grid-cols-2">
-              <input
-                v-model="verifierIdentity"
-                placeholder="Entidad auditora / inspector"
-                class="rounded border p-2 text-xs"
-              />
-              <input
-                v-model="verificationMethod"
-                placeholder="Método de ensayo / medición"
-                class="rounded border p-2 text-xs"
-              />
-              <input
-                v-model="evidenceSha256"
-                data-field="evidenceSha256"
-                placeholder="SHA-256 de la evidencia"
-                required
-                pattern="[0-9a-fA-F]{64}"
-                class="rounded border p-2 font-mono text-xs sm:col-span-2"
-              />
-            </div>
-          </div>
+          </AdminFormField>
         </fieldset>
 
-        <div class="flex justify-end gap-3">
-          <button type="button" class="rounded border px-4 py-2 text-sm text-gray-700" @click="view = 'list'">
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            :disabled="saving"
-            class="rounded bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-50"
-          >
-            Guardar borrador
-          </button>
-        </div>
-      </form>
-    </div>
-
-    <!-- VISTA REVISIÓN PERIÓDICA -->
-    <div
-      v-else-if="view === 'review' && selectedCase"
-      class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900"
-    >
-      <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">
-        Revisión Periódica de Vigencia: {{ selectedCase.title }}
-      </h2>
-      <p class="mt-1 text-xs text-gray-500">
-        Conforme al requisito MED-020, los casos de cliente deben revalidarse periódicamente para confirmar que el
-        permiso y los datos se mantienen exactos. Si vence el plazo, el caso se oculta automáticamente de la web
-        pública.
-      </p>
-
-      <form class="mt-6 space-y-4" @submit.prevent="handleExecuteReview">
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300">Notas de la revisión</label>
-          <textarea
-            v-model="reviewNotes"
+        <fieldset class="adm-stack">
+          <legend class="adm-section__title">4. Resultado comprobable</legend>
+          <AdminFormField v-slot="{ id }" label="Qué se ha medido">
+            <input :id="id" v-model="outcomeMetricName" class="w-full" />
+          </AdminFormField>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Antes">
+              <input :id="id" v-model="outcomeBefore" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Después">
+              <input :id="id" v-model="outcomeAfter" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Unidad">
+              <input :id="id" v-model="outcomeUnit" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Mejora (%)">
+              <input :id="id" v-model.number="outcomeImprovement" type="number" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Quién lo ha comprobado">
+              <input :id="id" v-model="verifierIdentity" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Cómo se ha medido">
+              <input :id="id" v-model="verificationMethod" />
+            </AdminFormField>
+          </div>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Huella digital de la prueba"
+            help="Código de 64 caracteres del informe o fichero que demuestra el resultado."
             required
-            rows="3"
-            class="mt-1 block w-full rounded border p-2 text-sm"
-          ></textarea>
-        </div>
-
-        <div>
-          <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300"
-            >Próximo intervalo de revisión</label
           >
-          <select v-model.number="nextReviewInterval" class="mt-1 block w-48 rounded border p-2 text-sm">
+            <input
+              :id="id"
+              v-model="evidenceSha256"
+              data-field="evidenceSha256"
+              required
+              pattern="[0-9a-fA-F]{64}"
+              class="w-full font-mono"
+            />
+          </AdminFormField>
+        </fieldset>
+      </form>
+      <template #footer>
+        <AdminButton @click="view = 'list'">Cancelar</AdminButton>
+        <button type="submit" form="case-study-create-form" :disabled="saving" class="adm-btn adm-btn--primary">
+          Guardar borrador
+        </button>
+      </template>
+    </AdminDrawer>
+
+    <!-- Renovar revisión -->
+    <AdminDrawer v-model:open="reviewOpen" title="Renovar la revisión del caso" :description="selectedCase?.title">
+      <form id="case-study-review-form" class="adm-stack" @submit.prevent="handleExecuteReview">
+        <UAlert
+          v-if="actionError"
+          role="alert"
+          color="error"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          :title="actionError"
+        />
+        <p class="adm-help">
+          Cada caso se revisa cada cierto tiempo para confirmar que el permiso y los datos siguen siendo correctos. Si
+          pasa la fecha sin renovarlo, deja de mostrarse en la tienda.
+        </p>
+        <AdminFormField v-slot="{ id }" label="Notas de la revisión" required>
+          <textarea :id="id" v-model="reviewNotes" required rows="3" class="w-full"></textarea>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Volver a revisar dentro de">
+          <select :id="id" v-model.number="nextReviewInterval">
             <option :value="3">3 meses</option>
             <option :value="6">6 meses</option>
-            <option :value="12">12 meses (1 año)</option>
-            <option :value="24">24 meses (2 años)</option>
+            <option :value="12">1 año</option>
+            <option :value="24">2 años</option>
           </select>
-        </div>
-
-        <label class="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
-          <input
-            v-model="confirmedPermissionValid"
-            type="checkbox"
-            required
-            class="h-4 w-4 rounded border-gray-300 text-emerald-600"
-          />
-          He contactado con el cliente y confirmo que el permiso firmado y las métricas continúan en vigor.
+        </AdminFormField>
+        <label class="adm-check">
+          <input v-model="confirmedPermissionValid" type="checkbox" required />
+          He hablado con el cliente y confirmo que el permiso firmado y los resultados siguen en vigor.
         </label>
-
-        <div class="flex justify-end gap-3 pt-4">
-          <button type="button" class="rounded border px-4 py-2 text-sm text-gray-700" @click="view = 'list'">
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            :disabled="saving"
-            class="rounded bg-emerald-600 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-emerald-700 disabled:opacity-50"
-          >
-            Confirmar revisión periódica
-          </button>
-        </div>
       </form>
-    </div>
+      <template #footer>
+        <AdminButton @click="view = 'list'">Cancelar</AdminButton>
+        <button type="submit" form="case-study-review-form" :disabled="saving" class="adm-btn adm-btn--primary">
+          Confirmar revisión
+        </button>
+      </template>
+    </AdminDrawer>
+
+    <AdminConfirm
+      v-model:open="confirmPublish"
+      title="Publicar caso de cliente"
+      :description="`«${caseToPublish?.title ?? ''}» se mostrará en la tienda.`"
+      confirm-label="Publicar"
+      @confirm="confirmPublishCase"
+    />
   </div>
 </template>

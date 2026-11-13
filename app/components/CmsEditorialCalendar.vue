@@ -170,168 +170,198 @@ function selectPage(event: CmsCalendarEvent) {
 </script>
 
 <template>
-  <section :aria-labelledby="`${prefix}-heading`" class="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
-    <div>
-      <h3 :id="`${prefix}-heading`" class="font-semibold text-slate-900">Calendario editorial</h3>
-      <p class="text-sm text-slate-600">
-        Horarios en Europe/Madrid. Consultar el calendario no publica ni ejecuta tareas.
-      </p>
-    </div>
-    <p v-if="!authority" role="alert">
-      El calendario requiere publicación configurada y una sesión vigente con permiso de contenido y MFA.
-    </p>
-    <form v-if="authority" class="flex flex-wrap items-end gap-3" @submit.prevent="load()">
-      <div>
-        <label :for="`${prefix}-month`" class="block text-sm font-medium">Mes</label>
-        <input
-          :id="`${prefix}-month`"
-          v-model="month"
-          data-cms-calendar-month
-          type="month"
-          min="2000-01"
-          max="2099-12"
-          required
-          :disabled="reading"
-          class="mt-1 rounded border border-slate-300 px-3 py-2"
-        />
-      </div>
-      <UButton type="submit" data-cms-calendar-refresh :disabled="reading">Consultar calendario</UButton>
-      <UButton
-        type="button"
-        variant="outline"
-        data-cms-calendar-previous-month
-        :disabled="reading || month <= '2000-01'"
-        @click="shiftMonth(-1)"
-        >Mes anterior</UButton
-      >
-      <UButton
-        type="button"
-        variant="outline"
-        data-cms-calendar-next-month
-        :disabled="reading || month >= '2099-12'"
-        @click="shiftMonth(1)"
-        >Mes siguiente</UButton
-      >
-    </form>
-    <p v-if="authority && status === 'pending'" role="status">Consultando calendario y avisos…</p>
-    <p v-else-if="authority && !current" role="alert">
-      No hay un calendario confirmado. Esto no significa que no existan programaciones ni fallos. Reintenta sólo la
-      consulta.
-    </p>
-    <template v-if="current">
-      <div
-        v-if="current.alerts.blockedCount"
+  <AdminCard
+    :aria-labelledby="`${prefix}-heading`"
+    description="Horas en horario peninsular (Europe/Madrid). Consultar el calendario no publica ni ejecuta nada."
+  >
+    <template #title>
+      <span :id="`${prefix}-heading`">Calendario de publicaciones</span>
+    </template>
+    <div class="adm-stack">
+      <UAlert
+        v-if="!authority"
         role="alert"
-        data-cms-calendar-failures
-        class="rounded-lg border border-amber-300 bg-amber-50 p-3"
-      >
-        <p class="font-medium">
-          {{ current.alerts.blockedCount }} operaciones bloqueadas todavía activas, en cualquier mes.
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-lock"
+        title="El calendario necesita la publicación configurada y una sesión vigente con permiso de contenido y verificación en dos pasos."
+      />
+      <form v-if="authority" class="flex flex-wrap items-end gap-2" @submit.prevent="load()">
+        <AdminFormField label="Mes" :for="`${prefix}-month`">
+          <input
+            :id="`${prefix}-month`"
+            v-model="month"
+            data-cms-calendar-month
+            type="month"
+            min="2000-01"
+            max="2099-12"
+            required
+            :disabled="reading"
+          />
+        </AdminFormField>
+        <button
+          type="button"
+          class="adm-btn adm-btn--secondary"
+          data-cms-calendar-previous-month
+          :disabled="reading || month <= '2000-01'"
+          @click="shiftMonth(-1)"
+        >
+          Mes anterior
+        </button>
+        <button
+          type="button"
+          class="adm-btn adm-btn--secondary"
+          data-cms-calendar-next-month
+          :disabled="reading || month >= '2099-12'"
+          @click="shiftMonth(1)"
+        >
+          Mes siguiente
+        </button>
+        <button type="submit" class="adm-btn adm-btn--secondary" data-cms-calendar-refresh :disabled="reading">
+          Actualizar
+        </button>
+      </form>
+      <p v-if="authority && status === 'pending'" role="status" class="adm-help">Consultando el calendario…</p>
+      <div v-else-if="authority && !current" role="alert">
+        <AdminEmptyState
+          variant="error"
+          compact
+          title="No se ha podido cargar el calendario"
+          description="No hay un calendario confirmado. Esto no significa que no existan programaciones ni fallos."
+        >
+          <button type="button" class="adm-btn adm-btn--secondary" :disabled="reading" @click="load()">
+            Reintentar
+          </button>
+        </AdminEmptyState>
+      </div>
+      <template v-if="current">
+        <div
+          v-if="current.alerts.blockedCount"
+          role="alert"
+          data-cms-calendar-failures
+          class="rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--surface-sunken)] p-3"
+        >
+          <p class="font-semibold text-[var(--text-strong)]">
+            <AdminBadge tone="warning">Atención</AdminBadge>
+            {{ current.alerts.blockedCount }} operaciones bloqueadas todavía activas, en cualquier mes.
+          </p>
+          <ul class="mt-2 space-y-2">
+            <li v-for="event in current.alerts.blockedEvents" :key="`${event.scheduleId}:${event.phase}`">
+              <button
+                type="button"
+                class="text-left font-semibold text-[var(--text-strong)] underline disabled:opacity-60"
+                :data-cms-calendar-alert-page="event.pageId"
+                :disabled="canSelect === false"
+                @click="selectPage(event)"
+              >
+                {{ event.title }} · {{ phaseLabel(event) }} · {{ event.localDateTime.slice(0, 10) }}
+                {{ timeLabel(event) }}
+              </button>
+              <p class="adm-help">{{ failureLabel(event.code) }}</p>
+            </li>
+          </ul>
+          <p v-if="current.alerts.hasMore" class="adm-help mt-2">
+            Se muestran los 10 fallos activos más antiguos. Revisa también las programaciones de las páginas restantes.
+          </p>
+        </div>
+        <UAlert
+          v-if="current.alerts.dueCount"
+          role="status"
+          color="neutral"
+          variant="subtle"
+          icon="i-lucide-clock"
+          :title="`${current.alerts.dueCount} operaciones vencidas esperan ejecución, en cualquier mes. Todavía no tienen un resultado registrado; no son fallos confirmados.`"
+        />
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h4 class="font-semibold capitalize text-[var(--text-strong)]">{{ monthTitle }}</h4>
+          <span class="adm-help">
+            {{ current.pagination.total }} operaciones · página {{ current.pagination.page }}
+          </span>
+        </div>
+        <p v-if="current.pagination.total === 0" role="status" class="adm-help">
+          No hay operaciones programadas en este mes.
         </p>
-        <ul class="mt-2 space-y-2">
-          <li v-for="event in current.alerts.blockedEvents" :key="`${event.scheduleId}:${event.phase}`">
-            <UButton
-              variant="link"
-              :data-cms-calendar-alert-page="event.pageId"
-              :disabled="canSelect === false"
-              @click="selectPage(event)"
-              >{{ event.title }} · {{ phaseLabel(event) }} · {{ event.localDateTime.slice(0, 10) }}
-              {{ timeLabel(event) }}</UButton
+        <p v-else-if="current.pagination.total > 25" role="status" class="adm-help">
+          Se muestran {{ current.events.length }} de {{ current.pagination.total }} operaciones. Un día vacío puede
+          tener operaciones en otras páginas del calendario.
+        </p>
+        <div
+          role="region"
+          :aria-label="`Calendario de ${monthTitle}, Europe/Madrid`"
+          tabindex="0"
+          class="overflow-x-auto rounded-[var(--radius-surface)] border border-[var(--border)]"
+        >
+          <div class="grid min-w-[720px] grid-cols-7">
+            <div
+              v-for="day in ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']"
+              :key="day"
+              class="border-b border-[var(--border)] bg-[var(--canvas)] px-2 py-2 text-xs font-semibold text-[var(--text-muted)]"
             >
-            <p class="text-sm">{{ failureLabel(event.code) }}</p>
-          </li>
-        </ul>
-        <p v-if="current.alerts.hasMore" class="mt-2 text-sm">
-          Se muestran los 10 fallos activos más antiguos. Revisa también las programaciones de las páginas restantes.
-        </p>
-      </div>
-      <p v-if="current.alerts.dueCount" role="status" class="rounded bg-slate-100 p-3">
-        {{ current.alerts.dueCount }} operaciones vencidas esperan ejecución, en cualquier mes. Todavía no tienen un
-        resultado registrado; no son fallos confirmados.
-      </p>
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h4 class="font-semibold capitalize">{{ monthTitle }}</h4>
-        <span class="text-sm">{{ current.pagination.total }} operaciones · página {{ current.pagination.page }}</span>
-      </div>
-      <p v-if="current.pagination.total === 0" role="status">No hay operaciones programadas en este mes.</p>
-      <p v-else-if="current.pagination.total > 25" role="status" class="text-sm">
-        Se muestran {{ current.events.length }} de {{ current.pagination.total }} operaciones. Un día vacío puede tener
-        operaciones en otras páginas del calendario.
-      </p>
-      <div
-        role="region"
-        :aria-label="`Calendario de ${monthTitle}, Europe/Madrid`"
-        tabindex="0"
-        class="overflow-x-auto rounded-lg border border-slate-200"
-      >
-        <div class="grid min-w-[720px] grid-cols-7">
-          <div
-            v-for="day in ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']"
-            :key="day"
-            class="border-b bg-slate-50 px-2 py-2 text-sm font-medium"
-          >
-            {{ day }}
-          </div>
-          <div
-            v-for="(day, index) in days"
-            :key="day.key || `padding-${index}`"
-            :data-cms-calendar-day="day.key || undefined"
-            class="min-h-24 border-b border-r border-slate-100 p-2"
-            :class="day.key ? '' : 'bg-slate-50'"
-          >
-            <template v-if="day.key">
-              <time :datetime="day.key" class="text-sm font-medium">{{ day.day }}</time>
-              <ul class="mt-1 space-y-2">
-                <li
-                  v-for="event in day.events"
-                  :key="`${event.scheduleId}:${event.phase}`"
-                  class="rounded border p-1 text-xs"
-                  :class="
-                    event.status === 'blocked' && event.active ? 'border-amber-400 bg-amber-50' : 'border-slate-200'
-                  "
-                >
-                  <UButton
-                    variant="link"
-                    size="xs"
-                    :data-cms-calendar-page="event.pageId"
-                    :disabled="canSelect === false"
-                    :aria-label="`${phaseLabel(event)} de ${event.title}, ${day.key}, ${timeLabel(event)}, ${labels[event.status]}`"
-                    class="max-w-full whitespace-normal p-0 text-left"
-                    @click="selectPage(event)"
-                    >{{ event.title }}</UButton
+              {{ day }}
+            </div>
+            <div
+              v-for="(day, index) in days"
+              :key="day.key || `padding-${index}`"
+              :data-cms-calendar-day="day.key || undefined"
+              class="min-h-24 border-b border-r border-[var(--border)] p-2"
+              :class="day.key ? '' : 'bg-[var(--canvas)]'"
+            >
+              <template v-if="day.key">
+                <time :datetime="day.key" class="text-xs font-semibold text-[var(--text-muted)]">{{ day.day }}</time>
+                <ul class="mt-1 space-y-2">
+                  <li
+                    v-for="event in day.events"
+                    :key="`${event.scheduleId}:${event.phase}`"
+                    class="rounded-[var(--radius-control)] border border-[var(--border)] p-1.5 text-xs"
+                    :class="event.status === 'blocked' && event.active ? 'bg-[var(--surface-sunken)]' : ''"
                   >
-                  <p>{{ phaseLabel(event) }} · v{{ event.version }}</p>
-                  <time :datetime="event.scheduledAt">{{ timeLabel(event) }}</time>
-                  <p class="font-medium">
-                    {{ labels[event.status]
-                    }}<span v-if="event.status === 'blocked' && !event.active"> · histórica, ya no activa</span>
-                  </p>
-                </li>
-              </ul>
-            </template>
+                    <button
+                      type="button"
+                      :data-cms-calendar-page="event.pageId"
+                      :disabled="canSelect === false"
+                      :aria-label="`${phaseLabel(event)} de ${event.title}, ${day.key}, ${timeLabel(event)}, ${labels[event.status]}`"
+                      class="max-w-full whitespace-normal text-left font-semibold text-[var(--text-strong)] underline disabled:opacity-60"
+                      @click="selectPage(event)"
+                    >
+                      {{ event.title }}
+                    </button>
+                    <p>{{ phaseLabel(event) }} · versión {{ event.version }}</p>
+                    <time :datetime="event.scheduledAt">{{ timeLabel(event) }}</time>
+                    <p class="font-semibold">
+                      {{ labels[event.status]
+                      }}<span v-if="event.status === 'blocked' && !event.active"> · antigua, ya no activa</span>
+                    </p>
+                  </li>
+                </ul>
+              </template>
+            </div>
           </div>
         </div>
-      </div>
-      <div v-if="current.pagination.total > 25" class="flex flex-wrap gap-2">
-        <UButton
-          data-cms-calendar-previous-page
-          variant="outline"
-          :disabled="reading || current.pagination.page <= 1"
-          @click="load(current.month, current.pagination.page - 1)"
-          >Página anterior</UButton
-        >
-        <UButton
-          data-cms-calendar-next-page
-          variant="outline"
-          :disabled="reading || !current.pagination.hasMore"
-          @click="load(current.month, current.pagination.page + 1)"
-          >Página siguiente</UButton
-        >
-      </div>
-      <p class="text-xs text-slate-500">
-        Estado confirmado a {{ current.asOf }}. Usa «Consultar calendario» para actualizar. Para corregir un fallo, abre
-        la página y usa sus controles editoriales explícitos.
-      </p>
-    </template>
-  </section>
+        <div v-if="current.pagination.total > 25" class="flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            data-cms-calendar-previous-page
+            :disabled="reading || current.pagination.page <= 1"
+            @click="load(current.month, current.pagination.page - 1)"
+          >
+            Página anterior
+          </button>
+          <button
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            data-cms-calendar-next-page
+            :disabled="reading || !current.pagination.hasMore"
+            @click="load(current.month, current.pagination.page + 1)"
+          >
+            Página siguiente
+          </button>
+        </div>
+        <p class="adm-help">
+          Datos del {{ adminDate(current.asOf, true) }}. Para corregir un fallo, abre la página y usa su pestaña
+          «Publicación».
+        </p>
+      </template>
+    </div>
+  </AdminCard>
 </template>

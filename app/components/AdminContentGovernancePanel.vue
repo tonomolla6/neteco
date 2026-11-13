@@ -1,6 +1,6 @@
 <script setup lang="ts">
-/** SEO-029/030/031 admin surface: review calendar, authorship/technical review, linkable assets. */
-import { ref, onMounted } from 'vue'
+/** Revisión de contenidos: calendario de revisión, autores y revisores, y recursos enlazables. */
+import { computed, ref, onMounted } from 'vue'
 
 interface Person {
   id: string
@@ -56,7 +56,7 @@ const ERRORS: Record<string, string> = {
   version_conflict: 'Otra persona modificó este elemento; recarga e inténtalo de nuevo.',
   forbidden: 'No tienes permiso para esta acción.',
   unauthenticated: 'La sesión ha caducado.',
-  unknown_page: 'La página indicada no existe en el CMS.',
+  unknown_page: 'La página indicada no existe.',
   unknown_person: 'El autor o revisor indicado no existe.',
   person_archived: 'El autor o revisor está archivado.',
   date_out_of_range: 'Fecha fuera del rango permitido.',
@@ -75,7 +75,7 @@ async function load() {
     overview.value = await request<Overview>(ENDPOINT, { method: 'GET' })
   } catch {
     overview.value = null
-    loadError.value = 'No se pudo cargar el gobierno de contenido.'
+    loadError.value = 'No se ha podido cargar la revisión de contenidos.'
   } finally {
     loading.value = false
   }
@@ -208,7 +208,7 @@ async function submitAsset() {
   try {
     payload = JSON.parse(asset.value.payload)
   } catch {
-    actionError.value = 'El contenido del activo no es JSON válido.'
+    actionError.value = 'El contenido del recurso no tiene un formato válido.'
     return
   }
   const a = asset.value
@@ -227,206 +227,314 @@ async function submitAsset() {
 const transition = (action: 'publish_asset' | 'retire_asset', item: Asset) =>
   send({ action, slug: item.slug, expectedVersion: item.version })
 
+// Estado de interfaz: pestañas locales, paneles laterales y etiquetas legibles.
+const view = ref('calendar')
+const viewTabs = computed(() => [
+  { value: 'calendar', label: 'Calendario de revisión', count: overview.value?.governance.length ?? null },
+  { value: 'people', label: 'Autores y revisores', count: overview.value?.authors.length ?? null },
+  { value: 'assets', label: 'Recursos descargables', count: overview.value?.assets.length ?? null }
+])
+const planOpen = ref(false)
+const authorOpen = ref(false)
+const assetOpen = ref(false)
+const drawerOpen = computed(() => planOpen.value || authorOpen.value || assetOpen.value)
+const BUCKET_TONE: Record<string, 'danger' | 'warning' | 'neutral'> = {
+  overdue: 'danger',
+  due_30: 'warning',
+  scheduled: 'neutral'
+}
+const TRUST: Record<string, [string, 'success' | 'warning' | 'danger']> = {
+  verified: ['Verificado', 'success'],
+  incomplete: ['Incompleto', 'warning'],
+  overdue: ['Revisión vencida', 'danger']
+}
+const TRUST_ISSUES: Record<string, string> = {
+  no_author: 'Falta autor',
+  author_archived: 'El autor ya no está activo',
+  no_reviewer: 'Falta revisor',
+  reviewer_archived: 'El revisor ya no está activo',
+  not_signed_off: 'Pendiente de dar por revisada',
+  no_sources: 'Faltan fuentes',
+  claim_without_evidence: 'Hay afirmaciones sin fuente',
+  review_overdue: 'Revisión vencida'
+}
+const issueLabel = (code: string) => TRUST_ISSUES[code] ?? adminHumanize(code)
+const KIND_LABELS: Record<string, string> = {
+  checklist: 'Lista de comprobación',
+  guide: 'Guía',
+  comparison: 'Comparativa',
+  study: 'Estudio',
+  calculator: 'Calculadora'
+}
+const ASSET_STATUS: Record<string, [string, 'neutral' | 'success']> = {
+  draft: ['Borrador', 'neutral'],
+  published: ['Publicado', 'success'],
+  retired: ['Retirado', 'neutral']
+}
+function newPlan() {
+  actionError.value = ''
+  plan.value = {
+    slug: '',
+    expectedVersion: 0,
+    ownerName: '',
+    sensitivity: 'regulation',
+    nextReviewAt: '',
+    authorId: '',
+    reviewerId: '',
+    sources: '',
+    claims: '',
+    retireAt: '',
+    redirectTo: ''
+  }
+  planOpen.value = true
+}
+function openPlan(item: Plan) {
+  actionError.value = ''
+  editPlan(item)
+  planOpen.value = true
+}
+async function savePlan() {
+  await submitPlan()
+  if (!actionError.value) planOpen.value = false
+}
+async function saveAuthor() {
+  await submitAuthor()
+  if (!actionError.value) authorOpen.value = false
+}
+function newAsset() {
+  actionError.value = ''
+  asset.value = {
+    slug: '',
+    expectedVersion: 0,
+    kind: 'checklist',
+    title: '',
+    summary: '',
+    methodology: '',
+    dataAsOf: '',
+    payload: ''
+  }
+  assetOpen.value = true
+}
+function openAsset(item: Asset) {
+  actionError.value = ''
+  editAsset(item)
+  assetOpen.value = true
+}
+async function saveAsset() {
+  await submitAsset()
+  if (!actionError.value) assetOpen.value = false
+}
+const assetToRetire = ref<Asset | null>(null)
+const confirmRetire = computed({
+  get: () => assetToRetire.value !== null,
+  set: (open: boolean) => {
+    if (!open) assetToRetire.value = null
+  }
+})
+async function retireAsset() {
+  const item = assetToRetire.value
+  assetToRetire.value = null
+  if (item) await transition('retire_asset', item)
+}
+
 onMounted(load)
 </script>
 
 <template>
-  <div class="space-y-8" data-testid="admin-content-governance-panel">
-    <header>
-      <h1 class="text-2xl font-bold text-slate-900">Gobierno de contenido</h1>
-      <p class="text-sm text-slate-600">
-        Propietarios y calendario de revisión, autoría con revisión técnica y evidencia, y activos enlazables con
-        metodología. Los datos de autores y revisores los introduce administración.
-      </p>
-    </header>
+  <div class="adm-stack" data-testid="admin-content-governance-panel">
+    <AdminPageActions>
+      <AdminButton
+        v-if="view === 'calendar'"
+        variant="primary"
+        icon="i-lucide-plus"
+        :disabled="!overview"
+        @click="newPlan"
+      >
+        Nuevo plan de revisión
+      </AdminButton>
+      <AdminButton
+        v-else-if="view === 'people'"
+        variant="primary"
+        icon="i-lucide-plus"
+        :disabled="!overview"
+        @click="authorOpen = true"
+      >
+        Añadir persona
+      </AdminButton>
+      <AdminButton v-else variant="primary" icon="i-lucide-plus" :disabled="!overview" @click="newAsset">
+        Nuevo recurso
+      </AdminButton>
+    </AdminPageActions>
 
-    <p v-if="loading" role="status" class="text-sm text-slate-600">Cargando…</p>
-    <div v-else-if="loadError" role="alert" class="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-      {{ loadError }}
-      <button type="button" class="ml-2 underline" data-testid="governance-retry" @click="load">Reintentar</button>
+    <div v-if="loading && !overview" class="adm-card adm-table-skeleton" role="status" aria-busy="true">
+      <span class="sr-only">Cargando…</span>
+      <div v-for="row in 4" :key="row"><i /><i /><i /><i /></div>
     </div>
-    <p v-if="actionError" role="alert" class="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">
-      {{ actionError }}
-    </p>
-    <p v-if="notice" role="status" class="rounded-lg border border-green-300 bg-green-50 p-3 text-sm text-green-800">
-      {{ notice }}
-    </p>
+    <AdminCard v-else-if="loadError" flush>
+      <AdminEmptyState
+        role="alert"
+        variant="error"
+        title="No se ha podido cargar la revisión de contenidos"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <button type="button" class="adm-btn adm-btn--secondary" data-testid="governance-retry" @click="load">
+          <UIcon name="i-lucide-rotate-cw" class="size-4 shrink-0" />
+          Reintentar
+        </button>
+      </AdminEmptyState>
+    </AdminCard>
+    <UAlert
+      v-if="actionError && !drawerOpen"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="actionError"
+    />
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
 
     <template v-if="overview">
-      <section aria-labelledby="calendar-title" class="space-y-3">
-        <h2 id="calendar-title" class="text-lg font-semibold">Calendario de revisión</h2>
-        <p v-if="!overview.governance.length" data-testid="governance-empty" class="text-sm text-slate-600">
-          Sin planes de contenido todavía.
-        </p>
-        <div v-else class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <caption class="sr-only">
-              Planes de revisión de contenido
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col">Recurso</th>
-                <th scope="col">Propietario</th>
-                <th scope="col">Próxima revisión</th>
-                <th scope="col">Confianza</th>
-                <th scope="col">Retirada</th>
-                <th scope="col">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in overview.governance" :key="item.slug" :data-testid="`governance-row-${item.slug}`">
-                <th scope="row">{{ item.slug }}</th>
-                <td>{{ item.ownerName }}</td>
-                <td>{{ item.nextReviewAt }} · {{ BUCKET[item.bucket] }}</td>
-                <td>
-                  {{ item.trust.state }}
-                  <span v-if="item.trust.issues.length" class="block text-xs text-slate-600">{{
-                    item.trust.issues.join(', ')
-                  }}</span>
-                </td>
-                <td>
-                  <template v-if="item.retirement"
-                    >{{ item.retirement.retireAt }} → {{ item.retirement.redirectTo ?? 'sin redirect' }}</template
-                  >
-                  <template v-else>—</template>
-                </td>
-                <td class="space-x-2">
-                  <button type="button" :data-testid="`edit-${item.slug}`" @click="editPlan(item)">Editar</button>
-                  <button
-                    v-if="!item.signedOffAt"
-                    type="button"
-                    :disabled="busy"
-                    :data-testid="`signoff-${item.slug}`"
-                    @click="signOff(item)"
-                  >
-                    Aprobar revisión técnica
-                  </button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <p v-if="overview.unmanagedResources.length" class="text-sm">
-          Recursos sin propietario ni revisión planificada:
-          <strong>{{ overview.unmanagedResources.join(', ') }}</strong>
-        </p>
-      </section>
+      <AdminTabs v-model="view" :tabs="viewTabs" label="Apartados de revisión" />
 
-      <section aria-labelledby="plan-title" class="space-y-3">
-        <h2 id="plan-title" class="text-lg font-semibold">Plan de contenido</h2>
-        <form class="grid gap-3 sm:grid-cols-2" data-testid="plan-form" @submit.prevent="submitPlan">
-          <label class="block text-sm"
-            >Slug del recurso<input
-              v-model="plan.slug"
-              required
-              class="block w-full rounded border p-2"
-              data-testid="plan-slug"
-          /></label>
-          <label class="block text-sm"
-            >Propietario<input v-model="plan.ownerName" required class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >Sensibilidad
-            <select v-model="plan.sensitivity" class="block w-full rounded border p-2">
-              <option value="regulation">Normativa</option>
-              <option value="product">Producto</option>
-              <option value="general">General</option>
-            </select>
-          </label>
-          <label class="block text-sm"
-            >Próxima revisión<input
-              v-model="plan.nextReviewAt"
-              type="date"
-              required
-              class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >Autor
-            <select v-model="plan.authorId" class="block w-full rounded border p-2">
-              <option value="">Sin asignar</option>
-              <option v-for="a in overview.authors" :key="a.id" :value="a.id">{{ a.displayName }}</option>
-            </select>
-          </label>
-          <label class="block text-sm"
-            >Revisor técnico
-            <select v-model="plan.reviewerId" class="block w-full rounded border p-2">
-              <option value="">Sin asignar</option>
-              <option v-for="a in overview.authors" :key="a.id" :value="a.id">{{ a.displayName }}</option>
-            </select>
-          </label>
-          <label class="block text-sm sm:col-span-2"
-            >Fuentes (una por línea: etiqueta | https://url | tipo)
-            <textarea v-model="plan.sources" rows="3" class="block w-full rounded border p-2" />
-          </label>
-          <label class="block text-sm sm:col-span-2"
-            >Afirmaciones (categoría | texto | nº de fuente)
-            <textarea v-model="plan.claims" rows="3" class="block w-full rounded border p-2" />
-          </label>
-          <label class="block text-sm"
-            >Retirada planificada<input v-model="plan.retireAt" type="date" class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >Redirect interno<input
-              v-model="plan.redirectTo"
-              placeholder="/recursos/nueva"
-              class="block w-full rounded border p-2"
-          /></label>
-          <button type="submit" :disabled="busy" class="rounded bg-blue-600 px-4 py-2 text-white sm:col-span-2">
-            Guardar plan
-          </button>
-        </form>
-      </section>
+      <template v-if="view === 'calendar'">
+        <UAlert
+          v-if="overview.unmanagedResources.length"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-calendar-x"
+          title="Hay páginas sin responsable ni revisión planificada"
+          :description="overview.unmanagedResources.join(', ')"
+        />
+        <AdminCard aria-labelledby="calendar-title" flush>
+          <template #title><span id="calendar-title">Calendario de revisión</span></template>
+          <AdminEmptyState
+            v-if="!overview.governance.length"
+            data-testid="governance-empty"
+            icon="i-lucide-calendar-check"
+            title="Todavía no hay planes de revisión"
+            description="Asigna a cada página un responsable y una fecha para volver a revisarla."
+          >
+            <AdminButton icon="i-lucide-plus" @click="newPlan">Nuevo plan de revisión</AdminButton>
+          </AdminEmptyState>
+          <div v-else class="adm-table-wrap">
+            <table class="adm-table">
+              <caption class="sr-only">
+                Planes de revisión de contenido
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Página</th>
+                  <th scope="col">Responsable</th>
+                  <th scope="col">Próxima revisión</th>
+                  <th scope="col">Estado</th>
+                  <th scope="col">Retirada</th>
+                  <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in overview.governance" :key="item.slug" :data-testid="`governance-row-${item.slug}`">
+                  <th scope="row" class="font-semibold text-[var(--text-strong)]">{{ item.slug }}</th>
+                  <td>{{ item.ownerName }}</td>
+                  <td>
+                    {{ adminDate(item.nextReviewAt) }}
+                    <AdminBadge :tone="BUCKET_TONE[item.bucket] ?? 'neutral'" plain class="ml-1">
+                      {{ BUCKET[item.bucket] }}
+                    </AdminBadge>
+                  </td>
+                  <td>
+                    <AdminBadge :tone="TRUST[item.trust.state]?.[1] ?? 'neutral'">
+                      {{ TRUST[item.trust.state]?.[0] ?? adminHumanize(item.trust.state) }}
+                    </AdminBadge>
+                    <span v-if="item.trust.issues.length" class="adm-help block">{{
+                      item.trust.issues.map(issueLabel).join(' · ')
+                    }}</span>
+                  </td>
+                  <td>
+                    <template v-if="item.retirement">
+                      {{ adminDate(item.retirement.retireAt) }}
+                      <span class="adm-help block">
+                        {{ item.retirement.redirectTo ? `Llevará a ${item.retirement.redirectTo}` : 'Sin redirección' }}
+                      </span>
+                    </template>
+                    <template v-else>—</template>
+                  </td>
+                  <td data-numeric class="adm-table__actions">
+                    <button
+                      v-if="!item.signedOffAt"
+                      type="button"
+                      class="adm-btn adm-btn--secondary adm-btn--sm"
+                      :disabled="busy"
+                      :data-testid="`signoff-${item.slug}`"
+                      @click="signOff(item)"
+                    >
+                      Dar por revisada
+                    </button>
+                    <button
+                      type="button"
+                      class="adm-btn adm-btn--ghost adm-btn--sm"
+                      :data-testid="`edit-${item.slug}`"
+                      @click="openPlan(item)"
+                    >
+                      Editar
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </AdminCard>
+      </template>
 
-      <section aria-labelledby="authors-title" class="space-y-3">
-        <h2 id="authors-title" class="text-lg font-semibold">Autores y revisores</h2>
-        <ul class="text-sm">
-          <li v-for="a in overview.authors" :key="a.id">{{ a.displayName }} · {{ a.status }}</li>
+      <AdminCard v-else-if="view === 'people'" aria-labelledby="authors-title" flush>
+        <template #title><span id="authors-title">Autores y revisores</span></template>
+        <AdminEmptyState
+          v-if="!overview.authors.length"
+          icon="i-lucide-user-pen"
+          title="Todavía no hay autores ni revisores"
+          description="Añade a las personas que firman o revisan los contenidos."
+        >
+          <AdminButton icon="i-lucide-plus" @click="authorOpen = true">Añadir persona</AdminButton>
+        </AdminEmptyState>
+        <ul v-else class="adm-list">
+          <li v-for="a in overview.authors" :key="a.id">
+            <p class="adm-list__title min-w-0 flex-1">{{ a.displayName }}</p>
+            <AdminBadge :status="a.status" />
+          </li>
         </ul>
-        <form class="grid gap-3" data-testid="author-form" @submit.prevent="submitAuthor">
-          <label class="block text-sm"
-            >Nombre<input
-              v-model="author.name"
-              required
-              class="block w-full rounded border p-2"
-              data-testid="author-name"
-          /></label>
-          <label class="block text-sm"
-            >Biografía<textarea
-              v-model="author.bio"
-              required
-              class="block w-full rounded border p-2"
-              data-testid="author-bio"
-            />
-          </label>
-          <label class="block text-sm"
-            >Experiencia relevante<textarea
-              v-model="author.experience"
-              required
-              class="block w-full rounded border p-2"
-              data-testid="author-experience"
-            />
-          </label>
-          <label class="block text-sm"
-            >Credenciales (solo si las aporta la persona)<input
-              v-model="author.credentials"
-              class="block w-full rounded border p-2"
-              data-testid="author-credentials"
-          /></label>
-          <button type="submit" :disabled="busy" class="rounded bg-blue-600 px-4 py-2 text-white">
-            Añadir persona
-          </button>
-        </form>
-      </section>
+      </AdminCard>
 
-      <section aria-labelledby="assets-title" class="space-y-3">
-        <h2 id="assets-title" class="text-lg font-semibold">Activos enlazables</h2>
-        <ul class="space-y-1 text-sm">
+      <AdminCard
+        v-else
+        aria-labelledby="assets-title"
+        description="Listas, guías, comparativas y estudios que otras webs pueden enlazar."
+        flush
+      >
+        <template #title><span id="assets-title">Recursos descargables</span></template>
+        <AdminEmptyState
+          v-if="!overview.assets.length"
+          icon="i-lucide-file-chart-column"
+          title="Todavía no hay recursos"
+          description="Crea el primero: se guarda como borrador hasta que lo publiques."
+        >
+          <AdminButton icon="i-lucide-plus" @click="newAsset">Nuevo recurso</AdminButton>
+        </AdminEmptyState>
+        <ul v-else class="adm-list">
           <li v-for="a in overview.assets" :key="a.slug">
-            {{ a.title }} ({{ a.kind }}) · {{ a.status }} · datos a {{ a.dataAsOf }}
-            <button type="button" @click="editAsset(a)">Editar</button>
+            <div class="min-w-0 flex-1">
+              <p class="adm-list__title">
+                {{ a.title }}
+                <AdminBadge :tone="ASSET_STATUS[a.status]?.[1] ?? 'neutral'">
+                  {{ ASSET_STATUS[a.status]?.[0] ?? adminHumanize(a.status) }}
+                </AdminBadge>
+              </p>
+              <p class="adm-help">
+                {{ KIND_LABELS[a.kind] ?? adminHumanize(a.kind) }} · datos del {{ adminDate(a.dataAsOf) }}
+              </p>
+            </div>
             <button
               v-if="a.status === 'draft'"
               type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
               :disabled="busy"
               :data-testid="`publish-${a.slug}`"
               @click="transition('publish_asset', a)"
@@ -436,54 +544,205 @@ onMounted(load)
             <button
               v-if="a.status !== 'retired'"
               type="button"
+              class="adm-btn adm-btn--ghost adm-btn--sm"
               :disabled="busy"
               :data-testid="`retire-${a.slug}`"
-              @click="transition('retire_asset', a)"
+              @click="assetToRetire = a"
             >
               Retirar
             </button>
+            <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" @click="openAsset(a)">Editar</button>
           </li>
         </ul>
-        <form class="grid gap-3" data-testid="asset-form" @submit.prevent="submitAsset">
-          <label class="block text-sm"
-            >Slug<input v-model="asset.slug" required class="block w-full rounded border p-2" data-testid="asset-slug"
-          /></label>
-          <label class="block text-sm"
-            >Tipo
-            <select v-model="asset.kind" class="block w-full rounded border p-2">
-              <option v-for="k in KINDS" :key="k" :value="k">{{ k }}</option>
-            </select>
-          </label>
-          <label class="block text-sm"
-            >Título<input v-model="asset.title" required class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >Resumen<input v-model="asset.summary" required class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >Metodología<textarea v-model="asset.methodology" required class="block w-full rounded border p-2" />
-          </label>
-          <label class="block text-sm"
-            >Datos a fecha de<input
-              v-model="asset.dataAsOf"
-              type="date"
+      </AdminCard>
+
+      <AdminDrawer
+        v-model:open="planOpen"
+        :title="plan.expectedVersion ? 'Editar plan de revisión' : 'Nuevo plan de revisión'"
+        wide
+      >
+        <form
+          id="governance-plan-form"
+          class="adm-stack"
+          aria-labelledby="plan-title"
+          data-testid="plan-form"
+          @submit.prevent="savePlan"
+        >
+          <span id="plan-title" class="sr-only">Plan de revisión</span>
+          <UAlert
+            v-if="actionError"
+            role="alert"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            :title="actionError"
+          />
+          <div class="adm-form-grid">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Página"
+              help="El final de su dirección, por ejemplo: guia-desinfeccion."
               required
-              class="block w-full rounded border p-2"
-          /></label>
-          <label class="block text-sm"
-            >Contenido (JSON)<textarea
+            >
+              <input :id="id" v-model="plan.slug" required data-testid="plan-slug" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Responsable" required>
+              <input :id="id" v-model="plan.ownerName" required />
+            </AdminFormField>
+            <AdminFormField
+              v-slot="{ id }"
+              label="Tipo de contenido"
+              help="Los de normativa se revisan con más frecuencia."
+            >
+              <select :id="id" v-model="plan.sensitivity">
+                <option value="regulation">Normativa</option>
+                <option value="product">Producto</option>
+                <option value="general">General</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Próxima revisión" required>
+              <input :id="id" v-model="plan.nextReviewAt" type="date" required />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Autor">
+              <select :id="id" v-model="plan.authorId">
+                <option value="">Sin asignar</option>
+                <option v-for="a in overview.authors" :key="a.id" :value="a.id">{{ a.displayName }}</option>
+              </select>
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Revisor técnico">
+              <select :id="id" v-model="plan.reviewerId">
+                <option value="">Sin asignar</option>
+                <option v-for="a in overview.authors" :key="a.id" :value="a.id">{{ a.displayName }}</option>
+              </select>
+            </AdminFormField>
+          </div>
+          <AdminFormField v-slot="{ id }" label="Fuentes" help="Una por línea: nombre | https://direccion | tipo">
+            <textarea :id="id" v-model="plan.sources" rows="3" class="w-full" />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Afirmaciones que hay que respaldar"
+            help="Una por línea: categoría | texto | n.º de la fuente que la respalda"
+          >
+            <textarea :id="id" v-model="plan.claims" rows="3" class="w-full" />
+          </AdminFormField>
+          <div class="adm-form-grid">
+            <AdminFormField v-slot="{ id }" label="Fecha de retirada" help="Opcional.">
+              <input :id="id" v-model="plan.retireAt" type="date" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Página a la que llevar después" help="Opcional.">
+              <input :id="id" v-model="plan.redirectTo" placeholder="/recursos/nueva" />
+            </AdminFormField>
+          </div>
+        </form>
+        <template #footer>
+          <AdminButton @click="planOpen = false">Cancelar</AdminButton>
+          <button type="submit" form="governance-plan-form" :disabled="busy" class="adm-btn adm-btn--primary">
+            Guardar plan
+          </button>
+        </template>
+      </AdminDrawer>
+
+      <AdminDrawer v-model:open="authorOpen" title="Añadir autor o revisor">
+        <form id="governance-author-form" class="adm-stack" data-testid="author-form" @submit.prevent="saveAuthor">
+          <UAlert
+            v-if="actionError"
+            role="alert"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            :title="actionError"
+          />
+          <AdminFormField v-slot="{ id }" label="Nombre" required>
+            <input :id="id" v-model="author.name" required data-testid="author-name" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Biografía" required>
+            <textarea :id="id" v-model="author.bio" required class="w-full" data-testid="author-bio" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Experiencia relevante" required>
+            <textarea :id="id" v-model="author.experience" required class="w-full" data-testid="author-experience" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Titulación" help="Solo si la aporta la propia persona.">
+            <input :id="id" v-model="author.credentials" data-testid="author-credentials" />
+          </AdminFormField>
+        </form>
+        <template #footer>
+          <AdminButton @click="authorOpen = false">Cancelar</AdminButton>
+          <button type="submit" form="governance-author-form" :disabled="busy" class="adm-btn adm-btn--primary">
+            Añadir persona
+          </button>
+        </template>
+      </AdminDrawer>
+
+      <AdminDrawer v-model:open="assetOpen" :title="asset.expectedVersion ? 'Editar recurso' : 'Nuevo recurso'" wide>
+        <form id="governance-asset-form" class="adm-stack" data-testid="asset-form" @submit.prevent="saveAsset">
+          <UAlert
+            v-if="actionError"
+            role="alert"
+            color="error"
+            variant="subtle"
+            icon="i-lucide-triangle-alert"
+            :title="actionError"
+          />
+          <div class="adm-form-grid">
+            <AdminFormField
+              v-slot="{ id }"
+              label="Dirección"
+              help="Solo minúsculas y guiones: comparativa-desengrasantes."
+              required
+            >
+              <input :id="id" v-model="asset.slug" required data-testid="asset-slug" />
+            </AdminFormField>
+            <AdminFormField v-slot="{ id }" label="Tipo">
+              <select :id="id" v-model="asset.kind">
+                <option v-for="k in KINDS" :key="k" :value="k">{{ KIND_LABELS[k] }}</option>
+              </select>
+            </AdminFormField>
+          </div>
+          <AdminFormField v-slot="{ id }" label="Título" required>
+            <input :id="id" v-model="asset.title" required />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Resumen" required>
+            <input :id="id" v-model="asset.summary" required />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Cómo se han obtenido los datos" required>
+            <textarea :id="id" v-model="asset.methodology" required class="w-full" />
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Fecha de los datos" required>
+            <input :id="id" v-model="asset.dataAsOf" type="date" required />
+          </AdminFormField>
+          <AdminFormField
+            v-slot="{ id }"
+            label="Contenido"
+            help="Formato técnico estructurado. Si no lo conoces, pide ayuda a quien mantiene la tienda."
+            required
+          >
+            <textarea
+              :id="id"
               v-model="asset.payload"
-              rows="6"
+              rows="8"
               required
-              class="block w-full rounded border p-2 font-mono"
+              class="w-full font-mono text-[0.8125rem]"
               data-testid="asset-payload"
             />
-          </label>
-          <button type="submit" :disabled="busy" class="rounded bg-blue-600 px-4 py-2 text-white">
-            Guardar activo (borrador)
-          </button>
+          </AdminFormField>
         </form>
-      </section>
+        <template #footer>
+          <AdminButton @click="assetOpen = false">Cancelar</AdminButton>
+          <button type="submit" form="governance-asset-form" :disabled="busy" class="adm-btn adm-btn--primary">
+            Guardar como borrador
+          </button>
+        </template>
+      </AdminDrawer>
+
+      <AdminConfirm
+        v-model:open="confirmRetire"
+        title="Retirar recurso"
+        :description="`«${assetToRetire?.title ?? ''}» dejará de estar disponible en la tienda.`"
+        confirm-label="Retirar"
+        danger
+        @confirm="retireAsset"
+      />
     </template>
   </div>
 </template>

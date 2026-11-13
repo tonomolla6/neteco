@@ -218,7 +218,7 @@ onMounted(() => {
               v-model="form.carrierAccountCarrier"
               name="carrierAccountCarrier"
               type="text"
-              placeholder="p. ej. SEUR, DHL, Correos Express"
+              placeholder="p. Ej. SEUR, DHL, Correos Express"
               class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-neteco-500 focus:outline-none focus:ring-1 focus:ring-neteco-500"
             />
           </div>
@@ -231,7 +231,7 @@ onMounted(() => {
               v-model="form.carrierAccountNumber"
               name="carrierAccountNumber"
               type="text"
-              placeholder="p. ej. ACC-98765432"
+              placeholder="p. Ej. ACC-98765432"
               class="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-neteco-500 focus:outline-none focus:ring-1 focus:ring-neteco-500"
             />
           </div>

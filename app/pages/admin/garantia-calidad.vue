@@ -2,11 +2,11 @@
 import AdminQualityAssuranceSuite from '~/components/AdminQualityAssuranceSuite.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Garantía de calidad y tests · Admin', robots: 'noindex, nofollow, noarchive' })
+useSeoMeta({ title: 'Pruebas · Admin', robots: 'noindex, nofollow, noarchive' })
 </script>
 
 <template>
-  <div>
+  <AdminPage>
     <AdminQualityAssuranceSuite />
-  </div>
+  </AdminPage>
 </template>

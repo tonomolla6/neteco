@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 export type TabKey = 'contracts' | 'faults' | 'webhooks'
 
@@ -148,314 +148,252 @@ async function runFaultSimulation() {
 onMounted(() => {
   loadData()
 })
+
+// ── Presentación ───────────────────────────────────────────────────────────
+const PROVIDERS: Record<string, string> = {
+  beply: 'Facturación (Beply)',
+  redsys: 'Pagos con tarjeta (Redsys)',
+  carrier: 'Transportista',
+  webhook: 'Avisos web'
+}
+const providerLabel = (code: string) => PROVIDERS[code] ?? adminHumanize(code)
+const RUN_STATUS: Record<string, [string, 'success' | 'danger' | 'warning' | 'neutral']> = {
+  passed: ['Superada', 'success'],
+  failed: ['Fallida', 'danger'],
+  running: ['En curso', 'warning'],
+  skipped: ['Omitida', 'neutral']
+}
+const topicLabel = (topic: string) => adminHumanize(topic.replace(/\./g, ' '))
+const failedDeliveries = computed(() => deliveries.value.filter((d) => d.status === 'dead_letter'))
+const shortId = (id: string) => `#${id.slice(0, 8).toUpperCase()}`
+const tabs: Array<{ value: TabKey; label: string }> = [
+  { value: 'contracts', label: 'Pruebas de conexión' },
+  { value: 'faults', label: 'Simulación de fallos' },
+  { value: 'webhooks', label: 'Avisos web' }
+]
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="border-b border-gray-200 pb-5 sm:flex sm:items-center sm:justify-between">
-      <div>
-        <h1 class="text-2xl font-bold tracking-tight text-gray-900">Integraciones, Sandboxes y Webhooks</h1>
-        <p class="mt-1 text-sm text-gray-500">
-          Supervisión de pruebas de contrato periódicas (INT-018), inyección de fallos controlada (INT-019) y entrega de
-          webhooks salientes (INT-021).
-        </p>
+  <div class="adm-stack">
+    <div v-if="loading" class="adm-card" role="status">
+      <div class="adm-table-skeleton" aria-busy="true">
+        <span class="sr-only">Cargando panel de integraciones…</span>
+        <div v-for="row in 4" :key="row"><i /><i /><i /></div>
       </div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="loading" class="rounded-lg border border-gray-200 bg-white p-12 text-center shadow-sm">
-      <div
-        class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-indigo-600 border-r-transparent align-[-0.125em]"
-      />
-      <p class="mt-4 text-sm font-medium text-gray-700">Cargando panel de integraciones...</p>
-    </div>
-
-    <!-- Error State -->
-    <div
-      v-else-if="errorMessage && quotas.length === 0"
-      class="rounded-lg border border-red-200 bg-red-50 p-6 shadow-sm"
-    >
-      <div class="flex items-center">
-        <div class="text-sm text-red-700">
-          <p class="font-semibold">No se pudieron cargar las integraciones</p>
-          <p class="mt-1 text-xs text-red-600">{{ errorMessage }}</p>
-        </div>
-      </div>
-      <div class="mt-4">
-        <button
-          type="button"
-          data-testid="retry-load-button"
-          class="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
-          @click="loadData"
-        >
+    <div v-else-if="errorMessage && quotas.length === 0" class="adm-card">
+      <AdminEmptyState
+        variant="error"
+        title="No se pudieron cargar las integraciones"
+        description="El servicio no ha respondido. Vuelve a intentarlo en unos minutos."
+      >
+        <button type="button" data-testid="retry-load-button" class="adm-btn adm-btn--secondary" @click="loadData">
           Reintentar
         </button>
-      </div>
+      </AdminEmptyState>
     </div>
 
-    <!-- Main Content -->
-    <div v-else class="space-y-6">
-      <!-- Tabs Navigation -->
-      <div class="border-b border-gray-200">
-        <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-          <button
-            type="button"
-            data-tab="contracts"
-            :class="[
-              activeTab === 'contracts'
-                ? 'border-indigo-500 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-              'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium'
-            ]"
-            @click="activeTab = 'contracts'"
-          >
-            Contratos Sandbox
-          </button>
-          <button
-            type="button"
-            data-tab="faults"
-            :class="[
-              activeTab === 'faults'
-                ? 'border-indigo-500 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-              'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium'
-            ]"
-            @click="activeTab = 'faults'"
-          >
-            Inyección de Fallos
-          </button>
-          <button
-            type="button"
-            data-tab="webhooks"
-            :class="[
-              activeTab === 'webhooks'
-                ? 'border-indigo-500 text-indigo-600'
-                : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-              'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium'
-            ]"
-            @click="activeTab = 'webhooks'"
-          >
-            Webhooks Salientes
-          </button>
-        </nav>
+    <template v-else>
+      <div class="adm-tabs" role="tablist" aria-label="Apartados de integraciones">
+        <button
+          v-for="entry in tabs"
+          :key="entry.value"
+          type="button"
+          role="tab"
+          class="adm-tab"
+          :data-tab="entry.value"
+          :aria-selected="activeTab === entry.value"
+          @click="activeTab = entry.value"
+        >
+          {{ entry.label }}
+        </button>
       </div>
 
-      <!-- Tab 1: Contratos Sandbox (INT-018) -->
-      <div v-if="activeTab === 'contracts'" class="space-y-6">
-        <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-base font-semibold leading-6 text-gray-900">Presupuesto de Cuotas</h2>
-            <p class="mt-1 text-xs text-gray-500">
-              Control de tasa y volumen contra entornos sandbox para prevenir rate limiting y costes imprevistos.
-            </p>
+      <UAlert
+        v-if="errorMessage"
+        role="alert"
+        color="error"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="No se ha podido completar la operación"
+        description="Vuelve a intentarlo. Si el problema sigue, recarga la página."
+      />
+
+      <!-- Pruebas de conexión -->
+      <div v-if="activeTab === 'contracts'" class="adm-stack">
+        <AdminSection
+          title="Uso de los entornos de pruebas"
+          description="Cuántas llamadas de prueba se han hecho a cada servicio y cuál es su límite."
+        >
+          <div class="adm-grid">
+            <AdminStat
+              v-for="q in quotas"
+              :key="q.provider"
+              :label="providerLabel(q.provider)"
+              :value="`${q.dailyUsed} / ${q.dailyLimit}`"
+              :hint="`Hoy · ${q.hourlyUsed} de ${q.hourlyLimit} en la última hora`"
+            />
           </div>
-          <div class="p-6">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <div v-for="q in quotas" :key="q.provider" class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-                <div class="flex items-center justify-between">
-                  <span class="font-mono text-sm font-bold uppercase text-gray-800">{{ q.provider }}</span>
-                  <span class="rounded bg-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-700">Sandbox</span>
-                </div>
-                <div class="mt-3 space-y-1 text-xs text-gray-600">
-                  <p>
-                    Límite Diario: <span class="font-semibold">{{ q.dailyUsed }} / {{ q.dailyLimit }}</span>
-                  </p>
-                  <p>
-                    Límite Horario: <span class="font-semibold">{{ q.hourlyUsed }} / {{ q.hourlyLimit }}</span>
-                  </p>
-                </div>
+        </AdminSection>
+
+        <AdminCard title="Últimas pruebas de conexión" flush>
+          <AdminEmptyState
+            v-if="runs.length === 0"
+            compact
+            icon="i-lucide-flask-conical"
+            title="Todavía no se ha hecho ninguna prueba"
+            description="Aquí verás el resultado de las comprobaciones automáticas con cada servicio."
+          />
+          <ul v-else class="adm-list">
+            <li v-for="run in runs" :key="run.id">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">{{ run.suiteName }}</p>
+                <p class="adm-help">
+                  {{ providerLabel(run.provider) }} · {{ adminDate(run.createdAt, true) }} · {{ run.durationMs }} ms
+                </p>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Historial de ejecuciones -->
-        <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-base font-semibold leading-6 text-gray-900">Ejecuciones de Pruebas de Contrato</h2>
-          </div>
-          <div class="p-6">
-            <div v-if="runs.length === 0" class="text-center py-6 text-sm text-gray-500">
-              No hay ejecuciones recientes de contratos sandbox registradas.
-            </div>
-            <ul v-else class="divide-y divide-gray-200 text-sm">
-              <li v-for="run in runs" :key="run.id" class="py-3 flex justify-between items-center">
-                <div>
-                  <span class="font-medium text-gray-900">{{ run.suiteName }}</span>
-                  <span class="ml-2 text-xs text-gray-500 font-mono">{{ run.provider }}</span>
-                </div>
-                <div class="flex items-center space-x-3">
-                  <span
-                    :class="[
-                      run.status === 'passed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800',
-                      'rounded-full px-2.5 py-0.5 text-xs font-medium'
-                    ]"
-                  >
-                    {{ run.status }}
-                  </span>
-                  <span class="text-xs text-gray-400">{{ run.durationMs }}ms</span>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </div>
+              <AdminBadge v-if="run.driftCount > 0" tone="warning" plain>
+                {{ run.driftCount }} {{ run.driftCount === 1 ? 'cambio detectado' : 'cambios detectados' }}
+              </AdminBadge>
+              <AdminBadge :tone="RUN_STATUS[run.status]?.[1] ?? 'neutral'">
+                {{ RUN_STATUS[run.status]?.[0] ?? adminStatusLabel(run.status) }}
+              </AdminBadge>
+            </li>
+          </ul>
+        </AdminCard>
       </div>
 
-      <!-- Tab 2: Inyección de Fallos (INT-019) -->
-      <div v-if="activeTab === 'faults'" class="space-y-6">
-        <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-base font-semibold leading-6 text-gray-900">Banco de Pruebas de Resiliencia</h2>
-            <p class="mt-1 text-xs text-gray-500">
-              Inyección controlada de timeouts, HTTP 500, HTTP 401, payloads truncados y duplicados para certificar que
-              el sistema recupera limpiamente sin corromper la base de datos.
-            </p>
-          </div>
-          <div class="p-6 space-y-4">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <label class="block text-xs font-medium text-gray-700">Proveedor</label>
-                <select
-                  v-model="simProvider"
-                  class="mt-1 block w-full rounded-md border-gray-300 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                >
-                  <option value="beply">Beply (Facturación)</option>
-                  <option value="redsys">Redsys (Pasarela)</option>
+      <!-- Simulación de fallos -->
+      <div v-if="activeTab === 'faults'" class="adm-stack">
+        <AdminCard
+          title="Simular un fallo"
+          description="Provoca un fallo controlado en un servicio externo para comprobar que la tienda se recupera sin perder ni duplicar datos."
+        >
+          <div class="adm-stack">
+            <div class="adm-form-grid">
+              <AdminFormField v-slot="{ id }" label="Servicio">
+                <select :id="id" v-model="simProvider" class="adm-input">
+                  <option value="beply">Facturación (Beply)</option>
+                  <option value="redsys">Pagos con tarjeta (Redsys)</option>
                   <option value="carrier">Transportista</option>
-                  <option value="webhook">Webhook saliente</option>
+                  <option value="webhook">Aviso web saliente</option>
                 </select>
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-700">Tipo de Fallo</label>
-                <select
-                  v-model="simFaultType"
-                  class="mt-1 block w-full rounded-md border-gray-300 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                >
-                  <option value="timeout">Timeout de conexión</option>
-                  <option value="http_500">HTTP 500 Error Interno</option>
-                  <option value="http_401">HTTP 401 No Autorizado</option>
-                  <option value="partial_payload">Payload parcial / corrupto</option>
-                  <option value="duplicate">Mensaje / Orden duplicada</option>
-                  <option value="latency">Latencia anómala</option>
+              </AdminFormField>
+              <AdminFormField v-slot="{ id }" label="Tipo de fallo">
+                <select :id="id" v-model="simFaultType" class="adm-input">
+                  <option value="timeout">El servicio no responde a tiempo</option>
+                  <option value="http_500">El servicio devuelve un error interno</option>
+                  <option value="http_401">El servicio rechaza las credenciales</option>
+                  <option value="partial_payload">La respuesta llega incompleta</option>
+                  <option value="duplicate">El mensaje llega duplicado</option>
+                  <option value="latency">El servicio responde muy lento</option>
                 </select>
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-gray-700">Entidad de Prueba</label>
-                <input
-                  v-model="simTargetEntityId"
-                  type="text"
-                  class="mt-1 block w-full rounded-md border-gray-300 py-1.5 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 font-mono"
-                />
-              </div>
+              </AdminFormField>
+              <AdminFormField
+                v-slot="{ id }"
+                label="Referencia de prueba"
+                help="Identificador ficticio sobre el que se simula el fallo."
+              >
+                <input :id="id" v-model="simTargetEntityId" type="text" class="adm-input" />
+              </AdminFormField>
             </div>
-
-            <div class="pt-2">
+            <div>
               <button
                 type="button"
                 data-testid="run-fault-simulation"
                 :disabled="busy"
-                class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50"
+                class="adm-btn adm-btn--primary"
                 @click="runFaultSimulation"
               >
                 Simular fallo y probar recuperación
               </button>
             </div>
 
-            <!-- Veredicto de simulación -->
-            <div v-if="simulationResult" class="mt-6 rounded-md border border-green-200 bg-green-50 p-4 text-green-900">
-              <div class="flex items-center space-x-2">
-                <span class="rounded bg-green-600 px-2 py-0.5 text-xs font-bold text-white uppercase"
-                  >Veredicto Certificado</span
-                >
-                <span class="font-semibold">Recuperado con éxito</span>
-                <span class="rounded bg-green-200 px-2 py-0.5 text-xs font-semibold text-green-800"
-                  >100% Sin corrupción</span
-                >
-              </div>
-              <div class="mt-2 text-xs space-y-1 text-green-800">
-                <p>
-                  Acción ejecutada: <span class="font-mono font-semibold">{{ simulationResult.recoveryAction }}</span>
-                </p>
-                <p>
-                  Consistencia de estado verificada:
-                  <span class="font-semibold">{{ simulationResult.stateConsistent ? 'SÍ' : 'NO' }}</span>
-                </p>
-                <pre class="mt-2 rounded bg-green-100 p-2 font-mono text-xs overflow-x-auto">{{
-                  JSON.stringify(simulationResult.auditDetails, null, 2)
-                }}</pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab 3: Webhooks Salientes (INT-021) -->
-      <div v-if="activeTab === 'webhooks'" class="space-y-6">
-        <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-base font-semibold leading-6 text-gray-900">Suscripciones a Webhooks</h2>
-            <p class="mt-1 text-xs text-gray-500">
-              Webhooks HTTPS para clientes con firma HMAC SHA-256, rotación de secretos sin caída y payloads
-              minimizados.
-            </p>
-          </div>
-          <div class="p-6">
-            <div v-if="subscriptions.length === 0" class="text-center py-6 text-sm text-gray-500">
-              No hay suscripciones a webhooks configuradas.
-            </div>
-            <ul v-else class="divide-y divide-gray-200 text-sm">
-              <li v-for="sub in subscriptions" :key="sub.id" class="py-3 flex justify-between items-center">
-                <div>
-                  <p class="font-medium text-gray-900">{{ sub.url }}</p>
-                  <p class="text-xs text-gray-500">{{ sub.description }} · Eventos: {{ sub.topics.join(', ') }}</p>
-                </div>
-                <div class="flex items-center space-x-2">
-                  <span class="rounded bg-indigo-50 px-2 py-1 text-xs font-mono text-indigo-700"
-                    >v{{ sub.version }}</span
-                  >
-                  <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">{{
-                    sub.status
-                  }}</span>
-                </div>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div class="border-b border-gray-200 px-6 py-4">
-            <h2 class="text-base font-semibold leading-6 text-gray-900">Cola de Dead-Letter (DLQ)</h2>
-            <p class="mt-1 text-xs text-gray-500">
-              Entregas que agotaron el número máximo de reintentos (5) o devolvieron HTTP 410. Permite reprocesamiento
-              manual seguro (replay).
-            </p>
-          </div>
-          <div class="p-6">
-            <div
-              v-if="deliveries.filter((d) => d.status === 'dead_letter').length === 0"
-              class="text-center py-6 text-sm text-gray-500"
+            <UAlert
+              v-if="simulationResult"
+              role="status"
+              :color="simulationResult.recovered && simulationResult.stateConsistent ? 'success' : 'error'"
+              variant="subtle"
+              :icon="
+                simulationResult.recovered && simulationResult.stateConsistent
+                  ? 'i-lucide-circle-check'
+                  : 'i-lucide-triangle-alert'
+              "
+              :title="simulationResult.recovered ? 'Recuperado con éxito' : 'La tienda no se ha recuperado sola'"
             >
-              No hay entregas pendientes en la cola de Dead-Letter (DLQ). Todas las entregas están operando normalmente.
-            </div>
-            <ul v-else class="divide-y divide-gray-200 text-sm">
-              <li
-                v-for="del in deliveries.filter((d) => d.status === 'dead_letter')"
-                :key="del.id"
-                class="py-3 flex justify-between items-center"
-              >
-                <div>
-                  <p class="font-mono text-xs text-red-600 font-semibold">{{ del.topic }} (ID: {{ del.id }})</p>
-                  <p class="text-xs text-gray-500">
-                    Intentos agotados: {{ del.attempts }} / {{ del.maxAttempts }} · Error: {{ del.lastError }}
-                  </p>
-                </div>
-                <span class="rounded bg-red-100 px-2 py-1 text-xs font-semibold text-red-800">Dead Letter</span>
-              </li>
-            </ul>
+              <template #description>
+                <p>
+                  {{
+                    simulationResult.stateConsistent
+                      ? 'Los datos han quedado correctos, sin pérdidas ni duplicados.'
+                      : 'Los datos han quedado inconsistentes: revisa el detalle.'
+                  }}
+                </p>
+                <p>Acción aplicada: {{ adminHumanize(simulationResult.recoveryAction) }}</p>
+                <details class="mt-2">
+                  <summary class="cursor-pointer">Detalle técnico</summary>
+                  <pre
+                    class="mt-2 overflow-x-auto rounded-[var(--radius-control)] bg-[var(--surface-sunken)] p-2 text-xs"
+                    >{{ JSON.stringify(simulationResult.auditDetails, null, 2) }}</pre>
+                </details>
+              </template>
+            </UAlert>
           </div>
-        </div>
+        </AdminCard>
       </div>
-    </div>
+
+      <!-- Avisos web -->
+      <div v-if="activeTab === 'webhooks'" class="adm-stack">
+        <AdminCard
+          title="Destinos de avisos"
+          description="Direcciones de clientes a las que la tienda avisa automáticamente cuando ocurre algo (por ejemplo, un pedido nuevo)."
+          flush
+        >
+          <AdminEmptyState
+            v-if="subscriptions.length === 0"
+            compact
+            icon="i-lucide-send"
+            title="No hay destinos de avisos configurados"
+          />
+          <ul v-else class="adm-list">
+            <li v-for="sub in subscriptions" :key="sub.id">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title break-all">{{ sub.url }}</p>
+                <p class="adm-help">{{ sub.description }} · avisa de: {{ sub.topics.map(topicLabel).join(', ') }}</p>
+              </div>
+              <AdminBadge :status="sub.status" />
+            </li>
+          </ul>
+        </AdminCard>
+
+        <AdminCard
+          title="Avisos fallidos"
+          description="Avisos que no se pudieron entregar después de varios intentos."
+          flush
+        >
+          <AdminEmptyState
+            v-if="failedDeliveries.length === 0"
+            compact
+            icon="i-lucide-circle-check"
+            title="No hay avisos fallidos"
+            description="Todos los avisos se están entregando con normalidad."
+          />
+          <ul v-else class="adm-list">
+            <li v-for="del in failedDeliveries" :key="del.id">
+              <div class="min-w-0 flex-1">
+                <p class="adm-list__title">{{ topicLabel(del.topic) }} · {{ shortId(del.id) }}</p>
+                <p class="adm-help">
+                  {{ del.attempts }} de {{ del.maxAttempts }} intentos
+                  <template v-if="del.lastHttpStatus"> · respuesta {{ del.lastHttpStatus }}</template>
+                  · {{ adminDate(del.createdAt, true) }}
+                </p>
+              </div>
+              <AdminBadge tone="danger">No entregado</AdminBadge>
+            </li>
+          </ul>
+        </AdminCard>
+      </div>
+    </template>
   </div>
 </template>

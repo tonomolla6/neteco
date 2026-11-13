@@ -586,10 +586,10 @@ const tree: AdminNavigationSection[] = [
           ),
           tab(
             '/admin/recuperacion-navegacion',
-            'Carritos y visitas',
+            'Visitas sin compra',
             'i-lucide-compass',
             A,
-            'Recordatorios a clientes que dejaron una compra a medias.'
+            'Recordatorios a clientes que miraron productos y no compraron.'
           )
         ]
       },

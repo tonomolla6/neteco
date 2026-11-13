@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import type { OperationalAlert, OperationalAlertSeverity, OperationalAlertArea } from '~~/shared/operational-alerts'
 
 const requestFetch = useRequestFetch()
@@ -118,7 +118,7 @@ async function submitAction() {
       method: 'POST',
       body
     })
-    notice.value = `Acción ${actionType.value} ejecutada con éxito.`
+    notice.value = ACTION_DONE[actionType.value]
     activeAlert.value = null
     actionType.value = null
     await loadAlerts()
@@ -129,312 +129,273 @@ async function submitAction() {
   }
 }
 
+const ACTION_DONE = {
+  ack: 'Alerta marcada como atendida.',
+  escalate: 'Alerta escalada al siguiente nivel.',
+  resolve: 'Alerta resuelta.'
+}
+const ACTION_TITLE = { ack: 'Atender alerta', escalate: 'Escalar alerta', resolve: 'Resolver alerta' }
+const SEVERITY: Record<string, [string, 'danger' | 'warning' | 'info']> = {
+  critical: ['Crítica', 'danger'],
+  warning: ['Aviso', 'warning'],
+  info: ['Informativa', 'info']
+}
+const STATUS: Record<string, [string, 'danger' | 'warning' | 'info' | 'success']> = {
+  open: ['Sin atender', 'danger'],
+  acknowledged: ['Atendida', 'info'],
+  escalated: ['Escalada', 'warning'],
+  resolved: ['Resuelta', 'success']
+}
+const AREA: Record<string, string> = { warehouse: 'Almacén', delivery: 'Reparto', general: 'General' }
+const CATEGORY: Record<string, string> = {
+  chemical_spill: 'Derrame químico',
+  hazard_dg_rupture: 'Rotura de mercancía peligrosa',
+  temperature_breach: 'Temperatura fuera de rango',
+  dock_blockage: 'Muelle bloqueado',
+  vehicle_breakdown: 'Avería de vehículo',
+  critical_delivery_delay: 'Retraso grave de reparto',
+  general_operational: 'Incidencia general'
+}
+const TIER: Record<number, string> = {
+  1: 'Equipo de turno',
+  2: 'Jefatura de turno',
+  3: 'Dirección de operaciones',
+  4: 'Comité de crisis'
+}
+const columns = [
+  { key: 'title', label: 'Alerta' },
+  { key: 'severity', label: 'Gravedad' },
+  { key: 'area', label: 'Zona', hideOnMobile: true },
+  { key: 'status', label: 'Estado' },
+  { key: 'createdAt', label: 'Fecha', hideOnMobile: true }
+]
+const search = ref('')
+const rows = computed(() => {
+  const term = search.value.toLowerCase()
+  if (!term) return alerts.value
+  return alerts.value.filter((alert) =>
+    [alert.title, alert.description, alert.locationRef].some((text) => text.toLowerCase().includes(term))
+  )
+})
+const filtering = computed(() => !!search.value || !!filterSeverity.value || !!filterArea.value)
+function clearFilters() {
+  search.value = ''
+  if (filterSeverity.value || filterArea.value) {
+    filterSeverity.value = ''
+    filterArea.value = ''
+    void loadAlerts()
+  }
+}
+
 onMounted(() => {
   loadAlerts()
 })
 </script>
 
 <template>
-  <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div>
-        <h2 class="text-lg font-bold text-neutral-900">Alertas Operativas (Almacén y Reparto)</h2>
-        <p class="text-sm text-neutral-600">
-          Canal redundante para excepciones críticas, ciclo de vida con acuse/escalado y canales auditables (COM-019).
-        </p>
-      </div>
-      <button
-        class="inline-flex items-center rounded-md bg-rose-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
-        @click="showCreateModal = true"
-      >
-        + Nueva Alerta Operativa
-      </button>
-    </div>
+  <div class="adm-stack">
+    <AdminPageActions>
+      <AdminButton variant="primary" icon="i-lucide-plus" @click="showCreateModal = true">Nueva alerta</AdminButton>
+    </AdminPageActions>
 
-    <!-- Feedback notices -->
-    <div v-if="notice" class="rounded-md bg-emerald-50 p-4 text-sm text-emerald-800 border border-emerald-200">
-      {{ notice }}
-    </div>
-    <div
+    <UAlert
+      v-if="notice"
+      role="status"
+      color="success"
+      variant="subtle"
+      icon="i-lucide-circle-check"
+      :title="notice"
+      close
+      @update:open="notice = ''"
+    />
+    <UAlert
       v-if="errorMessage"
       data-error
-      class="rounded-md bg-rose-50 p-4 text-sm text-rose-800 border border-rose-200 flex items-center justify-between"
-    >
-      <span>{{ errorMessage }}</span>
-      <button class="underline font-semibold" @click="loadAlerts">Reintentar</button>
-    </div>
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+      :actions="[{ label: 'Reintentar', color: 'error', variant: 'outline', onClick: () => void loadAlerts() }]"
+    />
 
-    <!-- Filters -->
-    <div class="flex flex-wrap gap-4 items-center bg-neutral-50 p-3 rounded-lg border border-neutral-200 text-sm">
-      <div class="flex items-center gap-2">
-        <label for="filter-severity" class="font-medium text-neutral-700">Severidad:</label>
-        <select
-          id="filter-severity"
-          v-model="filterSeverity"
-          class="rounded border-neutral-300 py-1 px-2 text-sm"
-          @change="loadAlerts"
-        >
-          <option value="">Todas</option>
-          <option value="critical">Crítica</option>
-          <option value="warning">Aviso</option>
-          <option value="info">Informativa</option>
-        </select>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <label for="filter-area" class="font-medium text-neutral-700">Área:</label>
-        <select
-          id="filter-area"
-          v-model="filterArea"
-          class="rounded border-neutral-300 py-1 px-2 text-sm"
-          @change="loadAlerts"
-        >
-          <option value="">Todas</option>
-          <option value="warehouse">Almacén</option>
-          <option value="delivery">Reparto</option>
-          <option value="general">General</option>
-        </select>
-      </div>
-    </div>
-
-    <!-- Loading state -->
-    <div v-if="loading" data-loading class="py-12 text-center text-sm text-neutral-500">
-      Cargando alertas operativas...
-    </div>
-
-    <!-- Empty state -->
-    <div
-      v-else-if="alerts.length === 0"
-      data-empty
-      class="rounded-lg border-2 border-dashed border-neutral-200 p-8 text-center text-sm text-neutral-500"
-    >
-      No hay alertas operativas activas que coincidan con los filtros seleccionados.
-    </div>
-
-    <!-- Alerts List -->
-    <div v-else class="space-y-4">
-      <div
-        v-for="alert in alerts"
-        :key="alert.id"
-        class="rounded-lg border p-5 shadow-sm transition-all"
-        :class="{
-          'border-rose-300 bg-rose-50/40': alert.severity === 'critical',
-          'border-amber-300 bg-amber-50/40': alert.severity === 'warning',
-          'border-neutral-200 bg-white': alert.severity === 'info'
-        }"
-      >
-        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-          <div class="space-y-1">
-            <div class="flex flex-wrap items-center gap-2">
-              <span
-                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider"
-                :class="{
-                  'bg-rose-100 text-rose-800': alert.severity === 'critical',
-                  'bg-amber-100 text-amber-800': alert.severity === 'warning',
-                  'bg-blue-100 text-blue-800': alert.severity === 'info'
-                }"
-              >
-                {{ alert.severity }}
-              </span>
-
-              <span
-                v-if="alert.redundantChannelDispatched"
-                data-redundant-badge
-                class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 px-2.5 py-0.5 text-xs font-semibold"
-              >
-                Canal Redundante Activo
-              </span>
-
-              <span class="text-xs font-medium text-neutral-500 uppercase">
-                {{ alert.area }} · {{ alert.category }} · Ref: {{ alert.locationRef }}
-              </span>
-
-              <span class="text-xs text-neutral-400"> v{{ alert.version }} · Nivel {{ alert.escalationTier }} </span>
-            </div>
-
-            <h3 class="text-base font-semibold text-neutral-900">{{ alert.title }}</h3>
-            <p class="text-sm text-neutral-700 whitespace-pre-line">{{ alert.description }}</p>
-
-            <div v-if="alert.ackNote" class="text-xs text-neutral-600 bg-neutral-100 p-2 rounded mt-2">
-              <span class="font-semibold">Acuse:</span> {{ alert.ackNote }} (a las {{ alert.acknowledgedAt }})
-            </div>
-            <div v-if="alert.escalationReason" class="text-xs text-amber-800 bg-amber-50 p-2 rounded mt-2">
-              <span class="font-semibold">Escalado:</span> {{ alert.escalationReason }} (a las {{ alert.escalatedAt }})
-            </div>
-            <div v-if="alert.resolutionNote" class="text-xs text-emerald-800 bg-emerald-50 p-2 rounded mt-2">
-              <span class="font-semibold">Resolución:</span> {{ alert.resolutionNote }} (a las {{ alert.resolvedAt }})
-            </div>
-          </div>
-
-          <!-- Actions -->
-          <div class="flex sm:flex-col gap-2 shrink-0">
-            <button
-              v-if="alert.status === 'open'"
-              data-action-ack
-              class="rounded bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 shadow-sm border border-neutral-300 hover:bg-neutral-50"
-              @click="openAction(alert, 'ack')"
-            >
-              Reconocer
-            </button>
-            <button
-              v-if="alert.status !== 'resolved'"
-              data-action-escalate
-              class="rounded bg-white px-3 py-1.5 text-xs font-medium text-amber-700 shadow-sm border border-amber-300 hover:bg-amber-50"
-              @click="openAction(alert, 'escalate')"
-            >
-              Escalar
-            </button>
-            <button
-              v-if="alert.status !== 'resolved'"
-              data-action-resolve
-              class="rounded bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 shadow-sm border border-emerald-300 hover:bg-emerald-50"
-              @click="openAction(alert, 'resolve')"
-            >
-              Resolver
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Create Alert Modal -->
-    <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl space-y-4">
-        <h3 class="text-lg font-bold text-neutral-900">Registrar Alerta Operativa</h3>
-        <p class="text-xs text-neutral-500">
-          Las alertas son registradas de forma auditable. Se prohíbe el uso de grupos personales no auditables (art.
-          aceptación COM-019).
-        </p>
-
-        <div class="space-y-3 text-sm">
-          <div>
-            <label class="block font-medium text-neutral-700">Título</label>
-            <input
-              v-model="newTitle"
-              type="text"
-              class="w-full rounded border-neutral-300 p-2 text-sm border"
-              placeholder="p.ej. Derrame químico muelle 1"
-            />
-          </div>
-
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block font-medium text-neutral-700">Área</label>
-              <select v-model="newArea" class="w-full rounded border-neutral-300 p-2 text-sm border">
-                <option value="warehouse">Almacén</option>
-                <option value="delivery">Reparto</option>
-                <option value="general">General</option>
-              </select>
-            </div>
-            <div>
-              <label class="block font-medium text-neutral-700">Severidad</label>
-              <select v-model="newSeverity" class="w-full rounded border-neutral-300 p-2 text-sm border">
-                <option value="critical">Crítica (Redundante)</option>
-                <option value="warning">Aviso</option>
-                <option value="info">Informativa</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label class="block font-medium text-neutral-700">Categoría</label>
-            <select v-model="newCategory" class="w-full rounded border-neutral-300 p-2 text-sm border">
-              <option value="chemical_spill">Derrame químico / vertido</option>
-              <option value="hazard_dg_rupture">Rotura mercancía peligrosa (ADR)</option>
-              <option value="temperature_breach">Incumplimiento térmico</option>
-              <option value="dock_blockage">Bloqueo de muelle</option>
-              <option value="vehicle_breakdown">Avería de vehículo</option>
-              <option value="critical_delivery_delay">Retraso crítico de reparto</option>
-              <option value="general_operational">Operativa general</option>
-            </select>
-          </div>
-
-          <div>
-            <label class="block font-medium text-neutral-700">Ubicación / Referencia</label>
-            <input
-              v-model="newLocation"
-              type="text"
-              class="w-full rounded border-neutral-300 p-2 text-sm border"
-              placeholder="p.ej. DOCK-01 o VEH-04"
-            />
-          </div>
-
-          <div>
-            <label class="block font-medium text-neutral-700">Descripción detallada</label>
-            <textarea
-              v-model="newDescription"
-              rows="3"
-              class="w-full rounded border-neutral-300 p-2 text-sm border"
-              placeholder="Describe la incidencia operativa..."
-            ></textarea>
-          </div>
-        </div>
-
-        <div class="flex justify-end gap-2 pt-2">
-          <button
-            class="rounded px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100"
-            @click="showCreateModal = false"
-          >
-            Cancelar
-          </button>
-          <button
-            class="rounded bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
-            :disabled="busy || !newTitle || !newDescription || !newLocation"
-            @click="createAlert"
-          >
-            Emitir Alerta
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Action Modal (Ack / Escalate / Resolve) -->
-    <div v-if="activeAlert && actionType" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl space-y-4">
-        <h3 class="text-lg font-bold text-neutral-900">
-          {{
-            actionType === 'ack' ? 'Reconocer Alerta' : actionType === 'escalate' ? 'Escalar Alerta' : 'Resolver Alerta'
-          }}
-        </h3>
-        <p class="text-xs text-neutral-500">
-          Alerta: {{ activeAlert.title }} (Versión actual CAS: {{ activeAlert.version }})
-        </p>
-
-        <div v-if="actionType === 'escalate'" class="space-y-1">
-          <label class="block text-sm font-medium text-neutral-700">Nivel de escalado</label>
-          <select v-model="targetTier" class="w-full rounded border-neutral-300 p-2 text-sm border">
-            <option :value="2">Nivel 2 (Jefatura de turno)</option>
-            <option :value="3">Nivel 3 (Dirección de operaciones)</option>
-            <option :value="4">Nivel 4 (Comité de crisis)</option>
+    <AdminCard v-if="activeAlert && actionType" :title="ACTION_TITLE[actionType]" :description="activeAlert.title">
+      <div class="adm-form-grid">
+        <div v-if="actionType === 'escalate'" class="adm-field">
+          <label for="alert-action-tier" class="adm-label">Escalar a</label>
+          <select id="alert-action-tier" v-model="targetTier" class="adm-input">
+            <option :value="2">Jefatura de turno</option>
+            <option :value="3">Dirección de operaciones</option>
+            <option :value="4">Comité de crisis</option>
           </select>
         </div>
-
-        <div class="space-y-1">
-          <label class="block text-sm font-medium text-neutral-700">Nota / Motivo</label>
+        <div class="adm-field">
+          <label for="alert-action-note" class="adm-label">Nota (opcional)</label>
           <input
+            id="alert-action-note"
             v-model="actionNote"
             data-ack-note
             type="text"
-            class="w-full rounded border-neutral-300 p-2 text-sm border"
-            placeholder="Introduce los detalles de la acción..."
+            class="adm-input"
+            placeholder="Qué se ha hecho o por qué"
           />
         </div>
+      </div>
+      <template #footer>
+        <button type="button" class="adm-btn adm-btn--secondary" @click="closeActionModal">Cancelar</button>
+        <button data-submit-ack type="button" class="adm-btn adm-btn--primary" :disabled="busy" @click="submitAction">
+          Confirmar
+        </button>
+      </template>
+    </AdminCard>
 
-        <div class="flex justify-end gap-2 pt-2">
-          <button class="rounded px-4 py-2 text-sm text-neutral-700 hover:bg-neutral-100" @click="closeActionModal">
-            Cancelar
+    <div :data-loading="loading ? '' : undefined" :data-empty="!loading && alerts.length === 0 ? '' : undefined">
+      <AdminTable
+        :rows="rows"
+        :columns="columns"
+        :row-key="(row) => row.id"
+        :status="loading ? 'pending' : 'success'"
+        :filtered="filtering"
+        empty-title="No hay alertas abiertas"
+        empty-description="Cuando haya una incidencia en almacén o reparto aparecerá aquí."
+        empty-icon="i-lucide-bell"
+        caption="Alertas de almacén y reparto"
+        @clear-filters="clearFilters"
+      >
+        <template #toolbar>
+          <AdminToolbar v-model:search="search" placeholder="Buscar alerta…">
+            <label for="filter-severity" class="sr-only">Gravedad</label>
+            <select id="filter-severity" v-model="filterSeverity" class="adm-input" @change="loadAlerts">
+              <option value="">Cualquier gravedad</option>
+              <option value="critical">Crítica</option>
+              <option value="warning">Aviso</option>
+              <option value="info">Informativa</option>
+            </select>
+            <label for="filter-area" class="sr-only">Zona</label>
+            <select id="filter-area" v-model="filterArea" class="adm-input" @change="loadAlerts">
+              <option value="">Todas las zonas</option>
+              <option value="warehouse">Almacén</option>
+              <option value="delivery">Reparto</option>
+              <option value="general">General</option>
+            </select>
+          </AdminToolbar>
+        </template>
+        <template #cell-title="{ row }">
+          <div class="min-w-0 max-w-xl">
+            <p class="font-semibold text-[var(--text-strong)]">{{ row.title }}</p>
+            <p class="adm-help whitespace-pre-line">{{ row.description }}</p>
+            <p class="adm-help">
+              {{ CATEGORY[row.category] ?? adminHumanize(row.category) }} · {{ row.locationRef }} · Nivel:
+              {{ TIER[row.escalationTier] ?? row.escalationTier }}
+            </p>
+            <p v-if="row.ackNote" class="adm-help">
+              <strong>Atendida:</strong> {{ row.ackNote }} ({{ adminDate(row.acknowledgedAt, true) }})
+            </p>
+            <p v-if="row.escalationReason" class="adm-help">
+              <strong>Escalada:</strong> {{ row.escalationReason }} ({{ adminDate(row.escalatedAt, true) }})
+            </p>
+            <p v-if="row.resolutionNote" class="adm-help">
+              <strong>Resuelta:</strong> {{ row.resolutionNote }} ({{ adminDate(row.resolvedAt, true) }})
+            </p>
+          </div>
+        </template>
+        <template #cell-severity="{ row }">
+          <span class="flex flex-wrap gap-1">
+            <AdminBadge :tone="SEVERITY[row.severity]?.[1] ?? 'neutral'">
+              {{ SEVERITY[row.severity]?.[0] ?? adminHumanize(row.severity) }}
+            </AdminBadge>
+            <span v-if="row.redundantChannelDispatched" data-redundant-badge class="adm-badge adm-badge--info">
+              Aviso por doble canal
+            </span>
+          </span>
+        </template>
+        <template #cell-area="{ row }">{{ AREA[row.area] ?? adminHumanize(row.area) }}</template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="STATUS[row.status]?.[1] ?? 'neutral'">
+            {{ STATUS[row.status]?.[0] ?? adminHumanize(row.status) }}
+          </AdminBadge>
+        </template>
+        <template #cell-createdAt="{ row }">{{ adminDate(row.createdAt, true) }}</template>
+        <template #actions="{ row }">
+          <button
+            v-if="row.status === 'open'"
+            data-action-ack
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            @click="openAction(row, 'ack')"
+          >
+            Atender
           </button>
           <button
-            data-submit-ack
-            class="rounded bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50"
-            :disabled="busy"
-            @click="submitAction"
+            v-if="row.status !== 'resolved'"
+            data-action-escalate
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            @click="openAction(row, 'escalate')"
           >
-            Confirmar
+            Escalar
           </button>
-        </div>
-      </div>
+          <button
+            v-if="row.status !== 'resolved'"
+            data-action-resolve
+            type="button"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            @click="openAction(row, 'resolve')"
+          >
+            Resolver
+          </button>
+        </template>
+      </AdminTable>
     </div>
+
+    <AdminDrawer
+      v-model:open="showCreateModal"
+      title="Nueva alerta"
+      description="Queda registrada con fecha y autor. Las críticas se avisan además por un segundo canal."
+    >
+      <div class="adm-stack">
+        <AdminFormField v-slot="{ id }" label="Título" required>
+          <input :id="id" v-model="newTitle" type="text" placeholder="Por ejemplo: derrame en el muelle 1" />
+        </AdminFormField>
+        <div class="grid gap-4 sm:grid-cols-2">
+          <AdminFormField v-slot="{ id }" label="Zona">
+            <select :id="id" v-model="newArea">
+              <option value="warehouse">Almacén</option>
+              <option value="delivery">Reparto</option>
+              <option value="general">General</option>
+            </select>
+          </AdminFormField>
+          <AdminFormField v-slot="{ id }" label="Gravedad">
+            <select :id="id" v-model="newSeverity">
+              <option value="critical">Crítica (aviso por doble canal)</option>
+              <option value="warning">Aviso</option>
+              <option value="info">Informativa</option>
+            </select>
+          </AdminFormField>
+        </div>
+        <AdminFormField v-slot="{ id }" label="Tipo de incidencia">
+          <select :id="id" v-model="newCategory">
+            <option v-for="(label, code) in CATEGORY" :key="code" :value="code">{{ label }}</option>
+          </select>
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Lugar" help="Muelle, pasillo o vehículo afectado." required>
+          <input :id="id" v-model="newLocation" type="text" placeholder="Por ejemplo: muelle 1 o furgoneta 4" />
+        </AdminFormField>
+        <AdminFormField v-slot="{ id }" label="Descripción" required>
+          <textarea :id="id" v-model="newDescription" rows="3" placeholder="Qué ha pasado y qué se necesita" />
+        </AdminFormField>
+      </div>
+      <template #footer>
+        <AdminButton @click="showCreateModal = false">Cancelar</AdminButton>
+        <AdminButton
+          variant="primary"
+          :loading="busy"
+          :disabled="!newTitle || !newDescription || !newLocation"
+          @click="createAlert"
+        >
+          Crear alerta
+        </AdminButton>
+      </template>
+    </AdminDrawer>
   </div>
 </template>

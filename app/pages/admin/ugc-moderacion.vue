@@ -2,11 +2,11 @@
 import AdminUgcModeration from '~/components/AdminUgcModeration.vue'
 
 definePageMeta({ layout: 'admin', middleware: 'admin' })
-useSeoMeta({ title: 'Moderación UGC y Fotos · Admin', robots: 'noindex, nofollow' })
+useSeoMeta({ title: 'Fotos de clientes · Admin', robots: 'noindex, nofollow' })
 </script>
 
 <template>
-  <main class="p-6">
+  <AdminPage>
     <AdminUgcModeration />
-  </main>
+  </AdminPage>
 </template>

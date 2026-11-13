@@ -1546,3 +1546,11 @@ a.adm-breakdown__row:hover .adm-breakdown__label {
 .adm-table td {
   overflow-wrap: anywhere;
 }
+.adm-list > li > .flex-1 {
+  flex-basis: 14rem;
+}
+/* La lupa del buscador compacto siempre deja sitio al icono, lo escriba quien lo escriba. */
+.adm .adm-toolbar__search input {
+  padding-left: 2rem !important;
+  width: 100%;
+}

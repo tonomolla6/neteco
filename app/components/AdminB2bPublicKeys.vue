@@ -107,78 +107,184 @@ function abandon() {
   void load()
 }
 onMounted(load)
+const environmentLabel = (value: string) =>
+  value === 'sandbox' ? 'Entorno de pruebas' : value === 'live' ? 'Producción' : adminHumanize(value)
+const scopesLabel = (value: string) =>
+  String(value)
+    .replace(/requests\.read/g, 'Lectura')
+    .replace(/requests\.write/g, 'Escritura')
+    .replace(/[[\]"]/g, '')
+    .replace(/\s*,\s*/g, ' y ')
+const keyStatusLabel = (value: string) =>
+  value === 'revoked' ? 'Anulada' : value === 'active' ? 'Activa' : adminStatusLabel(value)
+const keyStatusTone = (value: string) => (value === 'active' ? 'success' : 'neutral')
 </script>
 <template>
-  <section aria-labelledby="b2b-keys-title" class="space-y-4">
-    <h2 id="b2b-keys-title" class="text-xl font-semibold">Claves B2B</h2>
-    <p>La clave da acceso al registro propio. Si pierdes el secreto, revócala y crea otra.</p>
-    <p v-if="loading" role="status">Cargando claves…</p>
+  <AdminCard
+    aria-labelledby="b2b-keys-title"
+    description="Cada clave da acceso a los datos de su propia empresa. Si se pierde, anúlala y crea otra."
+    flush
+  >
+    <template #title><span id="b2b-keys-title">Claves de acceso para empresas</span></template>
+    <p v-if="loading" role="status" class="adm-help p-4">Cargando claves…</p>
     <div v-else-if="loadError" role="alert">
-      No se pudieron cargar las claves. <button type="button" @click="load">Reintentar</button>
+      <AdminEmptyState
+        variant="error"
+        compact
+        title="No se pudieron cargar las claves"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <button type="button" class="adm-btn adm-btn--secondary" @click="load">Reintentar</button>
+      </AdminEmptyState>
     </div>
-    <p v-else-if="!items.length">No hay claves.</p>
-    <ul v-else>
-      <li v-for="item in items" :key="item.id">
-        <code>{{ item.id }}</code> · {{ item.environment }}
-        <template v-if="item.companyId">· Empresa {{ item.companyId }}</template> · {{ item.scopes }} · cuota
-        {{ item.quotaDaily }} · {{ item.status }}
+    <AdminEmptyState
+      v-else-if="!items.length"
+      compact
+      icon="i-lucide-key-round"
+      title="No hay claves"
+      description="Crea la primera con el formulario de abajo."
+    />
+    <div v-else class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr>
+            <th scope="col">Clave</th>
+            <th scope="col">Entorno</th>
+            <th scope="col">Empresa</th>
+            <th scope="col">Permisos</th>
+            <th scope="col" data-numeric>Límite diario</th>
+            <th scope="col">Estado</th>
+            <th scope="col" data-numeric><span class="sr-only">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in items" :key="item.id">
+            <td>
+              <code class="text-xs">{{ item.id }}</code>
+            </td>
+            <td>{{ environmentLabel(item.environment) }}</td>
+            <td>{{ item.companyId ? `empresa ${item.companyId}` : '—' }}</td>
+            <td>{{ scopesLabel(item.scopes) }}</td>
+            <td data-numeric>{{ item.quotaDaily }}</td>
+            <td>
+              <AdminBadge :tone="keyStatusTone(item.status)">{{ keyStatusLabel(item.status) }}</AdminBadge>
+            </td>
+            <td data-numeric class="adm-table__actions">
+              <button
+                v-if="item.status === 'active'"
+                type="button"
+                class="adm-btn adm-btn--danger-soft adm-btn--sm"
+                data-revoke
+                :disabled="!!pending || saving"
+                @click="revoke(item)"
+              >
+                Anular
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <nav aria-label="Páginas de claves" class="adm-pagination">
+      <p>Página {{ page }}</p>
+      <div class="flex items-center gap-2">
         <button
-          v-if="item.status === 'active'"
           type="button"
-          data-revoke
-          :disabled="!!pending || saving"
-          @click="revoke(item)"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          data-previous-page
+          :disabled="page === 1 || loading || !!pending || saving"
+          @click="changePage(-1)"
         >
-          Revocar
+          Anterior
         </button>
-      </li>
-    </ul>
-    <nav aria-label="Páginas de claves">
-      <button
-        type="button"
-        data-previous-page
-        :disabled="page === 1 || loading || !!pending || saving"
-        @click="changePage(-1)"
-      >
-        Anterior
-      </button>
-      <span>Página {{ page }}</span>
-      <button
-        type="button"
-        data-next-page
-        :disabled="items.length < 100 || page === 1000 || loading || !!pending || saving"
-        @click="changePage(1)"
-      >
-        Siguiente
-      </button>
+        <button
+          type="button"
+          class="adm-btn adm-btn--secondary adm-btn--sm"
+          data-next-page
+          :disabled="items.length < 100 || page === 1000 || loading || !!pending || saving"
+          @click="changePage(1)"
+        >
+          Siguiente
+        </button>
+      </div>
     </nav>
-    <p v-if="message" role="status">{{ message }}</p>
-    <p v-if="secret">
-      <code>{{ secret }}</code>
-    </p>
-    <div v-if="ambiguous" role="alert">
-      <p>El resultado desconocido requiere revisión. Reintenta el mismo comando o revisa la lista antes de cerrarlo.</p>
-      <button type="button" data-retry :disabled="saving" @click="send">Reintentar operación</button>
-      <button type="button" :disabled="saving" @click="abandon">Cerrar operación y revisar claves</button>
-    </div>
-    <form @submit.prevent="create">
-      <fieldset :disabled="!!pending || saving">
-        <legend>Crear clave</legend>
-        <label for="b2b-env">Entorno</label>
-        <select id="b2b-env" v-model="environment">
-          <option value="sandbox">Sandbox</option>
-          <option value="live">Live</option>
-        </select>
-        <template v-if="environment === 'live'"
-          ><label for="b2b-company">Identificador de empresa aprobada</label
-          ><input id="b2b-company" v-model="companyId" type="text" required maxlength="36"
-        /></template>
-        <label><input v-model="read" type="checkbox" /> Lectura</label>
-        <label><input v-model="write" type="checkbox" /> Escritura</label>
-        <label for="b2b-quota">Cuota diaria</label>
-        <input id="b2b-quota" v-model.number="quota" type="number" min="1" max="10000" required />
-        <button type="submit" :disabled="!read && !write">Crear clave</button>
-      </fieldset>
-    </form>
-  </section>
+    <template #footer>
+      <div class="adm-stack w-full">
+        <UAlert
+          v-if="message"
+          role="status"
+          :color="secret ? 'warning' : 'success'"
+          variant="subtle"
+          :icon="secret ? 'i-lucide-key-round' : 'i-lucide-circle-check'"
+          :title="message"
+        >
+          <template v-if="secret" #description>
+            <code class="break-all">{{ secret }}</code>
+          </template>
+        </UAlert>
+        <UAlert
+          v-if="ambiguous"
+          role="alert"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-triangle-alert"
+          title="No sabemos si el cambio se guardó"
+          description="El resultado desconocido requiere revisión. Reintenta la misma operación o revisa la lista antes de cerrarla."
+        >
+          <template #actions>
+            <button
+              type="button"
+              class="adm-btn adm-btn--secondary adm-btn--sm"
+              data-retry
+              :disabled="saving"
+              @click="send"
+            >
+              Reintentar operación
+            </button>
+            <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" :disabled="saving" @click="abandon">
+              Cerrar operación y revisar claves
+            </button>
+          </template>
+        </UAlert>
+        <form @submit.prevent="create">
+          <fieldset :disabled="!!pending || saving" class="adm-stack">
+            <legend class="adm-label">Crear clave</legend>
+            <div class="adm-form-grid">
+              <div class="adm-field">
+                <label for="b2b-env" class="adm-label">Entorno</label>
+                <select id="b2b-env" v-model="environment" class="adm-input">
+                  <option value="sandbox">Entorno de pruebas</option>
+                  <option value="live">Producción</option>
+                </select>
+              </div>
+              <div v-if="environment === 'live'" class="adm-field">
+                <label for="b2b-company" class="adm-label">Identificador de empresa aprobada</label>
+                <input id="b2b-company" v-model="companyId" class="adm-input" type="text" required maxlength="36" />
+              </div>
+              <div class="adm-field">
+                <label for="b2b-quota" class="adm-label">Límite de solicitudes al día</label>
+                <input
+                  id="b2b-quota"
+                  v-model.number="quota"
+                  class="adm-input"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  required
+                />
+              </div>
+              <div class="adm-field">
+                <span class="adm-label">Permisos</span>
+                <label class="adm-check"><input v-model="read" type="checkbox" /> Lectura</label>
+                <label class="adm-check"><input v-model="write" type="checkbox" /> Escritura</label>
+              </div>
+            </div>
+            <div>
+              <button type="submit" class="adm-btn adm-btn--secondary" :disabled="!read && !write">Crear clave</button>
+            </div>
+          </fieldset>
+        </form>
+      </div>
+    </template>
+  </AdminCard>
 </template>

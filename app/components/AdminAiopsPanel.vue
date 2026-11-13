@@ -36,7 +36,17 @@ const confirmed = ref<Record<string, boolean>>({})
 
 function errorText(error: unknown, fallback: string): string {
   const code = (error as { data?: { error?: { code?: string } } })?.data?.error?.code
-  return code ? `${fallback} (${code})` : fallback
+  return code ? `${fallback}. Vuelve a intentarlo.` : fallback
+}
+const statusLabels: Record<Recommendation['status'], string> = {
+  proposed: 'Pendiente de decisión',
+  approved: 'Aprobada',
+  rejected: 'Rechazada'
+}
+const statusTones: Record<Recommendation['status'], 'warning' | 'success' | 'neutral'> = {
+  proposed: 'warning',
+  approved: 'success',
+  rejected: 'neutral'
 }
 
 async function load() {
@@ -50,7 +60,7 @@ async function load() {
     recommendations.value = list?.recommendations ?? []
     precision.value = stats?.precision ?? null
   } catch (error) {
-    errorMessage.value = errorText(error, 'No se pudieron cargar las recomendaciones')
+    errorMessage.value = errorText(error, 'No se han podido cargar las propuestas')
   } finally {
     loading.value = false
   }
@@ -74,7 +84,7 @@ async function mutate(path: string, body: Record<string, unknown>, success: stri
   }
 }
 
-const correlate = () => mutate('correlate', {}, 'Correlación ejecutada.')
+const correlate = () => mutate('correlate', {}, 'Análisis completado.')
 const decide = (rec: Recommendation, decision: 'approve' | 'reject') =>
   mutate(
     'recommendations/decide',
@@ -85,9 +95,7 @@ const decide = (rec: Recommendation, decision: 'approve' | 'reject') =>
       reason: (reasons.value[rec.id] ?? '').trim(),
       ...(rec.destructive && decision === 'approve' ? { confirmDestructive: confirmed.value[rec.id] === true } : {})
     },
-    decision === 'approve'
-      ? 'Recomendación aprobada. La acción debe ejecutarla una persona.'
-      : 'Recomendación rechazada.'
+    decision === 'approve' ? 'Propuesta aprobada. La acción debe ejecutarla una persona.' : 'Propuesta rechazada.'
   )
 const label = (rec: Recommendation, outcome: 'true_positive' | 'false_positive') =>
   mutate(
@@ -105,137 +113,139 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="space-y-4" aria-labelledby="aiops-title" data-aiops-panel>
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h2 id="aiops-title" class="text-lg font-semibold text-neutral-900">AIOps: recomendaciones de incidentes</h2>
-        <p class="text-xs text-neutral-600">
-          Solo recomienda. Nunca ejecuta acciones: las acciones destructivas requieren aprobación humana explícita.
-        </p>
-      </div>
+  <section class="adm-stack" aria-label="Diagnóstico asistido de incidencias" data-aiops-panel>
+    <AdminPageActions>
       <button
         type="button"
-        class="rounded bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+        class="adm-btn adm-btn--primary"
         :disabled="busy || loading"
         data-correlate
         @click="correlate"
       >
-        Correlacionar señales
+        Analizar señales
       </button>
-    </div>
+    </AdminPageActions>
 
-    <div v-if="errorMessage" role="alert" class="rounded bg-red-100 p-3 text-sm text-red-700" data-error>
-      {{ errorMessage }}
-      <button type="button" class="ml-2 underline" data-retry @click="load">Reintentar</button>
-    </div>
-    <div v-if="notice" role="status" class="rounded bg-emerald-100 p-3 text-sm text-emerald-700">{{ notice }}</div>
-
-    <div v-if="precision" class="rounded border border-neutral-200 bg-white p-3 text-sm" data-precision>
-      <strong>Precisión medida:</strong>
-      <span v-if="precision.precision === null">sin recomendaciones revisadas todavía</span>
-      <span v-else>
-        {{ (precision.precision * 100).toFixed(0) }}% ({{ precision.truePositives }} acertadas /
-        {{ precision.reviewed }} revisadas)
-      </span>
-      <span v-if="precision.reviewed > 0 && !precision.sampleSufficient" class="text-amber-700">
-        · muestra insuficiente (mínimo 10)
-      </span>
-    </div>
-
-    <p v-if="loading" class="py-4 text-center text-sm text-neutral-500" data-loading>Cargando recomendaciones...</p>
-    <p
-      v-else-if="!recommendations.length && !errorMessage"
-      class="py-4 text-center text-sm text-neutral-500"
-      data-empty
+    <UAlert
+      v-if="errorMessage"
+      role="alert"
+      color="error"
+      variant="subtle"
+      icon="i-lucide-triangle-alert"
+      :title="errorMessage"
+      data-error
     >
-      No hay recomendaciones. Ejecute la correlación cuando haya señales.
+      <template #description>
+        <button type="button" class="underline" data-retry @click="load">Reintentar</button>
+      </template>
+    </UAlert>
+    <UAlert v-if="notice" role="status" color="success" variant="subtle" icon="i-lucide-circle-check" :title="notice" />
+
+    <p class="adm-help">
+      Aquí solo se proponen acciones; nunca se ejecutan solas. Las que pueden borrar o detener algo necesitan la
+      aprobación expresa de una persona.
     </p>
 
-    <ul v-else class="space-y-3">
-      <li
-        v-for="rec in recommendations"
-        :key="rec.id"
-        class="rounded-lg border bg-white p-4 shadow-sm"
-        :class="rec.destructive ? 'border-red-300' : 'border-neutral-200'"
-        data-recommendation
-      >
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="font-medium text-neutral-900">{{ rec.summary }}</span>
-          <span
-            v-if="rec.destructive"
-            class="rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
-            data-destructive-badge
-          >
-            Acción destructiva
-          </span>
-          <span class="text-xs text-neutral-500">confianza {{ Math.round(rec.confidence * 100) }}%</span>
-          <span class="text-xs font-semibold" data-status>{{ rec.status }}</span>
-        </div>
-        <p class="mt-1 text-xs text-neutral-600">Runbook: {{ rec.runbookId }}</p>
-        <ol class="mt-2 list-decimal space-y-0.5 pl-5 text-xs text-neutral-700">
-          <li v-for="(step, index) in rec.steps" :key="index">{{ step }}</li>
-        </ol>
+    <div v-if="precision" class="adm-grid" data-precision>
+      <AdminStat
+        label="Acierto de las propuestas"
+        :value="precision.precision === null ? '—' : `${(precision.precision * 100).toFixed(0)} %`"
+        :hint="
+          precision.precision === null
+            ? 'Todavía no se ha revisado ninguna propuesta'
+            : `${precision.truePositives} acertadas de ${precision.reviewed} revisadas${
+                precision.reviewed > 0 && !precision.sampleSufficient ? ' · pocas revisiones (mínimo 10)' : ''
+              }`
+        "
+      />
+      <AdminStat label="Propuestas" :value="precision.total" :hint="`${precision.pending} sin valorar`" />
+    </div>
 
-        <div v-if="rec.status === 'proposed'" class="mt-3 space-y-2">
-          <label class="block text-xs font-medium text-neutral-700" :for="`reason-${rec.id}`">
-            Motivo de la decisión (mín. 10 caracteres)
-          </label>
-          <input
-            :id="`reason-${rec.id}`"
-            v-model="reasons[rec.id]"
-            type="text"
-            maxlength="500"
-            class="w-full rounded border border-neutral-300 px-2 py-1 text-sm"
-          />
-          <label v-if="rec.destructive" class="flex items-center gap-2 text-xs text-red-800">
-            <input v-model="confirmed[rec.id]" type="checkbox" data-confirm-destructive />
-            Confirmo que entiendo que es una acción destructiva y que la ejecutará una persona.
-          </label>
-          <div class="flex gap-2">
-            <button
-              type="button"
-              class="rounded bg-emerald-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
-              :disabled="busy || !canDecide(rec) || (rec.destructive && !confirmed[rec.id])"
-              data-approve
-              @click="decide(rec, 'approve')"
-            >
-              Aprobar
-            </button>
-            <button
-              type="button"
-              class="rounded border border-neutral-300 px-3 py-1 text-xs font-semibold disabled:opacity-50"
-              :disabled="busy || !canDecide(rec)"
-              data-reject
-              @click="decide(rec, 'reject')"
-            >
-              Rechazar
-            </button>
+    <div v-if="loading" class="adm-table-skeleton" aria-busy="true" data-loading>
+      <span class="sr-only">Cargando propuestas…</span>
+      <div v-for="row in 3" :key="row"><i /><i /><i /></div>
+    </div>
+    <div v-else-if="!recommendations.length && !errorMessage" data-empty>
+      <AdminEmptyState
+        title="No hay propuestas"
+        description="Pulsa «Analizar señales» cuando haya incidencias que revisar."
+        icon="i-lucide-lightbulb"
+      />
+    </div>
+
+    <ul v-else class="adm-stack">
+      <li v-for="rec in recommendations" :key="rec.id" class="adm-card" data-recommendation>
+        <div class="adm-card__body adm-stack">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold text-[var(--text-strong)]">{{ rec.summary }}</span>
+            <AdminBadge v-if="rec.destructive" tone="danger" data-destructive-badge>Acción delicada</AdminBadge>
+            <AdminBadge :tone="statusTones[rec.status]" data-status>{{ statusLabels[rec.status] }}</AdminBadge>
+            <span class="adm-help">Confianza {{ Math.round(rec.confidence * 100) }} %</span>
           </div>
-        </div>
+          <div>
+            <p class="adm-help">Procedimiento: {{ adminHumanize(rec.runbookId) }}</p>
+            <ol class="mt-1 list-decimal space-y-0.5 pl-5 text-sm">
+              <li v-for="(step, index) in rec.steps" :key="index">{{ step }}</li>
+            </ol>
+          </div>
 
-        <div v-else class="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-600">
-          <span v-if="rec.decisionReason">Motivo: {{ rec.decisionReason }}</span>
-          <template v-if="rec.outcome === 'pending'">
-            <button
-              type="button"
-              class="rounded border border-emerald-300 px-2 py-1 text-emerald-800 disabled:opacity-50"
-              :disabled="busy"
-              data-label-true
-              @click="label(rec, 'true_positive')"
-            >
-              Fue acertada
-            </button>
-            <button
-              type="button"
-              class="rounded border border-amber-300 px-2 py-1 text-amber-800 disabled:opacity-50"
-              :disabled="busy"
-              data-label-false
-              @click="label(rec, 'false_positive')"
-            >
-              Falsa alarma
-            </button>
-          </template>
-          <span v-else data-outcome>Resultado: {{ rec.outcome }}</span>
+          <div v-if="rec.status === 'proposed'" class="adm-stack">
+            <div class="adm-field">
+              <label class="adm-label" :for="`reason-${rec.id}`">Motivo de la decisión (mínimo 10 caracteres)</label>
+              <input :id="`reason-${rec.id}`" v-model="reasons[rec.id]" type="text" maxlength="500" class="w-full" />
+            </div>
+            <label v-if="rec.destructive" class="adm-check">
+              <input v-model="confirmed[rec.id]" type="checkbox" data-confirm-destructive />
+              Entiendo que es una acción delicada y que la ejecutará una persona.
+            </label>
+            <div class="flex flex-wrap gap-2">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || !canDecide(rec) || (rec.destructive && !confirmed[rec.id])"
+                data-approve
+                @click="decide(rec, 'approve')"
+              >
+                Aprobar
+              </button>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy || !canDecide(rec)"
+                data-reject
+                @click="decide(rec, 'reject')"
+              >
+                Rechazar
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="flex flex-wrap items-center gap-2 text-sm">
+            <span v-if="rec.decisionReason">Motivo: {{ rec.decisionReason }}</span>
+            <template v-if="rec.outcome === 'pending'">
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy"
+                data-label-true
+                @click="label(rec, 'true_positive')"
+              >
+                Fue acertada
+              </button>
+              <button
+                type="button"
+                class="adm-btn adm-btn--secondary adm-btn--sm"
+                :disabled="busy"
+                data-label-false
+                @click="label(rec, 'false_positive')"
+              >
+                Falsa alarma
+              </button>
+            </template>
+            <span v-else data-outcome>
+              Resultado: {{ rec.outcome === 'true_positive' ? 'acertada' : 'falsa alarma' }}
+            </span>
+          </div>
         </div>
       </li>
     </ul>

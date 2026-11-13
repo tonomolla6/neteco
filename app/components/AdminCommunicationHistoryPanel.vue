@@ -30,14 +30,31 @@ let generation = 0,
   controller: AbortController | null = null,
   commandPending = false
 const statusLabels: Record<CommunicationHistory['items'][number]['status'], string> = {
-  queued: 'Pendiente de recepción en la cola',
+  queued: 'En cola',
   pending: 'Preparación pendiente',
   leased: 'Preparación en curso',
   sending: 'Envío iniciado, resultado pendiente',
-  sent: 'Envío registrado por el emisor',
+  sent: 'Enviado',
   manual_review: 'Revisión manual',
-  suppressed: 'Aviso suprimido por preferencia'
+  suppressed: 'No enviado por preferencia del cliente'
 }
+const statusTones: Record<CommunicationHistory['items'][number]['status'], 'neutral' | 'success' | 'warning' | 'info'> =
+  {
+    queued: 'neutral',
+    pending: 'info',
+    leased: 'info',
+    sending: 'info',
+    sent: 'success',
+    manual_review: 'warning',
+    suppressed: 'neutral'
+  }
+const columns = [
+  { key: 'eventType', label: 'Comunicación' },
+  { key: 'status', label: 'Estado' },
+  { key: 'createdAt', label: 'Registrada' },
+  { key: 'availableAt', label: 'Próxima preparación', hideOnMobile: true },
+  { key: 'finishedAt', label: 'Finalizada', hideOnMobile: true }
+]
 const typeLabels: Record<CommunicationHistory['items'][number]['eventType'], string> = {
   'order.created': 'Pedido registrado',
   'order.confirmed': 'Confirmación de pedido',
@@ -45,14 +62,14 @@ const typeLabels: Record<CommunicationHistory['items'][number]['eventType'], str
   'order.cancelled': 'Cancelación de pedido',
   'order.cancellation.requested': 'Solicitud de cancelación',
   'order.reservation.expired': 'Reserva caducada',
-  'order.shipped': 'Expedición registrada',
-  'order.delivered': 'Entrega registrada',
-  'refund.succeeded.email': 'Reembolso registrado',
+  'order.shipped': 'Pedido enviado',
+  'order.delivered': 'Pedido entregado',
+  'refund.succeeded.email': 'Reembolso realizado',
   'return.requested': 'Solicitud de devolución',
   'return.status.updated': 'Estado de devolución',
   'support.ticket.received': 'Consulta recibida',
   'support.ticket.reply': 'Respuesta de soporte',
-  'invoice.issued': 'Documento fiscal emitido'
+  'invoice.issued': 'Factura emitida'
 }
 function setPending(value: boolean) {
   if (commandPending !== value) {
@@ -94,13 +111,6 @@ function hardRevocation(error: unknown) {
     return true
   }
   return false
-}
-function date(value: string) {
-  return (
-    new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'medium', timeZone: 'UTC' }).format(
-      new Date(value)
-    ) + ' UTC'
-  )
 }
 async function load(page = 1) {
   if (!active.value || busy.value || intent.value) return
@@ -198,7 +208,8 @@ async function confirmCurrent(receipt: CommunicationRetryReceipt, frozen: Intent
   intent.value = null
   reason.value = ''
   phase.value = 'confirmed'
-  message.value = 'Reprogramación registrada y estado actual confirmado. No se ha invocado al emisor desde esta acción.'
+  message.value =
+    'Reprogramación registrada y estado actual confirmado. Desde esta acción no se ha enviado ningún mensaje.'
   setPending(false)
   emit('confirmed')
 }
@@ -234,7 +245,7 @@ async function send() {
       message.value = 'La preparación ha cambiado. Consulta de nuevo antes de revisar otra operación.'
     } else {
       phase.value = 'unknown'
-      message.value = 'Resultado incierto. Comprueba el recibo de esta misma intención; no vuelvas a enviarla.'
+      message.value = 'Resultado incierto. Comprueba el resultado de esta misma operación; no vuelvas a enviarla.'
     }
   } finally {
     if (valid(epoch)) busy.value = false
@@ -291,138 +302,163 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section
-    aria-label="Historial operativo de comunicaciones"
-    class="min-w-0 rounded-lg border border-[var(--border)] p-4"
-  >
-    <h2 class="text-lg font-semibold">Historial operativo de comunicaciones</h2>
-    <p class="mt-2 text-sm">
-      Sólo metadatos operativos, sin destinatarios ni contenido. No envía mensajes directamente. Reprogramar la
-      preparación podría permitir un envío posterior si el emisor está autorizado y habilitado; no reinicia los
-      intentos.
-    </p>
-    <p class="mt-2 text-sm">
-      Los envíos iniciados, resultados ambiguos y revisiones manuales no se rearman desde aquí. El registro del emisor
-      no acredita recepción o lectura por el destinatario. Se excluyen autenticación, seguridad y marketing.
+  <section aria-label="Historial operativo de comunicaciones" class="adm-stack min-w-0">
+    <p class="adm-help max-w-3xl">
+      Avisos automáticos de pedidos, devoluciones, soporte y facturas, sin destinatarios ni contenido. No envía mensajes
+      directamente: reprogramar la preparación solo permite un envío posterior si el servicio de correo está activo, y
+      no reinicia los intentos. Los envíos ya iniciados y las revisiones manuales no se reprograman desde aquí.
     </p>
     <template v-if="active">
-      <form class="mt-4 flex flex-wrap items-end gap-3" @submit.prevent="load(1)">
-        <label class="min-w-0"
-          >Estado
-          <select v-model="status" :disabled="busy || !!intent" class="block max-w-full rounded border p-2">
-            <option value="">Todos los estados</option>
-            <option v-for="value in communicationStatusSchema.options" :key="value" :value="value">
-              {{ statusLabels[value] }}
-            </option>
-          </select>
-        </label>
-        <label class="min-w-0"
-          >Tipo de comunicación
-          <select v-model="eventType" :disabled="busy || !!intent" class="block max-w-full rounded border p-2">
-            <option value="">Todos los tipos</option>
-            <option v-for="value in communicationTypeSchema.options" :key="value" :value="value">
-              {{ typeLabels[value] }}
-            </option>
-          </select>
-        </label>
-        <button type="submit" :disabled="busy || !!intent" class="rounded border px-3 py-2">
-          Consultar historial de comunicaciones
-        </button>
-      </form>
-      <p v-if="phase === 'loading'" role="status" class="mt-3">Consultando el historial…</p>
-      <p v-if="message" :role="phase === 'error' || phase === 'unknown' ? 'alert' : 'status'" class="mt-3 break-words">
-        {{ message }}
-      </p>
-      <template v-if="snapshot">
-        <p class="mt-3 text-sm">
-          Estado observado: <time :datetime="snapshot.evaluatedAt">{{ date(snapshot.evaluatedAt) }}</time
-          >. {{ snapshot.total }} comunicaciones.
-        </p>
-        <p v-if="snapshot.total === 0" role="status">No hay comunicaciones para estos filtros.</p>
-        <ul class="mt-3 space-y-3">
-          <li v-for="item in snapshot.items" :key="item.eventId" class="min-w-0 rounded border p-3">
-            <h3 class="font-semibold">{{ typeLabels[item.eventType] }}</h3>
-            <p>{{ statusLabels[item.status] }} · {{ item.attempts }} intentos</p>
-            <p class="break-all text-xs">{{ item.eventId }}</p>
-            <p class="text-sm">
-              Registrada: <time :datetime="item.createdAt">{{ date(item.createdAt) }}</time>
-            </p>
-            <p v-if="item.availableAt" class="text-sm">
-              Preparación disponible: <time :datetime="item.availableAt">{{ date(item.availableAt) }}</time>
-            </p>
-            <p v-if="item.finishedAt" class="text-sm">
-              Estado registrado: <time :datetime="item.finishedAt">{{ date(item.finishedAt) }}</time>
-            </p>
-            <p v-if="item.errorCode" class="text-sm">Código operativo: {{ item.errorCode }}</p>
-            <button
-              v-if="item.canRetry"
-              type="button"
+      <UAlert
+        v-if="message"
+        :role="phase === 'error' || phase === 'unknown' ? 'alert' : 'status'"
+        :color="phase === 'error' ? 'error' : phase === 'unknown' ? 'warning' : 'success'"
+        variant="subtle"
+        :icon="phase === 'error' || phase === 'unknown' ? 'i-lucide-triangle-alert' : 'i-lucide-circle-check'"
+        :title="message"
+      />
+      <AdminTable
+        :rows="snapshot?.items ?? []"
+        :columns="columns"
+        :row-key="(row) => row.eventId"
+        :status="phase === 'loading' ? 'pending' : 'success'"
+        :total="snapshot?.total ?? 0"
+        :per-page="25"
+        :page="snapshot?.page ?? 1"
+        :empty-title="
+          snapshot ? 'No hay comunicaciones para estos filtros' : 'Todavía no se ha consultado el historial'
+        "
+        :empty-description="
+          snapshot ? 'Prueba con otro estado o tipo de comunicación.' : 'Elige los filtros y pulsa «Consultar».'
+        "
+        empty-icon="i-lucide-mail-search"
+        caption="Historial de comunicaciones"
+        @update:page="load($event)"
+      >
+        <template #toolbar>
+          <form class="adm-toolbar" role="search" @submit.prevent="load(1)">
+            <select v-model="status" :disabled="busy || !!intent" aria-label="Estado" class="adm-input">
+              <option value="">Todos los estados</option>
+              <option v-for="value in communicationStatusSchema.options" :key="value" :value="value">
+                {{ statusLabels[value] }}
+              </option>
+            </select>
+            <select
+              v-model="eventType"
               :disabled="busy || !!intent"
-              class="mt-2 rounded border px-3 py-2"
-              @click="select(item)"
+              aria-label="Tipo de comunicación"
+              class="adm-input"
             >
-              Revisar preparación
+              <option value="">Todos los tipos</option>
+              <option v-for="value in communicationTypeSchema.options" :key="value" :value="value">
+                {{ typeLabels[value] }}
+              </option>
+            </select>
+            <button type="submit" :disabled="busy || !!intent" class="adm-btn adm-btn--secondary">
+              Consultar historial de comunicaciones
             </button>
-            <p v-else class="mt-2 text-sm">Sin acción de reprogramación disponible.</p>
-          </li>
-        </ul>
-        <nav aria-label="Páginas del historial de comunicaciones" class="mt-3 flex flex-wrap items-center gap-3">
-          <button type="button" :disabled="busy || !!intent || snapshot.page <= 1" @click="load(snapshot.page - 1)">
-            Anterior
-          </button>
-          <span>Página {{ snapshot.page }}</span>
+            <p v-if="phase === 'loading'" role="status" class="adm-help">Consultando el historial…</p>
+            <p v-else-if="snapshot" class="adm-toolbar__end adm-help">
+              Datos de
+              <time :datetime="snapshot.evaluatedAt">{{ adminDate(snapshot.evaluatedAt, true) }}</time>
+            </p>
+          </form>
+        </template>
+        <template #cell-eventType="{ row }">
+          <span class="block font-semibold text-[var(--text-strong)]">{{ typeLabels[row.eventType] }}</span>
+          <span class="adm-help block">#{{ row.eventId.slice(0, 8).toUpperCase() }}</span>
+        </template>
+        <template #cell-status="{ row }">
+          <AdminBadge :tone="statusTones[row.status]">{{ statusLabels[row.status] }}</AdminBadge>
+          <span class="adm-help ml-2 whitespace-nowrap">{{ row.attempts }} intentos</span>
+          <span v-if="row.errorCode" class="adm-help block">Incidencia: {{ adminHumanize(row.errorCode) }}</span>
+        </template>
+        <template #cell-createdAt="{ row }">
+          <time :datetime="row.createdAt">{{ adminDate(row.createdAt, true) }}</time>
+        </template>
+        <template #cell-availableAt="{ row }">
+          <time v-if="row.availableAt" :datetime="row.availableAt">{{ adminDate(row.availableAt, true) }}</time>
+          <template v-else>—</template>
+        </template>
+        <template #cell-finishedAt="{ row }">
+          <time v-if="row.finishedAt" :datetime="row.finishedAt">{{ adminDate(row.finishedAt, true) }}</time>
+          <template v-else>—</template>
+        </template>
+        <template #actions="{ row }">
           <button
+            v-if="row.canRetry"
             type="button"
-            :disabled="busy || !!intent || snapshot.page * snapshot.perPage >= snapshot.total"
-            @click="load(snapshot.page + 1)"
+            :disabled="busy || !!intent"
+            class="adm-btn adm-btn--secondary adm-btn--sm"
+            @click="select(row)"
           >
-            Siguiente
+            Revisar preparación
           </button>
-        </nav>
-      </template>
-      <form v-if="selection && !intent" data-communication-review class="mt-4 space-y-3" @submit.prevent="review">
-        <p>
-          Revisar preparación de {{ typeLabels[selection.eventType] }}. No se vuelve a enviar un mensaje desde esta
-          acción.
-        </p>
-        <label class="block"
-          >Motivo documentado (sin datos personales)
-          <textarea
-            v-model="reason"
-            minlength="10"
-            maxlength="500"
+          <span v-else class="adm-help">Sin acciones</span>
+        </template>
+      </AdminTable>
+
+      <AdminCard
+        v-if="selection && !intent"
+        :title="`Reprogramar: ${typeLabels[selection.eventType]}`"
+        description="No se vuelve a enviar un mensaje desde esta acción."
+      >
+        <form data-communication-review class="adm-stack" @submit.prevent="review">
+          <AdminFormField
+            v-slot="{ id }"
+            label="Motivo"
+            help="Entre 10 y 500 caracteres, sin datos personales."
             required
-            :disabled="busy"
-            class="mt-1 block w-full rounded border p-2"
-          />
-        </label>
-        <button type="submit" :disabled="busy" class="rounded border px-3 py-2">Revisar reprogramación</button>
-        <button type="button" :disabled="busy" class="ml-3" @click="cancelReview">Cancelar revisión</button>
-      </form>
-      <div v-if="intent && !intent.submitted" class="mt-4 space-y-3 rounded border p-3">
-        <p class="break-all">{{ intent.eventId }}</p>
+          >
+            <textarea :id="id" v-model="reason" minlength="10" maxlength="500" required :disabled="busy" />
+          </AdminFormField>
+          <div class="flex flex-wrap justify-end gap-2">
+            <button type="button" :disabled="busy" class="adm-btn adm-btn--secondary" @click="cancelReview">
+              Cancelar revisión
+            </button>
+            <button type="submit" :disabled="busy" class="adm-btn adm-btn--primary">Revisar reprogramación</button>
+          </div>
+        </form>
+      </AdminCard>
+
+      <AdminCard v-if="intent && !intent.submitted" title="Confirma la reprogramación">
+        <div class="adm-stack">
+          <p>
+            Comunicación #{{ intent.eventId.slice(0, 8).toUpperCase() }}. Intentos conservados:
+            {{ intent.body.expectedAttempts }}. Se solicitará preparar de nuevo; no se acredita un envío.
+          </p>
+          <p class="break-words">Motivo: {{ intent.body.reason }}</p>
+        </div>
+        <template #footer>
+          <button type="button" :disabled="busy" class="adm-btn adm-btn--secondary" @click="cancelReview">
+            Volver a revisar
+          </button>
+          <button type="button" :disabled="busy" class="adm-btn adm-btn--primary" @click="send">
+            Confirmar reprogramación
+          </button>
+        </template>
+      </AdminCard>
+
+      <AdminCard v-if="intent?.submitted" title="Comprueba el resultado">
         <p>
-          Intentos conservados: {{ intent.body.expectedAttempts }}. Se solicitará preparar de nuevo; no se acredita un
-          envío.
+          Conserva esta pestaña hasta comprobar el resultado. Si sales, se pierde la referencia necesaria para recuperar
+          el recibo.
         </p>
-        <p class="break-words">Motivo: {{ intent.body.reason }}</p>
-        <button type="button" :disabled="busy" class="rounded border px-3 py-2" @click="send">
-          Confirmar reprogramación
-        </button>
-        <button type="button" :disabled="busy" class="ml-3" @click="cancelReview">Volver a revisar</button>
-      </div>
-      <div v-if="intent?.submitted" class="mt-4">
-        <p>
-          Conserva esta pestaña hasta comprobar el resultado. Salir puede perder la intención local necesaria para
-          recuperar el recibo.
-        </p>
-        <button type="button" :disabled="busy" class="mt-2 rounded border px-3 py-2" @click="recover">
-          Comprobar reprogramación
-        </button>
-      </div>
+        <template #footer>
+          <button type="button" :disabled="busy" class="adm-btn adm-btn--primary" @click="recover">
+            Comprobar reprogramación
+          </button>
+        </template>
+      </AdminCard>
     </template>
-    <p v-else class="mt-3" role="status">
-      Consulta no autorizada o pendiente de otra operación. No se muestran datos privados.
-    </p>
+    <AdminCard v-else flush>
+      <AdminEmptyState
+        role="status"
+        compact
+        icon="i-lucide-lock"
+        title="Historial no disponible ahora"
+        description="Consulta no autorizada o pendiente de otra operación. No se muestran datos privados."
+      />
+    </AdminCard>
   </section>
 </template>

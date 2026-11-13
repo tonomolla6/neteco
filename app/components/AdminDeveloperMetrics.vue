@@ -21,18 +21,26 @@ async function load() {
 onMounted(load)
 </script>
 <template>
-  <section aria-labelledby="developer-metrics-title">
-    <h2 id="developer-metrics-title" class="text-xl font-semibold">Métricas de la API B2B</h2>
-    <p v-if="loading" role="status">Cargando métricas…</p>
+  <AdminSection aria-label="Uso de la API para empresas" title="Uso de la API para empresas">
+    <p v-if="loading" role="status" class="adm-help">Cargando métricas…</p>
     <div v-else-if="failed" role="alert">
-      <p>No se pudieron cargar las métricas.</p>
-      <button type="button" @click="load">Reintentar</button>
+      <AdminEmptyState
+        variant="error"
+        compact
+        title="No se pudieron cargar las métricas"
+        description="Comprueba la conexión y vuelve a intentarlo."
+      >
+        <button type="button" class="adm-btn adm-btn--secondary" @click="load">Reintentar</button>
+      </AdminEmptyState>
     </div>
-    <dl v-else-if="metrics">
-      <dt>Claves activas</dt>
-      <dd>{{ metrics.activeKeys }}</dd>
-      <dt>Solicitudes admitidas el {{ metrics.day }} (UTC)</dt>
-      <dd>{{ metrics.requestsToday }}</dd>
-    </dl>
-  </section>
+    <div v-else-if="metrics" class="adm-grid">
+      <AdminStat label="Claves activas" :value="metrics.activeKeys" icon="i-lucide-key-round" />
+      <AdminStat
+        label="Solicitudes admitidas hoy"
+        :value="metrics.requestsToday"
+        :hint="`Día ${metrics.day} (hora universal)`"
+        icon="i-lucide-activity"
+      />
+    </div>
+  </AdminSection>
 </template>

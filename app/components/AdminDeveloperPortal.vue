@@ -7,34 +7,38 @@ const services = computed(() => filterDeveloperServices(query.value))
 </script>
 
 <template>
-  <div class="space-y-8">
-    <section aria-labelledby="services-title">
-      <h2 id="services-title" class="text-xl font-semibold">Catálogo de servicios</h2>
-      <label for="service-search" class="block mt-4">Buscar servicio</label>
-      <input id="service-search" v-model="query" type="search" class="border rounded p-2" />
-      <p v-if="services.length === 0" role="status">Sin servicios para esta búsqueda.</p>
-      <ul v-else class="mt-4 space-y-4">
-        <li v-for="service in services" :key="service.id" class="border rounded p-4">
-          <h3 class="font-semibold">{{ service.name }}</h3>
-          <p>{{ service.owner }} — Responsable pendiente de confirmar</p>
-          <p>
-            Documentación en el repositorio: <code>{{ service.documentation }}</code>
-          </p>
-          <p>
-            Runbook en el repositorio: <code>{{ service.runbook }}</code>
-          </p>
-          <p>Métricas no conectadas: {{ service.metricDescription }}</p>
+  <div class="adm-stack">
+    <AdminCard aria-labelledby="services-title" flush>
+      <template #title><span id="services-title">Catálogo de servicios</span></template>
+      <template #actions>
+        <label for="service-search" class="sr-only">Buscar servicio</label>
+        <input id="service-search" v-model="query" type="search" class="adm-input" placeholder="Buscar servicio…" />
+      </template>
+      <div v-if="services.length === 0" role="status">
+        <AdminEmptyState variant="filtered" compact title="Sin servicios para esta búsqueda" />
+      </div>
+      <ul v-else class="adm-list">
+        <li v-for="service in services" :key="service.id">
+          <div class="min-w-0 flex-1">
+            <h3 class="adm-list__title">{{ service.name }}</h3>
+            <p class="adm-help">{{ service.owner }} · Responsable pendiente de confirmar</p>
+            <p class="adm-help">
+              Documentación: <code>{{ service.documentation }}</code> · Procedimiento:
+              <code>{{ service.runbook }}</code>
+            </p>
+          </div>
+          <AdminBadge tone="neutral" plain>Métricas no conectadas: {{ service.metricDescription }}</AdminBadge>
         </li>
       </ul>
-    </section>
-    <section aria-labelledby="templates-title">
-      <h2 id="templates-title" class="text-xl font-semibold">Plantillas</h2>
-      <div v-for="template in developerTemplates" :key="template.id" class="mt-4">
-        <h3 class="font-semibold">{{ template.title }}</h3>
-        <ol class="list-decimal pl-6">
-          <li v-for="step in template.steps" :key="step">{{ step }}</li>
-        </ol>
+    </AdminCard>
+    <AdminSection aria-labelledby="templates-title" title="Plantillas">
+      <div class="adm-grid">
+        <AdminCard v-for="template in developerTemplates" :key="template.id" :title="template.title">
+          <ol class="list-decimal space-y-1 pl-5">
+            <li v-for="step in template.steps" :key="step">{{ step }}</li>
+          </ol>
+        </AdminCard>
       </div>
-    </section>
+    </AdminSection>
   </div>
 </template>
