@@ -9,4 +9,7 @@ artifact_name="${ARTIFACT_DIR##*/}"
 expected="neteco-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${BASH_REMATCH[1]}"
 [[ "${BUILDER_NAME:-}" == "$expected" ]]
 
-exec docker buildx rm "$BUILDER_NAME"
+# setup-buildx-action installs its standalone client in this isolated runner.
+# The general Docker CLI is deliberately unavailable here.
+export DOCKER_HOST=unix:///run/neteco-container/docker.sock
+exec buildx rm "$BUILDER_NAME"

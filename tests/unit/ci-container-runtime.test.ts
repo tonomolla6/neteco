@@ -33,6 +33,8 @@ it('keeps image scanning, provenance and job-owned cleanup blocking', () => {
   expect(job['continue-on-error']).toBeUndefined()
   const scanner = job.steps.find((step: { uses?: string }) => step.uses?.startsWith('aquasecurity/trivy-action@'))
   expect(scanner.with).toMatchObject({ 'exit-code': '1', severity: 'CRITICAL,HIGH' })
+  expect(scanner.with['cache-dir']).toBe('${{ steps.container-artifacts.outputs.directory }}/.trivy-cache')
+  expect(scanner.with.cache).toBe('false')
   expect(job.steps.some((step: { uses?: string }) => step.uses?.startsWith('anchore/sbom-action@'))).toBe(true)
   expect(job.steps.find((step: { id?: string }) => step.id === 'cleanup-buildx').if).toContain('always()')
   for (const step of job.steps) expect(step['continue-on-error']).toBeUndefined()
