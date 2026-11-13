@@ -1,5 +1,4 @@
-import api from './canary'
-import { createShopIngress, type ShopRenderer } from './runtime/shop-ingress'
+import { createShopIngress, type ShopApi, type ShopRenderer } from './runtime/shop-ingress'
 import { handleD1CategoryRedirect } from './catalog/category-redirects'
 import { resolveCmsPublicRedirect } from './cms/public-http'
 import { cmsRuntimeDependencies } from './runtime/operations-config'
@@ -8,7 +7,33 @@ import { handleCspReportHttp, ownsCspReportNamespace } from './security/csp-repo
 import { buildStrictCsp, generateCspNonce, injectNonceIntoHtml, resolveCspMode } from '../shared/csp'
 import { parseCspOrigins } from '../shared/chat-widget'
 
-export { CanaryCoordinator, CanaryWorkflow, InventoryCoordinator, CartCoordinator } from './canary'
+export { CanaryCoordinator, CanaryWorkflow } from './runtime/platform-entrypoints'
+export { InventoryCoordinator } from './inventory-coordinator'
+export { CartCoordinator } from './cart-coordinator'
+
+// API schemas are as expensive to initialize as SSR. Platform class exports
+// above remain static, while handler evaluation belongs to an event budget.
+let apiPromise: Promise<ShopApi> | undefined
+function loadApi(): Promise<ShopApi> {
+  apiPromise ??= import('./canary')
+    .then((module) => module.default)
+    .catch((error: unknown) => {
+      apiPromise = undefined
+      throw error
+    })
+  return apiPromise
+}
+const api: ShopApi = {
+  async fetch(request, env) {
+    return (await loadApi()).fetch(request, env)
+  },
+  async scheduled(event, env, context) {
+    await (await loadApi()).scheduled?.(event, env, context)
+  },
+  async queue(batch, env, context) {
+    await (await loadApi()).queue?.(batch, env, context)
+  }
+}
 
 type ShopEnvironment = CloudflareEnv & {
   CSP_MODE?: string

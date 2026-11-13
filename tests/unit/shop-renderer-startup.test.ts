@@ -2,19 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   evaluated: vi.fn(),
+  apiEvaluated: vi.fn(),
   render: vi.fn(),
   api: vi.fn(),
   scheduled: vi.fn(),
   queue: vi.fn()
 }))
 
-vi.mock('../../workers/canary', () => ({
-  default: { fetch: mocks.api, scheduled: mocks.scheduled, queue: mocks.queue },
-  CanaryCoordinator: vi.fn(),
-  CanaryWorkflow: vi.fn(),
-  InventoryCoordinator: vi.fn(),
-  CartCoordinator: vi.fn()
-}))
+vi.mock('../../workers/inventory-coordinator', () => ({ InventoryCoordinator: vi.fn() }))
+vi.mock('../../workers/cart-coordinator', () => ({ CartCoordinator: vi.fn() }))
 vi.mock('../../workers/catalog/category-redirects', () => ({ handleD1CategoryRedirect: async () => null }))
 vi.mock('../../workers/cms/public-http', () => ({ resolveCmsPublicRedirect: async () => null }))
 vi.mock('../../workers/runtime/operations-config', () => ({ cmsRuntimeDependencies: () => ({}) }))
@@ -25,6 +21,16 @@ const context = {} as ExecutionContext
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  vi.doMock('../../workers/canary', () => {
+    mocks.apiEvaluated()
+    return {
+      default: { fetch: mocks.api, scheduled: mocks.scheduled, queue: mocks.queue },
+      CanaryCoordinator: vi.fn(),
+      CanaryWorkflow: vi.fn(),
+      InventoryCoordinator: vi.fn(),
+      CartCoordinator: vi.fn()
+    }
+  })
   vi.doMock('#neteco/nitro-renderer', () => {
     mocks.evaluated()
     return { default: { fetch: mocks.render } }
@@ -80,4 +86,56 @@ describe('Worker renderer startup', () => {
     ).toBe(405)
     expect(mocks.evaluated).not.toHaveBeenCalled()
   })
+})
+
+describe('Worker API startup', () => {
+  it('does not evaluate the API handler graph on startup, page rendering or rejected ingress', async () => {
+    const { default: shop } = await import('../../workers/shop')
+    expect(mocks.apiEvaluated).not.toHaveBeenCalled()
+    expect((await shop.fetch(new Request('https://shop.invalid/catalogo'), env, context)).status).toBe(200)
+    expect((await shop.fetch(new Request('https://shop.invalid/%61pi/products'), env, context)).status).toBe(400)
+    expect(mocks.apiEvaluated).not.toHaveBeenCalled()
+    expect(mocks.evaluated).toHaveBeenCalledOnce()
+  })
+  it('loads one shared API graph for concurrent API requests and preserves each request and bindings', async () => {
+    const { default: shop } = await import('../../workers/shop')
+    expect(mocks.apiEvaluated).not.toHaveBeenCalled()
+    const requests = ['/api/products', '/api/categories'].map((path) => new Request('https://shop.invalid' + path))
+    const responses = await Promise.all(requests.map((request) => shop.fetch(request, env, context)))
+    expect(responses.map((response) => response.status)).toEqual([200, 200])
+    expect(mocks.apiEvaluated).toHaveBeenCalledOnce()
+    for (const request of requests) expect(mocks.api).toHaveBeenCalledWith(request, env)
+    expect(mocks.evaluated).not.toHaveBeenCalled()
+  })
+  it('keeps an API initialization failure closed and permits a later load to recover', async () => {
+    vi.doMock('../../workers/canary', () => {
+      throw new Error('transient private initializer detail')
+    })
+    const { default: shop } = await import('../../workers/shop')
+    const request = new Request('https://shop.invalid/api/products')
+    const failure = await shop.fetch(request, env, context)
+    expect(failure.status).toBe(503)
+    expect(await failure.json()).toEqual({ error: { code: 'api_unavailable' } })
+    vi.doMock('../../workers/canary', () => ({ default: { fetch: mocks.api } }))
+    expect((await shop.fetch(request, env, context)).status).toBe(200)
+    expect(mocks.evaluated).not.toHaveBeenCalled()
+  })
+  it.each(['scheduled', 'queue'] as const)(
+    'defers API initialization until a real %s delivery and preserves its context',
+    async (kind) => {
+      const { default: shop } = await import('../../workers/shop')
+      expect(mocks.apiEvaluated).not.toHaveBeenCalled()
+      if (kind === 'scheduled') {
+        const event = {} as ScheduledController
+        await shop.scheduled(event, env, context)
+        expect(mocks.scheduled).toHaveBeenCalledExactlyOnceWith(event, env, context)
+      } else {
+        const batch = {} as MessageBatch
+        await shop.queue(batch, env, context)
+        expect(mocks.queue).toHaveBeenCalledExactlyOnceWith(batch, env, context)
+      }
+      expect(mocks.apiEvaluated).toHaveBeenCalledOnce()
+      expect(mocks.evaluated).not.toHaveBeenCalled()
+    }
+  )
 })
