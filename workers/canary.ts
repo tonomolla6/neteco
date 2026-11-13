@@ -166,6 +166,7 @@ import { handleMediaGovernanceHttp } from './media/governance-http'
 import { handlePublicMediaHttp } from './media/public-delivery'
 import { handleAuthenticationHttp } from './auth/http'
 import { handleAdminCapabilitiesHttp } from './auth/admin-capabilities'
+import { handleAdminSettingsHttp } from './admin/settings-http'
 import { handleAdminInvitationsHttp, ownsAdminInvitationsNamespace } from './auth/admin-invitations-http'
 import { handleAdminAuditHttp, ownsAdminAuditNamespace } from './auth/admin-audit-http'
 import { handleSecurityAnomaliesHttp, ownsSecurityAnomaliesNamespace } from './auth/security-anomalies-http'
@@ -1431,6 +1432,27 @@ const canaryWorker = {
       })
       if (capabilities) return capabilities
     }
+    if (path === '/api/admin/settings') {
+      if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
+      const limited = await checkAdministrativeEdgeLimit(
+        request,
+        env.ADMIN_EDGE_LIMIT,
+        env.AUTH_RATE_LIMIT_PEPPER,
+        'admin-capabilities'
+      )
+      if (limited !== 'allowed')
+        return noStoreJson(
+          { error: { code: limited === 'limited' ? 'rate_limited' : 'service_unavailable' } },
+          limited === 'limited' ? 429 : 503
+        )
+      const settings = await handleAdminSettingsHttp(request, {
+        database: env.DB,
+        sessionCookieConfiguration: { password: env.NUXT_SESSION_PASSWORD, maxAgeSeconds: 3600 },
+        origin: env.AUTH_ORIGIN,
+        variables: env as unknown as Record<string, unknown>
+      })
+      if (settings) return settings
+    }
     if (ownsProductRecommendationsNamespace(path)) {
       const authority = await catalogSession(request, env)
       if (authority instanceof Response) return authority
@@ -1720,7 +1742,9 @@ const canaryWorker = {
       })
       if (lots) return lots
     }
-    if (ownsAdminInventoryNamespace(path)) {
+    // Reposición y recuentos comparten prefijo con existencias, pero tienen su propio módulo más abajo:
+    // sin esta exclusión el de existencias respondía 400 a todas sus lecturas.
+    if (ownsAdminInventoryNamespace(path) && !ownsInventoryPlanningNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
       const limited = await checkAdministrativeEdgeLimit(
         request,
@@ -1765,7 +1789,8 @@ const canaryWorker = {
       })
       if (inventory) return inventory
     }
-    if (ownsCmsNamespace(path)) {
+    // La comparación de versiones comparte prefijo con el contenido, pero tiene su propio módulo más abajo.
+    if (ownsCmsNamespace(path) && !ownsCmsPreviewComparisonNamespace(path)) {
       if (env.AUTH_ENABLED !== 'true') return noStoreJson({ error: { code: 'service_unavailable' } }, 503)
       const limited = await checkAdministrativeEdgeLimit(
         request,

@@ -712,8 +712,44 @@ const tree: AdminNavigationSection[] = [
     icon: 'i-lucide-settings',
     items: [
       {
-        label: 'Tienda y mercados',
+        label: 'General',
         icon: 'i-lucide-store',
+        tabs: [
+          tab(
+            '/admin/ajustes',
+            'Tienda y empresa',
+            'i-lucide-store',
+            A,
+            'Datos legales, contacto, horario y funciones activas de la tienda.',
+            true
+          ),
+          tab(
+            '/admin/ajustes/envios',
+            'Envíos y reparto',
+            'i-lucide-truck',
+            A,
+            'Días de reparto, hora de corte, portes y envío gratis.'
+          ),
+          tab('/admin/ajustes/pagos', 'Pagos', 'i-lucide-credit-card', A, 'Formas de pago activas y pago aplazado.'),
+          tab(
+            '/admin/ajustes/impuestos',
+            'Impuestos y facturación',
+            'i-lucide-receipt-text',
+            A,
+            'IVA, series de factura y conexión con el programa de facturación.'
+          ),
+          tab(
+            '/admin/ajustes/correo',
+            'Correo y notificaciones',
+            'i-lucide-mail',
+            A,
+            'Correos automáticos a clientes, boletín y avisos.'
+          )
+        ]
+      },
+      {
+        label: 'Mercados',
+        icon: 'i-lucide-globe',
         tabs: [
           tab(
             '/admin/catalogo-mercados',
