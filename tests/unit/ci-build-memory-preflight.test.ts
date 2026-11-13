@@ -1,5 +1,9 @@
-import { expect, it } from 'vitest'
-import { evaluateBuildMemory, inspectBuildMemory } from '../../scripts/ci-build-memory-preflight.mjs'
+import { expect, it, vi } from 'vitest'
+import {
+  evaluateBuildMemory,
+  inspectBuildMemory,
+  waitForBuildMemory
+} from '../../scripts/ci-build-memory-preflight.mjs'
 
 const GiB = 1024 ** 3
 const snapshot = () => ({
@@ -84,4 +88,56 @@ it('uses only the verified operator memory view when ProcSubset hides meminfo', 
       throw Error('untrusted view')
     })
   ).rejects.toThrow('untrusted view')
+})
+
+it('rechecks the unchanged admission gate after the operator reclaims transient page cache', async () => {
+  const pressure = { ...snapshot(), ancestors: [{ current: 3 * GiB, maximum: 8 * GiB, high: 7 * GiB }] }
+  const inspect = vi.fn().mockResolvedValueOnce(pressure).mockResolvedValue(snapshot())
+  const pause = vi.fn().mockResolvedValue(undefined)
+  expect(await waitForBuildMemory(inspect, pause)).toMatchObject({ pass: true, peakBytes: 5 * GiB })
+  expect(inspect).toHaveBeenCalledTimes(2)
+  expect(pause).toHaveBeenCalledExactlyOnceWith(1000)
+  expect(pressure.ancestors[0]).toEqual({ current: 3 * GiB, maximum: 8 * GiB, high: 7 * GiB })
+})
+
+it('fails closed after thirty observations when pressure never clears', async () => {
+  const inspect = vi.fn().mockResolvedValue({
+    ...snapshot(),
+    ancestors: [{ current: 3 * GiB, maximum: 8 * GiB, high: 7 * GiB }]
+  })
+  const pause = vi.fn().mockResolvedValue(undefined)
+  expect(await waitForBuildMemory(inspect, pause)).toMatchObject({ pass: false, code: 'cgroup_pressure_budget_low' })
+  expect(inspect).toHaveBeenCalledTimes(30)
+  expect(pause).toHaveBeenCalledTimes(29)
+  expect(pause.mock.calls.every(([milliseconds]) => milliseconds === 1000)).toBe(true)
+})
+
+it('rechecks the host reserve on every observation even after the cgroup recovers', async () => {
+  const pressure = { ...snapshot(), ancestors: [{ current: 3 * GiB, maximum: 8 * GiB, high: 7 * GiB }] }
+  const inspect = vi
+    .fn()
+    .mockResolvedValueOnce(pressure)
+    .mockResolvedValue({ ...snapshot(), available: 8 * GiB, swapFree: GiB })
+  const pause = vi.fn().mockResolvedValue(undefined)
+  expect(await waitForBuildMemory(inspect, pause)).toMatchObject({ pass: false, code: 'host_memory_low' })
+  expect(inspect).toHaveBeenCalledTimes(30)
+})
+
+it('does not wait or admit a missing or invalid probe', async () => {
+  const pause = vi.fn().mockResolvedValue(undefined)
+  const invalid = vi.fn().mockResolvedValue({ ...snapshot(), ancestors: [] })
+  expect(await waitForBuildMemory(invalid, pause)).toMatchObject({ pass: false, code: 'invalid_snapshot' })
+  expect(invalid).toHaveBeenCalledTimes(1)
+  const missing = vi.fn().mockRejectedValue(new Error('operator probe unavailable'))
+  await expect(waitForBuildMemory(missing, pause)).rejects.toThrow('operator probe unavailable')
+  expect(missing).toHaveBeenCalledTimes(1)
+  expect(pause).not.toHaveBeenCalled()
+})
+
+it('starts immediately when the first complete memory inspection passes', async () => {
+  const inspect = vi.fn().mockResolvedValue(snapshot())
+  const pause = vi.fn().mockResolvedValue(undefined)
+  expect(await waitForBuildMemory(inspect, pause)).toMatchObject({ pass: true, code: 'ok' })
+  expect(inspect).toHaveBeenCalledTimes(1)
+  expect(pause).not.toHaveBeenCalled()
 })

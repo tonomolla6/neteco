@@ -1,6 +1,7 @@
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const GiB = 1024 ** 3
 export const BUILD_PEAK_BYTES = 5 * GiB
@@ -99,9 +100,22 @@ export async function inspectBuildMemory(
   return { available: value('MemAvailable'), swapFree: value('SwapFree'), ancestors }
 }
 
+/**
+ * Cache restoration can temporarily consume the runner's pressure budget. Let
+ * the existing operator reclaim service run, then inspect every gate again.
+ * At most 29 seconds of waiting; no reclaim, limits or estimates are changed.
+ */
+export async function waitForBuildMemory(inspect = inspectBuildMemory, pause = delay) {
+  for (let observation = 0; observation < 30; observation++) {
+    const result = evaluateBuildMemory(await inspect())
+    if (result.pass || result.code === 'invalid_snapshot' || observation === 29) return result
+    await pause(1000)
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const result = evaluateBuildMemory(await inspectBuildMemory())
+    const result = await waitForBuildMemory()
     console.log(JSON.stringify(result))
     process.exitCode = result.pass ? 0 : 1
   } catch {
